@@ -1,0 +1,29 @@
+# Install only what a given entry point needs.
+# Machine-local compiled stacks (Isaac Gym, acados, cuRobo) are not pip packages.
+
+numpy
+scipy
+casadi
+trimesh
+tqdm
+matplotlib
+jax
+torch
+mujoco
+PyYAML
+open3d
+
+# Optional, used by some entries
+Pillow
+imageio
+scikit-learn
+deprecated
+warp-lang
+mujoco-warp
+brax
+scienceplots
+art
+emoji
+flask
+roboticstoolbox-python
+acados_template

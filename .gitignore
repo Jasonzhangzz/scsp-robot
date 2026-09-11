@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.so
+*.o
+.DS_Store
+.acados_ocp_*.json
+c_generated_code/
+outputs/
+*.egg-info/
+.venv/
+venv/

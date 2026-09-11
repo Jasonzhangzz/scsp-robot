@@ -1,0 +1,1219 @@
+import time
+import numpy as np
+import casadi as cs
+try:
+    import torch
+except ImportError:  # keep the IPOPT backend usable in non-Torch installs
+    torch = None
+import os
+import sys
+import ctypes
+from scipy.sparse.csgraph import dijkstra
+os.environ['SNOPT_LICENSE'] = '/home/lab423/opt_ws/libsnopt7/snopt7.lic'
+try:
+    # The reference fingertip experiment samples mesh vertices.  Keep the
+    # original projection helper here; ``project_point1`` uses face centers
+    # and therefore changes the contact-point candidates.
+    from project_point import ProjectionPoint
+except:
+    from planning.project_point import ProjectionPoint
+
+class LambdaContactControlOptimizer:
+    def __init__(self, mesh_path, obj_mass=0.01, arm_friction=0.9, 
+                 contact_stiffness=12.5, time_step=0.01, max_contacts=10, sample_num=70,
+                 pos_coef=1, ori_coef=0.0005, friction_reg_coef=0.0,
+                 force_reg_coef=0.0,
+                 max_contact_force=10.0,
+                 contact_switch_radius=0.03,
+                 contact_switch_margin_ratio=0.2,
+                 contact_switch_margin_abs=1e-3,
+                 scale_factors=[1.0, 1.0, 1.0],
+                 collision_hull=False,
+                 normal_stability_cos=0.90,
+                 solver='ipopt', torch_max_iter=100,
+                 fingertip_clearance=0.011):
+        # 系统参数
+        self.m = obj_mass
+        self.mu_arm_obj = arm_friction
+        self.K_contact = contact_stiffness
+        self.h = time_step
+        self.max_contacts = max_contacts
+        self.pp = ProjectionPoint(mesh_path, scale_factors,
+                                  collision_hull=collision_hull,
+                                  normal_stability_cos=normal_stability_cos)
+
+        self.sample_num = sample_num
+        # Match the reference optimizer: uniformly/farthest sampled vertices
+        # with their vertex normals, rather than face-center candidates.
+        self.sampling_frame = self.pp.sample_vertices_with_normals(num_samples=self.sample_num)
+        self.sample_point = self.sampling_frame['points']
+        self.normal = self.sampling_frame['normals']
+        self.t1 = self.sampling_frame['tangent1']
+        self.t2 = self.sampling_frame['tangent2']
+        self.sample_vertex_indices = np.asarray([
+            int(self.pp.project_point_to_mesh(point)[0]) for point in self.sample_point
+        ], dtype=np.int32)
+        self.sample_geodesic = self._precompute_sample_geodesic()
+
+        self.J_tilde = np.zeros([4 * self.max_contacts, 6])
+
+        # 构建系统刚度矩阵Q
+        self.obj_inertia = np.eye(6)
+        # Preserve the calibrated effective inertia used by the existing
+        # contact-force model.  Changing this together with the pose update
+        # timestep needs a separate force-scale calibration.
+        self.obj_inertia[0:3, 0:3] = 50 * np.eye(3)
+        self.obj_inertia[3:, 3:] = 0.05 * np.eye(3)
+        Q = np.zeros((6,6))
+        Q[:6, :6] = self.obj_inertia
+        self.Q_inv = np.linalg.inv(Q + 1e-8 * np.eye(Q.shape[0]))
+
+        self.pos_coef = pos_coef
+        self.ori_coef = ori_coef
+        # Penalize tangential (friction) force.  In the contact frame
+        # lam_arm=[normal_force, tangent_1, tangent_2], so this is exactly
+        # the squared deviation of the applied wrench from the object normal.
+        self.friction_reg_coef = float(friction_reg_coef)
+        self.force_reg_coef = float(force_reg_coef)
+        self.max_contact_force = float(max_contact_force)
+        self.contact_switch_radius = float(contact_switch_radius)
+        self.contact_switch_margin_ratio = float(contact_switch_margin_ratio)
+        self.contact_switch_margin_abs = float(contact_switch_margin_abs)
+        # Distance from a surface point to the fingertip centre when
+        # approaching along the outward normal.  This is used solely for the
+        # ground reachability test; keeping it small preserves low points that
+        # are useful while flipping an object.
+        self.fingertip_clearance = max(float(fingertip_clearance), 0.0)
+        if not np.isfinite(self.max_contact_force) or self.max_contact_force <= 0:
+            raise ValueError('max_contact_force must be a positive finite value')
+        # The public limit is the Euclidean wrench magnitude.  Together with
+        # the friction cone this gives a conservative normal-force cap.
+        self.max_normal_force = self.max_contact_force / np.sqrt(1.0 + 2.0 * self.mu_arm_obj ** 2)
+        if self.max_normal_force <= 0.001:
+            raise ValueError('max_contact_force is too small for the minimum normal force')
+        # Keep IPOPT as the default/fallback.  The Torch backend is selected
+        # explicitly by the fingertip example (``torch-lbfgs``).
+        self.solver = str(solver)
+        self.torch_max_iter = int(torch_max_iter)
+        self.last_solver_status = 'ipopt'
+        # Diagnostics for rollout timing.  Acados normally solves each
+        # candidate in a few milliseconds; a failed QP falls back to the
+        # CasADi/IPOPT function and can take hundreds of milliseconds.  Keep
+        # counters so callers can distinguish solver spikes from simulation
+        # overhead without printing inside the hot loop.
+        self.acados_solve_count = 0
+        self.acados_failure_count = 0
+        self.acados_fallback_count = 0
+        self.acados_qp_failure_count = 0
+        self.last_acados_failure_reason = None
+        # A bad contact state can make every candidate's acados QP
+        # infeasible.  Falling back to IPOPT for all samples then turns one
+        # control cycle into a 0.6--1 s stall.  Keep a small per-cycle budget;
+        # the remaining failed candidates are marked invalid and skipped.
+        try:
+            self.acados_max_fallbacks_per_cycle = max(
+                0, int(os.environ.get('LAMBDA_ACADOS_MAX_FALLBACKS', '1')))
+        except ValueError:
+            self.acados_max_fallbacks_per_cycle = 1
+        self._acados_fallbacks_this_cycle = 0
+        self.point_idx = np.arange(self.sample_num)
+        self.last_selected_local = None
+        self.last_selected_idx = None
+        self.last_anchor_sample_idx = None
+        self.last_transition_cost = None
+        self.last_selected_total_cost = None
+        self.last_switch_required = False
+        # A noisy contact objective can alternate between two distant mesh
+        # samples when the fingertip is not yet in contact.  Requiring a
+        # candidate to win on consecutive cycles prevents that one-cycle
+        # chatter from moving the MPC target back and forth.  The incumbent
+        # remains active while a switch is pending; a genuinely better patch
+        # is still accepted quickly (two rollout periods).
+        try:
+            self.contact_switch_confirm_steps = max(
+                1, int(os.environ.get('LAMBDA_CONTACT_SWITCH_CONFIRM_STEPS', '1')))
+        except ValueError:
+            self.contact_switch_confirm_steps = 1
+        self._pending_selected_idx = None
+        self._pending_selected_count = 0
+        # Confidence in the current (nearest/anchored) surface patch.  A
+        # value of one preserves the historical anti-switching behavior;
+        # reducing it lets the raw lambda objective select a distant patch
+        # when the anchored patch can no longer make progress.
+        self.contact_switch_confidence = 1.0
+        # Optional diagnostic mode: keep the incumbent sampled patch fixed
+        # while its candidate remains finite.  This separates MPC tracking
+        # from contact-point re-selection; normal rollouts leave it disabled.
+        self.lock_contact_patch = False
+        self.last_global_idx = None
+        self.last_global_total_cost = None
+        self.last_best_x_plus = None
+        self.last_best_cost = None
+        # Temporary blacklist for patches that were reached without yielding
+        # contact or pose progress.  This prevents immediate re-selection of
+        # the same low-authority ear/foot neighborhood.
+        self._blocked_contact_indices = {}
+        self.init_utils()
+        self._precompile_optimization_function()
+        self.acados_solver = None
+        self.acados_error = None
+        if self.solver == 'acados':
+            try:
+                self.acados_solver = self._build_acados_contact_solver()
+            except Exception as exc:
+                self.acados_error = exc
+                print(f'acados contact solver unavailable; using IPOPT fallback: {exc}')
+
+    @staticmethod
+    def _get_snopt_options():
+        p_opts = {
+            "print_time": False,
+            "jit": False,
+            "snopt": {
+                "Total real workspace": 500000,
+                "Total integer workspace": 500000,
+                "Total character workspace": 500000,
+            },
+        }
+        s_opts = {
+            "Major print level": 0,
+            "Minor print level": 0,
+            "Print file": 1,
+            "Summary file": 0,
+            "print_level": 0,
+        }
+        return p_opts, s_opts
+
+    def update_Jacobian(self, J_tilde=None):
+        required_rows = 4 * self.max_contacts
+        """更新环境接触雅可比矩阵"""
+        if J_tilde is None:
+            return self.J_tilde
+
+        J_tilde = np.asarray(J_tilde)[:, :6]
+        padded_J_tilde = np.zeros((required_rows, 6))
+        valid_rows = min(J_tilde.shape[0], required_rows)
+        padded_J_tilde[:valid_rows, :] = J_tilde[:valid_rows, :]
+        self.J_tilde = padded_J_tilde
+        return self.J_tilde
+
+    def set_contact_switch_confidence(self, confidence):
+        """Set the weight of surface-transition penalties in point selection.
+
+        This is intentionally a small public hook used by rollout policies.
+        The lambda objective itself is unchanged; only the hysteresis term
+        that favors the current contact patch is scaled.
+        """
+        confidence = float(confidence)
+        if not np.isfinite(confidence):
+            raise ValueError('contact switch confidence must be finite')
+        self.contact_switch_confidence = float(np.clip(confidence, 0.0, 1.0))
+        return self.contact_switch_confidence
+
+    def block_contact_patch(self, sample_idx, cycles=20, radius=None):
+        """Temporarily suppress a failed sample and nearby samples."""
+        if sample_idx is None:
+            return
+        idx = int(sample_idx)
+        if idx < 0 or idx >= len(self.sample_point):
+            return
+        if radius is None:
+            radius = 1.5 * self.contact_switch_radius
+        try:
+            neighbours = np.flatnonzero(self.sample_geodesic[idx] <= float(radius))
+        except Exception:
+            neighbours = np.asarray([idx], dtype=np.int64)
+        count = max(1, int(cycles))
+        for neighbour in neighbours:
+            key = int(neighbour)
+            self._blocked_contact_indices[key] = max(
+                count, int(self._blocked_contact_indices.get(key, 0)))
+
+    def compute_env_diag_inverse(self, J_tilde):
+        """
+        Return the reference environment stiffness matrix in block form.
+
+        The historical name is kept because the acados/Torch adapters use it
+        as their parameter hook; each 4-row contact block is K * I.
+        """
+        J_tilde = np.asarray(J_tilde)
+        # The reference uses K = contact_stiffness * h times one identity
+        # over all environment-contact rows.  Keep the block-shaped return
+        # value required by the acados/Torch adapters, but encode that exact
+        # matrix so their dynamics are numerically identical.
+        del J_tilde
+        block = (self.K_contact * self.h) * np.eye(4)
+        return np.tile(block, (self.max_contacts, 1))
+
+    def _precompile_optimization_function(self):
+        """预编译优化函数 - 同时优化接触力和接触点位置"""
+        opti = cs.Opti()
+        
+        # 定义优化变量和参数
+        x_d = opti.parameter(7)
+        current_x = opti.parameter(7)
+        v_last = opti.parameter(6)
+        J_tilde = opti.parameter(4 * self.max_contacts, 6)
+        D_inv = opti.parameter(4 * self.max_contacts, 4)
+        tau_o_np = opti.parameter(6)
+        p_arm = opti.parameter(3)    # 接触点位置
+        n_arm = opti.parameter(3)
+        t1 = opti.parameter(3)
+        t2 = opti.parameter(3)
+        curr_ori_coef = opti.parameter(1)
+        R_contact = cs.horzcat(n_arm, t1, t2)
+
+        regularization_weight = opti.parameter()
+        opti.set_value(regularization_weight, 0.01)
+
+        # 机械臂接触力作为优化变量
+        lam_arm = opti.variable(3)  # fn, ft1, ft2
+        
+        # 初始猜测
+        opti.set_initial(lam_arm, [0.01, 0, 0])
+        
+        # 计算世界坐标系下的接触雅可比
+        J_arm_world = self.compute_contact_jacobian(p_arm)
+        
+        # 构建b向量
+        # Gravity is supplied as a force, whereas the dual contact variable
+        # is an impulse.  Convert gravity to an impulse before solving for
+        # the generalized velocity increment.
+        b = self.h * tau_o_np + cs.transpose(J_arm_world) @ (R_contact @ lam_arm)
+        
+        # Environment response, matching the reference K J Q^{-1} b model.
+        Q_inv_mx = cs.MX(self.Q_inv)
+        Q_inv_b = Q_inv_mx @ b
+        # Q^{-1} b is the generalized velocity increment (the dual contact
+        # solve is formulated in impulse/velocity-increment coordinates).
+        # Integrate it over this optimizer period exactly once below.
+        v_plus = Q_inv_b
+
+        for i in range(self.max_contacts):
+            row_start = 4 * i
+            row_end = row_start + 4
+            J_tilde_i = J_tilde[row_start:row_end, :]
+            D_inv_i = D_inv[row_start:row_end, :]
+            J_tilde_i_Q_inv_b = J_tilde_i @ Q_inv_b
+            contact_force_i = -D_inv_i @ J_tilde_i_Q_inv_b
+            contact_force_i = cs.fmax(contact_force_i, 0)
+            v_plus += Q_inv_mx @ J_tilde_i.T @ contact_force_i
+
+        v_now = v_last + v_plus
+
+        # 计算预测位姿x+
+        x_plus = self.cs_qposInteg_(current_x, v_now)
+        
+        # 目标函数
+        position_error = x_plus[:3] - x_d[:3]
+        orientation_error = 1 - cs.dot(x_plus[3:7], x_d[3:7]) ** 2
+        friction_cost = cs.sumsqr(lam_arm[1:3])
+        force_cost = cs.sumsqr(lam_arm)
+        objective = (self.pos_coef * cs.sumsqr(position_error) +
+                     self.ori_coef * orientation_error +
+                     self.friction_reg_coef * friction_cost +
+                     self.force_reg_coef * force_cost)
+        opti.minimize(objective)
+        
+        # 摩擦锥约束
+        mu = self.mu_arm_obj
+        opti.subject_to(lam_arm[1] <= mu * lam_arm[0])
+        opti.subject_to(lam_arm[1] >= -mu * lam_arm[0])
+        opti.subject_to(lam_arm[2] <= mu * lam_arm[0])
+        opti.subject_to(lam_arm[2] >= -mu * lam_arm[0])
+        # Allow the optimizer to disengage when the predicted pose is already
+        # close to target.  A hard 1e-3N lower bound causes unavoidable drift
+        # and overshoot in the near-target regime.
+        opti.subject_to(lam_arm[0] >= 1e-6)
+        opti.subject_to(cs.sumsqr(lam_arm) <= self.max_contact_force ** 2)
+        opti.subject_to(lam_arm[0] <= self.max_normal_force)
+
+        
+        # Use IPOPT for contact-point selection as well as the outer MPC.
+        # The previous hard-coded SNOPT backend produced SNOPT banners and
+        # required a separate license, even when the MPC itself used IPOPT.
+        p_opts = {"print_time": False, "jit": False}
+        s_opts = {
+            "max_iter": 200,
+            "tol": 1e-6,
+            "linear_solver": "mumps",
+            "print_level": 0,
+        }
+        opti.solver('ipopt', p_opts, s_opts)
+        # opti.solver("snopt", {
+        #     "snopt": {
+        #         "Total real workspace": 500000,
+        #         "Total integer workspace": 500000,
+        #         "Total character workspace": 500000
+        #     }
+        # })
+
+        # p_opts = {"print_time": False, "jit": False}
+        # s_opts = {
+        #     "max_iter": 50, 
+        #     "tol": 1e-4,
+        #     "linear_solver": "mumps",
+        #     "print_level": 0
+        # }
+        # opti.solver('ipopt', p_opts, s_opts)
+
+        # 构建优化函数
+        self.optimization_fn = opti.to_function(
+            'optimization_fn_joint',
+            [x_d, current_x, v_last, J_tilde, D_inv, tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef],
+            [lam_arm, x_plus, objective],
+            ['x_d', 'current_x', 'v_last', 'J_tilde', 'D_inv', 'tau_o_np', 'n_arm', 't1', 't2', 'p_arm', 'curr_ori_coef'],
+            ['lam_arm_opt', 'x_plus_opt', 'cost']
+        )
+
+    def _select_contact_candidate(self, visible_face_idx, costs, force_buffer=None,
+                                  contact_anchor_local=None, contact_anchor_idx=None,
+                                  force_required=False):
+        ids = np.asarray(visible_face_idx, dtype=np.int32).reshape(-1)
+        costs = np.asarray(costs, dtype=np.float64).reshape(-1)
+        finite_mask = np.isfinite(costs)
+        # When the fingertip is already in physical contact, a zero-wrench
+        # candidate is a false local optimum: it minimizes the one-step pose
+        # cost by doing nothing while leaving the object unchanged.  Prefer a
+        # finite candidate with a positive normal force whenever one exists.
+        if force_required and force_buffer is not None:
+            try:
+                force_norms = np.asarray(force_buffer, dtype=np.float64)[:, 0]
+                force_mask = np.isfinite(force_norms) & (force_norms > 1e-3)
+                blocked_mask = np.asarray([
+                    int(idx) in self._blocked_contact_indices for idx in ids], dtype=bool)
+                if np.any(finite_mask & force_mask & ~blocked_mask):
+                    finite_mask &= force_mask
+                elif np.any(finite_mask & ~blocked_mask):
+                    # The only positive-force candidate may itself be in a
+                    # failed-patch cooldown.  Relax force_required for this
+                    # cycle so blacklist recovery can actually switch away.
+                    finite_mask &= ~blocked_mask
+                elif np.any(finite_mask & force_mask):
+                    finite_mask &= force_mask
+            except Exception:
+                pass
+        if self._blocked_contact_indices:
+            blocked = np.asarray([
+                int(idx) in self._blocked_contact_indices for idx in ids], dtype=bool)
+            # Keep the optimizer defined if every visible candidate is in
+            # cooldown; otherwise suppress the failed patch for this cycle.
+            if np.any(finite_mask & ~blocked):
+                finite_mask &= ~blocked
+        if not np.any(finite_mask):
+            fallback_idx = int(ids[0])
+            self.last_best_idx = fallback_idx
+            self.last_global_idx = fallback_idx
+            self.last_global_total_cost = float('inf')
+            self.last_best_force = np.zeros(3, dtype=np.float32)
+            self.last_best_x_plus = None
+            self.last_best_cost = float('inf')
+            self.last_selected_local = np.asarray(self.sample_point[fallback_idx], dtype=np.float32)
+            self.last_selected_idx = fallback_idx
+            self.last_transition_cost = 0.0
+            self.last_selected_total_cost = float('inf')
+            self.last_switch_required = False
+            return fallback_idx, 1.0, 1.0, 0
+
+        finite_local_indices = np.flatnonzero(finite_mask)
+        finite_costs = costs[finite_mask]
+
+        anchor_sample_idx = self._resolve_anchor_sample_idx(contact_anchor_local, contact_anchor_idx)
+        prev_sample_idx = self.last_selected_idx if self.last_selected_idx is not None else anchor_sample_idx
+        transition_costs = np.zeros_like(costs, dtype=np.float64)
+        if anchor_sample_idx is not None:
+            anchor_geo = self.sample_geodesic[anchor_sample_idx, ids]
+            transition_costs += anchor_geo / max(self.contact_switch_radius, 1e-6)
+            self.last_anchor_sample_idx = int(anchor_sample_idx)
+        else:
+            anchor_geo = np.zeros_like(costs, dtype=np.float64)
+            self.last_anchor_sample_idx = None
+
+        if prev_sample_idx is not None:
+            prev_geo = self.sample_geodesic[prev_sample_idx, ids]
+            transition_costs += 0.5 * prev_geo / max(self.contact_switch_radius, 1e-6)
+        else:
+            prev_geo = np.zeros_like(costs, dtype=np.float64)
+
+        if anchor_sample_idx is not None:
+            anchor_normal = np.asarray(self.normal[anchor_sample_idx], dtype=np.float64).reshape(3)
+            candidate_normal = np.asarray(self.normal[ids], dtype=np.float64)
+            normal_cost = 1.0 - np.clip(candidate_normal @ anchor_normal, -1.0, 1.0)
+            # Sharp normal changes usually indicate a vertex/edge projection
+            # artifact rather than a useful new patch.  Penalize them enough
+            # to keep neighbouring contacts continuous during sliding.
+            transition_costs += 1.0 * normal_cost
+
+        # Select using the physical lambda objective first.  Transition cost
+        # is a policy term (lazy switching), not part of the physical score:
+        # mixing it into the global argmin makes the local-vs-global test
+        # circular and can permanently trap the optimizer on the anchor.
+        transition_weight = float(np.clip(
+            getattr(self, 'contact_switch_confidence', 1.0), 0.0, 1.0))
+        total_costs = costs + transition_weight * transition_costs
+        total_costs[~finite_mask] = np.inf
+        # Keep indices in the original candidate array.  The argmin of the
+        # filtered costs is not an index into ids/force_buffer when failed or
+        # zero-force candidates have been removed.
+        global_local = int(finite_local_indices[int(np.argmin(finite_costs))])
+        global_idx = int(ids[global_local])
+        self.last_global_idx = global_idx
+        self.last_global_total_cost = float(costs[global_local])
+        chosen_local = global_local
+
+        locked_incumbent_local = None
+        if getattr(self, 'lock_contact_patch', False) and prev_sample_idx is not None:
+            hits = np.flatnonzero(ids == int(prev_sample_idx))
+            if hits.size and finite_mask[int(hits[0])]:
+                locked_incumbent_local = int(hits[0])
+
+        local_mask = finite_mask.copy()
+        if anchor_sample_idx is not None:
+            local_mask = local_mask & (anchor_geo <= self.contact_switch_radius)
+        # A zero confidence is an explicit recovery command, not merely a
+        # smaller hysteresis margin.  Bypass the normal acceptance margin so
+        # the raw lambda optimum is selected even when the local candidate is
+        # only moderately worse (the exact failure mode this override fixes).
+        if locked_incumbent_local is not None:
+            chosen_local = locked_incumbent_local
+            self.last_switch_required = False
+        elif transition_weight <= 1e-8:
+            chosen_local = global_local
+            self.last_switch_required = bool(anchor_sample_idx is not None and
+                                             global_idx != anchor_sample_idx)
+        elif np.any(local_mask):
+            local_indices = np.flatnonzero(local_mask)
+            local_local = int(local_indices[np.argmin(costs[local_indices])])
+            local_total = float(costs[local_local])
+            global_total = float(costs[global_local])
+            # Keep the incumbent contact sample while it remains valid.  The
+            # previous implementation re-minimized the whole local patch at
+            # every cycle, which made the fingertip chase small cost/noise
+            # variations and caused unstable contact during support motions.
+            # Only leave the incumbent when the raw lambda objective shows a
+            # clear improvement (or the incumbent is no longer finite).
+            incumbent_local = None
+            if prev_sample_idx is not None:
+                hits = np.flatnonzero(ids == int(prev_sample_idx))
+                if hits.size and finite_mask[int(hits[0])]:
+                    incumbent_local = int(hits[0])
+            # Use the scale of the incumbent objective, rather than the
+            # range of all samples.  A single outlier candidate otherwise
+            # makes ``cost_span`` huge and lets a dead local patch survive
+            # indefinitely.  Confidence still provides the intended lazy
+            # hysteresis, while a genuinely poor anchor is released.
+            cost_scale = max(abs(global_total), 1e-4)
+            switch_margin = float(self.contact_switch_margin_abs +
+                                  transition_weight * self.contact_switch_margin_ratio * cost_scale)
+            if incumbent_local is not None:
+                incumbent_total = float(costs[incumbent_local])
+                if incumbent_total <= global_total + switch_margin:
+                    chosen_local = incumbent_local
+                    self.last_switch_required = False
+                elif local_total <= global_total + switch_margin:
+                    chosen_local = local_local
+                    self.last_switch_required = False
+                else:
+                    chosen_local = global_local
+                    self.last_switch_required = True
+            elif local_total <= global_total + switch_margin:
+                chosen_local = local_local
+                self.last_switch_required = False
+            else:
+                chosen_local = global_local
+                self.last_switch_required = True
+        else:
+            self.last_switch_required = bool(anchor_sample_idx is not None and global_idx != prev_sample_idx)
+
+        chosen_idx = int(ids[chosen_local])
+        # Debounce patch switches.  ``_select_contact_candidate`` is called
+        # once per rollout step, and the physical candidate costs can vary as
+        # the object rotates.  Without this small temporal filter a tie (or a
+        # transient acados/IPOPT discrepancy) makes the selected surface point
+        # jump every cycle.  Keep the incumbent until the same replacement
+        # candidate is selected for the configured number of consecutive
+        # cycles.  If the incumbent is no longer in the visible set, commit
+        # immediately because there is no valid point to hold.
+        incumbent_idx = self.last_selected_idx
+        if (incumbent_idx is not None and chosen_idx != int(incumbent_idx)):
+            incumbent_hits = np.flatnonzero(ids == int(incumbent_idx))
+            if self._pending_selected_idx == chosen_idx:
+                self._pending_selected_count += 1
+            else:
+                self._pending_selected_idx = chosen_idx
+                self._pending_selected_count = 1
+            if (incumbent_hits.size and finite_mask[int(incumbent_hits[0])] and
+                    self._pending_selected_count < self.contact_switch_confirm_steps):
+                chosen_idx = int(incumbent_idx)
+                chosen_local = int(incumbent_hits[0])
+                self.last_switch_required = False
+        else:
+            self._pending_selected_idx = None
+            self._pending_selected_count = 0
+        if chosen_idx == self._pending_selected_idx and self._pending_selected_count >= self.contact_switch_confirm_steps:
+            self._pending_selected_idx = None
+            self._pending_selected_count = 0
+        self.last_best_idx = chosen_idx
+        if force_buffer is None:
+            self.last_best_force = None
+        else:
+            self.last_best_force = np.asarray(force_buffer[chosen_local], dtype=np.float32)
+        self.last_selected_local = np.asarray(self.sample_point[chosen_idx], dtype=np.float32)
+        self.last_selected_idx = chosen_idx
+        self.last_transition_cost = float(np.asarray(transition_costs[chosen_local]).reshape(()))
+        self.last_selected_total_cost = float(np.asarray(total_costs[chosen_local]).reshape(()))
+        return chosen_idx, float(np.min(finite_costs)), float(np.max(finite_costs)), chosen_local
+
+    def _resolve_anchor_sample_idx(self, contact_anchor_local=None, contact_anchor_idx=None):
+        if contact_anchor_idx is not None:
+            anchor_vertex = int(contact_anchor_idx)
+            match = np.flatnonzero(self.sample_vertex_indices == anchor_vertex)
+            if match.size > 0:
+                return int(match[0])
+        if contact_anchor_local is not None:
+            anchor = np.asarray(contact_anchor_local, dtype=np.float64).reshape(3)
+            dist = np.linalg.norm(np.asarray(self.sample_point, dtype=np.float64) - anchor[None, :], axis=1)
+            return int(np.argmin(dist))
+        if self.last_selected_local is not None:
+            anchor = np.asarray(self.last_selected_local, dtype=np.float64).reshape(3)
+            dist = np.linalg.norm(np.asarray(self.sample_point, dtype=np.float64) - anchor[None, :], axis=1)
+            return int(np.argmin(dist))
+        return None
+
+    def _precompute_sample_geodesic(self):
+        if getattr(self.pp, 'graph', None) is None:
+            return np.linalg.norm(self.sample_point[:, None, :] - self.sample_point[None, :, :], axis=2)
+
+        n_samples = self.sample_vertex_indices.shape[0]
+        geo = np.full((n_samples, n_samples), np.inf, dtype=np.float64)
+        for i, vertex_idx in enumerate(self.sample_vertex_indices):
+            dist = dijkstra(self.pp.graph, directed=False, indices=int(vertex_idx))
+            geo[i, :] = np.asarray(dist[self.sample_vertex_indices], dtype=np.float64)
+        geo[np.isnan(geo)] = np.inf
+        np.fill_diagonal(geo, 0.0)
+        return geo
+
+    def _solve_optimization(self, **kwargs):
+        if self.solver == 'acados' and self.acados_solver is not None:
+            self.acados_solve_count += 1
+            try:
+                result = self._solve_optimization_acados(**kwargs)
+                self.last_solver_status = 'acados'
+                return result
+            except (RuntimeError, ValueError, FloatingPointError) as exc:
+                self.acados_failure_count += 1
+                self.last_acados_failure_reason = str(exc)
+            if self._acados_fallbacks_this_cycle >= self.acados_max_fallbacks_per_cycle:
+                self.last_solver_status = 'acados-failed-skip'
+                return None
+            try:
+                self._acados_fallbacks_this_cycle += 1
+                self.acados_fallback_count += 1
+                result = self.optimization_fn(**kwargs)
+                self.last_solver_status = 'ipopt-fallback'
+                return result
+            except RuntimeError:
+                self.last_solver_status = 'failed'
+                return None
+        if self.solver in ('torch-lbfgs', 'torch-gn'):
+            try:
+                result = self._solve_optimization_torch(**kwargs)
+                self.last_solver_status = 'torch-lbfgs'
+                return result
+            except (RuntimeError, ValueError, FloatingPointError):
+                # Keep the original IPOPT problem as a per-contact fallback.
+                # This is important during rollout when a degenerate Jacobian
+                # can make the small Torch problem temporarily non-finite.
+                try:
+                    result = self.optimization_fn(**kwargs)
+                    self.last_solver_status = 'ipopt-fallback'
+                    return result
+                except RuntimeError:
+                    self.last_solver_status = 'failed'
+                    return None
+        try:
+            result = self.optimization_fn(**kwargs)
+            self.last_solver_status = 'ipopt'
+            return result
+        except RuntimeError:
+            self.last_solver_status = 'failed'
+            return None
+
+    def _build_acados_contact_solver(self):
+        root = os.environ.get('ACADOS_SOURCE_DIR', os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'thirdparty', 'acados')))
+        interface = os.path.join(root, 'interfaces', 'acados_template')
+        if interface not in sys.path:
+            sys.path.insert(0, interface)
+        os.environ.setdefault('ACADOS_SOURCE_DIR', root)
+        lib = os.path.join(root, 'lib')
+        for name in ('libblasfeo.so.0', 'libhpipm.so', 'libqpOASES_e.so', 'libacados.so'):
+            path = os.path.join(lib, name)
+            if os.path.isfile(path):
+                try: ctypes.CDLL(path, mode=getattr(ctypes, 'RTLD_GLOBAL', 0))
+                except OSError: pass
+        from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver, ACADOS_INFTY
+        cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
+        cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
+        cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
+        prm = cs.vertcat(cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp)
+        x = cs.SX.sym('x', 7); u = cs.SX.sym('u', 3)
+        Jc = cs.SX.zeros(3, 6); Jc[:3, :3] = cs.SX.eye(3); Jc[0,4],Jc[0,5]=cs_cp[2],-cs_cp[1]; Jc[1,3],Jc[1,5]=-cs_cp[2],cs_cp[0]; Jc[2,3],Jc[2,4]=cs_cp[1],-cs_cp[0]
+        Rct = cs.horzcat(cs_n, cs_t1, cs_t2); b = self.h*cs_tau + cs.transpose(Jc) @ (Rct @ u); qinv = cs.DM(self.Q_inv); qib=qinv@b; vp=qib
+        for i in range(self.max_contacts):
+            sl=slice(4*i,4*(i+1)); Ji=cs_j[sl,:]; Di=cs_d[sl,:]; fi=cs.fmax(-Di@(Ji@qib),0); vp += qinv@cs.transpose(Ji)@fi
+        vn=cs_v+vp; quat=x[3:7]; H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
+        qn=cs.vertcat(x[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
+        # Smooth the Euclidean norm at zero; the raw norm has an undefined
+        # derivative and can make the first acados QP report NAN_DETECTED.
+        # The terminal cost is evaluated on the terminal state ``x`` (the
+        # state at stage N, i.e. qn after the discrete transition).  Using
+        # the transition expression qn directly here makes acados reject the
+        # model because terminal costs may not depend on control ``u``.
+        terminal_pos_cost = self.pos_coef * cs.sumsqr(x[:3] - cs_p[:3])
+        terminal_ori_cost = self.ori_coef * (1-cs.dot(x[3:7],cs_p[3:7])**2)
+        # Bump the generated-solver name whenever force constraints change;
+        # otherwise an old /tmp binary can silently ignore the current bounds.
+        model=AcadosModel(); model.name=f'contact_lambda_acados_v10_dv_m{self.max_contacts}_f{int(self.max_contact_force*1000)}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
+        model.cost_expr_ext_cost = self.friction_reg_coef * cs.sumsqr(u[1:3])
+        model.cost_expr_ext_cost_e = terminal_pos_cost + terminal_ori_cost
+        ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.cost.cost_type='EXTERNAL'; ocp.cost.cost_type_e='EXTERNAL';
+        mu = float(self.mu_arm_obj)
+        model.con_h_expr = cs.vertcat(u[0], u[1]-mu*u[0], -u[1]-mu*u[0], u[2]-mu*u[0], -u[2]-mu*u[0], cs.sumsqr(u))
+        # No-contact (zero normal force) is a valid candidate while the
+        # fingertip approaches a patch.  A positive lower bound made RTI
+        # return a boundary zero that was then misclassified as invalid and
+        # sent to the slow IPOPT fallback.
+        ocp.constraints.lh = np.array([0.0, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, 0.0])
+        ocp.constraints.uh = np.array([self.max_normal_force, 0., 0., 0., 0., self.max_contact_force ** 2])
+        ocp.constraints.idxbx_0=np.arange(7); ocp.constraints.lbx_0=np.zeros(7); ocp.constraints.ubx_0=np.zeros(7)
+        ocp.solver_options.N_horizon=1; ocp.solver_options.tf=float(self.h); ocp.solver_options.qp_solver='PARTIAL_CONDENSING_HPIPM'; ocp.solver_options.hessian_approx='EXACT'; ocp.solver_options.integrator_type='DISCRETE'; ocp.solver_options.nlp_solver_type='SQP_RTI'; ocp.solver_options.regularize_method='PROJECT'; ocp.solver_options.print_level=0
+        d='/tmp/'+model.name+'_codegen'; os.makedirs(d,exist_ok=True); ocp.code_gen_opts.code_export_directory=d; jf=os.path.join(d,model.name+'.json'); so=os.path.join(d,'libacados_ocp_solver_'+model.name+'.so')
+        if os.path.isfile(jf) and os.path.isfile(so):
+            return AcadosOcpSolver(ocp,json_file=jf,generate=False,build=False,check_reuse_possible=False,verbose=False)
+        return AcadosOcpSolver(ocp,json_file=jf,generate=True,build=True,check_reuse_possible=True,verbose=False)
+
+    def _solve_optimization_acados(self, **kwargs):
+        solver=self.acados_solver; xcur=np.asarray(kwargs['current_x'],float).reshape(7); p=np.concatenate([np.asarray(kwargs['x_d']).reshape(-1),np.asarray(kwargs['v_last']).reshape(-1),np.asarray(kwargs['J_tilde']).reshape(-1,order='F'),np.asarray(kwargs['D_inv']).reshape(-1,order='F'),np.asarray(kwargs['tau_o_np']).reshape(-1),np.asarray(kwargs['n_arm']).reshape(-1),np.asarray(kwargs['t1']).reshape(-1),np.asarray(kwargs['t2']).reshape(-1),np.asarray(kwargs['p_arm']).reshape(-1)])
+        solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur); solver.set(0,'u',np.array([.01,0,0])); solver.set(0,'p',p); solver.set(1,'x',xcur); solver.set(1,'p',p); status=int(solver.solve())
+        # SQP_RTI can report a recoverable QP failure for a degenerate patch.
+        # Treat a nonzero status as a failed candidate and let the bounded
+        # IPOPT fallback in _solve_optimization() handle it.
+        if status != 0:
+            # Do not turn a failed RTI QP into a finite zero-force solution.
+            # A zero wrench is a valid near-target optimum, but it is not a
+            # valid replacement for a solver failure during contact-point
+            # selection: it wins the pose cost while producing no pose step.
+            # Raise here so _solve_optimization() uses its IPOPT fallback and
+            # the caller can distinguish a real zero-force optimum from a
+            # failed Acados solve.
+            self.acados_qp_failure_count += 1
+            raise RuntimeError(f'acados status {status}')
+        else:
+            lam=np.asarray(solver.get(0,'u')).reshape(3)
+        if not np.isfinite(lam).all():
+            raise FloatingPointError('acados returned non-finite contact wrench')
+        fn = float(np.clip(lam[0], 0.0, self.max_normal_force))
+        ft = np.clip(lam[1:3], -self.mu_arm_obj * fn, self.mu_arm_obj * fn)
+        lam = np.asarray([fn, ft[0], ft[1]], dtype=float)
+        cp=np.asarray(kwargs['p_arm'], dtype=float).reshape(3)
+        Jc=np.zeros((3, 6), dtype=float); Jc[:, :3] = np.eye(3)
+        Jc[0, 4], Jc[0, 5] = cp[2], -cp[1]
+        Jc[1, 3], Jc[1, 5] = -cp[2], cp[0]
+        Jc[2, 3], Jc[2, 4] = cp[1], -cp[0]
+        Rcontact=np.column_stack((kwargs['n_arm'], kwargs['t1'], kwargs['t2']))
+        b=self.h*np.asarray(kwargs['tau_o_np']).reshape(6)+Jc.T@(Rcontact@lam)
+        qib=self.Q_inv@b; vplus=qib
+        Jenv=np.asarray(kwargs['J_tilde']); D=np.asarray(kwargs['D_inv'])
+        for i in range(self.max_contacts):
+            sl=slice(4*i,4*(i+1)); fi=np.maximum(-(D[sl]@(Jenv[sl]@qib)),0.0)
+            vplus += self.Q_inv@Jenv[sl].T@fi
+        vnow=np.asarray(kwargs['v_last']).reshape(6)+vplus
+        qnext=np.asarray(self.cs_qposInteg_(xcur,vnow)).reshape(7)
+        # Never accept a solver result that violates the physical wrench
+        # bounds (this also protects against stale generated binaries).
+        if (not np.isfinite(lam).all() or lam[0] < -1e-5
+                or lam[0] > self.max_normal_force + 1e-3
+                or np.linalg.norm(lam) > self.max_contact_force + 1e-3):
+            raise RuntimeError(f'invalid contact wrench returned: {lam}')
+        pos_err=qnext[:3]-np.asarray(kwargs['x_d'])[:3]; cost=float(self.pos_coef*np.dot(pos_err,pos_err)+self.ori_coef*(1-np.dot(qnext[3:7],np.asarray(kwargs['x_d'])[3:7])**2)+self.friction_reg_coef*np.dot(lam[1:3],lam[1:3])); return {'lam_arm_opt':lam,'x_plus_opt':qnext,'cost':cost}
+
+    def _solve_optimization_torch(self, x_d, current_x, v_last, J_tilde, D_inv,
+                                  tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef):
+        """Solve the single-contact problem with differentiable Torch L-BFGS.
+
+        This mirrors ``_precompile_optimization_function``: the optimized
+        variable is the 3D contact wrench ``[fn, ft1, ft2]`` and the same
+        projected environment response and quaternion integration are used.
+        Friction and normal-force bounds are enforced by a smooth
+        parameterization, avoiding the unconstrained/oversized fingertip
+        forces that otherwise make the rollout jump.
+        """
+        if torch is None:
+            raise RuntimeError('Torch is not installed')
+        dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        dt = torch.float32
+        t = lambda x: torch.as_tensor(np.asarray(x), device=dev, dtype=dt)
+        xd, xc, vl = t(x_d).reshape(-1), t(current_x).reshape(-1), t(v_last).reshape(-1)
+        Jenv, D = t(J_tilde), t(D_inv)
+        tau, n, tt1, tt2, p = map(t, (tau_o_np, n_arm, t1, t2, p_arm))
+        qinv = t(self.Q_inv)
+
+        # Contact Jacobian [I, -skew(p)] in the convention used above.
+        Jc = torch.zeros((3, 6), device=dev, dtype=dt)
+        Jc[:, :3] = torch.eye(3, device=dev, dtype=dt)
+        Jc[0, 4], Jc[0, 5] = p[2], -p[1]
+        Jc[1, 3], Jc[1, 5] = -p[2], p[0]
+        Jc[2, 3], Jc[2, 4] = p[1], -p[0]
+        Rcontact = torch.stack((n, tt1, tt2), dim=1)
+
+        # Initialize near the IPOPT initial guess fn=.01, ft=0.
+        fn0 = (0.01 - 1e-6) / (self.max_normal_force - 1e-6)
+        fn0 = float(np.clip(fn0, 1e-4, 1.0 - 1e-4))
+        z0 = torch.zeros(3, device=dev, dtype=dt)
+        z0[0] = torch.log(torch.tensor(fn0 / (1.0 - fn0), device=dev, dtype=dt))
+        z = torch.nn.Parameter(z0)
+        opt = torch.optim.LBFGS(
+            [z], max_iter=self.torch_max_iter, tolerance_grad=1e-5,
+            tolerance_change=1e-9, line_search_fn='strong_wolfe')
+
+        def evaluate():
+            fn = 0.001 + (self.max_normal_force - 0.001) * torch.sigmoid(z[0])
+            lam = torch.cat((fn.reshape(1), self.mu_arm_obj * fn * torch.tanh(z[1:])))
+            b = self.h * tau + Jc.T @ (Rcontact @ lam)
+            qinv_b = qinv @ b
+            vplus = qinv_b
+            for i in range(self.max_contacts):
+                sl = slice(4 * i, 4 * (i + 1))
+                fi = torch.relu(-(D[sl] @ (Jenv[sl] @ qinv_b)))
+                vplus = vplus + qinv @ Jenv[sl].T @ fi
+            vnow = vl + vplus
+            quat = xc[3:7]
+            Ht = torch.stack((
+                torch.stack((-quat[1], quat[0], quat[3], -quat[2])),
+                torch.stack((-quat[2], -quat[3], quat[0], quat[1])),
+                torch.stack((-quat[3], quat[2], -quat[1], quat[0])),
+            ), dim=0).T
+            qnext = torch.cat((xc[:3] + self.h * vnow[:3],
+                               quat + 0.5 * self.h * (Ht @ vnow[3:6])))
+            qnext = torch.cat((qnext[:3], qnext[3:7] / torch.linalg.vector_norm(qnext[3:7]).clamp_min(1e-8)))
+            pos_err = qnext[:3] - xd[:3]
+            ori_err = 1.0 - torch.dot(qnext[3:7], xd[3:7]) ** 2
+            friction_cost = torch.sum(lam[1:] * lam[1:])
+            cost = (self.pos_coef * torch.sum(pos_err * pos_err) +
+                    self.ori_coef * ori_err + self.friction_reg_coef * friction_cost)
+            return cost, lam, qnext
+
+        def closure():
+            opt.zero_grad()
+            cost, _, _ = evaluate()
+            if not torch.isfinite(cost):
+                raise FloatingPointError('non-finite Torch contact objective')
+            cost.backward()
+            return cost
+
+        opt.step(closure)
+        with torch.no_grad():
+            cost, lam, qnext = evaluate()
+        if not (torch.isfinite(cost) and torch.isfinite(lam).all() and torch.isfinite(qnext).all()):
+            raise FloatingPointError('non-finite Torch contact solution')
+        return {'lam_arm_opt': lam.detach().cpu().numpy(),
+                'x_plus_opt': qnext.detach().cpu().numpy(),
+                'cost': float(cost.detach().cpu())}
+
+    def _choose_contact_points_torch_batch(self, x_d, current_x, tau_o, visible_face_idx,
+                                           v_last, D_inv):
+        """Evaluate all visible contact candidates in one Torch L-BFGS solve.
+
+        The old implementation launched one optimizer (and repeatedly copied
+        six small arrays to Torch) per face.  A batched objective has identical
+        independent rows, but lets BLAS/GPU evaluate all candidates together.
+        """
+        if torch is None:
+            raise RuntimeError('Torch is not installed')
+        dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        dt = torch.float32
+        t = lambda x: torch.as_tensor(np.asarray(x), device=dev, dtype=dt)
+        xd, xc, vl = t(x_d).reshape(-1), t(current_x).reshape(-1), t(v_last).reshape(-1)
+        Jenv, D = t(self.J_tilde), t(D_inv)
+        ids = np.asarray(visible_face_idx, dtype=np.int32).reshape(-1)
+        n = t(self.normal[ids]); tt1 = t(self.t1[ids]); tt2 = t(self.t2[ids]); p = t(self.sample_point[ids])
+        tau, qinv = t(tau_o).reshape(-1), t(self.Q_inv)
+        count = ids.size
+
+        Jc = torch.zeros((count, 3, 6), device=dev, dtype=dt)
+        Jc[:, :, :3] = torch.eye(3, device=dev, dtype=dt).expand(count, -1, -1)
+        Jc[:, 0, 4], Jc[:, 0, 5] = p[:, 2], -p[:, 1]
+        Jc[:, 1, 3], Jc[:, 1, 5] = -p[:, 2], p[:, 0]
+        Jc[:, 2, 3], Jc[:, 2, 4] = p[:, 1], -p[:, 0]
+        Rcontact = torch.stack((n, tt1, tt2), dim=2)
+
+        fn0 = (0.01 - 0.001) / (self.max_normal_force - 0.001)
+        fn0 = float(np.clip(fn0, 1e-4, 1.0 - 1e-4))
+        z = torch.nn.Parameter(torch.zeros((count, 3), device=dev, dtype=dt))
+        z.data[:, 0] = torch.log(torch.tensor(fn0 / (1.0 - fn0), device=dev, dtype=dt))
+        opt = torch.optim.LBFGS([z], max_iter=self.torch_max_iter,
+                                tolerance_grad=1e-5, tolerance_change=1e-9,
+                                line_search_fn='strong_wolfe')
+
+        def evaluate():
+            fn = 1e-6 + (self.max_normal_force - 1e-6) * torch.sigmoid(z[:, 0])
+            lam = torch.cat((fn[:, None], self.mu_arm_obj * fn[:, None] * torch.tanh(z[:, 1:])), dim=1)
+            wrench = torch.bmm(Rcontact, lam[:, :, None]).squeeze(-1)
+            b = self.h * tau[None, :] + torch.bmm(Jc.transpose(1, 2), wrench[:, :, None]).squeeze(-1)
+            qinv_b = torch.matmul(b, qinv.T)
+            vplus = qinv_b
+            for i in range(self.max_contacts):
+                sl = slice(4 * i, 4 * (i + 1))
+                env_proj = torch.matmul(qinv_b, Jenv[sl].T)
+                fi = torch.relu(-torch.matmul(env_proj, D[sl].T))
+                vplus = vplus + torch.matmul(fi, Jenv[sl] @ qinv.T)
+            vnow = vplus + vl[None, :]
+            quat = xc[3:7]
+            Ht = torch.stack((
+                torch.stack((-quat[1], quat[0], quat[3], -quat[2])),
+                torch.stack((-quat[2], -quat[3], quat[0], quat[1])),
+                torch.stack((-quat[3], quat[2], -quat[1], quat[0])),
+            ), dim=0).T
+            qpos = xc[:3][None, :] + self.h * vnow[:, :3]
+            qrot = quat[None, :] + 0.5 * self.h * torch.matmul(vnow[:, 3:6], Ht.T)
+            qrot = qrot / torch.linalg.vector_norm(qrot, dim=1, keepdim=True).clamp_min(1e-8)
+            pos_err = qpos - xd[:3][None, :]
+            ori_err = 1.0 - torch.sum(qrot * xd[3:7][None, :], dim=1) ** 2
+            friction_cost = torch.sum(lam[:, 1:] * lam[:, 1:], dim=1)
+            force_cost = torch.sum(lam * lam, dim=1)
+            costs = (self.pos_coef * torch.sum(pos_err * pos_err, dim=1) +
+                     self.ori_coef * ori_err + self.friction_reg_coef * friction_cost +
+                     self.force_reg_coef * force_cost)
+            return costs, lam, torch.cat((qpos, qrot), dim=1)
+
+        def closure():
+            opt.zero_grad()
+            costs, _, _ = evaluate()
+            if not torch.isfinite(costs).all():
+                raise FloatingPointError('non-finite batched Torch contact objective')
+            costs.sum().backward()
+            return costs.sum()
+
+        opt.step(closure)
+        with torch.no_grad():
+            costs, lam, qnext = evaluate()
+        if not (torch.isfinite(costs).all() and torch.isfinite(lam).all() and torch.isfinite(qnext).all()):
+            raise FloatingPointError('non-finite batched Torch contact solution')
+        self.last_solver_status = 'torch-lbfgs'
+        return ids, costs.cpu().numpy(), lam.cpu().numpy(), qnext.cpu().numpy()
+
+    def init_utils(self):
+        # -------------------------------
+        #    quaternion integration fn
+        # -------------------------------
+        quat = cs.SX.sym('quat', 4)
+        H_q_body = cs.vertcat(cs.horzcat(-quat[1], quat[0], quat[3], -quat[2]),
+                              cs.horzcat(-quat[2], -quat[3], quat[0], quat[1]),
+                              cs.horzcat(-quat[3], quat[2], -quat[1], quat[0]))
+        self.cs_qmat_body_fn_ = cs.Function('cs_qmat_body_fn', [quat], [H_q_body.T])
+
+        # -------------------------------
+        #    state integration fn
+        # -------------------------------
+        qvel = cs.SX.sym('qvel', 6)
+        qpos = cs.SX.sym('qpos', 7)
+        next_obj_pos = qpos[0:3] + self.h * qvel[0:3]
+        next_obj_quat = (qpos[3:7] + 0.5 * self.h * self.cs_qmat_body_fn_(qpos[3:7]) @ qvel[3:6])
+        next_obj_quat = next_obj_quat / cs.norm_2(next_obj_quat)
+        next_qpos = cs.vertcat(next_obj_pos, next_obj_quat)
+        self.cs_qposInteg_ = cs.Function('cs_qposInte', [qpos, qvel], [next_qpos])
+
+    @staticmethod
+    def compute_contact_jacobian(p):
+        """优化后的接触雅可比计算 - MX 版本"""
+        J_c = cs.MX.zeros(3, 6)  # 改为 MX 类型
+        J_c[:3, :3] = cs.MX.eye(3)
+        # 使用 CasADi 构建斜对称矩阵
+        J_c[0, 4], J_c[0, 5] = p[2], -p[1]
+        J_c[1, 3], J_c[1, 5] = -p[2], p[0]
+        J_c[2, 3], J_c[2, 4] = p[1], -p[0]
+        return J_c
+    
+    def optimize_control_input(self, x_d, current_x, tau_o, p_arm=None, v_last=None):
+        """优化控制输入 - 更新接口"""
+        # This is a separate solve from contact-point ranking and gets its own
+        # bounded fallback budget.
+        self._acados_fallbacks_this_cycle = 0
+        if p_arm is None:
+            p_arm = np.array([-1, 0, 0])
+        if v_last is None:
+            v_last = np.zeros(6)
+
+        ori_align_sq = cs.dot(current_x[3:7], x_d[3:7]) ** 2
+        th = 0.85
+        scale = 10
+        curr_ori_coef = (1.0 + cs.tanh(scale * (ori_align_sq - th)))
+
+        closest_idx, n, t1, t2  = self.pp.project_point_to_mesh(p_arm)
+        p_obj_local = self.pp.scaled_mesh.vertices[closest_idx]
+        normal_obj_local = -np.asarray(n)
+        D_inv = self.compute_env_diag_inverse(self.J_tilde)
+
+        start_time = time.time()
+        sol = self._solve_optimization(
+            x_d=x_d, 
+            current_x=current_x, 
+            v_last=v_last,
+            J_tilde=self.J_tilde, 
+            D_inv=D_inv,
+            tau_o_np=tau_o,
+            n_arm=n,
+            t1=t1,
+            t2=t2,
+            p_arm=p_obj_local,
+            curr_ori_coef=curr_ori_coef
+        )
+        if sol is None:
+            lam_arm = np.zeros(3, dtype=np.float32)
+            x_plus_opt = np.asarray(current_x, dtype=np.float32).copy()
+            cost = float("inf")
+        else:
+            lam_arm = sol['lam_arm_opt']
+            x_plus_opt = sol['x_plus_opt']
+            cost = float(sol['cost'])
+
+        info = {
+            "solve_time": time.time() - start_time,
+            "control_input": lam_arm,
+            "resulting_pose": x_plus_opt,
+            "solver_failed": sol is None,
+        }
+        
+        # Preserve the repository's extended return API while using the
+        # reference point-selection rule; callers that do not need the normal
+        # can simply ignore the second value.
+        return p_obj_local, normal_obj_local, x_plus_opt, cost, info
+
+    def choose_contact_points(self, x_d, current_x, tau_o, visible_face_idx, v_last=None,
+                              contact_anchor_local=None, contact_anchor_idx=None,
+                              force_required=False):
+        # Reset the IPOPT fallback budget for this contact-selection cycle.
+        self._acados_fallbacks_this_cycle = 0
+        if self._blocked_contact_indices:
+            expired = []
+            for key, remaining in self._blocked_contact_indices.items():
+                remaining = int(remaining) - 1
+                if remaining <= 0:
+                    expired.append(key)
+                else:
+                    self._blocked_contact_indices[key] = remaining
+            for key in expired:
+                self._blocked_contact_indices.pop(key, None)
+        if not len(visible_face_idx):
+            # 确保返回不是None
+            return self.sample_point[0], self.normal[0], 1, 1, 1
+        if v_last is None:
+            v_last = np.zeros(6)
+
+        if self.solver in ('torch-lbfgs', 'torch-gn'):
+            D_inv = self.compute_env_diag_inverse(self.J_tilde)
+            try:
+                ids, costs, force_buffer, x_plus_buffer = self._choose_contact_points_torch_batch(
+                    x_d, current_x, tau_o, visible_face_idx, v_last, D_inv)
+                selected_idx, min_error, max_error, selected_local = self._select_contact_candidate(
+                    ids, costs, force_buffer=force_buffer,
+                    contact_anchor_local=contact_anchor_local,
+                    contact_anchor_idx=contact_anchor_idx,
+                    force_required=force_required)
+                self.last_best_idx = int(selected_idx)
+                self.last_best_x_plus = np.asarray(x_plus_buffer[int(selected_local)], dtype=np.float64)
+                self.last_best_cost = float(costs[int(selected_local)])
+                return self.sample_point[selected_idx], self.normal[selected_idx], min_error, max_error, 1
+            except (RuntimeError, ValueError, FloatingPointError):
+                # Fall through to the original per-candidate path.  Each row
+                # then has its own IPOPT fallback through _solve_optimization.
+                pass
+
+        ori_align_sq = cs.dot(current_x[3:7], x_d[3:7]) ** 2
+        th = 0.85
+        scale = 10
+        # curr_ori_coef = (1.0 + cs.tanh(scale * (ori_align_sq - th)))
+        curr_ori_coef=1
+        
+        error_list = cs.MX.zeros(visible_face_idx.shape[0])
+        x_plus_buffer = []
+        force_buffer = []
+        D_inv = self.compute_env_diag_inverse(self.J_tilde)
+        for i, idx in enumerate(visible_face_idx):
+            sol = self._solve_optimization(
+                    x_d=x_d, 
+                    current_x=current_x, 
+                    v_last=v_last,
+                    J_tilde=self.J_tilde, 
+                    D_inv=D_inv,
+                    tau_o_np=tau_o,
+                    n_arm=self.normal[idx],
+                    t1=self.t1[idx],
+                    t2=self.t2[idx],
+                    p_arm=self.sample_point[idx],
+                    curr_ori_coef=curr_ori_coef
+                )
+            if sol is None:
+                error_list[i] = cs.inf
+                x_plus_buffer.append(np.asarray(current_x, dtype=np.float64).copy())
+                force_buffer.append(np.zeros(3, dtype=np.float32))
+                continue
+
+            error_list[i] = sol['cost']
+            x_plus_buffer.append(np.asarray(sol['x_plus_opt'], dtype=np.float64).reshape(7))
+            force_buffer.append(sol['lam_arm_opt'])
+            # print(f"Contact point {i+1}/{self.sample_num} evaluation time: {time.time() - start_t}")
+        # print("Contact point selection time:", time.time() - start_time)
+
+        error_values = np.array(cs.evalf(error_list)).astype(np.float64).reshape(-1)
+        finite_mask = np.isfinite(error_values)
+        if not np.any(finite_mask):
+            fallback_idx = int(visible_face_idx[0])
+            self.last_best_x_plus = None
+            self.last_best_cost = float('inf')
+            return self.sample_point[fallback_idx], self.normal[fallback_idx], 1, 1, 1
+
+        # Skipped/failed acados candidates are represented by ``inf`` in
+        # error_list.  Do not let those sentinels poison the finite cost span:
+        # an infinite max makes the rollout accept every near-contact state
+        # and disables the contact-quality hysteresis.
+        finite_errors = error_values[finite_mask]
+        min_error = float(np.min(finite_errors))
+        max_error = float(np.max(finite_errors))
+        min_idx, _, _, chosen_local = self._select_contact_candidate(
+            visible_face_idx,
+            error_values,
+            force_buffer=force_buffer,
+            contact_anchor_local=contact_anchor_local,
+            contact_anchor_idx=contact_anchor_idx,
+            force_required=force_required,
+        )
+        self.last_best_idx = int(min_idx)
+        self.last_best_force = np.asarray(force_buffer[int(chosen_local)], dtype=np.float32)
+        self.last_best_x_plus = np.asarray(x_plus_buffer[int(chosen_local)], dtype=np.float64).reshape(7)
+        self.last_best_cost = float(error_values[int(chosen_local)])
+        return self.sample_point[min_idx], self.normal[min_idx], min_error, max_error, 1
+    
+    def get_availble_point_idx(self, pos, R, target_pos, threshold=0.025,
+                               viewpoint_local=None, viewpoint_cos=-0.50):
+        """Return sampled contacts whose fingertip target clears the floor.
+
+        ``self.normal`` points into the object.  The fingertip centre is
+        therefore approached as ``surface - clearance * normal``.  Checking
+        that target, instead of only the surface height, removes underside
+        points that would put the fingertip sphere below the table while
+        allowing the same mesh points again after an object is flipped.
+        """
+        centers_world = (R @ self.sample_point.T).T + pos
+        # Filter by the height of the *reachable fingertip centre*, rather
+        # than allowing an arbitrary band below the floor.  ``normal`` is
+        # stored inward, so subtracting it moves from the surface outwards,
+        # matching the target construction in test_0902.py.  A downward
+        # facing underside therefore gets rejected near the floor, while an
+        # upward/side-facing point at a similarly low height remains usable
+        # during a flip.
+        floor_z = 0.0
+        # Even with a zero CLI threshold, the sphere centre must remain at
+        # least one clearance above the plane.  The default threshold adds a
+        # small extra safety margin without imposing a large global height
+        # cutoff on flip contacts.
+        floor_margin = max(float(threshold), self.fingertip_clearance)
+        inward_world = (R @ self.normal.T).T
+        fingertip_center_z = centers_world[:, 2] - self.fingertip_clearance * inward_world[:, 2]
+        common_mask = (
+            (centers_world[:, 2] > floor_z)
+            & (fingertip_center_z > floor_z + floor_margin)
+        )
+
+        # A global lambda optimum may lie on the far side of a concave
+        # silhouette (the elephant's ear/foot are typical samples).  The
+        # straight segment from the current fingertip to such a patch passes
+        # through the object, so MPC repeatedly collides and escapes without
+        # making pose progress.  When a viewpoint is supplied, retain the
+        # visible hemisphere with a soft cosine gate.  Keep the gate soft so
+        # silhouette points remain eligible; the fallback below still keeps
+        # the optimizer defined if every point is rejected.
+        if viewpoint_local is not None:
+            view = np.asarray(viewpoint_local, dtype=np.float64).reshape(3)
+            rel = view[None, :] - self.sample_point
+            rel_norm = np.linalg.norm(rel, axis=1)
+            outward = -np.asarray(self.normal, dtype=np.float64)
+            view_cos = np.sum(outward * rel, axis=1) / np.maximum(rel_norm, 1e-9)
+            common_mask = common_mask & (view_cos >= float(viewpoint_cos))
+
+        direction = target_pos - pos
+        dis = np.linalg.norm(direction[:2])
+        
+        if dis > 5e-2:
+            direction /= np.linalg.norm(direction)
+            vertex_normals_world = (R @ self.normal.T).T
+            face_dot_products = vertex_normals_world @ direction
+            # Do not discard vertical underside normals.  They have almost
+            # zero dot product with the horizontal target direction but can
+            # generate the required lifting torque.  Exclude only normals
+            # strongly opposing the desired planar motion.
+            common_mask = common_mask & (face_dot_products > -0.2)
+
+        available_idx = np.where(common_mask)[0]
+        if available_idx.size:
+            return available_idx
+
+        # Keep the optimizer well-defined if a transient pose leaves every
+        # sampled point below the gate.  Select the point whose predicted
+        # fingertip centre has the greatest clearance; this avoids falling
+        # back to an arbitrary (often underside) sample.
+        above_floor = np.flatnonzero(centers_world[:, 2] > floor_z)
+        if above_floor.size:
+            best_idx = int(above_floor[np.argmax(fingertip_center_z[above_floor])])
+        else:
+            # This can only happen after severe simulation penetration; keep
+            # a deterministic least-penetrating point for recovery.
+            best_idx = int(np.argmax(fingertip_center_z))
+        return np.asarray([best_idx], dtype=np.int64)
+    
+# 使用示例
+if __name__ == "__main__":
+    # 创建优化器实例 (10cm x 10cm x 10cm 的方块)
+    optimizer = LambdaContactControlOptimizer(
+        box_size=(0.1, 0.1, 0.1),
+        obj_mass=0.01,
+        arm_stiffness=200,
+        ground_friction=0.9,
+        arm_friction=0.9,
+        contact_stiffness=10,
+        time_step=0.05,
+        max_contacts=5
+    )
+    
+    # 更新接触点 (底面和机械臂接触点)
+    new_contact_points = [
+        {'type': 'ground', 'position': np.array([0.05, 0.05, -0.05]), 'face': 'bottom'},
+        {'type': 'ground', 'position': np.array([-0.05, 0.05, -0.05]), 'face': 'bottom'},
+        {'type': 'ground', 'position': np.array([0.05, -0.05, -0.05]), 'face': 'bottom'},
+        {'type': 'ground', 'position': np.array([-0.05, -0.05, -0.05]), 'face': 'bottom'},
+    ]
+    optimizer.update_contact_points(new_contact_points)
+    
+    # 设置目标位姿和当前位姿
+    target_pose = np.array([0.1, -0., 0.0, 0.0, 0.0, 0.5])  # [x,y,z, rx,ry,rz]
+    current_pose = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) 
+    tau_o = np.array([0.0, 0.0, -0.01 * 9.81, 0.0, 0.0, 0.0])  # 重力
+    p_arm = np.array([0.0, -0.05, -0.0])  # 左侧
+    n_arm = np.array([-0, 1, 0])  # 法线方向指向右侧
+
+    lam_arm, x_plus_opt, info = optimizer.optimize_control_input(
+        target_pose, current_pose, tau_o, n_arm=n_arm, p_arm=p_arm
+    )
+    
+    # 转换结果为NumPy数组
+    lam_arm_np = np.array(cs.evalf(lam_arm)).flatten()
+    x_plus_opt_np = np.array(cs.evalf(x_plus_opt)).flatten()
+    
+    # 打印结果
+    print("\n优化结果:")
+    print(f"求解时间: {info['solve_time']:.6f}s")
+    # print(f"位置误差: {info['position_error']:.6f}")
+    # print(f"姿态误差: {info['orientation_error']:.6f}")
+    print(f"最优控制输入: {lam_arm_np}")
+    print(f"预测位姿: {x_plus_opt_np}")
+    print(f"目标位姿: {target_pose}")
