@@ -53,6 +53,8 @@ class MjSimulator():
         self.data_.qvel[:] = np.copy(np.array(self.param_.n_qvel_ * [0]))
 
         mujoco.mj_forward(self.model_, self.data_)
+        if getattr(self, 'viewer_', None) is not None:
+            self.viewer_.sync()
 
     def step(self, fts_pos_cmd):
         curr_q = self.get_state()

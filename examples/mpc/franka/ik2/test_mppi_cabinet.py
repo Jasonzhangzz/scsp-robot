@@ -12,8 +12,16 @@ from scipy.spatial.transform import Rotation
 from isaacgym import gymapi, gymtorch
 import torch
 current_dir = os.path.dirname(os.path.abspath(__file__))
-repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
-sys.path.append(repo_root)
+repo_root = os.path.abspath(current_dir)
+while os.path.basename(repo_root) != "scsp-robot":
+    _next_dir = os.path.dirname(repo_root)
+    if _next_dir == repo_root:
+        raise RuntimeError("scsp-robot repo root not found from %s" % current_dir)
+    repo_root = _next_dir
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 
 from planning.MPPIExplicit import _contact_jacobian, _franka_fk_T_jax, _franka_jacobian_pos_jax, _tangent_basis_from_normal
 from planning.MPPICabinet import MPPICabinet

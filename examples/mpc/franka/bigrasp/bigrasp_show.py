@@ -18,11 +18,13 @@ from scipy.spatial.transform import Rotation
 
 
 CURRENT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = CURRENT_DIR.parents[3]
+REPO_ROOT = next((p for p in Path(__file__).resolve().parents if p.name == "scsp-robot"), None) or next(p for p in Path(__file__).resolve().parents if (p / "planning" / "acados_env.py").is_file())
 CUROBO_SRC_ROOT = REPO_ROOT.parent / "thirdparty" / "curobo" / "src"
 for path in (REPO_ROOT, CUROBO_SRC_ROOT):
     if str(path) not in sys.path:
         sys.path.append(str(path))
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 
 try:
     import torch
@@ -46,7 +48,7 @@ except Exception as exc:  # pragma: no cover - runtime dependency
 
 from planning.mlqp_point_v2 import LambdaContactControlOptimizer
 # from planning.mpppi_explicit import MPPIExplicit
-from planning.mpc_explicit2_bigrasp import MPCExplicit
+from planning.mpc_explicit import MPCExplicit
 from planning.screenshot import (
     PeriodicSVGScreenshotRecorder,
     build_free_camera_config_from_position,
@@ -764,6 +766,7 @@ class DualArmPlanOnceParams:
         self.mpc_horizon_ = int(args.planner_horizon)
         self.mpc_model = "explicit"
         self.planner_solver_ = str(args.planner_solver).strip().lower()
+        self.mpc_cost_kind = "bigrasp"
         self.mpc_u_lb_ = -float(args.planner_cmd_limit)
         self.mpc_u_ub_ = float(args.planner_cmd_limit)
 
@@ -4243,7 +4246,7 @@ def build_argparser():
     parser.add_argument(
         "--solver",
         type=str,
-        choices=("ipopt", "snopt", "acados"),
+        choices=("acados", "ipopt"),
         default="acados",
         help="Optional solver used by mlqp_point_v2 for grasp scoring and static-equilibrium checks.",
     )

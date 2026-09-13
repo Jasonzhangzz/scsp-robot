@@ -19,7 +19,6 @@ try:
 except ImportError:
     o3d = None
 
-os.environ["SNOPT_LICENSE"] = "/home/lab423/opt_ws/libsnopt7/snopt7.lic"
 
 try:
     from project_point import ProjectionPoint
@@ -65,19 +64,8 @@ def _shared_lib_ext():
 
 
 def _acados_root_candidates():
-    repo_root = _repo_root_dir()
-    candidates = []
-    acados_source_dir = os.environ.get("ACADOS_SOURCE_DIR")
-    if acados_source_dir:
-        candidates.append(os.path.abspath(acados_source_dir))
-    candidates.append(os.path.abspath(os.path.join(repo_root, "..", "thirdparty", "acados")))
-    candidates.append(os.path.abspath(os.path.join(repo_root, "thirdparty", "acados")))
-
-    deduped = []
-    for candidate in candidates:
-        if candidate and candidate not in deduped:
-            deduped.append(candidate)
-    return deduped
+    from planning.acados_env import acados_root_candidates
+    return acados_root_candidates(_repo_root_dir())
 
 
 def _install_deprecated_sphinx_shim():
@@ -271,9 +259,11 @@ def _normalize_nlp_solver_name(solver_name, env_var, default_solver):
     if solver_name is None:
         solver_name = os.environ.get(env_var, default_solver)
     solver_name = str(solver_name).strip().lower()
-    if solver_name not in {"ipopt", "snopt", "acados"}:
+    if solver_name == "snopt":
+        solver_name = "acados"
+    if solver_name not in {"ipopt", "acados"}:
         raise ValueError(
-            f"Unsupported NLP solver '{solver_name}'. Expected 'ipopt', 'snopt' or 'acados'."
+            f"Unsupported NLP solver '{solver_name}'. Expected 'ipopt' or 'acados'."
         )
     return solver_name
 
@@ -466,11 +456,11 @@ class LambdaContactControlOptimizer:
         self.device_ = device
         self.num_grasp_contacts = max(2, int(num_grasp_contacts))
         self.max_point_combination_eval = max(1, int(max_point_combination_eval))
-        self.nlp_solver = _normalize_nlp_solver_name(nlp_solver, "LCC_SOLVER", "ipopt")
+        self.nlp_solver = _normalize_nlp_solver_name(nlp_solver, "LCC_SOLVER", "acados")
         self.static_nlp_solver = _normalize_nlp_solver_name(
             static_nlp_solver,
             "LCC_STATIC_SOLVER",
-            "snopt",
+            "acados",
         )
 
         self.pp = ProjectionPoint(self.mesh_path, scale_factors)
@@ -904,24 +894,13 @@ class LambdaContactControlOptimizer:
     def _get_casadi_solver_config(solver_name, tol):
         solver_name = str(solver_name).strip().lower()
         p_opts = {"print_time": False, "jit": False}
-        if solver_name == "snopt":
-            s_opts = {
-                "Major print level": 0,
-                "Minor print level": 0,
-                "Print file": 0,
-                "Summary file": 0,
-                "print_level": 0,
-                "Major iterations limit": 300,
-                "Minor iterations limit": 300,
-            }
-        else:
-            solver_name = "ipopt"
-            s_opts = {
-                "max_iter": 300,
-                "tol": float(tol),
-                "print_level": 0,
-                "sb": "yes",
-            }
+        solver_name = "ipopt"
+        s_opts = {
+            "max_iter": 300,
+            "tol": float(tol),
+            "print_level": 0,
+            "sb": "yes",
+        }
         return solver_name, p_opts, s_opts
 
     def _get_solver_config(self, solver_name=None):
@@ -943,30 +922,6 @@ class LambdaContactControlOptimizer:
     def _configure_static_solver(self, opti, solver_name=None):
         solver_name, p_opts, s_opts = self._get_static_solver_config(solver_name=solver_name)
         opti.solver(solver_name, p_opts, s_opts)
-
-    @staticmethod
-    def _get_snopt_v1_options():
-        p_opts = {
-            "print_time": False,
-            "jit": False,
-            "snopt": {
-                "Total real workspace": 500000,
-                "Total integer workspace": 500000,
-                "Total character workspace": 500000,
-            },
-        }
-        s_opts = {
-            "Major print level": 0,
-            "Minor print level": 0,
-            "Print file": 1,
-            "Summary file": 0,
-            "print_level": 0,
-        }
-        return p_opts, s_opts
-
-    def _configure_snopt_v1(self, opti):
-        p_opts, s_opts = self._get_snopt_v1_options()
-        opti.solver("snopt", p_opts, s_opts)
 
     def update_Jacobian(self, J_tilde=None):
         required_rows = 4 * self.max_contacts
@@ -3722,14 +3677,14 @@ def build_argparser():
     parser.add_argument(
         "--solver",
         type=str,
-        choices=("ipopt", "snopt", "acados"),
+        choices=("acados", "ipopt"),
         default=None,
         help="Optional NLP solver used by the force-closure search. Defaults to the current mlqp_point_v2 setting.",
     )
     parser.add_argument(
         "--static-solver",
         type=str,
-        choices=("ipopt", "snopt", "acados"),
+        choices=("acados", "ipopt"),
         default=None,
         help="Optional solver used by static-equilibrium solve. Defaults to --solver when provided, otherwise the current mlqp_point_v2 setting.",
     )

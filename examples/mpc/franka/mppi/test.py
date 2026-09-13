@@ -7,10 +7,14 @@ import numpy as np
 from isaacgym import gymapi
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-)
-sys.path.append(parent_dir)
+parent_dir = os.path.abspath(current_dir)
+while os.path.basename(parent_dir) != "scsp-robot":
+    _next_dir = os.path.dirname(parent_dir)
+    if _next_dir == parent_dir:
+        raise RuntimeError("scsp-robot repo root not found from %s" % current_dir)
+    parent_dir = _next_dir
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 from examples.mpc.franka.ik2.test_mppi_isaac import (  # noqa: E402
     IsaacFrankaSimulator,

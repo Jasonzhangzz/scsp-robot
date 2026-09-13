@@ -17,11 +17,18 @@ HIDDEN_GHOST_POSITION = np.array([0.0, 0.0, -10.0], dtype=np.float32)
 
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
+parent_dir = os.path.abspath(current_dir)
+while os.path.basename(parent_dir) != "scsp-robot":
+    _next_dir = os.path.dirname(parent_dir)
+    if _next_dir == parent_dir:
+        raise RuntimeError("scsp-robot repo root not found from %s" % current_dir)
+    parent_dir = _next_dir
 # Put the repository ahead of third-party packages named ``examples``.  Isaac
 # Gym/PyTorch may import such a package before this script reaches this point.
 sys.path = [p for p in sys.path if os.path.abspath(p or os.curdir) != parent_dir]
 sys.path.insert(0, parent_dir)
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 loaded_examples = sys.modules.get("examples")
 loaded_examples_file = getattr(loaded_examples, "__file__", "") if loaded_examples else ""
 if loaded_examples and not os.path.abspath(loaded_examples_file).startswith(parent_dir):

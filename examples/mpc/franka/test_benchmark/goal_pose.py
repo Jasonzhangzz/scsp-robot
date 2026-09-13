@@ -11,7 +11,7 @@ import numpy as np
 
 
 CURRENT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = CURRENT_DIR.parents[3]
+REPO_ROOT = next((p for p in Path(__file__).resolve().parents if p.name == "scsp-robot"), None) or next(p for p in Path(__file__).resolve().parents if (p / "planning" / "acados_env.py").is_file())
 DEFAULT_INPUT_DIR = REPO_ROOT / "outputs" / "videos_panda"
 
 SVG_SCREENSHOT_CAMERA_POSITION = np.array([0.7, 0.0, 0.63], dtype=np.float32)

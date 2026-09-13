@@ -3,7 +3,6 @@ import numpy as np
 
 import os
 from pathlib import Path
-os.environ['SNOPT_LICENSE'] = '/home/lab423/opt_ws/libsnopt7/snopt7.lic'
 import casadi as cs
 try:
     from project_point import ProjectionPoint
@@ -203,56 +202,18 @@ class LambdaContactControlOptimizer:
         opti.subject_to(lam_arm[0] <= 2)
 
         
-        # ----------------- Solver 配置 -----------------
-        # 默认使用 SNOPT；若 SNOPT 在当前环境不稳定，可设:
-        #   export LCC_SOLVER=ipopt
-        solver_name = os.environ.get("LCC_SOLVER", "snopt").strip().lower()
-
+        # IPOPT is the compiled fallback for this cabinet helper.
         p_opts = {
             "print_time": False,
             "jit": False,
         }
-
-        if solver_name == "snopt":
-            # 注意: CasADi+SNOPT 下将 SNOPT 选项放到 s_opts。
-            # 某些版本在 p_opts 里使用嵌套字典会触发 Fortran 文件单元异常 (例如 fort.90 EOF)。
-            s_opts = {
-                "Major iterations limit": 200,
-                "Minor iterations limit": 100,
-                "Major print level": 0,
-                "Minor print level": 0,
-                "Print file": 0,
-                "Summary file": 0,
-                "Total real workspace": 500000,
-                "Total integer workspace": 500000,
-                "Total character workspace": 500000,
-            }
-            opti.solver("snopt", p_opts, s_opts)
-        else:
-            s_opts = {
-                "max_iter": 200,
-                "tol": 1e-6,
-                "linear_solver": "mumps",
-                "print_level": 0,
-            }
-            opti.solver("ipopt", p_opt)
-        # opti.solver("snopt", {
-        #     "snopt": {
-        #         "Total real workspace": 500000,
-        #         "Total integer workspace": 500000,
-        #         "Total character workspace": 500000
-        #     }
-        # })
-
-        # p_opts = {"print_time": False, "jit": False}
-        # s_opts = {
-        #     "max_iter": 50, 
-        #     "tol": 1e-4,
-        #     "linear_solver": "mumps",
-        #     "print_level": 0
-        # }
-        # opti.solver('ipopt', p_opts, s_opts)
-
+        s_opts = {
+            "max_iter": 200,
+            "tol": 1e-6,
+            "linear_solver": "mumps",
+            "print_level": 0,
+        }
+        opti.solver("ipopt", p_opts, s_opts)
         # 构建优化函数
         self.optimization_fn = opti.to_function(
             'optimization_fn_joint',

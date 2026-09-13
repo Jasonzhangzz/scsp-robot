@@ -9,7 +9,6 @@ import os
 import sys
 import ctypes
 from scipy.sparse.csgraph import dijkstra
-os.environ['SNOPT_LICENSE'] = '/home/lab423/opt_ws/libsnopt7/snopt7.lic'
 try:
     # The reference fingertip experiment samples mesh vertices.  Keep the
     # original projection helper here; ``project_point1`` uses face centers
@@ -30,7 +29,7 @@ class LambdaContactControlOptimizer:
                  scale_factors=[1.0, 1.0, 1.0],
                  collision_hull=False,
                  normal_stability_cos=0.90,
-                 solver='ipopt', torch_max_iter=100,
+                 solver='acados', torch_max_iter=100,
                  fingertip_clearance=0.011):
         # 系统参数
         self.m = obj_mass
@@ -91,9 +90,12 @@ class LambdaContactControlOptimizer:
         self.max_normal_force = self.max_contact_force / np.sqrt(1.0 + 2.0 * self.mu_arm_obj ** 2)
         if self.max_normal_force <= 0.001:
             raise ValueError('max_contact_force is too small for the minimum normal force')
-        # Keep IPOPT as the default/fallback.  The Torch backend is selected
-        # explicitly by the fingertip example (``torch-lbfgs``).
-        self.solver = str(solver)
+        # Prefer acados; IPOPT remains the compiled fallback.
+        # The Torch backend is selected explicitly by ``torch-lbfgs``.
+        solver = str(solver).strip().lower()
+        if solver == 'snopt':
+            solver = 'acados'
+        self.solver = solver
         self.torch_max_iter = int(torch_max_iter)
         self.last_solver_status = 'ipopt'
         # Diagnostics for rollout timing.  Acados normally solves each
@@ -141,6 +143,14 @@ class LambdaContactControlOptimizer:
         # reducing it lets the raw lambda objective select a distant patch
         # when the anchored patch can no longer make progress.
         self.contact_switch_confidence = 1.0
+        # Dwell / no-progress bookkeeping for the confidence schedule.
+        # While a patch keeps lowering the task cost, confidence stays at 1
+        # (lazy switching).  After a run of stagnant steps the confidence is
+        # multiplied by gamma each cycle, which is the cheap on-policy
+        # analogue of a discounted "time-on-this-action" penalty.
+        self._dwell_idx = None
+        self._dwell_steps = 0
+        self._dwell_best_cost = None
         # Optional diagnostic mode: keep the incumbent sampled patch fixed
         # while its candidate remains finite.  This separates MPC tracking
         # from contact-point re-selection; normal rollouts leave it disabled.
@@ -149,6 +159,24 @@ class LambdaContactControlOptimizer:
         self.last_global_total_cost = None
         self.last_best_x_plus = None
         self.last_best_cost = None
+        # Executed nearest-sample contact (p_arm).  This is a distinct
+        # quantity from last_selected_idx (the globally ranked patch) and
+        # must obey the same lock / confidence / block / curvature policy.
+        self.last_executed_idx = None
+        self.last_executed_x_plus = None
+        self.last_executed_cost = None
+        self.last_executed_force = None
+        self.last_candidate_ids = None
+        self.last_candidate_costs = None
+        self.last_candidate_x_plus = None
+        self.last_candidate_forces = None
+        # Sample-neighborhood curvature.  Sharp tips (trunk/ear/tail) have
+        # rapidly changing normals among the sampled set; those points are
+        # already excluded from ranking via mesh normal-stability, and the
+        # same gate is applied when choosing the executed p_arm sample.
+        self.curvature_neighbor_k = 8
+        self.region_max_point_curvature = 0.25
+        self.point_curvature = self._estimate_point_curvature()
         # Temporary blacklist for patches that were reached without yielding
         # contact or pose progress.  This prevents immediate re-selection of
         # the same low-authority ear/foot neighborhood.
@@ -157,32 +185,14 @@ class LambdaContactControlOptimizer:
         self._precompile_optimization_function()
         self.acados_solver = None
         self.acados_error = None
-        if self.solver == 'acados':
+        if self.solver not in ('ipopt', 'torch-lbfgs', 'torch-gn'):
             try:
                 self.acados_solver = self._build_acados_contact_solver()
+                self.solver = 'acados'
             except Exception as exc:
                 self.acados_error = exc
                 print(f'acados contact solver unavailable; using IPOPT fallback: {exc}')
-
-    @staticmethod
-    def _get_snopt_options():
-        p_opts = {
-            "print_time": False,
-            "jit": False,
-            "snopt": {
-                "Total real workspace": 500000,
-                "Total integer workspace": 500000,
-                "Total character workspace": 500000,
-            },
-        }
-        s_opts = {
-            "Major print level": 0,
-            "Minor print level": 0,
-            "Print file": 1,
-            "Summary file": 0,
-            "print_level": 0,
-        }
-        return p_opts, s_opts
+                self.solver = 'ipopt'
 
     def update_Jacobian(self, J_tilde=None):
         required_rows = 4 * self.max_contacts
@@ -210,6 +220,82 @@ class LambdaContactControlOptimizer:
         self.contact_switch_confidence = float(np.clip(confidence, 0.0, 1.0))
         return self.contact_switch_confidence
 
+    def note_contact_progress(self, selected_idx, progress_cost, active=True,
+                              gamma=0.85, min_dwell_steps=6, improve_eps=1e-3,
+                              unlock_confidence=0.05, block_cycles=20,
+                              dead_increment=False):
+        """Decay switch-confidence if one patch stops improving the task cost.
+
+        ``progress_cost`` must decrease when the incumbent is useful (pose
+        error, or the lambda objective).  ``active`` is false while the
+        fingertip is still travelling, so approach time is not treated as a
+        failed dwell.  A switch after confidence has collapsed blacklists
+        the exhausted neighborhood so the ranker cannot bounce straight
+        back to the same local optimum.
+        """
+        if selected_idx is None:
+            return self.contact_switch_confidence
+        try:
+            cost = float(progress_cost)
+        except (TypeError, ValueError):
+            return self.contact_switch_confidence
+        if not np.isfinite(cost):
+            return self.contact_switch_confidence
+
+        idx = int(selected_idx)
+        unlock = float(unlock_confidence)
+        if self._dwell_idx is None or idx != int(self._dwell_idx):
+            if (self._dwell_idx is not None and
+                    self.contact_switch_confidence <= unlock):
+                self.block_contact_patch(self._dwell_idx, cycles=block_cycles)
+            self._dwell_idx = idx
+            self._dwell_steps = 0
+            self._dwell_best_cost = cost
+            self.set_contact_switch_confidence(1.0)
+            return self.contact_switch_confidence
+
+        best = self._dwell_best_cost
+        if best is None or cost < float(best) - float(improve_eps):
+            self._dwell_best_cost = cost
+            self._dwell_steps = 0
+            self.set_contact_switch_confidence(1.0)
+            return self.contact_switch_confidence
+
+        if not active:
+            return self.contact_switch_confidence
+
+        self._dwell_steps += 1
+        # A contact that the fingertip already reached, but that cannot
+        # produce a usable x_plus, is a dead local optimum.  Decay faster
+        # and require fewer grace steps than a patch that is still moving
+        # the object a little.
+        wait = max(1, int(min_dwell_steps))
+        decay = float(np.clip(gamma, 0.0, 1.0))
+        if dead_increment:
+            wait = max(1, wait // 2)
+            decay = decay * decay
+        if self._dwell_steps >= wait:
+            self.set_contact_switch_confidence(
+                self.contact_switch_confidence * decay)
+            if self.contact_switch_confidence <= unlock:
+                self.lock_contact_patch = False
+                # Blacklist now, not only after a later switch.  Otherwise
+                # the next cycle still picks a 1 cm neighbour on the same
+                # trunk/ear patch.
+                self.block_contact_patch(
+                    self._dwell_idx,
+                    cycles=max(40, int(block_cycles)),
+                    radius=2.0 * self.contact_switch_radius)
+                self.last_selected_idx = None
+                self.last_selected_local = None
+                self.last_executed_idx = None
+                self.last_executed_x_plus = None
+                self.last_executed_cost = None
+                self.last_executed_force = None
+                self._pending_selected_idx = None
+                self._pending_selected_count = 0
+        return self.contact_switch_confidence
+
     def block_contact_patch(self, sample_idx, cycles=20, radius=None):
         """Temporarily suppress a failed sample and nearby samples."""
         if sample_idx is None:
@@ -228,6 +314,129 @@ class LambdaContactControlOptimizer:
             key = int(neighbour)
             self._blocked_contact_indices[key] = max(
                 count, int(self._blocked_contact_indices.get(key, 0)))
+
+    def _estimate_point_curvature(self):
+        """Normal variation among sampled neighbours; high at sharp tips."""
+        n_samples = int(len(self.sample_point))
+        if n_samples <= 1:
+            return np.zeros((n_samples,), dtype=np.float64)
+        from scipy.spatial import cKDTree
+        query_k = min(n_samples, self.curvature_neighbor_k + 1)
+        _, neighbor_idx = cKDTree(self.sample_point).query(self.sample_point, k=query_k)
+        neighbor_idx = np.asarray(neighbor_idx, dtype=int)
+        if neighbor_idx.ndim == 1:
+            neighbor_idx = neighbor_idx.reshape(-1, 1)
+        if neighbor_idx.shape[1] <= 1:
+            return np.zeros((n_samples,), dtype=np.float64)
+        neighbor_idx = neighbor_idx[:, 1:]
+        neighbor_normals = self.normal[neighbor_idx]
+        ref_normals = self.normal[:, None, :]
+        normal_dot = np.clip(np.sum(ref_normals * neighbor_normals, axis=2), -1.0, 1.0)
+        return np.asarray(0.5 * np.mean(1.0 - normal_dot, axis=1), dtype=np.float64)
+
+    def _filter_contact_policy_indices(self, candidate_idx,
+                                       drop_blocked=True,
+                                       drop_high_curvature=True):
+        """Apply best-contact policy gates to a sample index set.
+
+        Ranking already uses the floor-clear sample pool.  The executed
+        nearest point (p_arm) must additionally drop blacklisted patches
+        and high-curvature / unstable tips so it cannot snap to a trunk
+        vertex that choose_contact_points would refuse to keep.
+        """
+        ids = np.asarray(candidate_idx, dtype=np.int32).reshape(-1)
+        if ids.size == 0:
+            return ids
+        keep = np.ones(ids.size, dtype=bool)
+        if drop_blocked and self._blocked_contact_indices:
+            blocked = np.asarray(
+                [int(idx) in self._blocked_contact_indices for idx in ids],
+                dtype=bool)
+            if np.any(keep & ~blocked):
+                keep &= ~blocked
+        if drop_high_curvature:
+            if getattr(self, 'point_curvature', None) is not None:
+                high_curv = self.point_curvature[ids] > float(self.region_max_point_curvature)
+                if np.any(keep & ~high_curv):
+                    keep &= ~high_curv
+            stability = getattr(self.pp, 'vertex_normal_stability', None)
+            if stability is not None and self.sample_vertex_indices is not None:
+                vertex_idx = self.sample_vertex_indices[ids]
+                valid = (vertex_idx >= 0) & (vertex_idx < len(stability))
+                unstable = np.zeros(ids.size, dtype=bool)
+                if np.any(valid):
+                    unstable[valid] = (
+                        stability[vertex_idx[valid]]
+                        < float(getattr(self.pp, 'normal_stability_cos', 0.90)))
+                if np.any(keep & ~unstable):
+                    keep &= ~unstable
+        filtered = ids[keep]
+        return filtered if filtered.size else ids
+
+    def select_executed_contact_idx(self, query_local, candidate_idx):
+        """Nearest sample under lock / confidence / block / curvature rules.
+
+        This is the p_arm counterpart of ``_select_contact_candidate``.
+        While confidence is high the incumbent executed patch is held
+        (hard-lock, or a geodesic neighbourhood); after collapse the
+        nearest unblocked, non-sharp sample is taken.
+        """
+        ids = self._filter_contact_policy_indices(candidate_idx)
+        if ids.size == 0:
+            ids = np.asarray(candidate_idx, dtype=np.int32).reshape(-1)
+        if ids.size == 0:
+            return 0
+        query = np.asarray(query_local, dtype=np.float64).reshape(3)
+        prev = self.last_executed_idx
+        confidence = float(np.clip(
+            getattr(self, 'contact_switch_confidence', 1.0), 0.0, 1.0))
+        if (getattr(self, 'lock_contact_patch', False) and prev is not None
+                and confidence > 0.05 and int(prev) in ids):
+            return int(prev)
+        if prev is not None and confidence > 0.05 and int(prev) in ids:
+            try:
+                geo = self.sample_geodesic[int(prev), ids]
+                local = ids[geo <= float(self.contact_switch_radius)]
+            except Exception:
+                local = ids
+            if local.size:
+                ids = local
+            else:
+                return int(prev)
+        pts = np.asarray(self.sample_point[ids], dtype=np.float64)
+        return int(ids[int(np.argmin(np.linalg.norm(pts - query[None, :], axis=1)))])
+
+    def resolve_executed_contact(self, query_local, candidate_idx,
+                                 x_d, current_x, tau_o, v_last=None):
+        """Solve (or reuse) the lambda QP at the policy-filtered p_arm sample."""
+        idx = self.select_executed_contact_idx(query_local, candidate_idx)
+        self.last_executed_idx = int(idx)
+        p_obj = np.asarray(self.sample_point[idx], dtype=np.float64)
+        n_in = np.asarray(self.normal[idx], dtype=np.float64)
+        ids = getattr(self, 'last_candidate_ids', None)
+        if ids is not None:
+            hits = np.flatnonzero(np.asarray(ids, dtype=np.int32) == int(idx))
+            if hits.size:
+                loc = int(hits[0])
+                x_plus = None
+                if self.last_candidate_x_plus is not None:
+                    x_plus = np.asarray(self.last_candidate_x_plus[loc], dtype=np.float64).reshape(7)
+                cost = float(self.last_candidate_costs[loc]) if self.last_candidate_costs is not None else float('inf')
+                force = (np.asarray(self.last_candidate_forces[loc], dtype=np.float32)
+                         if self.last_candidate_forces is not None
+                         else np.zeros(3, dtype=np.float32))
+                failed = (x_plus is None) or (not np.isfinite(cost))
+                self.last_executed_x_plus = None if failed else x_plus
+                self.last_executed_cost = cost
+                self.last_executed_force = force
+                return p_obj, -n_in, self.last_executed_x_plus, cost, {
+                    'control_input': force,
+                    'solver_failed': failed,
+                    'solve_time': 0.0,
+                    'resulting_pose': self.last_executed_x_plus,
+                }
+        return self.optimize_control_input(
+            x_d, current_x, tau_o, p_arm=p_obj, v_last=v_last, sample_idx=idx)
 
     def compute_env_diag_inverse(self, J_tilde):
         """
@@ -329,9 +538,7 @@ class LambdaContactControlOptimizer:
         opti.subject_to(lam_arm[0] <= self.max_normal_force)
 
         
-        # Use IPOPT for contact-point selection as well as the outer MPC.
-        # The previous hard-coded SNOPT backend produced SNOPT banners and
-        # required a separate license, even when the MPC itself used IPOPT.
+        # IPOPT is the compiled fallback for the acados contact NLP.
         p_opts = {"print_time": False, "jit": False}
         s_opts = {
             "max_iter": 200,
@@ -340,22 +547,6 @@ class LambdaContactControlOptimizer:
             "print_level": 0,
         }
         opti.solver('ipopt', p_opts, s_opts)
-        # opti.solver("snopt", {
-        #     "snopt": {
-        #         "Total real workspace": 500000,
-        #         "Total integer workspace": 500000,
-        #         "Total character workspace": 500000
-        #     }
-        # })
-
-        # p_opts = {"print_time": False, "jit": False}
-        # s_opts = {
-        #     "max_iter": 50, 
-        #     "tol": 1e-4,
-        #     "linear_solver": "mumps",
-        #     "print_level": 0
-        # }
-        # opti.solver('ipopt', p_opts, s_opts)
 
         # 构建优化函数
         self.optimization_fn = opti.to_function(
@@ -462,7 +653,11 @@ class LambdaContactControlOptimizer:
         chosen_local = global_local
 
         locked_incumbent_local = None
-        if getattr(self, 'lock_contact_patch', False) and prev_sample_idx is not None:
+        # A hard lock only makes sense while the dwell policy still trusts
+        # this patch.  Once confidence has collapsed, keep the incumbent
+        # visible but let the raw lambda optimum explore.
+        if (getattr(self, 'lock_contact_patch', False) and prev_sample_idx is not None
+                and transition_weight > 0.05):
             hits = np.flatnonzero(ids == int(prev_sample_idx))
             if hits.size and finite_mask[int(hits[0])]:
                 locked_incumbent_local = int(hits[0])
@@ -542,7 +737,10 @@ class LambdaContactControlOptimizer:
             else:
                 self._pending_selected_idx = chosen_idx
                 self._pending_selected_count = 1
-            if (incumbent_hits.size and finite_mask[int(incumbent_hits[0])] and
+            # Exhausted confidence is an explicit explore command; do not
+            # sit on the dead incumbent for another confirm window.
+            if (transition_weight > 0.05 and incumbent_hits.size and
+                    finite_mask[int(incumbent_hits[0])] and
                     self._pending_selected_count < self.contact_switch_confirm_steps):
                 chosen_idx = int(incumbent_idx)
                 chosen_local = int(incumbent_hits[0])
@@ -594,7 +792,7 @@ class LambdaContactControlOptimizer:
         return geo
 
     def _solve_optimization(self, **kwargs):
-        if self.solver == 'acados' and self.acados_solver is not None:
+        if self.acados_solver is not None and self.solver not in ('ipopt', 'torch-lbfgs', 'torch-gn'):
             self.acados_solve_count += 1
             try:
                 result = self._solve_optimization_acados(**kwargs)
@@ -640,17 +838,8 @@ class LambdaContactControlOptimizer:
             return None
 
     def _build_acados_contact_solver(self):
-        root = os.environ.get('ACADOS_SOURCE_DIR', os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'thirdparty', 'acados')))
-        interface = os.path.join(root, 'interfaces', 'acados_template')
-        if interface not in sys.path:
-            sys.path.insert(0, interface)
-        os.environ.setdefault('ACADOS_SOURCE_DIR', root)
-        lib = os.path.join(root, 'lib')
-        for name in ('libblasfeo.so.0', 'libhpipm.so', 'libqpOASES_e.so', 'libacados.so'):
-            path = os.path.join(lib, name)
-            if os.path.isfile(path):
-                try: ctypes.CDLL(path, mode=getattr(ctypes, 'RTLD_GLOBAL', 0))
-                except OSError: pass
+        from planning.acados_env import ensure_acados_env
+        ensure_acados_env()
         from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver, ACADOS_INFTY
         cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
         cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
@@ -934,7 +1123,8 @@ class LambdaContactControlOptimizer:
         J_c[2, 3], J_c[2, 4] = p[1], -p[0]
         return J_c
     
-    def optimize_control_input(self, x_d, current_x, tau_o, p_arm=None, v_last=None):
+    def optimize_control_input(self, x_d, current_x, tau_o, p_arm=None, v_last=None,
+                               sample_idx=None, candidate_idx=None):
         """优化控制输入 - 更新接口"""
         # This is a separate solve from contact-point ranking and gets its own
         # bounded fallback budget.
@@ -949,9 +1139,20 @@ class LambdaContactControlOptimizer:
         scale = 10
         curr_ori_coef = (1.0 + cs.tanh(scale * (ori_align_sq - th)))
 
-        closest_idx, n, t1, t2  = self.pp.project_point_to_mesh(p_arm)
-        p_obj_local = self.pp.scaled_mesh.vertices[closest_idx]
-        normal_obj_local = -np.asarray(n)
+        if sample_idx is None and candidate_idx is not None:
+            sample_idx = self.select_executed_contact_idx(p_arm, candidate_idx)
+        if sample_idx is not None:
+            idx = int(sample_idx)
+            p_obj_local = np.asarray(self.sample_point[idx], dtype=np.float64)
+            n = np.asarray(self.normal[idx], dtype=np.float64)
+            t1 = np.asarray(self.t1[idx], dtype=np.float64)
+            t2 = np.asarray(self.t2[idx], dtype=np.float64)
+            normal_obj_local = -n
+            self.last_executed_idx = idx
+        else:
+            closest_idx, n, t1, t2  = self.pp.project_point_to_mesh(p_arm)
+            p_obj_local = self.pp.scaled_mesh.vertices[closest_idx]
+            normal_obj_local = -np.asarray(n)
         D_inv = self.compute_env_diag_inverse(self.J_tilde)
 
         start_time = time.time()
@@ -983,6 +1184,10 @@ class LambdaContactControlOptimizer:
             "resulting_pose": x_plus_opt,
             "solver_failed": sol is None,
         }
+        if sample_idx is not None:
+            self.last_executed_x_plus = None if sol is None else np.asarray(x_plus_opt, dtype=np.float64)
+            self.last_executed_cost = cost
+            self.last_executed_force = np.asarray(lam_arm, dtype=np.float32)
         
         # Preserve the repository's extended return API while using the
         # reference point-selection rule; callers that do not need the normal
@@ -1015,6 +1220,7 @@ class LambdaContactControlOptimizer:
             try:
                 ids, costs, force_buffer, x_plus_buffer = self._choose_contact_points_torch_batch(
                     x_d, current_x, tau_o, visible_face_idx, v_last, D_inv)
+                self._store_candidate_buffers(ids, costs, x_plus_buffer, force_buffer)
                 selected_idx, min_error, max_error, selected_local = self._select_contact_candidate(
                     ids, costs, force_buffer=force_buffer,
                     contact_anchor_local=contact_anchor_local,
@@ -1066,6 +1272,7 @@ class LambdaContactControlOptimizer:
         # print("Contact point selection time:", time.time() - start_time)
 
         error_values = np.array(cs.evalf(error_list)).astype(np.float64).reshape(-1)
+        self._store_candidate_buffers(visible_face_idx, error_values, x_plus_buffer, force_buffer)
         finite_mask = np.isfinite(error_values)
         if not np.any(finite_mask):
             fallback_idx = int(visible_face_idx[0])
@@ -1093,9 +1300,18 @@ class LambdaContactControlOptimizer:
         self.last_best_x_plus = np.asarray(x_plus_buffer[int(chosen_local)], dtype=np.float64).reshape(7)
         self.last_best_cost = float(error_values[int(chosen_local)])
         return self.sample_point[min_idx], self.normal[min_idx], min_error, max_error, 1
+
+    def _store_candidate_buffers(self, ids, costs, x_plus_buffer, force_buffer):
+        self.last_candidate_ids = np.asarray(ids, dtype=np.int32).reshape(-1)
+        self.last_candidate_costs = np.asarray(costs, dtype=np.float64).reshape(-1)
+        self.last_candidate_x_plus = [
+            np.asarray(x, dtype=np.float64).reshape(7) for x in x_plus_buffer]
+        self.last_candidate_forces = [
+            np.asarray(f, dtype=np.float32).reshape(-1) for f in force_buffer]
     
     def get_availble_point_idx(self, pos, R, target_pos, threshold=0.025,
-                               viewpoint_local=None, viewpoint_cos=-0.50):
+                               viewpoint_local=None, viewpoint_cos=-0.50,
+                               heading_filter=True):
         """Return sampled contacts whose fingertip target clears the floor.
 
         ``self.normal`` points into the object.  The fingertip centre is
@@ -1144,7 +1360,7 @@ class LambdaContactControlOptimizer:
         direction = target_pos - pos
         dis = np.linalg.norm(direction[:2])
         
-        if dis > 5e-2:
+        if heading_filter and dis > 5e-2:
             direction /= np.linalg.norm(direction)
             vertex_normals_world = (R @ self.normal.T).T
             face_dot_products = vertex_normals_world @ direction

@@ -1,3 +1,6 @@
+import os
+import warnings
+
 import casadi as cs
 import numpy as np
 import time
@@ -17,6 +20,12 @@ class MPCImplicit:
         # cost function
         self.path_cost_fn, self.final_cost_fn = self.param_.init_cost_fns()
 
+        self.acados_solver_ = None
+        self._acados_init_error = None
+        self.acados_solve_count = 0
+        self.acados_failure_count = 0
+        self.acados_fallback_count = 0
+
         # initialize mpc solver
         self.init_MPC()
 
@@ -30,10 +39,14 @@ class MPCImplicit:
         nlp_lbw, nlp_ubw = self.nlp_bounds_fn_(self.param_.mpc_u_lb_, self.param_.mpc_u_ub_, self.param_.mpc_q_lb_,
                                                self.param_.mpc_q_ub_)
 
+        acados_result = self._plan_once_acados(curr_x, phi_vec, jac_mat, cost_params, nlp_param)
+        if acados_result is not None:
+            return acados_result
+
         st = time.time()
-        raw_sol = self.ipopt_solver(x0=self.nlp_w0_,
-                                    lam_x0=self.nlp_lam_x0_,
-                                    lam_g0=self.nlp_lam_g0_,
+        raw_sol = self.ipopt_solver(x0=sol_guess.get('x0', self.nlp_w0_),
+                                    lam_x0=sol_guess.get('lam_x0', self.nlp_lam_x0_),
+                                    lam_g0=sol_guess.get('lam_g0', self.nlp_lam_g0_),
                                     lbx=nlp_lbw, ubx=nlp_ubw,
                                     lbg=0.0, ubg=0.0,
                                     p=nlp_param)
@@ -156,3 +169,135 @@ class MPCImplicit:
         self.nlp_bounds_fn_ = cs.Function('nlp_bounds_fn', [lbu, ubu, lbq, ubq], [cs.vcat(lbw), cs.vvcat(ubw)])
         self.nlp_params_fn_ = cs.Function('nlp_params_fn',
                                           [q0, phi_vec, jac_mat, cost_params], [nlp_params])
+        self._dyn_equ_fn = dyn_equ_fn
+        self._dyn_comple_fn = dyn_comple_fn
+        self._dim_lam = int(dim_lam)
+        try:
+            self.acados_solver_ = self._build_acados_solver()
+        except Exception as exc:
+            self._acados_init_error = exc
+            warnings.warn(f"acados implicit MPC unavailable; using IPOPT fallback: {exc}", RuntimeWarning)
+
+    def _build_acados_solver(self):
+        from planning.acados_env import ensure_acados_env
+        ensure_acados_env()
+        from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
+
+        n = int(self.param_.mpc_horizon_)
+        nx = int(self.param_.n_qpos_)
+        nu = int(self.param_.n_cmd_)
+        nv = int(self.param_.n_qvel_)
+        nlam = int(self._dim_lam)
+        phi = cs.SX.sym('phi', self.param_.max_ncon_ * 4)
+        jac = cs.SX.sym('jac', self.param_.max_ncon_ * 4, self.param_.n_qvel_)
+        cp = cs.SX.sym('cp', self.path_cost_fn.size_in(2))
+        x = cs.SX.sym('x', nx)
+        u_cmd = cs.SX.sym('u_cmd', nu)
+        v = cs.SX.sym('v', nv)
+        lam = cs.SX.sym('lam', nlam)
+        u = cs.vertcat(u_cmd, v, lam)
+        p = cs.vvcat([phi, jac, cp])
+        pred = self.model.cs_qposInteg_(x, v)
+        equ = self._dyn_equ_fn(v, u_cmd, lam, phi, jac)
+        comple = self._dyn_comple_fn(v, u_cmd, lam, phi, jac) - self.param_.comple_relax
+
+        model = AcadosModel()
+        model.name = f"mpc_implicit_v1_h{n}_c{self.param_.max_ncon_}_x{nx}_u{nu}"
+        model.x, model.u, model.p = x, u, p
+        model.disc_dyn_expr = pred
+        model.cost_expr_ext_cost = self.path_cost_fn(x, u_cmd, cp)
+        model.cost_expr_ext_cost_e = self.final_cost_fn(x, cp)
+        model.con_h_expr = cs.vertcat(equ, comple)
+
+        ocp = AcadosOcp()
+        ocp.model = model
+        ocp.parameter_values = np.zeros(int(p.size1()))
+        ocp.cost.cost_type = "EXTERNAL"
+        ocp.cost.cost_type_e = "EXTERNAL"
+        ocp.constraints.lh = np.zeros(int(model.con_h_expr.size1()))
+        ocp.constraints.uh = np.zeros(int(model.con_h_expr.size1()))
+        ocp.constraints.idxbu = np.arange(int(u.size1()), dtype=np.int64)
+        lbu = np.concatenate([
+            np.asarray(self.param_.mpc_u_lb_, dtype=float).reshape(nu),
+            -1e3 * np.ones(nv),
+            np.zeros(nlam),
+        ])
+        ubu = np.concatenate([
+            np.asarray(self.param_.mpc_u_ub_, dtype=float).reshape(nu),
+            1e3 * np.ones(nv),
+            1e3 * np.ones(nlam),
+        ])
+        ocp.constraints.lbu = lbu
+        ocp.constraints.ubu = ubu
+        idx = np.arange(nx, dtype=np.int64)
+        ocp.constraints.idxbx_0 = idx
+        ocp.constraints.lbx_0 = np.zeros(nx)
+        ocp.constraints.ubx_0 = np.zeros(nx)
+        ocp.solver_options.N_horizon = n
+        ocp.solver_options.tf = float(self.param_.h_ * n)
+        ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
+        ocp.solver_options.hessian_approx = "EXACT"
+        ocp.solver_options.integrator_type = "DISCRETE"
+        ocp.solver_options.nlp_solver_type = "SQP_RTI"
+        ocp.solver_options.regularize_method = "PROJECT"
+        ocp.solver_options.tol = 1e-4
+        ocp.solver_options.print_level = 0
+        code_dir = os.path.join("/tmp", model.name + "_codegen")
+        os.makedirs(code_dir, exist_ok=True)
+        ocp.code_gen_opts.code_export_directory = code_dir
+        json_file = os.path.join(code_dir, model.name + ".json")
+        shared = os.path.join(code_dir, "libacados_ocp_solver_" + model.name + ".so")
+        if os.path.isfile(json_file) and os.path.isfile(shared):
+            return AcadosOcpSolver(ocp, json_file=json_file, generate=False, build=False,
+                                   check_reuse_possible=False, verbose=False)
+        return AcadosOcpSolver(ocp, json_file=json_file, generate=True, build=True,
+                               check_reuse_possible=True, verbose=False)
+
+    def _plan_once_acados(self, curr_x, phi_vec, jac_mat, cost_params, nlp_param):
+        if self.acados_solver_ is None:
+            return None
+        n = int(self.param_.mpc_horizon_)
+        nx = int(self.param_.n_qpos_)
+        nu = int(self.param_.n_cmd_)
+        nv = int(self.param_.n_qvel_)
+        nlam = int(self._dim_lam)
+        curr = np.asarray(curr_x, dtype=float).reshape(-1)
+        stage_p = np.concatenate([
+            np.asarray(phi_vec, dtype=float).reshape(-1),
+            np.asarray(jac_mat, dtype=float).reshape(-1, order="F"),
+            np.asarray(cs.DM(cost_params), dtype=float).reshape(-1),
+        ])
+        u0 = np.concatenate([
+            np.zeros(nu),
+            np.zeros(nv),
+            float(self.param_.comple_relax) * np.ones(nlam),
+        ])
+        try:
+            self.acados_solve_count += 1
+            for k in range(n):
+                self.acados_solver_.set(k, "x", curr)
+                self.acados_solver_.set(k, "u", u0)
+                self.acados_solver_.set(k, "p", stage_p)
+            self.acados_solver_.set(n, "x", curr)
+            self.acados_solver_.set(n, "p", stage_p)
+            self.acados_solver_.set(0, "lbx", curr)
+            self.acados_solver_.set(0, "ubx", curr)
+            status = int(self.acados_solver_.solve())
+            if status != 0:
+                raise RuntimeError(f"acados status {status}")
+            u_traj = np.asarray([self.acados_solver_.get(k, "u")[:nu] for k in range(n)])
+            if not np.isfinite(u_traj).all():
+                raise RuntimeError("acados returned non-finite values")
+        except Exception as exc:
+            self.acados_failure_count += 1
+            self.acados_fallback_count += 1
+            warnings.warn(f"implicit acados failed; using IPOPT fallback: {exc}", RuntimeWarning)
+            return None
+        return dict(action=u_traj[0, :],
+                    sol_guess=dict(x0=self.nlp_w0_,
+                                   lam_x0=self.nlp_lam_x0_,
+                                   lam_g0=self.nlp_lam_g0_,
+                                   solver_backend="acados"),
+                    cost_opt=np.asarray([0.0]),
+                    solve_status="ACADOS_SUCCESS",
+                    solver_backend="acados")

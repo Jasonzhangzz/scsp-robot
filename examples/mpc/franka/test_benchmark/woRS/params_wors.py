@@ -184,7 +184,7 @@ class ExplicitMPCParams:
                                                 sample_num=args.sample_num,
                                                 pos_coef=args.pos_coef,
                                                 ori_coef=args.ori_coef,
-                                                nlp_solver=getattr(args, "mlqp_solver", "ipopt"),
+                                                nlp_solver=getattr(args, "mlqp_solver", "acados"),
                                                 # scale_factors=[0.01]*3
                                             )
     @staticmethod

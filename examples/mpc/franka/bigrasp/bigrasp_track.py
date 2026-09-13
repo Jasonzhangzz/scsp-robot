@@ -15,11 +15,13 @@ import trimesh
 
 
 CURRENT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = CURRENT_DIR.parents[3]
+REPO_ROOT = next((p for p in Path(__file__).resolve().parents if p.name == "scsp-robot"), None) or next(p for p in Path(__file__).resolve().parents if (p / "planning" / "acados_env.py").is_file())
 CUROBO_SRC_ROOT = REPO_ROOT.parent / "thirdparty" / "curobo" / "src"
 for path in (REPO_ROOT, CUROBO_SRC_ROOT):
     if str(path) not in sys.path:
         sys.path.append(str(path))
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 
 try:
     import torch
@@ -46,7 +48,7 @@ except Exception as exc:  # pragma: no cover - runtime dependency
     _HAS_CUROBO = False
     _CUROBO_IMPORT_ERROR = exc
 
-from planning.mlqp_point_v2_ip import LambdaContactControlOptimizer
+from planning.mlqp_point_v2 import LambdaContactControlOptimizer
 
 
 PANDA_XML_PATH = REPO_ROOT / "envs" / "xmls" / "panda_nohand.xml"

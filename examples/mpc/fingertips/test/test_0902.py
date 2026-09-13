@@ -3,13 +3,18 @@ import json
 import numpy as np
 import os
 import sys
-import trimesh
-os.environ.setdefault('ACADOS_SOURCE_DIR', '/home/lab423/scsp/thirdparty/acados')
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
+parent_dir = os.path.abspath(current_dir)
+while os.path.basename(parent_dir) != "scsp-robot":
+    _next_dir = os.path.dirname(parent_dir)
+    if _next_dir == parent_dir:
+        raise RuntimeError("scsp-robot repo root not found from %s" % current_dir)
+    parent_dir = _next_dir
 sys.path.insert(0, parent_dir)
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 from examples.mpc.fingertips.test.params import ExplicitMPCParams
-from planning.mpc_explicit2_acados import MPCExplicitAcados as MPCExplicit
+from planning.mpc_explicit import MPCExplicit
 from planning.mpc_implicit import MPCImplicit
 
 from envs.fingertips_env import MjSimulator
@@ -17,6 +22,7 @@ from contact.fingertips_collision_detection2 import Contact
 from scipy.spatial.transform import Rotation
 from utils import metrics, rotations
 import argparse
+import mujoco
 
 
 def build_parser():
@@ -32,10 +38,13 @@ def build_parser():
     parser.add_argument('--ground_height_threshold', type=float, default=0.012)
     parser.add_argument('--fingertip_clearance', type=float, default=0.011)
     parser.add_argument('--sample_num', type=int, default=70)
-    parser.add_argument('--normal_stability_cos', type=float, default=0.90)
-    parser.add_argument('--random_init_tilt', action='store_true')
-    parser.add_argument('--init_tilt_deg', type=float, default=65.0)
-    parser.add_argument('--init_tilt_min_deg', type=float, default=0.0)
+    parser.add_argument('--normal_stability_cos', type=float, default=0.95)
+    parser.add_argument('--random_init_tilt', dest='random_init_tilt', action='store_true',
+                        help='Randomize the initial object tilt so flip starts are not upright.')
+    parser.add_argument('--no_random_init_tilt', dest='random_init_tilt', action='store_false')
+    parser.set_defaults(random_init_tilt=True)
+    parser.add_argument('--init_tilt_deg', type=float, default=75.0)
+    parser.add_argument('--init_tilt_min_deg', type=float, default=35.0)
     parser.add_argument('--pos_coef', type=float, default=500)
     parser.add_argument('--ori_coef', type=float, default=20)
     parser.add_argument('--mpc_step_limit', type=float, default=0.005)
@@ -48,160 +57,60 @@ def build_parser():
     parser.add_argument('--contact_switch_margin_ratio', type=float, default=0.2)
     parser.add_argument('--contact_switch_margin_abs', type=float, default=0.001)
     parser.add_argument('--contact_switch_confirm_steps', type=int, default=5)
-    parser.add_argument('--escape_clearance', type=float, default=0.012)
-    parser.add_argument('--escape_step', type=float, default=0.08)
-    parser.add_argument('--max_escape_steps', type=int, default=80)
-    parser.add_argument('--escape_route_threshold', type=float, default=0.03)
+    parser.add_argument('--contact_dwell_gamma', type=float, default=0.85,
+                        help='Multiply switch-confidence each stagnant on-patch step.')
+    parser.add_argument('--contact_dwell_steps', type=int, default=6,
+                        help='Grace steps on a patch before confidence starts decaying.')
     parser.add_argument('--ideal_contact_surface_margin', type=float, default=-0.0005)
     parser.add_argument('--spline_escape_cost', type=int, default=1)
-    parser.add_argument('--ideal_object_pose', action='store_true')
-    parser.add_argument('--ideal_contact_pose', action='store_true')
     parser.add_argument('--ideal_contact_distance', type=float, default=0.006)
+    parser.add_argument('--detour_attract_coef', type=float, default=80.0)
+    parser.add_argument('--detour_repel_coef', type=float, default=40.0)
+    parser.add_argument('--detour_lift_coef', type=float, default=25.0)
+    parser.add_argument('--detour_align_thresh', type=float, default=0.50)
     parser.add_argument('--viewer', action='store_true')
     parser.add_argument('--headless', action='store_true')
-    parser.add_argument('--ideal_contact_best_contact', '--ideal_contact_best_contact_pose',
-                        dest='ideal_contact_best_contact', action='store_true')
-    parser.add_argument('--ideal_contact_tracking_coef', type=float, default=10.0)
     parser.add_argument('--trial_num', type=int, default=100)
     parser.add_argument('--max_rollout_length', type=int, default=5000)
-    parser.add_argument('--contact_hold_stall_steps', type=int, default=250)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--ideal_object_pose', action='store_true',
+                      help='Set object pose from lambda_optimizer x_plus_opt every cycle.')
+    mode.add_argument('--ideal_contact_pose', action='store_true',
+                      help='Set object pose from x_plus_opt only when contact distance is near 0.')
+    mode.add_argument('--ideal_contact_switch', action='store_true',
+                      help='Use verify_cost on the nearest contact (p_arm_world), '
+                           'and set object pose only when contact distance is near 0.')
+    mode.add_argument('--rollout', action='store_true',
+                      help='Advance with MuJoCo physics; object pose is not overwritten.')
     return parser
 
 
-class _SurfaceClearanceSpline:
-    """Lift/side waypoint around the object AABB. No acados compile in the loop."""
+def _scale_local_increment(x_plus_local, scale):
+    x = np.asarray(x_plus_local, dtype=np.float64).reshape(7)
+    scale = float(scale)
+    dp = scale * x[:3]
+    qrel = x[3:7].copy()
+    qrel = qrel / max(np.linalg.norm(qrel), 1e-9)
+    rotvec = Rotation.from_quat([qrel[1], qrel[2], qrel[3], qrel[0]]).as_rotvec()
+    q_s = Rotation.from_rotvec(scale * rotvec).as_quat()
+    return np.hstack((dp, np.array([q_s[3], q_s[0], q_s[1], q_s[2]], dtype=np.float64)))
 
-    def __init__(self, mesh_path, clearance=0.012, samples=17):
-        self.mesh = trimesh.load_mesh(mesh_path, process=False)
-        self.clearance = float(clearance)
-        self.samples = max(7, int(samples))
-        self.vertices = np.asarray(self.mesh.vertices, dtype=np.float64)
-        from scipy.spatial import cKDTree
-        self._vertex_tree = cKDTree(self.vertices)
-        bounds = np.asarray(self.mesh.bounds, dtype=np.float64)
-        lo, hi = bounds[0], bounds[1]
-        self._hull_equations = np.asarray([
-            [1.0, 0.0, 0.0, -hi[0]], [-1.0, 0.0, 0.0, lo[0]],
-            [0.0, 1.0, 0.0, -hi[1]], [0.0, -1.0, 0.0, lo[1]],
-            [0.0, 0.0, 1.0, -hi[2]], [0.0, 0.0, -1.0, lo[2]],
-        ])
-        self._hull_norms = np.ones(6, dtype=np.float64)
 
-    def _signed_distance(self, points_local):
-        points_local = np.asarray(points_local, dtype=np.float64).reshape(-1, 3)
-        try:
-            return np.asarray(trimesh.proximity.signed_distance(self.mesh, points_local), dtype=np.float64)
-        except Exception:
-            d = self._vertex_tree.query(points_local, k=1, workers=1)[0]
-            values = (points_local @ self._hull_equations[:, :3].T
-                      + self._hull_equations[:, 3])
-            inside = np.all(values <= 1e-8, axis=1)
-            hull_clearance = np.min(-values / self._hull_norms, axis=1)
-            d = np.where(inside, hull_clearance, d)
-            return np.where(inside, d, -d)
-
-    @staticmethod
-    def _hermite(p0, p1, p2, t):
-        t = float(np.clip(t, 0.0, 1.0))
-        if t <= 0.5:
-            u = 2.0 * t
-            a, b = np.asarray(p0), np.asarray(p1)
-            m0 = b - a
-            m1 = 0.5 * (np.asarray(p2) - np.asarray(p0))
-        else:
-            u = 2.0 * t - 1.0
-            a, b = np.asarray(p1), np.asarray(p2)
-            m0 = 0.5 * (np.asarray(p2) - np.asarray(p0))
-            m1 = b - a
-        h00 = 2*u**3 - 3*u**2 + 1
-        h10 = u**3 - 2*u**2 + u
-        h01 = -2*u**3 + 3*u**2
-        h11 = u**3 - u**2
-        return h00*a + h10*m0 + h01*b + h11*m1
-
-    def _local_points(self, points_world, obj_pos, obj_rot):
-        return (np.asarray(obj_rot, dtype=np.float64).T @
-                (np.asarray(points_world, dtype=np.float64) - np.asarray(obj_pos, dtype=np.float64)).T).T
-
-    def _path_penalty(self, middle, start, goal, obj_pos, obj_rot):
-        ts = np.linspace(0.0, 1.0, max(self.samples, 65))
-        path = np.asarray([self._hermite(start, middle, goal, t) for t in ts])
-        sdf = self._signed_distance(self._local_points(path, obj_pos, obj_rot))
-        interior = sdf[1:-1]
-        penetration = np.maximum(self.clearance - (-interior), 0.0)
-        return 2.0 * np.sum((middle - 0.5*(start + goal))**2) + 2.0e3 * np.sum(penetration**2)
-
-    def segment_blocked(self, start_world, goal_world, obj_pos, obj_rot):
-        start = np.asarray(start_world, dtype=np.float64).reshape(3)
-        goal = np.asarray(goal_world, dtype=np.float64).reshape(3)
-        samples = np.linspace(0.0, 1.0, 9)[1:-1]
-        pts = start + samples[:, None] * (goal - start)
-        sdf = self._signed_distance(self._local_points(pts, obj_pos, obj_rot))
-        return bool(np.any(sdf > -self.clearance))
-
-    def _candidate_middle(self, start, goal, obj_pos, obj_rot):
-        midpoint = 0.5 * (start + goal)
-        direction = goal - start
-        side = np.cross(direction, np.array([0.0, 0.0, 1.0]))
-        if np.linalg.norm(side) < 1e-8:
-            side = np.cross(direction, np.array([0.0, 1.0, 0.0]))
-        side /= max(np.linalg.norm(side), 1e-8)
-        obj_pos = np.asarray(obj_pos, dtype=np.float64).reshape(3)
-        obj_rot = np.asarray(obj_rot, dtype=np.float64).reshape(3, 3)
-        lo, hi = self.mesh.bounds
-        corners = np.asarray([[x, y, z] for x in (lo[0], hi[0])
-                              for y in (lo[1], hi[1])
-                              for z in (lo[2], hi[2])])
-        corners_world = (obj_rot @ corners.T).T + obj_pos
-        top = float(np.max(corners_world[:, 2]))
-        horizontal_extent = float(np.max(np.linalg.norm(
-            corners_world[:, :2] - obj_pos[:2], axis=1)))
-        middle = midpoint.copy()
-        middle[:2] += side[:2] * (horizontal_extent + self.clearance)
-        middle[2] = max(float(start[2]), float(goal[2]),
-                        top + self.clearance + 0.03)
-        return middle
-
-    def plan(self, start_world, goal_world, obj_pos, obj_rot):
-        start = np.asarray(start_world, dtype=np.float64).reshape(3)
-        goal = np.asarray(goal_world, dtype=np.float64).reshape(3)
-        middle = self._candidate_middle(start, goal, obj_pos, obj_rot)
-        candidates = [middle]
-        for lift in (0.03, 0.06, 0.10):
-            alt = middle.copy(); alt[2] += lift; candidates.append(alt)
-        direction = goal - start
-        side = np.cross(direction, np.array([0., 0., 1.]))
-        side /= max(np.linalg.norm(side), 1e-8)
-        for sign in (-1.0, 1.0):
-            alt = middle.copy(); alt[:2] += sign * side[:2] * (2.0 * self.clearance)
-            candidates.append(alt)
-        scores = [self._path_penalty(c, start, goal, obj_pos, obj_rot)
-                  for c in candidates]
-        middle = candidates[int(np.argmin(scores))]
-        return np.vstack([start, middle, goal]).astype(np.float32)
+def _predicted_object_pose(q_obj, x_plus_local):
+    R_obj = Rotation.from_quat([q_obj[4], q_obj[5], q_obj[6], q_obj[3]]).as_matrix()
+    ideal_pos = q_obj[:3] + R_obj @ np.asarray(x_plus_local[:3], dtype=np.float64).reshape(3)
+    ideal_qrel = np.asarray(x_plus_local[3:7], dtype=np.float64).reshape(4)
+    ideal_quat = rotations.quaternion_multiply(q_obj[3:7], ideal_qrel)
+    ideal_quat = ideal_quat / max(np.linalg.norm(ideal_quat), 1e-9)
+    return ideal_pos, ideal_quat
 
 
 def _apply_local_pose_increment(env, q_after, x_plus_local):
-    import mujoco
-    R_after = Rotation.from_quat([q_after[4], q_after[5], q_after[6], q_after[3]]).as_matrix()
-    ideal_pos = q_after[:3] + R_after @ np.asarray(x_plus_local[:3], dtype=np.float64).reshape(3)
-    ideal_qrel = np.asarray(x_plus_local[3:7], dtype=np.float64).reshape(4)
-    ideal_quat = rotations.quaternion_multiply(q_after[3:7], ideal_qrel)
-    ideal_quat = ideal_quat / max(np.linalg.norm(ideal_quat), 1e-9)
+    ideal_pos, ideal_quat = _predicted_object_pose(q_after, x_plus_local)
     env.data_.qpos[:7] = np.hstack((ideal_pos, ideal_quat))
     env.data_.qvel[:6] = 0.0
     mujoco.mj_forward(env.model_, env.data_)
     return ideal_pos, ideal_quat
-
-
-def _set_fingertip(env, xyz):
-    """Place the sphere centre, used to keep perfect contact after a pose update."""
-    import mujoco
-    xyz = np.asarray(xyz, dtype=np.float64).reshape(3)
-    xyz[2] = max(float(xyz[2]), 0.0)
-    env.data_.qpos[7:10] = xyz
-    env.data_.qvel[6:] = 0.0
-    mujoco.mj_forward(env.model_, env.data_)
 
 
 def _sphere_center_on_patch(obj_pos, obj_rot, local_point, local_normal, radius, margin):
@@ -212,15 +121,40 @@ def _sphere_center_on_patch(obj_pos, obj_rot, local_point, local_normal, radius,
     return world - max(1e-4, float(radius) + float(margin)) * normal, world, normal
 
 
+def _x_plus_is_usable(x_plus_opt, info):
+    if info.get('solver_failed', False) or x_plus_opt is None:
+        return False
+    x_plus = np.asarray(x_plus_opt, dtype=np.float64)
+    if not np.isfinite(x_plus).all():
+        return False
+    x_plus_step = (float(np.linalg.norm(x_plus[:3])) +
+                   float(np.linalg.norm(x_plus[3:7] - np.array([1., 0., 0., 0.]))))
+    lambda_for_pose = np.asarray(info.get('control_input', np.zeros(3)), dtype=np.float64).reshape(-1)
+    force_norm = float(np.linalg.norm(lambda_for_pose[:3])) if lambda_for_pose.size >= 3 else 0.0
+    lambda_valid = (lambda_for_pose.size >= 3 and
+                    np.isfinite(lambda_for_pose[:3]).all() and
+                    force_norm > 1e-3)
+    return x_plus_step > 1e-8 and lambda_valid
+
+
+def _contact_distance_after_step(contact, env):
+    contact.detect_once(env)
+    measured = contact.get_actual_fingertip_contact()
+    if measured is None:
+        return float('inf')
+    return abs(float(measured.get('dist', float('inf'))))
+
+
 def main(args=None):
     if args is None:
         args = build_parser().parse_args()
     os.environ['MUJOCO_HEADLESS'] = '0' if args.viewer else '1'
-    # A 5 mm step makes the first approach to a far-side patch take hundreds
-    # of cycles.  The diagnostic still uses MPC to *establish* contact; after
-    # that the fingertip stays on the selected patch.
-    if args.ideal_contact_best_contact and abs(float(args.mpc_step_limit) - 0.005) < 1e-9:
-        args.mpc_step_limit = 0.012
+    use_ideal_object_pose = bool(args.ideal_object_pose)
+    use_ideal_contact_pose = bool(args.ideal_contact_pose)
+    use_ideal_contact_switch = bool(getattr(args, 'ideal_contact_switch', False))
+    use_contact_gated_pose = use_ideal_contact_pose or use_ideal_contact_switch
+    use_rollout = bool(args.rollout) or not (
+        use_ideal_object_pose or use_ideal_contact_pose or use_ideal_contact_switch)
 
     save_flag = False
     success_rate = 0
@@ -231,9 +165,12 @@ def main(args=None):
     trial_num = max(1, int(args.trial_num))
     success_pos_threshold = 0.02
     success_quat_threshold = 0.015
-    consecutive_success_time_threshold = 20
+    consecutive_success_time_threshold = 0
     max_rollout_length = max(1, int(args.max_rollout_length))
     trial_count = 0
+    env = None
+    contact = None
+    fingertip_radius = None
 
     while trial_count < trial_num:
         args.solver = 'acados'
@@ -244,43 +181,19 @@ def main(args=None):
         param.lambda_optimizer.contact_switch_confirm_steps = max(
             1, int(args.contact_switch_confirm_steps))
         mpc = MPCExplicit(param) if param.mpc_model == 'explicit' else MPCImplicit(param)
-        # After the gate opens, drive the fingertip with the same MPC gains
-        # as --ideal_object_pose.  The diagnostic controller slams onto the
-        # selected face and then hysteresis cannot switch (14 stays 14).
-        mpc_pose = mpc
-        fresh_lambda = None
-        if args.ideal_contact_best_contact:
-            pose_args = argparse.Namespace(**vars(args))
-            pose_args.ideal_contact_best_contact = False
-            pose_args.mpc_step_limit = 0.005
-            pose_args.attract_coef = float(args.attract_coef)
-            pose_param = ExplicitMPCParams(
-                pose_args, rand_seed=trial_count,
-                target_type='ground-rotation', model='explicit')
-            pose_param.torch_solver = 'acados'
-            pose_param.lambda_optimizer.solver = 'acados'
-            pose_param.lambda_optimizer.lock_contact_patch = False
-            pose_param.lambda_optimizer.contact_switch_confirm_steps = max(
-                1, int(args.contact_switch_confirm_steps))
-            fresh_lambda = pose_param.lambda_optimizer
-            mpc_pose = MPCExplicit(pose_param) if pose_param.mpc_model == 'explicit' else mpc
-        escape_planner = _SurfaceClearanceSpline(param.mesh_path_, clearance=args.escape_clearance)
-        escape_control_points = None
-        escape_goal = None
-        reached_lift = False
-        held_patch = None
-        hold_steps = 0
-        refresh_held_x_plus = False
-        contact_established = False
-        rank_anchor_world = None
-        choose_times = []
         pose_apply_count = 0
-        switch_count = 0
-        min_track_dist = float('inf')
+        choose_times = []
 
-        contact = Contact(param)
-        env = MjSimulator(param)
-        fingertip_radius = float(np.asarray(env.model_.geom('fingertip0').size).reshape(-1)[0])
+        if env is None:
+            contact = Contact(param)
+            env = MjSimulator(param)
+            fingertip_radius = float(np.asarray(env.model_.geom('fingertip0').size).reshape(-1)[0])
+        else:
+            contact.param_ = param
+            env.param_ = param
+            env.set_goal(param.target_p_, param.target_q_)
+            env.reset_mj_env()
+            print(f'next scene: trial {trial_count}')
 
         rollout_step = 0
         consecutive_success_time = 0
@@ -309,86 +222,50 @@ def main(args=None):
             current_tip_local = R_obj_to_world.T @ (curr_q[7:10] - curr_q[:3])
 
             param.lambda_optimizer.update_Jacobian(jac_mat_env)
-            # Before the first gated apply, prefer the visible hemisphere so
-            # the first approach is not aimed through the object.  After
-            # contact is established, rank like --ideal_object_pose: full
-            # candidate set, default switch hysteresis, and a *stationary*
-            # fingertip anchor.  Using the snapped sphere as the anchor
-            # locks the incumbent patch (geodesic + 20% cost margin).
-            rank_like_set_pose = bool(args.ideal_contact_best_contact and contact_established)
-            if rank_anchor_world is None:
-                rank_anchor_world = np.asarray(curr_q[7:10], dtype=np.float64).copy()
-            # After the reset on first contact, the fingertip is back at the
-            # set-pose start and MPC moves it.  Use that live tip as the
-            # ranking anchor so the same 14→17 style switches can occur.
-            rank_anchor_local = current_tip_local
+            # Lambda ranks every sampled surface point whose fingertip
+            # centre would clear the table.  Visibility / heading gates are
+            # MPC travel heuristics and must not shrink the contact set.
             visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
                 curr_q[0:3], R_obj_to_world, param.target_p_, args.ground_height_threshold,
-                viewpoint_local=(None if rank_like_set_pose else (
-                    current_tip_local if args.ideal_contact_best_contact else None)))
+                viewpoint_local=None,
+                heading_filter=not use_contact_gated_pose)
 
-            reuse_held = (
-                args.ideal_contact_best_contact and held_patch is not None
-                and (not contact_established)
-                and hold_steps < int(args.contact_hold_stall_steps))
-            stalled_idx = None
-            if (args.ideal_contact_best_contact and held_patch is not None
-                    and (not contact_established)
-                    and hold_steps >= int(args.contact_hold_stall_steps)):
-                stalled_idx = held_patch.get('idx')
-                param.lambda_optimizer.block_contact_patch(
-                    held_patch.get('idx'), cycles=200, radius=0.05)
-                held_patch = None
-                reached_lift = False
-                escape_control_points = None
-                escape_goal = None
-                reuse_held = False
+            last_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
+            last_exec_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+            blocked = getattr(param.lambda_optimizer, '_blocked_contact_indices', {})
+            # Keep the incumbent ranked / executed patches in the candidate
+            # pool after the first apply (rotation can drop them below the
+            # floor gate).  Hard-lock only while dwell-confidence still
+            # trusts the patch; once confidence collapses the ranker and
+            # the nearest p_arm selector may explore.  Do not force-append
+            # a blacklisted trunk/ear sample.  The same rules apply to
+            # best_contact and to p_arm_world.
+            if use_contact_gated_pose:
+                visible_point_idx = np.asarray(visible_point_idx, dtype=np.int32)
+                for idx in (last_idx, last_exec_idx):
+                    if idx is None:
+                        continue
+                    if (int(idx) not in visible_point_idx
+                            and int(idx) not in blocked):
+                        visible_point_idx = np.append(visible_point_idx, int(idx))
+                incumbents = [int(idx) for idx in (last_idx, last_exec_idx)
+                              if idx is not None]
+                if (pose_apply_count > 0 and
+                        param.lambda_optimizer.contact_switch_confidence > 0.05
+                        and any(idx not in blocked for idx in incumbents)):
+                    param.lambda_optimizer.lock_contact_patch = True
+
             start_time = time.time()
-            if reuse_held:
-                best_contact_point = held_patch['local'].copy()
-                normal = held_patch['normal'].copy()
-                min_error = held_patch['min_error']
-                max_error = held_patch['max_error']
-                if refresh_held_x_plus:
-                    p_loc, _, x_plus_opt, cost, info = param.lambda_optimizer.optimize_control_input(
-                        target_pose_eval, current_pose_eval, gravity, best_contact_point)
-                    held_patch['x_plus'] = np.asarray(x_plus_opt, dtype=np.float64).copy()
-                    held_patch['force'] = np.asarray(info.get('control_input', np.zeros(3)), dtype=np.float64)
-                    held_patch['cost'] = float(cost)
-                    refresh_held_x_plus = False
-                cached_x_plus = held_patch['x_plus']
-                cached_force = held_patch['force']
-                cached_cost = held_patch['cost']
-                hold_steps += 1
-            else:
-                best_contact_point, normal, min_error, max_error, _ = param.lambda_optimizer.choose_contact_points(
-                    target_pose_eval,
-                    current_pose_eval,
-                    gravity,
-                    visible_point_idx,
-                    contact_anchor_local=rank_anchor_local,
-                )
-                cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
-                cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
-                cached_cost = getattr(param.lambda_optimizer, 'last_best_cost', None)
-                new_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
-                if held_patch is None or held_patch.get('idx') != new_idx:
-                    prev_idx = None if held_patch is None else held_patch.get('idx')
-                    if prev_idx is not None and prev_idx != new_idx:
-                        switch_count += 1
-                    elif stalled_idx is not None and stalled_idx != new_idx:
-                        switch_count += 1
-                    held_patch = {
-                        'idx': new_idx,
-                        'local': np.asarray(best_contact_point, dtype=np.float64).copy(),
-                        'normal': np.asarray(normal, dtype=np.float64).copy(),
-                        'min_error': float(min_error),
-                        'max_error': float(max_error),
-                        'x_plus': None if cached_x_plus is None else np.asarray(cached_x_plus, dtype=np.float64).copy(),
-                        'force': None if cached_force is None else np.asarray(cached_force, dtype=np.float64).copy(),
-                        'cost': cached_cost,
-                    }
-                hold_steps = 0
+            best_contact_point, normal, min_error, max_error, _ = param.lambda_optimizer.choose_contact_points(
+                target_pose_eval,
+                current_pose_eval,
+                gravity,
+                visible_point_idx,
+                contact_anchor_local=current_tip_local,
+            )
+            cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
+            cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
+            cached_cost = getattr(param.lambda_optimizer, 'last_best_cost', None)
             choose_dt = time.time() - start_time
             choose_times.append(choose_dt)
 
@@ -398,7 +275,7 @@ def main(args=None):
             attract_point_world = best_contact_world - args.attract_point_comp * best_normal_world
             attract_point_world[2] = max(attract_point_world[2], best_contact_world[2])
 
-            if args.ideal_contact_best_contact or args.ideal_object_pose:
+            if use_ideal_object_pose or use_ideal_contact_pose:
                 p_arm_world = best_contact_world
                 x_plus_opt = cached_x_plus
                 error = float(cached_cost) if cached_cost is not None else float(min_error)
@@ -406,9 +283,19 @@ def main(args=None):
                     'control_input': cached_force if cached_force is not None else np.zeros(3),
                     'solver_failed': cached_x_plus is None,
                 }
+                selected_for_exec = getattr(param.lambda_optimizer, 'last_selected_idx', None)
+                if selected_for_exec is not None:
+                    param.lambda_optimizer.last_executed_idx = int(selected_for_exec)
+                    param.lambda_optimizer.last_executed_x_plus = cached_x_plus
+                    param.lambda_optimizer.last_executed_cost = cached_cost
+                    param.lambda_optimizer.last_executed_force = cached_force
             else:
-                p_arm_local, _, x_plus_opt, error, info = param.lambda_optimizer.optimize_control_input(
-                    target_pose_eval, current_pose_eval, gravity, current_tip_local)
+                # rollout and --ideal_contact_switch: execute the nearest
+                # *sampled* contact, under the same lock / confidence /
+                # block / curvature gates used for best_contact_world.
+                p_arm_local, _, x_plus_opt, error, info = param.lambda_optimizer.resolve_executed_contact(
+                    current_tip_local, visible_point_idx,
+                    target_pose_eval, current_pose_eval, gravity)
                 p_arm_world = R_obj_to_world @ p_arm_local + curr_q[:3]
 
             if filtered_attract is None:
@@ -416,38 +303,15 @@ def main(args=None):
             else:
                 filtered_attract = alpha * attract_point_world + (1.0 - alpha) * filtered_attract
 
-            if args.ideal_contact_best_contact and not contact_established:
-                # Track the selected sphere centre.  verify_cost=1 uses the
-                # contact-point term (no field / center-reject).  A blocked
-                # approach holds one lift waypoint until the fingertip arrives.
-                verify_cost = 1
-                tip_to_track = float(np.linalg.norm(curr_q[7:10] - best_contact_track_world))
-                need_escape = (
-                    tip_to_track > float(args.escape_route_threshold) and
-                    escape_planner.segment_blocked(
-                        curr_q[7:10], best_contact_track_world, curr_q[:3], R_obj_to_world))
-                goal_changed = (
-                    escape_goal is None or
-                    float(np.linalg.norm(best_contact_track_world - escape_goal)) > 0.02)
-                if need_escape and (escape_control_points is None or goal_changed):
-                    escape_goal = best_contact_track_world.copy()
-                    escape_control_points = escape_planner.plan(
-                        curr_q[7:10], escape_goal, curr_q[:3], R_obj_to_world)
-                    reached_lift = False
-                if escape_control_points is not None and need_escape and not reached_lift:
-                    lift = np.asarray(escape_control_points[1], dtype=np.float64)
-                    if float(np.linalg.norm(curr_q[7:10] - lift)) > 0.025:
-                        mpc_virtual_point = lift
-                    else:
-                        reached_lift = True
-                        mpc_virtual_point = best_contact_track_world.copy()
-                else:
-                    mpc_virtual_point = best_contact_track_world.copy()
-                    if not need_escape:
-                        escape_control_points = None
-                        escape_goal = None
-                        reached_lift = False
-                mpc_contact_point = mpc_virtual_point.copy()
+            if use_ideal_contact_pose:
+                # Keep one objective: sit on the selected patch or go around
+                # the object.  Press 1.5 mm along the inward normal so the
+                # quadratic equilibrium is in contact, not 1 mm outside.
+                verify_cost = 0
+                patch_out = best_contact_track_world - best_contact_world
+                patch_out = patch_out / max(float(np.linalg.norm(patch_out)), 1e-9)
+                mpc_virtual_point = best_contact_track_world - 0.0015 * patch_out
+                mpc_contact_point = best_contact_world
             else:
                 if verify_cost:
                     low_err_coef = args.low_err_coef
@@ -460,24 +324,63 @@ def main(args=None):
                 mpc_virtual_point = filtered_attract
                 mpc_contact_point = p_arm_world
 
+            selected_idx = getattr(param.lambda_optimizer, 'last_selected_idx',
+                                   getattr(param.lambda_optimizer, 'last_best_idx', None))
+            executed_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+            global_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
+            global_cost = getattr(param.lambda_optimizer, 'last_global_total_cost', None)
             print(f'花费时间: {choose_dt:.4f}')
             print('min error:', min_error, 'max error', max_error, 'actual error:', error)
             print("verify cost:", verify_cost,
                   "pose_pos_err:", float(metrics.comp_pos_error(curr_q[0:3], param.target_p_)),
+                  "pose_pos_vec:", np.round(np.asarray(curr_q[0:3], dtype=float) - param.target_p_, 4).tolist(),
                   "pose_rot_err:", float(metrics.comp_quat_error(curr_q[3:7], param.target_q_)),
                   "ball_to_best_contact:", round(float(np.linalg.norm(curr_q[7:10] - best_contact_world)), 6),
-                  "ball_to_track_contact:", round(float(np.linalg.norm(curr_q[7:10] - best_contact_track_world)), 6),
+                  "ball_to_p_arm:", round(float(np.linalg.norm(curr_q[7:10] - p_arm_world)), 6),
                   "ball_to_virtual:", round(float(np.linalg.norm(curr_q[7:10] - mpc_virtual_point)), 6),
                   "best_contact_world:", np.round(best_contact_world, 4).tolist(),
-                  "selected_idx:", (held_patch.get('idx') if held_patch is not None
-                                    else getattr(param.lambda_optimizer, 'last_selected_idx', None)),
+                  "selected_idx:", selected_idx,
+                  "executed_idx:", executed_idx,
+                  "global_idx:", global_idx,
+                  "selected_cost:", None if cached_cost is None else round(float(cached_cost), 6),
+                  "global_cost:", None if global_cost is None else round(float(global_cost), 6),
+                  "locked:", int(bool(param.lambda_optimizer.lock_contact_patch)),
+                  "confidence:", round(float(param.lambda_optimizer.contact_switch_confidence), 3),
+                  "dwell:", int(getattr(param.lambda_optimizer, '_dwell_steps', 0)),
+                  "blocked:", len(getattr(param.lambda_optimizer, '_blocked_contact_indices', {})),
                   "lambda_backend:", getattr(param.lambda_optimizer, 'last_solver_status', 'unknown'),
                   "if_contact:", int(if_contact))
+            if use_ideal_contact_pose:
+                tip = np.asarray(curr_q[7:10], dtype=np.float64)
+                obj = np.asarray(curr_q[:3], dtype=np.float64)
+                patch_n = best_contact_track_world - best_contact_world
+                patch_n = patch_n / max(float(np.linalg.norm(patch_n)), 1e-9)
+                radial = tip - obj
+                r = float(np.linalg.norm(radial))
+                align = float(np.dot(radial / max(r, 1e-9), patch_n))
+                chord = best_contact_track_world - tip
+                chord_len = max(float(np.linalg.norm(chord)), 1e-9)
+                d_line = float(np.linalg.norm(np.cross(chord, obj - tip))) / chord_len
+                print("detour:", {
+                    "align": round(align, 4),
+                    "d_line": round(d_line, 4),
+                    "r": round(r, 4),
+                    "dist_goal": round(float(np.linalg.norm(tip - mpc_virtual_point)), 4),
+                    "tip_z": round(float(tip[2]), 4),
+                    "goal_z": round(float(mpc_virtual_point[2]), 4),
+                    "if_contact": int(if_contact),
+                    "selected_idx": selected_idx,
+                    "global_idx": global_idx,
+                    "locked": int(bool(param.lambda_optimizer.lock_contact_patch)),
+                    "confidence": round(float(param.lambda_optimizer.contact_switch_confidence), 3),
+                    "dwell": int(getattr(param.lambda_optimizer, '_dwell_steps', 0)),
+                    "pose_applies": int(pose_apply_count),
+                })
 
             env.show_target(mpc_virtual_point)
             env.show_best_contact(best_contact_world)
 
-            sol = (mpc_pose if contact_established else mpc).plan_once(
+            sol = mpc.plan_once(
                 param.target_p_,
                 param.target_q_,
                 curr_q,
@@ -490,131 +393,60 @@ def main(args=None):
             param.sol_guess_ = sol['sol_guess']
             obj_qpos_before = env.data_.qpos[:7].copy()
             env.step(sol['action'])
+            ideal_pose_applied = False
 
-            if args.ideal_object_pose or args.ideal_contact_pose or args.ideal_contact_best_contact:
+            if use_ideal_object_pose or use_contact_gated_pose:
                 q_after = env.get_state()
-                x_plus_for_pose = None if info.get('solver_failed', False) else x_plus_opt
-                x_plus_finite = (x_plus_for_pose is not None and
-                                 np.isfinite(np.asarray(x_plus_for_pose)).all())
-                track_contact_distance = float(np.linalg.norm(q_after[7:10] - best_contact_track_world))
-                measured = contact.get_actual_fingertip_contact()
-                if measured is not None and measured.get('point_world') is not None:
-                    actual_contact_world = np.asarray(measured['point_world'], dtype=np.float64)
-                    ideal_contact_distance = float(np.linalg.norm(q_after[7:10] - actual_contact_world))
-                else:
-                    ideal_contact_distance = float('inf')
-                ideal_contact_gap = abs(ideal_contact_distance - fingertip_radius)
-                lambda_for_pose = np.asarray(info.get('control_input', np.zeros(3)), dtype=np.float64).reshape(-1)
-                force_norm = float(np.linalg.norm(lambda_for_pose[:3])) if lambda_for_pose.size >= 3 else 0.0
-                lambda_valid = (lambda_for_pose.size >= 3 and
-                                np.isfinite(lambda_for_pose[:3]).all() and
-                                force_norm > 1e-3)
-                x_plus_step = 0.0
-                if x_plus_finite:
-                    x_plus_step = (float(np.linalg.norm(np.asarray(x_plus_for_pose)[:3])) +
-                                   float(np.linalg.norm(np.asarray(x_plus_for_pose)[3:7] -
-                                                        np.array([1., 0., 0., 0.]))))
-
-                if args.ideal_contact_best_contact:
-                    selected_target_near = (
-                        contact_established or
-                        track_contact_distance <= max(float(args.ideal_contact_distance),
-                                                      2.5 * fingertip_radius))
-                    # First arrival only opens the gate.  The approach patch
-                    # is visibility-filtered and is often not the set-pose
-                    # optimum (trial 0: idx 11 vs 14).  Drop the incumbent
-                    # and blacklist so the next cycle ranks like
-                    # --ideal_object_pose from the same frozen object pose.
-                    if selected_target_near and not contact_established:
-                        contact_established = True
-                        held_patch = None
-                        hold_steps = 0
-                        refresh_held_x_plus = False
-                        if fresh_lambda is not None:
-                            jac_now = np.asarray(param.lambda_optimizer.J_tilde, dtype=np.float64).copy()
-                            param.lambda_optimizer = fresh_lambda
-                            param.lambda_optimizer.update_Jacobian(jac_now)
-                            fresh_lambda = None
-                        param.lambda_optimizer.last_selected_idx = None
-                        param.lambda_optimizer.last_selected_local = None
-                        param.lambda_optimizer.last_best_idx = None
-                        param.lambda_optimizer._pending_selected_idx = None
-                        param.lambda_optimizer._pending_selected_count = 0
-                        if getattr(param.lambda_optimizer, '_blocked_contact_indices', None):
-                            param.lambda_optimizer._blocked_contact_indices.clear()
-                        # Replay --ideal_object_pose from the same initial
-                        # fingertip/object state.  Leaving the sphere on the
-                        # approach patch kept the incumbent face and blocked
-                        # the 14→17 switch that finishes translation.
-                        if rank_anchor_world is not None:
-                            _set_fingertip(env, rank_anchor_world)
-                        filtered_attract = None
-                        verify_cost = 0
-                        low_err_coef = args.low_err_coef
-                        upper_err_coef = args.upper_err_coef
-                        param.sol_guess_ = None
+                ideal_pose_applied = _x_plus_is_usable(x_plus_opt, info)
+                contact_distance = float('inf')
+                apply_scale = None
+                if use_contact_gated_pose:
+                    contact_distance = _contact_distance_after_step(contact, env)
+                    if contact_distance > float(args.ideal_contact_distance):
                         ideal_pose_applied = False
-                        print('contact_established: re-rank like set-pose next step')
-                    else:
-                        # Match --ideal_object_pose: skip a near-zero force
-                        # increment so residual physics can leave a dead
-                        # patch (the 14→17 switch).  Always-on applies were
-                        # pinning the object on idx 14's local minimum.
-                        ideal_pose_applied = (
-                            selected_target_near and x_plus_finite
-                            and x_plus_step > 1e-8 and lambda_valid)
-                        if selected_target_near and not ideal_pose_applied:
-                            print('gated_apply_blocked:', {
-                                'x_plus_finite': int(x_plus_finite),
-                                'x_plus_step': round(float(x_plus_step), 8),
-                                'force_norm': round(force_norm, 6),
-                                'lambda_valid': int(lambda_valid),
-                                'solver_failed': int(bool(info.get('solver_failed', False))),
-                            })
-                elif args.ideal_object_pose:
-                    ideal_pose_applied = x_plus_finite and x_plus_step > 1e-8 and lambda_valid
-                else:
-                    ideal_pose_applied = (
-                        args.ideal_contact_pose and
-                        ideal_contact_gap <= max(float(args.ideal_contact_distance), 0.005) and
-                        x_plus_finite and x_plus_step > 1e-8 and lambda_valid)
-                # Apply lambda on the pre-step object pose it was computed from.
-                q_for_apply = q_after.copy()
-                q_for_apply[:7] = obj_qpos_before
-                in_success_band = False
-                if (args.ideal_contact_best_contact or args.ideal_object_pose):
-                    pos_before = float(metrics.comp_pos_error(obj_qpos_before[:3], param.target_p_))
-                    quat_before = float(metrics.comp_quat_error(obj_qpos_before[3:7], param.target_q_))
-                    in_success_band = (pos_before < success_pos_threshold and
-                                       quat_before < success_quat_threshold)
-                    if ideal_pose_applied and in_success_band:
-                        ideal_pose_applied = False
-
-                min_track_dist = min(min_track_dist, track_contact_distance)
                 if ideal_pose_applied:
-                    _apply_local_pose_increment(env, q_for_apply, x_plus_for_pose)
-                    pose_apply_count += 1
-                    refresh_held_x_plus = True
-                    hold_steps = 0
-                    escape_control_points = None
-                    escape_goal = None
-                    reached_lift = False
-                    if args.ideal_contact_best_contact:
-                        contact_established = True
-                elif ((args.ideal_contact_best_contact and not contact_established)
-                      or in_success_band):
-                    import mujoco
-                    env.data_.qpos[:7] = obj_qpos_before
-                    env.data_.qvel[:6] = 0.0
-                    mujoco.mj_forward(env.model_, env.data_)
-                print('track_contact_distance:', round(track_contact_distance, 6),
-                      'ideal_contact_gap:', round(ideal_contact_gap, 6),
+                    q_for_apply = q_after.copy()
+                    q_for_apply[:7] = obj_qpos_before
+                    cur_pos_err = float(metrics.comp_pos_error(q_for_apply[:3], param.target_p_))
+                    cur_quat_err = float(metrics.comp_quat_error(q_for_apply[3:7], param.target_q_))
+                    cur_score = (cur_pos_err / success_pos_threshold +
+                                 cur_quat_err / success_quat_threshold)
+                    near_goal = cur_pos_err < 0.04
+                    chosen = None
+                    chosen_score = cur_score
+                    for scale in (1.0, 0.5, 0.25):
+                        x_try = _scale_local_increment(x_plus_opt, scale)
+                        pred_pos, pred_quat = _predicted_object_pose(q_for_apply, x_try)
+                        pred_pos_err = float(metrics.comp_pos_error(pred_pos, param.target_p_))
+                        pred_quat_err = float(metrics.comp_quat_error(pred_quat, param.target_q_))
+                        # Near the goal, patch 5's full increment finishes
+                        # rotation by shoving the object past the target.
+                        if near_goal and pred_pos_err > cur_pos_err + 1e-4:
+                            continue
+                        pred_score = (pred_pos_err / success_pos_threshold +
+                                      pred_quat_err / success_quat_threshold)
+                        if pred_score < chosen_score - 1e-4:
+                            chosen_score = pred_score
+                            chosen = x_try
+                            apply_scale = scale
+                    if chosen is None:
+                        ideal_pose_applied = False
+                        if near_goal:
+                            param.lambda_optimizer.lock_contact_patch = False
+                    else:
+                        _apply_local_pose_increment(env, q_for_apply, chosen)
+                        pose_apply_count += 1
+                print('contact_distance:', None if not np.isfinite(contact_distance) else round(contact_distance, 6),
                       'ideal_pose_applied:', int(ideal_pose_applied),
-                      'hold_steps:', int(hold_steps),
-                      'held_idx:', None if held_patch is None else held_patch.get('idx'))
+                      'apply_scale:', apply_scale)
 
             if args.viewer:
                 time.sleep(0.01)
+            if getattr(env, 'break_out_signal_', False):
+                break
+            if env.viewer_ is not None and hasattr(env.viewer_, 'is_running') and not env.viewer_.is_running():
+                env.break_out_signal_ = True
+                break
             rollout_step += 1
 
             curr_q = env.get_state()
@@ -626,8 +458,35 @@ def main(args=None):
                 consecutive_success_time += 1
             else:
                 consecutive_success_time = 0
+            pose_score = (pos_err_now / success_pos_threshold +
+                          quat_err_now / success_quat_threshold)
+            tip_now = np.asarray(curr_q[7:10], dtype=float)
+            near_best = (
+                float(np.linalg.norm(tip_now - mpc_virtual_point)) < 0.03
+                or float(np.linalg.norm(tip_now - best_contact_world)) < 0.03)
+            near_p_arm = float(np.linalg.norm(tip_now - p_arm_world)) < 0.03
+            if use_ideal_contact_pose:
+                progress_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
+                near_patch = near_best
+            else:
+                progress_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+                near_patch = near_p_arm or near_best
+            # Approach time still does not count.  Once the ball is on the
+            # selected / executed patch, a frozen pose or an unusable x_plus
+            # is a failed dwell even if set-pose never fired (trunk local
+            # optimum).  The same schedule now governs p_arm_world.
+            use_dwell = use_ideal_contact_pose or use_ideal_contact_switch
+            param.lambda_optimizer.note_contact_progress(
+                progress_idx,
+                pose_score,
+                active=bool(use_dwell and (pose_apply_count > 0 or near_patch)),
+                gamma=float(args.contact_dwell_gamma),
+                min_dwell_steps=int(args.contact_dwell_steps),
+                dead_increment=bool(use_dwell and near_patch
+                                    and not ideal_pose_applied),
+            )
             if consecutive_success_time > consecutive_success_time_threshold:
-                break
+                break  # reset the next scene immediately; do not hold the success pose
 
         lambda_failures = int(getattr(param.lambda_optimizer, 'acados_failure_count', 0))
         mpc_failures = int(getattr(mpc, 'acados_failure_count', 0))
@@ -641,22 +500,21 @@ def main(args=None):
                 'mpc_failures': mpc_failures,
                 'mpc_init_error': str(getattr(mpc, '_acados_init_error', '')) or None,
             })
-        if env.viewer_ is not None:
-            env.viewer_.close()
         trial_success = rollout_step < max_rollout_length
         choose_arr = np.asarray(choose_times, dtype=np.float64) if choose_times else np.array([0.0])
         print('trial_summary:', {
             'trial': trial_count,
+            'mode': ('ideal_object_pose' if use_ideal_object_pose
+                     else 'ideal_contact_pose' if use_ideal_contact_pose
+                     else 'ideal_contact_switch' if use_ideal_contact_switch
+                     else 'rollout' if use_rollout else 'unknown'),
             'success': int(trial_success),
             'steps': rollout_step,
             'pose_applies': pose_apply_count,
-            'contact_established': int(contact_established),
-            'patch_switches': switch_count,
             'final_pos_err': round(float(metrics.comp_pos_error(curr_q[0:3], param.target_p_)), 5),
             'final_quat_err': round(float(metrics.comp_quat_error(curr_q[3:7], param.target_q_)), 5),
             'min_pos_err': None if not np.isfinite(min_pos_err) else round(float(min_pos_err), 5),
             'min_quat_err': None if not np.isfinite(min_quat_err) else round(float(min_quat_err), 5),
-            'min_track_dist': None if not np.isfinite(min_track_dist) else round(float(min_track_dist), 6),
             'choose_dt_mean': round(float(np.mean(choose_arr)), 5),
             'choose_dt_max': round(float(np.max(choose_arr)), 5),
             'choose_dt_p95': round(float(np.percentile(choose_arr, 95)), 5),
@@ -675,7 +533,15 @@ def main(args=None):
                 }, f, indent=4)
         success_rate += 1 if rollout_step < max_rollout_length else 0
         trial_count += 1
+        if getattr(env, 'break_out_signal_', False):
+            break
+        if env.viewer_ is not None and hasattr(env.viewer_, 'is_running') and not env.viewer_.is_running():
+            break
+        # Start the next trial immediately.  Scene reset happens at the top
+        # of the following loop; do not hold the finished pose in the viewer.
 
+    if env is not None and env.viewer_ is not None:
+        env.viewer_.close()
     print(f"Success rate over {trial_num} trials: {success_rate}/{trial_num} = {success_rate/trial_num:.2%}")
 
 

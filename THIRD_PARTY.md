@@ -27,9 +27,8 @@ These are resolved from `REPO_ROOT.parent / "thirdparty"` =
 | --- | --- | --- | --- |
 | `acados` | ~367MB | MPC / MLQP acados backends | No. `../thirdparty/acados` or `ACADOS_SOURCE_DIR` |
 | `curobo` | ~232MB | `bigrasp*`, `mppi2` | No. `../thirdparty/curobo/src` + installed package |
-| `CoACD` | ~29MB | optional convex hull in `mlqp_point_v2_ip` | No. optional; path is `../thirdparty/CoACD` |
+| `CoACD` | ~29MB | optional convex hull in `mlqp_point_v2` | No. optional; path is `../thirdparty/CoACD` |
 | Isaac Gym | NVIDIA binary | Franka Isaac entries | No. must be installed in the env |
-| SNOPT | license + plugin | optional CasADi solver | No. `/home/lab423/opt_ws/libsnopt7` |
 
 ## Pip / conda packages (install, do not vendor)
 
@@ -46,6 +45,9 @@ Optional: `open3d` (debug viz), `Pillow`/`imageio` (goal_pose screenshots),
 
 - `trigrasp*` now prefers `scsp-robot/thirdparty/spider/.../right.xml`, then
   `/home/lab423/scsp/thirdparty/spider/...`.
-- acados is searched at `$ACADOS_SOURCE_DIR`, `../thirdparty/acados`, then
-  `./thirdparty/acados`.
+- acados is searched at `$ACADOS_SOURCE_DIR`, `../thirdparty/acados`,
+  `./thirdparty/acados`, then `/home/lab423/scsp/thirdparty/acados`.
+  Entry points walk up to the `scsp-robot` directory and call
+  `planning.acados_env.ensure_acados_env()`, so shell
+  `export PYTHONPATH` / `export ACADOS_SOURCE_DIR` are not required.
 - cuRobo adds `../thirdparty/curobo/src` to `sys.path` when present.

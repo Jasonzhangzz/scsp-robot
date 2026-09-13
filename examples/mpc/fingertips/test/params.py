@@ -78,36 +78,29 @@ class ExplicitMPCParams:
         # ---------------------------------------------------------------------------------------------
         #      simulation parameters
         # ---------------------------------------------------------------------------------------------
-        # The best-contact diagnostic is intended to test whether the
-        # selected surface point itself can drive the object.  With the
-        # historical default of 1.0 the verify objective uses only the
-        # object-to-fingertip center term and the supplied contact point has
-        # zero weight, which would make that diagnostic inconclusive.  Keep
-        # explicit non-default values available for controlled sweeps.
-        requested_contact_cost = float(args.contact_cost_param)
-        if (getattr(args, 'ideal_contact_best_contact', False)
-                and np.isclose(requested_contact_cost, 1.0)):
-            requested_contact_cost = 0.0
-        self.contact_cost_param = requested_contact_cost
+        self.contact_cost_param = float(args.contact_cost_param)
         self.attract_coef = float(args.attract_coef)
-        # The diagnostic tracks a surface point.  The default field / center-
-        # reject terms pull the fingertip toward or away from the object
-        # center and make that experiment hit the wrong face.
         self.field_cost_weight = 0.05
         self.quadratic_contact_track = False
-        if getattr(args, 'ideal_contact_best_contact', False):
-            self.attract_coef *= max(
-                1.0, float(getattr(args, 'ideal_contact_tracking_coef', 10.0)))
-            self.field_cost_weight = 0.0
-            self.quadratic_contact_track = True
         self.reject_coef = args.reject_coef
-        # Escape experiments replace the conflicting object-center rejection
-        # term with the moving cubic-spline virtual-point cost.
         self.spline_escape_cost = bool(getattr(args, 'spline_escape_cost', 0))
-        if getattr(args, 'ideal_contact_best_contact', False):
-            self.spline_escape_cost = True
         self.contact_coef = args.contact_coef
         self.reject_dis = args.reject_dis
+        # --ideal_contact_pose replaces the verify_cost 0/1 switch with a
+        # single C-inf detour: always attract to the selected patch, and
+        # stay outside the object except in a cone around that patch.
+        self.smooth_contact_detour = bool(getattr(args, 'ideal_contact_pose', False))
+        # Quadratic tracking needs a much larger weight than the old
+        # log-barrier attract_coef=0.5; otherwise 50||u||^2 freezes the ball
+        # after the lift term has already raised it.
+        self.detour_attract_coef = float(getattr(args, 'detour_attract_coef', 80.0))
+        self.detour_repel_coef = float(getattr(args, 'detour_repel_coef', 40.0))
+        self.detour_lift_coef = float(getattr(args, 'detour_lift_coef', 25.0))
+        self.detour_align_thresh = float(getattr(args, 'detour_align_thresh', 0.50))
+        self.detour_align_sharpness = float(getattr(args, 'detour_align_sharpness', 8.0))
+        self.object_circumradius = 0.08
+        self.object_aabb_lo = np.array([-0.06, -0.04, -0.04], dtype=np.float64)
+        self.object_aabb_hi = np.array([0.06, 0.04, 0.06], dtype=np.float64)
 
         self.model_path_ = './envs/xmls/env_fingertips_'+args.obj+'.xml'
         self.mesh_path_ = "envs/assets/objects/"+args.obj+".stl"
@@ -124,6 +117,14 @@ class ExplicitMPCParams:
             source_mesh = self.mesh_path_
             self.mesh_path_ = _mujoco_collision_mesh(source_mesh, self.model_path_)
             self._collision_mesh_extracted = (self.mesh_path_ != source_mesh)
+        try:
+            bounds = np.asarray(trimesh.load_mesh(self.mesh_path_, process=False).bounds,
+                                dtype=np.float64)
+            self.object_aabb_lo = bounds[0].copy()
+            self.object_aabb_hi = bounds[1].copy()
+            self.object_circumradius = float(np.linalg.norm(0.5 * (bounds[1] - bounds[0])))
+        except Exception:
+            self.object_circumradius = 0.08
 
         # Keep the calibrated outer MPC discretization.  Lambda uses this
         # same step below; the previous h*10 setting produced 0.5 s pose
@@ -211,7 +212,10 @@ class ExplicitMPCParams:
             init_height = max(init_height, -min_world_z + 0.002)
 
         self.init_obj_qpos_ = np.hstack((init_xy_rand, init_height, init_obj_quat_rand))
-        self.init_robot_qpos_ = np.array([0.2, 0.0, 0.0])
+        self.init_robot_qpos_ = np.array([0.2, 0.0, 0.02])
+        if getattr(args, 'random_init_tilt', False):
+            self.init_robot_qpos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
+            self.init_robot_qpos_[2] = 0.02 + 0.03 * float(np.random.rand())
 
         # random target pose for object
         if target_type == 'ground-rotation':
@@ -304,7 +308,7 @@ class ExplicitMPCParams:
                                                 contact_switch_margin_ratio=getattr(args, 'contact_switch_margin_ratio', 0.2),
                                                 contact_switch_margin_abs=getattr(args, 'contact_switch_margin_abs', 1e-3),
                                                 fingertip_clearance=getattr(args, 'fingertip_clearance', 0.011),
-                                                normal_stability_cos=getattr(args, 'normal_stability_cos', 0.90),
+                                                normal_stability_cos=getattr(args, 'normal_stability_cos', 0.95),
                                                 solver=getattr(args, 'solver', 'ipopt'),
                                                 torch_max_iter=getattr(args, 'torch_max_iter', 100),
                                                 # An extracted mesh already is
@@ -341,40 +345,126 @@ class ExplicitMPCParams:
         phi_vec = cs.SX.sym('phi_vec', self.max_ncon_ * 4)
         jac_mat = cs.SX.sym('jac_mat', self.max_ncon_ * 4, self.n_qvel_)
         verify_cost_param = cs.SX.sym('verify_cost', 1)
-        direction_quat = self.calculate_rotation_quaternion(x, target_position)
-        field_cost = compute_scalar_potential_and_gradient(
-            x[7], x[8], x[9],
-            center=x[:3],
-            quaternion=direction_quat,
-            distance=0.5,
-            m_magnitude=0.5,
-        )[0]
-        if getattr(self, 'quadratic_contact_track', False):
-            virtual_point_cost = cs.sumsqr(x[7:10] - virtual_point)
-        else:
-            virtual_point_cost = self.log_barrier_function(x, virtual_point)
-
-        reject_distance = cs.sumsqr(x[0:2] - x[7:9]) + 1e-3
-        obstacle_cost = (cs.DM(0) if self.spline_escape_cost else
-                         cs.if_else(reject_distance < self.reject_dis, 1 / (reject_distance), 0.0))
-        attract_cost = (self.attract_coef * virtual_point_cost
-                        + float(getattr(self, 'field_cost_weight', 0.05)) * field_cost
-                        + self.reject_coef * obstacle_cost)
-
         cost_param = cs.vvcat([target_position, target_quaternion, phi_vec, jac_mat, verify_cost_param, virtual_point, contact_point])
+        if getattr(self, 'smooth_contact_detour', False):
+            base_cost = self._smooth_contact_detour_cost(x, virtual_point, contact_point)
+            final_cost = (500 * position_cost + 20.0 * quaternion_cost
+                          + 20.0 * self.detour_attract_coef * cs.sumsqr(x[7:10] - virtual_point))
+            control_weight = 8.0
+        else:
+            direction_quat = self.calculate_rotation_quaternion(x, target_position)
+            field_cost = compute_scalar_potential_and_gradient(
+                x[7], x[8], x[9],
+                center=x[:3],
+                quaternion=direction_quat,
+                distance=0.5,
+                m_magnitude=0.5,
+            )[0]
+            if getattr(self, 'quadratic_contact_track', False):
+                virtual_point_cost = cs.sumsqr(x[7:10] - virtual_point)
+            else:
+                virtual_point_cost = self.log_barrier_function(x, virtual_point)
 
-        # base cost
-        contact_point_cost = (cs.sumsqr(x[7:10] - contact_point)
-                              if getattr(self, 'quadratic_contact_track', False)
-                              else self.log_barrier_function(x, contact_point))
-        base_cost = (1 - verify_cost_param) * attract_cost + self.contact_coef * verify_cost_param * (self.contact_cost_param * contact_cost + (1-self.contact_cost_param) * contact_point_cost)
- 
-        final_cost = 500 * position_cost + 5.0 * quaternion_cost * 4
+            reject_distance = cs.sumsqr(x[0:2] - x[7:9]) + 1e-3
+            obstacle_cost = (cs.DM(0) if self.spline_escape_cost else
+                             cs.if_else(reject_distance < self.reject_dis, 1 / (reject_distance), 0.0))
+            attract_cost = (self.attract_coef * virtual_point_cost
+                            + float(getattr(self, 'field_cost_weight', 0.05)) * field_cost
+                            + self.reject_coef * obstacle_cost)
+            contact_point_cost = (cs.sumsqr(x[7:10] - contact_point)
+                                  if getattr(self, 'quadratic_contact_track', False)
+                                  else self.log_barrier_function(x, contact_point))
+            base_cost = ((1 - verify_cost_param) * attract_cost
+                         + self.contact_coef * verify_cost_param
+                         * (self.contact_cost_param * contact_cost
+                            + (1 - self.contact_cost_param) * contact_point_cost))
+            final_cost = 500 * position_cost + 5.0 * quaternion_cost * 4
+            control_weight = 50.0
 
-        path_cost_fn = cs.Function('path_cost_fn', [x, u, cost_param], [base_cost + 50 * control_cost])
+        path_cost_fn = cs.Function('path_cost_fn', [x, u, cost_param], [base_cost + control_weight * control_cost])
         final_cost_fn = cs.Function('final_cost_fn', [x, cost_param], [10 * final_cost])
 
         return path_cost_fn, final_cost_fn
+
+    @staticmethod
+    def _smooth_relu(z, eps=1e-4):
+        return 0.5 * (z + cs.sqrt(z * z + eps))
+
+    @staticmethod
+    def _smooth_gate(value, threshold, sharpness=8.0):
+        return 0.5 * (1.0 + cs.tanh(float(sharpness) * (value - threshold)))
+
+    @staticmethod
+    def _quat_wxyz_to_rot(q):
+        w, x, y, z = q[0], q[1], q[2], q[3]
+        return cs.vertcat(
+            cs.horzcat(1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)),
+            cs.horzcat(2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)),
+            cs.horzcat(2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)),
+        )
+
+    def _object_top_z(self, obj_pos, obj_quat):
+        lo = np.asarray(self.object_aabb_lo, dtype=np.float64)
+        hi = np.asarray(self.object_aabb_hi, dtype=np.float64)
+        half = cs.DM(0.5 * (hi - lo))
+        center_local = cs.DM(0.5 * (hi + lo))
+        R = self._quat_wxyz_to_rot(obj_quat)
+        center_world = obj_pos + R @ center_local
+        z_extent = (cs.fabs(R[2, 0]) * half[0]
+                    + cs.fabs(R[2, 1]) * half[1]
+                    + cs.fabs(R[2, 2]) * half[2])
+        return center_world[2] + z_extent
+
+    def _smooth_contact_detour_cost(self, x, virtual_point, contact_point):
+        """Always attract to the selected patch; lift only while blocked.
+
+        Attracting to a sky waypoint on the object's circumsphere created a
+        hover equilibrium: the elephant keep-out sphere is ~8 cm, the via
+        sat on top of it, and gravity compensation held the fingertip there.
+        Lift is now a one-sided floor (too-low penalty) that turns off once
+        the ball clears the mesh top, so the goal term can pull it down.
+        """
+        tip = x[7:10]
+        obj = x[0:3]
+        goal = virtual_point
+        surface = contact_point
+
+        patch_n = goal - surface
+        patch_n = patch_n / cs.sqrt(cs.sumsqr(patch_n) + 1e-9)
+        radial = tip - obj
+        r = cs.sqrt(cs.sumsqr(radial) + 1e-9)
+        align = cs.dot(radial / r, patch_n)
+        dist_goal = cs.sqrt(cs.sumsqr(tip - goal) + 1e-12)
+        # Arrival must kill lift/clearance.  A short tip→goal chord makes
+        # d_line tiny, so blocked stays on and lift holds the ball just
+        # above a side patch.  The AABB ellipsoid is also larger than the
+        # mesh, so the track point itself sits inside it.
+        arrive = self._smooth_gate(0.03 - dist_goal, 0.0, 20.0)
+        approach_gate = cs.fmax(
+            self._smooth_gate(align, self.detour_align_thresh, self.detour_align_sharpness),
+            arrive)
+
+        r_core = 0.025
+        lo = np.asarray(self.object_aabb_lo, dtype=np.float64)
+        hi = np.asarray(self.object_aabb_hi, dtype=np.float64)
+        half = cs.DM(0.5 * (hi - lo) + 0.008)
+        center_local = cs.DM(0.5 * (hi + lo))
+        R = self._quat_wxyz_to_rot(x[3:7])
+        tip_local = R.T @ (tip - obj) - center_local
+        rho = cs.sqrt(cs.sumsqr(tip_local / half) + 1e-9)
+        U_clear = (1.0 - approach_gate) * (
+            self._smooth_relu(1.0 - rho) ** 2 + self._smooth_relu(r_core - r) ** 2)
+
+        chord = goal - tip
+        chord_len = cs.sqrt(cs.sumsqr(chord) + 1e-9)
+        d_line = cs.sqrt(cs.sumsqr(cs.cross(chord, obj - tip)) + 1e-12) / chord_len
+        blocked = (1.0 - arrive) * self._smooth_gate(0.04 - d_line, 0.0, 12.0)
+        z_clear = self._object_top_z(obj, x[3:7]) + 0.015
+        U_att = cs.sumsqr(tip - goal)
+        U_lift = blocked * self._smooth_relu(z_clear - tip[2]) ** 2
+        return (self.detour_attract_coef * U_att
+                + self.detour_repel_coef * U_clear
+                + self.detour_lift_coef * U_lift)
 
     @staticmethod
     def log_barrier_function(x, virtual_point, epsilon=1e-3):

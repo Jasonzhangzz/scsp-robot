@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CURRENT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = CURRENT_DIR.parents[3]
+REPO_ROOT = next((p for p in Path(__file__).resolve().parents if p.name == "scsp-robot"), None) or next(p for p in Path(__file__).resolve().parents if (p / "planning" / "acados_env.py").is_file())
 if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
+    sys.path.insert(0, str(REPO_ROOT))
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 
 import mujoco
 import mujoco.viewer
@@ -904,8 +906,8 @@ def build_argparser():
     parser.add_argument(
         "--solver",
         type=str,
-        choices=("ipopt", "snopt", "acados"),
-        default="ipopt",
+        choices=("acados", "ipopt"),
+        default="acados",
         help="Optional solver used by mlqp_point_v2 for grasp scoring and static-equilibrium checks.",
     )
     parser.add_argument("--num-grasp-contacts", type=int, default=4, help="Must stay at 4 for Allegro thumb/index/middle/ring.")

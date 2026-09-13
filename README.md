@@ -57,15 +57,14 @@ Default `--obj` names found on those entries: elephant, foam_brick, football, mu
 
 ## Run
 
-From this directory:
+Entry points walk up to the `scsp-robot` directory and put it on `sys.path`. You can run them from any cwd without `PYTHONPATH` or `ACADOS_SOURCE_DIR`:
 
 ```bash
-export PYTHONPATH="$(pwd):$PYTHONPATH"
-export ACADOS_SOURCE_DIR="/home/lab423/scsp/thirdparty/acados"
-export LD_LIBRARY_PATH="/home/lab423/scsp/thirdparty/acados/lib:${LD_LIBRARY_PATH}"
 python examples/mpc/fingertips/test/test_0902.py --headless --trial_num 1
 python examples/mpc/franka/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-device cuda:0
 ```
+
+acados is located in-process (`planning/acados_env.py`): `$ACADOS_SOURCE_DIR` if already set, then `../thirdparty/acados`, `./thirdparty/acados`, then `/home/lab423/scsp/thirdparty/acados`.
 
 See `THIRD_PARTY.md` for what was vendored vs left as an install. Allegro hand assets now live in `thirdparty/spider/`. Isaac Gym, acados, and cuRobo stay as external installs.
 

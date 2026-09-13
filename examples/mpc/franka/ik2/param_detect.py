@@ -19,12 +19,18 @@ import casadi as cs
 warnings.filterwarnings("ignore", category=UserWarning)
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
-sys.path.append(parent_dir)
+parent_dir = os.path.abspath(current_dir)
+while os.path.basename(parent_dir) != "scsp-robot":
+    _next_dir = os.path.dirname(parent_dir)
+    if _next_dir == parent_dir:
+        raise RuntimeError("scsp-robot repo root not found from %s" % current_dir)
+    parent_dir = _next_dir
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 # 导入原有模块
 from examples.mpc.fingertips.test.params import ExplicitMPCParams
-from planning.mpc_explicit2 import MPCExplicit
+from planning.mpc_explicit import MPCExplicit
 from planning.mpc_implicit import MPCImplicit
 from envs.fingertips_env import MjSimulator
 from contact.fingertips_collision_detection2 import Contact

@@ -6,7 +6,12 @@ from utils import rotations
 
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(current_dir, "../../../../../"))
+REPO_ROOT = os.path.abspath(current_dir)
+while os.path.basename(REPO_ROOT) != "scsp-robot":
+    _next_dir = os.path.dirname(REPO_ROOT)
+    if _next_dir == REPO_ROOT:
+        raise RuntimeError("scsp-robot repo root not found from %s" % current_dir)
+    REPO_ROOT = _next_dir
 
 
 def _normalize_quaternion_wxyz(quat_wxyz):

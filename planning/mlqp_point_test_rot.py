@@ -7,7 +7,6 @@ import shutil
 import ctypes
 import warnings
 from scipy.spatial import cKDTree
-os.environ['SNOPT_LICENSE'] = '/home/lab423/opt_ws/libsnopt7/snopt7.lic'
 try:
     from project_point import ProjectionPoint
 except:
@@ -48,19 +47,8 @@ def _shared_lib_ext():
 
 
 def _acados_root_candidates():
-    repo_root = _repo_root_dir()
-    candidates = []
-    acados_source_dir = os.environ.get("ACADOS_SOURCE_DIR")
-    if acados_source_dir:
-        candidates.append(os.path.abspath(acados_source_dir))
-    candidates.append(os.path.abspath(os.path.join(repo_root, "..", "thirdparty", "acados")))
-    candidates.append(os.path.abspath(os.path.join(repo_root, "thirdparty", "acados")))
-
-    deduped = []
-    for candidate in candidates:
-        if candidate and candidate not in deduped:
-            deduped.append(candidate)
-    return deduped
+    from planning.acados_env import acados_root_candidates
+    return acados_root_candidates(_repo_root_dir())
 
 
 def _install_deprecated_sphinx_shim():
@@ -251,11 +239,13 @@ def _warn_acados_casadi_fallback(reason):
 
 def _normalize_nlp_solver_name(solver_name):
     if solver_name is None:
-        solver_name = os.environ.get("LCC_ROT_SOLVER", "ipopt")
+        solver_name = os.environ.get("LCC_ROT_SOLVER", "acados")
     solver_name = str(solver_name).strip().lower()
-    if solver_name not in {"ipopt", "snopt", "acados"}:
+    if solver_name == "snopt":
+        solver_name = "acados"
+    if solver_name not in {"ipopt", "acados"}:
         raise ValueError(
-            f"Unsupported NLP solver '{solver_name}'. Expected 'ipopt', 'snopt' or 'acados'."
+            f"Unsupported NLP solver '{solver_name}'. Expected 'ipopt' or 'acados'."
         )
     return solver_name
 
@@ -539,31 +529,13 @@ class LambdaContactControlOptimizer:
         opti.subject_to(lam_arm[0] <= lam_upper_bound)
 
         p_opts = {"print_time": False, "jit": False}
-        if self.nlp_solver == "snopt":
-            # CasADi + SNOPT is picky about where options live; keep SNOPT options
-            # in s_opts directly instead of nesting them inside p_opts.
-            s_opts = {
-                "Major iterations limit": 200,
-                "Minor iterations limit": 100,
-                "Major print level": 0,
-                "Minor print level": 0,
-                "Print file": 0,
-                "Summary file": 0,
-                "Total real workspace": 500000,
-                "Total integer workspace": 500000,
-                "Total character workspace": 500000,
-            }
-            opti.solver("snopt", p_opts)
-        else:
-            # IPOPT is the current default because it has been more reliable
-            # than SNOPT for this reduced-rotation NLP.
-            s_opts = {
-                "max_iter": 200,
-                "tol": 1e-6,
-                "linear_solver": "mumps",
-                "print_level": 0,
-            }
-            opti.solver("ipopt", p_opts, s_opts)
+        s_opts = {
+            "max_iter": 200,
+            "tol": 1e-6,
+            "linear_solver": "mumps",
+            "print_level": 0,
+        }
+        opti.solver("ipopt", p_opts, s_opts)
 
         return {
             "backend": "casadi_opti",

@@ -9,3 +9,4 @@ outputs/
 *.egg-info/
 .venv/
 venv/
+envs/assets/objects/_generated_collision/

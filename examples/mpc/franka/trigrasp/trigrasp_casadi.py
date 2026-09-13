@@ -34,7 +34,10 @@ REPO_ROOT = CURRENT_DIR.parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 from models.explicit_model import ExplicitModel
+from planning.mpc_explicit import MPCExplicit
 from planning.screenshot import (
     PeriodicSVGScreenshotRecorder,
     build_free_camera_config_from_position,
@@ -875,127 +878,33 @@ class AllegroExplicitMPCParams:
         return path_cost_fn, final_cost_fn
 
 
-class AllegroExplicitMPC:
+class AllegroExplicitMPC(MPCExplicit):
     def __init__(self, param):
-        self.param_ = param
-        self.path_cost_fn, self.final_cost_fn = self.param_.init_cost_fns()
-        self.model = ExplicitModel(param)
-        self.init_MPC()
+        super().__init__(param, cost_kind="param")
 
     def plan_once(
         self,
         target_object_pos,
         target_object_quat,
         target_base_pos,
-        target_base_rot,
         target_finger_q,
         curr_x,
         phi_vec,
         jac_mat,
-        grasp_activation=1.0,
         sol_guess=None,
     ):
-        if sol_guess is None:
-            sol_guess = dict(x0=self.nlp_w0_, lam_x0=self.nlp_lam_x0_, lam_g0=self.nlp_lam_g0_)
-
         cost_params = self.param_.build_cost_param_vector(
             target_object_pos=target_object_pos,
             target_object_quat=target_object_quat,
             target_base_pos=target_base_pos,
-            target_base_rot=target_base_rot,
             target_finger_q=target_finger_q,
-            grasp_activation=grasp_activation,
         )
-        nlp_param = self.nlp_params_fn_(curr_x, phi_vec, jac_mat, cost_params, self.param_.model_params)
-        nlp_lbw, nlp_ubw = self.nlp_bounds_fn_(
-            self.param_.mpc_u_lb_,
-            self.param_.mpc_u_ub_,
-            self.param_.mpc_q_lb_,
-            self.param_.mpc_q_ub_,
-        )
-
-        raw_sol = self.ipopt_solver(
-            x0=sol_guess["x0"],
-            lam_x0=sol_guess["lam_x0"],
-            lam_g0=sol_guess["lam_g0"],
-            lbx=nlp_lbw,
-            ubx=nlp_ubw,
-            lbg=0.0,
-            ubg=0.0,
-            p=nlp_param,
-        )
-
-        w_opt = raw_sol["x"].full().flatten()
-        cost_opt = raw_sol["f"].full().flatten()
-        sol_traj = np.reshape(w_opt, (self.param_.mpc_horizon_, self.param_.n_cmd_ + self.param_.n_qpos_))
-        opt_u_traj = sol_traj[:, : self.param_.n_cmd_]
-
-        return dict(
-            action=opt_u_traj[0, :],
-            u_traj=opt_u_traj,
-            rollout_q=sol_traj[:, self.param_.n_cmd_ :],
-            sol_guess=dict(
-                x0=w_opt,
-                lam_x0=raw_sol["lam_x"],
-                lam_g0=raw_sol["lam_g"],
-                opt_cost=raw_sol["f"].full().item(),
-            ),
-            cost_opt=cost_opt,
-            solve_status=self.ipopt_solver.stats()["return_status"],
-        )
-
-    def init_MPC(self):
-        model_params = cs.SX.sym("model_param", 1)
-        phi_vec = cs.SX.sym("phi_vec", self.param_.max_ncon_ * 4)
-        jac_mat = cs.SX.sym("jac_mat", self.param_.max_ncon_ * 4, self.param_.n_qvel_)
-        cost_params = cs.SX.sym("cost_params", self.path_cost_fn.size_in(2))
-
-        lbu = cs.SX.sym("lbu", self.param_.n_cmd_)
-        ubu = cs.SX.sym("ubu", self.param_.n_cmd_)
-        lbq = cs.SX.sym("lbq", self.param_.n_qpos_)
-        ubq = cs.SX.sym("ubq", self.param_.n_qpos_)
-
-        w, w0, lbw, ubw, g = [], [], [], [], []
-        j = 0.0
-        q0 = cs.SX.sym("q0", self.param_.n_qpos_)
-        qk = q0
-        for k in range(self.param_.mpc_horizon_):
-            uk = cs.SX.sym(f"u{k}", self.param_.n_cmd_)
-            w += [uk]
-            lbw += [lbu]
-            ubw += [ubu]
-            w0 += [cs.DM.zeros(self.param_.n_cmd_)]
-
-            pred_q = self.model.step_once_fn(qk, uk, phi_vec, jac_mat, model_params)
-            j += self.path_cost_fn(qk, uk, cost_params)
-
-            qk = cs.SX.sym(f"q{k + 1}", self.param_.n_qpos_)
-            w += [qk]
-            w0 += [cs.DM.zeros(self.param_.n_qpos_)]
-            lbw += [lbq]
-            ubw += [ubq]
-            g += [pred_q - qk]
-
-        j += self.final_cost_fn(qk, cost_params)
-
-        nlp_params = cs.vvcat([q0, phi_vec, jac_mat, cost_params, model_params])
-        nlp_prog = {"f": j, "x": cs.vcat(w), "g": cs.vcat(g), "p": nlp_params}
-        nlp_opts = {
-            "ipopt.print_level": 0,
-            "ipopt.sb": "yes",
-            "print_time": 0,
-            "ipopt.max_iter": self.param_.ipopt_max_iter_,
-        }
-        self.ipopt_solver = cs.nlpsol("solver", "ipopt", nlp_prog, nlp_opts)
-
-        self.nlp_w0_ = cs.vcat(w0)
-        self.nlp_lam_x0_ = cs.DM.zeros(self.nlp_w0_.shape)
-        self.nlp_lam_g0_ = cs.DM.zeros(cs.vcat(g).shape)
-        self.nlp_bounds_fn_ = cs.Function("nlp_bounds_fn", [lbu, ubu, lbq, ubq], [cs.vcat(lbw), cs.vvcat(ubw)])
-        self.nlp_params_fn_ = cs.Function(
-            "nlp_params_fn",
-            [q0, phi_vec, jac_mat, cost_params, model_params],
-            [nlp_params],
+        return super().plan_once(
+            curr_x=curr_x,
+            phi_vec=phi_vec,
+            jac_mat=jac_mat,
+            cost_params=cost_params,
+            sol_guess=sol_guess,
         )
 
 

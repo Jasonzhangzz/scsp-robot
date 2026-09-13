@@ -1,6 +1,6 @@
 import numpy as np
 
-from planning.mpc_explicit2 import MPCExplicit as _BaseExplicitMPC
+from planning.mpc_explicit import MPCExplicit as _BaseExplicitMPC
 
 
 def _clip_xy(vec, max_norm):
@@ -59,34 +59,11 @@ class HumanoidFootActionLimiter:
 
 class MPCExplicitFootBall(_BaseExplicitMPC):
     def __init__(self, param, limiter=None):
-        super().__init__(param)
+        super().__init__(param, cost_kind="param")
         self.limiter = limiter or HumanoidFootActionLimiter()
 
-    def plan_once(
-        self,
-        target_p,
-        target_q,
-        curr_x,
-        phi_vec,
-        jac_mat,
-        verify_cost_param,
-        virtual_point,
-        contact_point,
-        curr_ori_coef,
-        sol_guess=None,
-    ):
-        sol = super().plan_once(
-            target_p,
-            target_q,
-            curr_x,
-            phi_vec,
-            jac_mat,
-            verify_cost_param,
-            virtual_point,
-            contact_point,
-            curr_ori_coef,
-            sol_guess=sol_guess,
-        )
+    def plan_once(self, *args, **kwargs):
+        sol = super().plan_once(*args, **kwargs)
         raw_action = np.asarray(sol["action"], dtype=np.float64)
         sol["action_raw"] = raw_action.copy()
         sol["action"] = self.limiter.clip_delta(raw_action)

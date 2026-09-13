@@ -12,8 +12,16 @@ from isaacgym import gymapi, gymtorch
 import torch
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
-sys.path.append(parent_dir)
+parent_dir = os.path.abspath(current_dir)
+while os.path.basename(parent_dir) != "scsp-robot":
+    _next_dir = os.path.dirname(parent_dir)
+    if _next_dir == parent_dir:
+        raise RuntimeError("scsp-robot repo root not found from %s" % current_dir)
+    parent_dir = _next_dir
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
 
 from examples.mpc.franka.test_tilted_push.params import ExplicitMPCParams
 from examples.mpc.franka.ik2.test_mppi_isaac import (
@@ -22,7 +30,7 @@ from examples.mpc.franka.ik2.test_mppi_isaac import (
     _extract_quat_xyzw,
     _extract_vec3,
 )
-from planning.MPCExplicit_tilted_push import MPCExplicitIsaac
+from planning.mpc_explicit import MPCExplicitTiltedPush as MPCExplicitIsaac
 from planning.MPPIExplicit import _contact_jacobian, _franka_fk_T_jax, _tangent_basis_from_normal
 from planning.mlqp_point_tilted_push import LambdaContactControlOptimizer
 from planning.mpc_implicit import MPCImplicit
@@ -2214,7 +2222,7 @@ def main():
     parser.add_argument(
         "--mlqp-solver",
         type=str,
-        choices=["ipopt", "snopt", "acados"],
+        choices=["acados", "ipopt"],
         default="acados",
         help=(
             "Solver backend used inside planning/mlqp_point_test_rot.py; "

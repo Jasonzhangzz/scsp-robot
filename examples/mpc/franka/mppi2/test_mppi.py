@@ -14,9 +14,14 @@ from isaacgym import gymapi
 
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(CURRENT_DIR))))
+REPO_ROOT = os.path.abspath(CURRENT_DIR)
+while os.path.basename(REPO_ROOT) != "scsp-robot":
+    _next_dir = os.path.dirname(REPO_ROOT)
+    if _next_dir == REPO_ROOT:
+        raise RuntimeError("scsp-robot repo root not found from %s" % CURRENT_DIR)
+    REPO_ROOT = _next_dir
 if REPO_ROOT not in sys.path:
-    sys.path.append(REPO_ROOT)
+    sys.path.insert(0, REPO_ROOT)
 
 from examples.mpc.franka.ik2.params_curobo import ExplicitMPCParamsCurobo
 from examples.mpc.franka.ik2.test_mppi_isaac import (
