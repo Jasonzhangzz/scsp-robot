@@ -373,7 +373,8 @@ class LambdaContactControlOptimizer:
         filtered = ids[keep]
         return filtered if filtered.size else ids
 
-    def select_executed_contact_idx(self, query_local, candidate_idx):
+    def select_executed_contact_idx(self, query_local, candidate_idx,
+                                    sphere_radius=0.0):
         """Nearest sample under lock / confidence / block / curvature rules.
 
         This is the p_arm counterpart of ``_select_contact_candidate``.
@@ -404,12 +405,21 @@ class LambdaContactControlOptimizer:
             else:
                 return int(prev)
         pts = np.asarray(self.sample_point[ids], dtype=np.float64)
+        # ``query_local`` is the fingertip centre.  When requested, compare it
+        # with each candidate's sphere centre rather than the mesh surface;
+        # this keeps the nearest-contact choice in the same geometry used by
+        # the MPC contact target.
+        radius = float(sphere_radius)
+        if np.isfinite(radius) and radius > 0.0:
+            pts = pts - radius * np.asarray(self.normal[ids], dtype=np.float64)
         return int(ids[int(np.argmin(np.linalg.norm(pts - query[None, :], axis=1)))])
 
     def resolve_executed_contact(self, query_local, candidate_idx,
-                                 x_d, current_x, tau_o, v_last=None):
+                                 x_d, current_x, tau_o, v_last=None,
+                                 sphere_radius=0.0):
         """Solve (or reuse) the lambda QP at the policy-filtered p_arm sample."""
-        idx = self.select_executed_contact_idx(query_local, candidate_idx)
+        idx = self.select_executed_contact_idx(
+            query_local, candidate_idx, sphere_radius=sphere_radius)
         self.last_executed_idx = int(idx)
         p_obj = np.asarray(self.sample_point[idx], dtype=np.float64)
         n_in = np.asarray(self.normal[idx], dtype=np.float64)
@@ -862,8 +872,12 @@ class LambdaContactControlOptimizer:
         terminal_ori_cost = self.ori_coef * (1-cs.dot(x[3:7],cs_p[3:7])**2)
         # Bump the generated-solver name whenever force constraints change;
         # otherwise an old /tmp binary can silently ignore the current bounds.
-        model=AcadosModel(); model.name=f'contact_lambda_acados_v10_dv_m{self.max_contacts}_f{int(self.max_contact_force*1000)}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
-        model.cost_expr_ext_cost = self.friction_reg_coef * cs.sumsqr(u[1:3])
+        # Keep acados' objective identical to the CasADi/Torch candidate
+        # objective.  Without the force term the selected wrench can be a
+        # high-force outlier even though its reported post-hoc cost is high.
+        model=AcadosModel(); model.name=f'contact_lambda_acados_v11_dv_m{self.max_contacts}_f{int(self.max_contact_force*1000)}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
+        model.cost_expr_ext_cost = (self.friction_reg_coef * cs.sumsqr(u[1:3]) +
+                                    self.force_reg_coef * cs.sumsqr(u))
         model.cost_expr_ext_cost_e = terminal_pos_cost + terminal_ori_cost
         ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.cost.cost_type='EXTERNAL'; ocp.cost.cost_type_e='EXTERNAL';
         mu = float(self.mu_arm_obj)
@@ -924,7 +938,7 @@ class LambdaContactControlOptimizer:
                 or lam[0] > self.max_normal_force + 1e-3
                 or np.linalg.norm(lam) > self.max_contact_force + 1e-3):
             raise RuntimeError(f'invalid contact wrench returned: {lam}')
-        pos_err=qnext[:3]-np.asarray(kwargs['x_d'])[:3]; cost=float(self.pos_coef*np.dot(pos_err,pos_err)+self.ori_coef*(1-np.dot(qnext[3:7],np.asarray(kwargs['x_d'])[3:7])**2)+self.friction_reg_coef*np.dot(lam[1:3],lam[1:3])); return {'lam_arm_opt':lam,'x_plus_opt':qnext,'cost':cost}
+        pos_err=qnext[:3]-np.asarray(kwargs['x_d'])[:3]; cost=float(self.pos_coef*np.dot(pos_err,pos_err)+self.ori_coef*(1-np.dot(qnext[3:7],np.asarray(kwargs['x_d'])[3:7])**2)+self.friction_reg_coef*np.dot(lam[1:3],lam[1:3])+self.force_reg_coef*np.dot(lam,lam)); return {'lam_arm_opt':lam,'x_plus_opt':qnext,'cost':cost}
 
     def _solve_optimization_torch(self, x_d, current_x, v_last, J_tilde, D_inv,
                                   tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef):
@@ -988,8 +1002,10 @@ class LambdaContactControlOptimizer:
             pos_err = qnext[:3] - xd[:3]
             ori_err = 1.0 - torch.dot(qnext[3:7], xd[3:7]) ** 2
             friction_cost = torch.sum(lam[1:] * lam[1:])
+            force_cost = torch.sum(lam * lam)
             cost = (self.pos_coef * torch.sum(pos_err * pos_err) +
-                    self.ori_coef * ori_err + self.friction_reg_coef * friction_cost)
+                    self.ori_coef * ori_err + self.friction_reg_coef * friction_cost +
+                    self.force_reg_coef * force_cost)
             return cost, lam, qnext
 
         def closure():

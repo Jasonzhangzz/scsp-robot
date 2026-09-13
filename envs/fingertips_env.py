@@ -53,8 +53,7 @@ class MjSimulator():
         self.data_.qvel[:] = np.copy(np.array(self.param_.n_qvel_ * [0]))
 
         mujoco.mj_forward(self.model_, self.data_)
-        if getattr(self, 'viewer_', None) is not None:
-            self.viewer_.sync()
+        self._sync_viewer()
 
     def step(self, fts_pos_cmd):
         curr_q = self.get_state()
@@ -90,8 +89,7 @@ class MjSimulator():
             control = -100 * dpos - 2 * dvel
             self.data_.ctrl[:] = control
             mujoco.mj_step(self.model_, self.data_, nstep=1)
-            if self.viewer_ is not None:
-                self.viewer_.sync()
+            self._sync_viewer()
             fts_dpos.append(dpos)
 
     def get_state(self):
@@ -108,6 +106,18 @@ class MjSimulator():
     def get_bbox_size(self):
         return self.model_.geom('obj').size.copy()
     
+    def _sync_viewer(self):
+        viewer = getattr(self, 'viewer_', None)
+        if viewer is None:
+            return
+        if hasattr(viewer, 'is_running') and not viewer.is_running():
+            self.viewer_ = None
+            return
+        try:
+            viewer.sync()
+        except Exception:
+            self.viewer_ = None
+
     def show_target(self, goal_pos=None):
         # Marker updates are only visible in the interactive viewer.  In
         # headless rollouts ``mj_forward`` here used to duplicate the forward
@@ -126,9 +136,7 @@ class MjSimulator():
             return
         if point is not None:
             try:
-                self.model_.body('marker_best').pos = np.asarray(point, dtype=float)
+                self.model_.body('marker_best').pos = np.asarray(point, dtype=float).reshape(3)
             except (KeyError, ValueError):
-                # Keep compatibility with XMLs that do not define the extra
-                # marker body.
                 pass
         mujoco.mj_forward(self.model_, self.data_)

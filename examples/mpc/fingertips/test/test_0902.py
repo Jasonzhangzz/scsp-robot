@@ -3,6 +3,8 @@ import json
 import numpy as np
 import os
 import sys
+import faulthandler
+faulthandler.enable()
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(current_dir)
 while os.path.basename(parent_dir) != "scsp-robot":
@@ -262,10 +264,17 @@ def main(args=None):
                 gravity,
                 visible_point_idx,
                 contact_anchor_local=current_tip_local,
+                # A gated-contact mode must not rank a zero-wrench local
+                # optimum as a successful contact.  This is especially
+                # important for the nearest p_arm branch, which reuses the
+                # candidate buffers produced here.
+                force_required=bool(use_contact_gated_pose),
             )
             cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
             cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
             cached_cost = getattr(param.lambda_optimizer, 'last_best_cost', None)
+            reference_error = (float(cached_cost) if cached_cost is not None and
+                               np.isfinite(float(cached_cost)) else float(min_error))
             choose_dt = time.time() - start_time
             choose_times.append(choose_dt)
 
@@ -293,10 +302,71 @@ def main(args=None):
                 # rollout and --ideal_contact_switch: execute the nearest
                 # *sampled* contact, under the same lock / confidence /
                 # block / curvature gates used for best_contact_world.
-                p_arm_local, _, x_plus_opt, error, info = param.lambda_optimizer.resolve_executed_contact(
+                p_arm_local, p_arm_normal_out, x_plus_opt, error, info = param.lambda_optimizer.resolve_executed_contact(
                     current_tip_local, visible_point_idx,
-                    target_pose_eval, current_pose_eval, gravity)
-                p_arm_world = R_obj_to_world @ p_arm_local + curr_q[:3]
+                    target_pose_eval, current_pose_eval, gravity,
+                    sphere_radius=max(1e-4, float(fingertip_radius) +
+                                      float(args.ideal_contact_surface_margin)))
+                # Lambda optimizes the mesh surface point, while the MPC and
+                # MuJoCo fingertip state use the fingertip sphere centre.  The
+                # old switch path passed the surface point directly, placing
+                # the MPC target about one fingertip radius inside the object.
+                # Keep the same sphere-centre construction as ideal_contact_pose.
+                p_arm_surface_world = R_obj_to_world @ p_arm_local + curr_q[:3]
+                p_arm_inward_local = -np.asarray(p_arm_normal_out, dtype=np.float64)
+                p_arm_inward_world = R_obj_to_world @ p_arm_inward_local
+                p_arm_inward_world /= max(float(np.linalg.norm(p_arm_inward_world)), 1e-9)
+                p_arm_world = p_arm_surface_world - max(
+                    1e-4, float(fingertip_radius) + float(args.ideal_contact_surface_margin)
+                ) * p_arm_inward_world
+
+                # A nearest point is only an extra option when its lambda
+                # solution is genuinely comparable to the ranked best point.
+                # Use a robust cost span: one failed/outlier candidate must not
+                # make every p_arm acceptable.  If it fails, switch degrades to
+                # the proven ideal_contact_pose candidate.
+                candidate_costs = np.asarray(
+                    getattr(param.lambda_optimizer, 'last_candidate_costs', []),
+                    dtype=np.float64).reshape(-1)
+                finite_candidate_costs = candidate_costs[np.isfinite(candidate_costs)]
+                if finite_candidate_costs.size:
+                    robust_hi = float(np.percentile(finite_candidate_costs, 90.0))
+                    robust_span = max(0.0, robust_hi - reference_error)
+                else:
+                    robust_span = max(0.0, float(max_error - reference_error))
+                switch_confidence = float(np.clip(
+                    getattr(param.lambda_optimizer, 'contact_switch_confidence', 1.0),
+                    0.0, 1.0))
+                quality_margin = max(
+                    float(args.contact_switch_margin_abs),
+                    float(args.low_err_coef) * min(robust_span, max(abs(float(min_error)), 1e-4))
+                )
+                # Confidence tightens acceptance while preserving recovery:
+                # once a patch is exhausted, a new nearby candidate may still
+                # be selected if its own lambda solution is valid.
+                quality_margin *= 0.5 + 0.5 * switch_confidence
+                p_arm_force = np.asarray(info.get('control_input', np.zeros(3)), dtype=np.float64).reshape(-1)
+                p_arm_quality_ok = (
+                    not bool(info.get('solver_failed', False)) and
+                    np.isfinite(float(error)) and
+                    float(error) <= reference_error + quality_margin and
+                    p_arm_force.size >= 3 and np.isfinite(p_arm_force[:3]).all() and
+                    float(np.linalg.norm(p_arm_force[:3])) > 1e-3
+                )
+                if not p_arm_quality_ok:
+                    p_arm_world = best_contact_world
+                    x_plus_opt = cached_x_plus
+                    error = float(cached_cost) if cached_cost is not None else float(min_error)
+                    info = {
+                        'control_input': cached_force if cached_force is not None else np.zeros(3),
+                        'solver_failed': cached_x_plus is None,
+                    }
+                    selected_for_exec = getattr(param.lambda_optimizer, 'last_selected_idx', None)
+                    if selected_for_exec is not None:
+                        param.lambda_optimizer.last_executed_idx = int(selected_for_exec)
+                        param.lambda_optimizer.last_executed_x_plus = cached_x_plus
+                        param.lambda_optimizer.last_executed_cost = cached_cost
+                        param.lambda_optimizer.last_executed_force = cached_force
 
             if filtered_attract is None:
                 filtered_attract = attract_point_world.copy()
@@ -318,9 +388,19 @@ def main(args=None):
                 elif float(np.linalg.norm(curr_q[7:10] - filtered_attract)) < 5e-2:
                     low_err_coef *= 1.1
                 upper_err_coef = max(args.upper_err_coef if not verify_cost else upper_err_coef - 0.002, 0.7)
-                delta_error = max(float(max_error - min_error), 1e-6)
+                # Ignore pathological failed/outlier candidates when setting
+                # the verification threshold for the executed contact.
+                finite_costs = np.asarray(
+                    getattr(param.lambda_optimizer, 'last_candidate_costs', []),
+                    dtype=np.float64).reshape(-1)
+                finite_costs = finite_costs[np.isfinite(finite_costs)]
+                if finite_costs.size:
+                    robust_max = float(np.percentile(finite_costs, 90.0))
+                    delta_error = max(robust_max - float(reference_error), 1e-6)
+                else:
+                    delta_error = max(float(max_error - reference_error), 1e-6)
                 adaptive = delta_error * upper_err_coef if verify_cost else delta_error * low_err_coef
-                verify_cost = 1 if float(error) < (float(min_error) + adaptive) else 0
+                verify_cost = 1 if float(error) < (reference_error + adaptive) else 0
                 mpc_virtual_point = filtered_attract
                 mpc_contact_point = p_arm_world
 
@@ -470,7 +550,10 @@ def main(args=None):
                 near_patch = near_best
             else:
                 progress_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
-                near_patch = near_p_arm or near_best
+                # The switch dwell schedule must follow the actually executed
+                # nearest patch.  Reaching the ranked best/virtual point is not
+                # evidence that p_arm made contact or made progress.
+                near_patch = near_p_arm
             # Approach time still does not count.  Once the ball is on the
             # selected / executed patch, a frozen pose or an unusable x_plus
             # is a failed dwell even if set-pose never fired (trunk local
@@ -486,7 +569,11 @@ def main(args=None):
                                     and not ideal_pose_applied),
             )
             if consecutive_success_time > consecutive_success_time_threshold:
-                break  # reset the next scene immediately; do not hold the success pose
+                # Last step() already synced the viewer.  Sleep only; an extra
+                # viewer.sync() after success was segfaulting.
+                if args.viewer:
+                    time.sleep(0.35)
+                break
 
         lambda_failures = int(getattr(param.lambda_optimizer, 'acados_failure_count', 0))
         mpc_failures = int(getattr(mpc, 'acados_failure_count', 0))
@@ -537,8 +624,7 @@ def main(args=None):
             break
         if env.viewer_ is not None and hasattr(env.viewer_, 'is_running') and not env.viewer_.is_running():
             break
-        # Start the next trial immediately.  Scene reset happens at the top
-        # of the following loop; do not hold the finished pose in the viewer.
+        # Scene reset happens at the top of the following loop.
 
     if env is not None and env.viewer_ is not None:
         env.viewer_.close()
