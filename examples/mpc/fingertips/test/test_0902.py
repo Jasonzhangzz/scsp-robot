@@ -80,10 +80,11 @@ def build_parser():
     mode.add_argument('--ideal_contact_pose', action='store_true',
                       help='Set object pose from x_plus_opt only when contact distance is near 0.')
     mode.add_argument('--ideal_contact_switch', action='store_true',
-                      help='Use verify_cost on the nearest contact (p_arm_world), '
-                           'and set object pose only when contact distance is near 0.')
+                      help='Same contact policy as --rollout, but apply x_plus '
+                           'when contact distance is near 0.')
     mode.add_argument('--rollout', action='store_true',
-                      help='Advance with MuJoCo physics; object pose is not overwritten.')
+                      help='Same policy as --ideal_contact_switch; object motion '
+                           'comes from MuJoCo contact, not set-pose.')
     return parser
 
 
@@ -154,9 +155,13 @@ def main(args=None):
     use_ideal_object_pose = bool(args.ideal_object_pose)
     use_ideal_contact_pose = bool(args.ideal_contact_pose)
     use_ideal_contact_switch = bool(getattr(args, 'ideal_contact_switch', False))
-    use_contact_gated_pose = use_ideal_contact_pose or use_ideal_contact_switch
     use_rollout = bool(args.rollout) or not (
         use_ideal_object_pose or use_ideal_contact_pose or use_ideal_contact_switch)
+    # Switch and rollout share one contact policy.  The only difference is
+    # how a made contact moves the object: set-pose vs MuJoCo physics.
+    use_switch_policy = use_ideal_contact_switch or use_rollout
+    use_gated_contact_policy = use_ideal_contact_pose or use_switch_policy
+    use_set_pose = use_ideal_object_pose or use_ideal_contact_pose or use_ideal_contact_switch
 
     save_flag = False
     success_rate = 0
@@ -182,6 +187,13 @@ def main(args=None):
         param.lambda_optimizer.lock_contact_patch = False
         param.lambda_optimizer.contact_switch_confirm_steps = max(
             1, int(args.contact_switch_confirm_steps))
+        # Physics cannot set-pose, so rollout must use the same C-inf
+        # patch attractor as --ideal_contact_pose.  The switch/rollout
+        # verify_cost=1 term pulls the tip toward the object centre and
+        # chatters on contact.  Sampling / lambda / p_arm selection stay
+        # on the switch policy.
+        if use_rollout:
+            param.smooth_contact_detour = True
         mpc = MPCExplicit(param) if param.mpc_model == 'explicit' else MPCImplicit(param)
         pose_apply_count = 0
         choose_times = []
@@ -209,6 +221,7 @@ def main(args=None):
         tau = 1.0 / (2.0 * np.pi * f_c)
         alpha = dt / (tau + dt)
         filtered_attract = None
+        rollout_contact_hold = False
 
         while rollout_step < max_rollout_length:
             curr_q = env.get_state()
@@ -230,19 +243,16 @@ def main(args=None):
             visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
                 curr_q[0:3], R_obj_to_world, param.target_p_, args.ground_height_threshold,
                 viewpoint_local=None,
-                heading_filter=not use_contact_gated_pose)
+                heading_filter=not use_gated_contact_policy)
 
             last_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
             last_exec_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
             blocked = getattr(param.lambda_optimizer, '_blocked_contact_indices', {})
             # Keep the incumbent ranked / executed patches in the candidate
-            # pool after the first apply (rotation can drop them below the
-            # floor gate).  Hard-lock only while dwell-confidence still
-            # trusts the patch; once confidence collapses the ranker and
-            # the nearest p_arm selector may explore.  Do not force-append
-            # a blacklisted trunk/ear sample.  The same rules apply to
-            # best_contact and to p_arm_world.
-            if use_contact_gated_pose:
+            # pool after the first established contact (rotation can drop
+            # them below the floor gate).  Hard-lock only while dwell-
+            # confidence still trusts the patch.
+            if use_gated_contact_policy:
                 visible_point_idx = np.asarray(visible_point_idx, dtype=np.int32)
                 for idx in (last_idx, last_exec_idx):
                     if idx is None:
@@ -252,7 +262,7 @@ def main(args=None):
                         visible_point_idx = np.append(visible_point_idx, int(idx))
                 incumbents = [int(idx) for idx in (last_idx, last_exec_idx)
                               if idx is not None]
-                if (pose_apply_count > 0 and
+                if ((pose_apply_count > 0 or (use_rollout and rollout_contact_hold)) and
                         param.lambda_optimizer.contact_switch_confidence > 0.05
                         and any(idx not in blocked for idx in incumbents)):
                     param.lambda_optimizer.lock_contact_patch = True
@@ -268,7 +278,7 @@ def main(args=None):
                 # optimum as a successful contact.  This is especially
                 # important for the nearest p_arm branch, which reuses the
                 # candidate buffers produced here.
-                force_required=bool(use_contact_gated_pose),
+                force_required=bool(use_gated_contact_policy),
             )
             cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
             cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
@@ -283,6 +293,9 @@ def main(args=None):
                 fingertip_radius, args.ideal_contact_surface_margin)
             attract_point_world = best_contact_world - args.attract_point_comp * best_normal_world
             attract_point_world[2] = max(attract_point_world[2], best_contact_world[2])
+            p_arm_quality_ok = True
+            p_arm_track_world = best_contact_track_world
+            p_arm_surface_world = best_contact_world
 
             if use_ideal_object_pose or use_ideal_contact_pose:
                 p_arm_world = best_contact_world
@@ -299,9 +312,9 @@ def main(args=None):
                     param.lambda_optimizer.last_executed_cost = cached_cost
                     param.lambda_optimizer.last_executed_force = cached_force
             else:
-                # rollout and --ideal_contact_switch: execute the nearest
-                # *sampled* contact, under the same lock / confidence /
-                # block / curvature gates used for best_contact_world.
+                # --ideal_contact_switch and --rollout: execute the nearest
+                # sampled contact under the same lock / confidence / block /
+                # curvature gates used for best_contact_world.
                 p_arm_local, p_arm_normal_out, x_plus_opt, error, info = param.lambda_optimizer.resolve_executed_contact(
                     current_tip_local, visible_point_idx,
                     target_pose_eval, current_pose_eval, gravity,
@@ -316,9 +329,10 @@ def main(args=None):
                 p_arm_inward_local = -np.asarray(p_arm_normal_out, dtype=np.float64)
                 p_arm_inward_world = R_obj_to_world @ p_arm_inward_local
                 p_arm_inward_world /= max(float(np.linalg.norm(p_arm_inward_world)), 1e-9)
-                p_arm_world = p_arm_surface_world - max(
+                p_arm_track_world = p_arm_surface_world - max(
                     1e-4, float(fingertip_radius) + float(args.ideal_contact_surface_margin)
                 ) * p_arm_inward_world
+                p_arm_world = p_arm_track_world
 
                 # A nearest point is only an extra option when its lambda
                 # solution is genuinely comparable to the ranked best point.
@@ -353,8 +367,15 @@ def main(args=None):
                     p_arm_force.size >= 3 and np.isfinite(p_arm_force[:3]).all() and
                     float(np.linalg.norm(p_arm_force[:3])) > 1e-3
                 )
-                if not p_arm_quality_ok:
+                # Switch may degrade to the ranked best when p_arm is a
+                # poor lambda solution.  Rollout cannot: yanking the MPC
+                # target 10 cm across the mesh pulls the tip off the
+                # current physics contact and the detour keep-out then
+                # chatters.  Stay on the nearest executed sample.
+                if not p_arm_quality_ok and not use_rollout:
                     p_arm_world = best_contact_world
+                    p_arm_track_world = best_contact_track_world
+                    p_arm_surface_world = best_contact_world
                     x_plus_opt = cached_x_plus
                     error = float(cached_cost) if cached_cost is not None else float(min_error)
                     info = {
@@ -373,6 +394,10 @@ def main(args=None):
             else:
                 filtered_attract = alpha * attract_point_world + (1.0 - alpha) * filtered_attract
 
+            patch_out = p_arm_track_world - p_arm_surface_world
+            patch_out = patch_out / max(float(np.linalg.norm(patch_out)), 1e-9)
+            p_arm_press = p_arm_track_world - 0.0015 * patch_out
+
             if use_ideal_contact_pose:
                 # Keep one objective: sit on the selected patch or go around
                 # the object.  Press 1.5 mm along the inward normal so the
@@ -382,6 +407,24 @@ def main(args=None):
                 patch_out = patch_out / max(float(np.linalg.norm(patch_out)), 1e-9)
                 mpc_virtual_point = best_contact_track_world - 0.0015 * patch_out
                 mpc_contact_point = best_contact_world
+            elif use_rollout:
+                # Same MPC objective as --ideal_contact_pose: sit on the
+                # executed patch (pressed 1.5 mm inward).  verify_cost is
+                # unused by the detour cost; keep it 0 so a later rebuild
+                # cannot revive the COM-attract chatter term.
+                verify_cost = 0
+                mpc_virtual_point = p_arm_press
+                mpc_contact_point = p_arm_surface_world
+                tip_to_press = float(np.linalg.norm(curr_q[7:10] - p_arm_press))
+                # Hold only the executed patch.  Generic if_contact on
+                # another face would lock a 10 cm-away sample and the
+                # keep-out term then slaps the ball off the surface.
+                if tip_to_press < 0.018:
+                    rollout_contact_hold = True
+                elif tip_to_press > 0.035:
+                    rollout_contact_hold = False
+                if rollout_contact_hold:
+                    param.lambda_optimizer.lock_contact_patch = True
             else:
                 if verify_cost:
                     low_err_coef = args.low_err_coef
@@ -429,8 +472,9 @@ def main(args=None):
                   "dwell:", int(getattr(param.lambda_optimizer, '_dwell_steps', 0)),
                   "blocked:", len(getattr(param.lambda_optimizer, '_blocked_contact_indices', {})),
                   "lambda_backend:", getattr(param.lambda_optimizer, 'last_solver_status', 'unknown'),
-                  "if_contact:", int(if_contact))
-            if use_ideal_contact_pose:
+                  "if_contact:", int(if_contact),
+                  "rollout_hold:", int(rollout_contact_hold))
+            if use_ideal_contact_pose or use_rollout:
                 tip = np.asarray(curr_q[7:10], dtype=np.float64)
                 obj = np.asarray(curr_q[:3], dtype=np.float64)
                 patch_n = best_contact_track_world - best_contact_world
@@ -474,13 +518,24 @@ def main(args=None):
             obj_qpos_before = env.data_.qpos[:7].copy()
             env.step(sol['action'])
             ideal_pose_applied = False
+            contact_distance = float('inf')
+            apply_scale = None
 
-            if use_ideal_object_pose or use_contact_gated_pose:
+            if use_rollout:
+                # Same contact gate as switch, but the object moves only
+                # through MuJoCo.  mj_step already integrated; mj_forward
+                # refreshes contacts before we measure the gap.
+                mujoco.mj_forward(env.model_, env.data_)
+                contact_distance = _contact_distance_after_step(contact, env)
+                if contact_distance <= float(args.ideal_contact_distance):
+                    pose_apply_count += 1
+                    ideal_pose_applied = True
+                print('contact_distance:', None if not np.isfinite(contact_distance) else round(contact_distance, 6),
+                      'physics_contact:', int(ideal_pose_applied))
+            elif use_set_pose:
                 q_after = env.get_state()
                 ideal_pose_applied = _x_plus_is_usable(x_plus_opt, info)
-                contact_distance = float('inf')
-                apply_scale = None
-                if use_contact_gated_pose:
+                if use_ideal_contact_pose or use_ideal_contact_switch:
                     contact_distance = _contact_distance_after_step(contact, env)
                     if contact_distance > float(args.ideal_contact_distance):
                         ideal_pose_applied = False
@@ -558,15 +613,24 @@ def main(args=None):
             # selected / executed patch, a frozen pose or an unusable x_plus
             # is a failed dwell even if set-pose never fired (trunk local
             # optimum).  The same schedule now governs p_arm_world.
-            use_dwell = use_ideal_contact_pose or use_ideal_contact_switch
+            use_dwell = use_gated_contact_policy
+            # Rollout approach frames that are near the patch but not yet
+            # in MuJoCo contact are not a failed lambda increment.  Treating
+            # them as dead_increment (as switch does when set-pose misses)
+            # unlocks the patch and the ball chatters across samples.
+            if use_rollout:
+                dwell_active = bool(use_dwell and pose_apply_count > 0)
+                dwell_dead = False
+            else:
+                dwell_active = bool(use_dwell and (pose_apply_count > 0 or near_patch))
+                dwell_dead = bool(use_dwell and near_patch and not ideal_pose_applied)
             param.lambda_optimizer.note_contact_progress(
                 progress_idx,
                 pose_score,
-                active=bool(use_dwell and (pose_apply_count > 0 or near_patch)),
+                active=dwell_active,
                 gamma=float(args.contact_dwell_gamma),
                 min_dwell_steps=int(args.contact_dwell_steps),
-                dead_increment=bool(use_dwell and near_patch
-                                    and not ideal_pose_applied),
+                dead_increment=dwell_dead,
             )
             if consecutive_success_time > consecutive_success_time_threshold:
                 # Last step() already synced the viewer.  Sleep only; an extra
