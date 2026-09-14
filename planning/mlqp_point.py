@@ -18,6 +18,11 @@ except:
     from planning.project_point import ProjectionPoint
 
 class LambdaContactControlOptimizer:
+    # Smooth positive part used by all backends.  The contact projection is
+    # physically unilateral, but a hard max has an undefined derivative at
+    # zero and makes the acados SQP model disagree with its post-processing.
+    _positive_part_eps = 1e-12
+
     def __init__(self, mesh_path, obj_mass=0.01, arm_friction=0.9, 
                  contact_stiffness=12.5, time_step=0.01, max_contacts=10, sample_num=70,
                  pos_coef=1, ori_coef=0.0005, friction_reg_coef=0.0,
@@ -30,12 +35,18 @@ class LambdaContactControlOptimizer:
                  collision_hull=False,
                  normal_stability_cos=0.90,
                  solver='acados', torch_max_iter=100,
-                 fingertip_clearance=0.011):
+                 fingertip_clearance=0.011,
+                 obj_inertia=None,
+                 wrench_is_force=False):
         # 系统参数
         self.m = obj_mass
         self.mu_arm_obj = arm_friction
         self.K_contact = contact_stiffness
         self.h = time_step
+        # Rollout receives a physical force from the fingertip PD loop.  The
+        # legacy ideal-contact path historically supplied an impulse-like
+        # lambda; retain that convention there for backwards compatibility.
+        self.wrench_is_force = bool(wrench_is_force)
         self.max_contacts = max_contacts
         self.pp = ProjectionPoint(mesh_path, scale_factors,
                                   collision_hull=collision_hull,
@@ -58,11 +69,19 @@ class LambdaContactControlOptimizer:
 
         # 构建系统刚度矩阵Q
         self.obj_inertia = np.eye(6)
-        # Preserve the calibrated effective inertia used by the existing
-        # contact-force model.  Changing this together with the pose update
-        # timestep needs a separate force-scale calibration.
-        self.obj_inertia[0:3, 0:3] = 50 * np.eye(3)
-        self.obj_inertia[3:, 3:] = 0.05 * np.eye(3)
+        if obj_inertia is None:
+            # Preserve the historical effective inertia for ranking.
+            # Using MuJoCo's raw free-body mass here (especially the 1e-6
+            # rotational block) makes the reduced one-step model explode;
+            # execution still uses MuJoCo.
+            self.obj_inertia[0:3, 0:3] = 50 * np.eye(3)
+            self.obj_inertia[3:, 3:] = 0.05 * np.eye(3)
+        else:
+            candidate_inertia = np.asarray(obj_inertia, dtype=np.float64).reshape(6, 6)
+            if (not np.isfinite(candidate_inertia).all() or
+                    np.min(np.linalg.eigvalsh(0.5 * (candidate_inertia + candidate_inertia.T))) <= 0.0):
+                raise ValueError('obj_inertia must be finite and positive definite')
+            self.obj_inertia[:, :] = 0.5 * (candidate_inertia + candidate_inertia.T)
         Q = np.zeros((6,6))
         Q[:6, :6] = self.obj_inertia
         self.Q_inv = np.linalg.inv(Q + 1e-8 * np.eye(Q.shape[0]))
@@ -107,6 +126,7 @@ class LambdaContactControlOptimizer:
         self.acados_failure_count = 0
         self.acados_fallback_count = 0
         self.acados_qp_failure_count = 0
+        self.acados_failure_reasons = {}
         self.last_acados_failure_reason = None
         # A bad contact state can make every candidate's acados QP
         # infeasible.  Falling back to IPOPT for all samples then turns one
@@ -151,6 +171,9 @@ class LambdaContactControlOptimizer:
         self._dwell_idx = None
         self._dwell_steps = 0
         self._dwell_best_cost = None
+        self._dwell_last_cost = None
+        self._dwell_was_active = False
+        self._dwell_blocked = False
         # Optional diagnostic mode: keep the incumbent sampled patch fixed
         # while its candidate remains finite.  This separates MPC tracking
         # from contact-point re-selection; normal rollouts leave it disabled.
@@ -181,6 +204,8 @@ class LambdaContactControlOptimizer:
         # contact or pose progress.  This prevents immediate re-selection of
         # the same low-authority ear/foot neighborhood.
         self._blocked_contact_indices = {}
+        self._contact_patch_failures = {}
+        self.contact_patch_max_block_cycles = 320
         self.init_utils()
         self._precompile_optimization_function()
         self.acados_solver = None
@@ -223,15 +248,18 @@ class LambdaContactControlOptimizer:
     def note_contact_progress(self, selected_idx, progress_cost, active=True,
                               gamma=0.85, min_dwell_steps=6, improve_eps=1e-3,
                               unlock_confidence=0.05, block_cycles=20,
-                              dead_increment=False):
+                              dead_increment=False, merge_radius=None,
+                              block_radius=None, time_decay=False):
         """Decay switch-confidence if one patch stops improving the task cost.
 
         ``progress_cost`` must decrease when the incumbent is useful (pose
         error, or the lambda objective).  ``active`` is false while the
-        fingertip is still travelling, so approach time is not treated as a
-        failed dwell.  A switch after confidence has collapsed blacklists
-        the exhausted neighborhood so the ranker cannot bounce straight
-        back to the same local optimum.
+        fingertip is still travelling: neither dwell time nor passive object
+        motion earns evidence for that patch unless ``time_decay`` is set.
+        With ``time_decay``, a long hover that never lands is discounted
+        the same way as a stagnant contact (RL-style γ^t).  Neighbouring
+        mesh samples share one fixed patch anchor, and repeated failed
+        visits receive a longer, bounded cooldown.
         """
         if selected_idx is None:
             return self.contact_switch_confidence
@@ -244,25 +272,85 @@ class LambdaContactControlOptimizer:
 
         idx = int(selected_idx)
         unlock = float(unlock_confidence)
-        if self._dwell_idx is None or idx != int(self._dwell_idx):
-            if (self._dwell_idx is not None and
-                    self.contact_switch_confidence <= unlock):
-                self.block_contact_patch(self._dwell_idx, cycles=block_cycles)
+        same_patch = self._dwell_idx is not None and idx == int(self._dwell_idx)
+        if self._dwell_idx is not None and not same_patch:
+            try:
+                merge = float(self.contact_switch_radius if merge_radius is None
+                              else merge_radius)
+                same_patch = bool(
+                    self.sample_geodesic[int(self._dwell_idx), idx] <= merge)
+            except (AttributeError, IndexError, TypeError):
+                pass
+        # A cooldown that just expired permits a fresh attempt even if the
+        # ranker had no alternative and kept returning the blocked sample.
+        retry_expired = (getattr(self, '_dwell_blocked', False) and
+                         idx not in self._blocked_contact_indices)
+        already_blocked = (idx in getattr(self, '_blocked_contact_indices', {})
+                           and not retry_expired)
+        if already_blocked:
+            # Still sitting on a blacklisted patch.  Do not restore
+            # confidence, and keep the cooldown from expiring under the
+            # fingertip.  Keep the original cluster id when jitter lands
+            # on a blocked neighbour.
+            if (self._dwell_idx is None or
+                    int(self._dwell_idx) not in self._blocked_contact_indices):
+                self._dwell_idx = idx
+            self._dwell_blocked = True
+            hold_radius = (float(block_radius) if block_radius is not None
+                           else self.contact_switch_radius)
+            self.block_contact_patch(
+                idx, cycles=max(20, int(block_cycles)), radius=hold_radius)
+            return self.contact_switch_confidence
+        if not same_patch or retry_expired:
+            carry = (bool(time_decay) and not retry_expired and
+                     self._dwell_best_cost is not None and
+                     cost >= float(self._dwell_best_cost) - float(improve_eps))
             self._dwell_idx = idx
+            self._dwell_last_cost = cost
+            self._dwell_was_active = bool(active) or bool(time_decay)
+            self._dwell_blocked = False
+            if carry:
+                # Same failed episode, new sample.  Do not restore
+                # confidence just because ranking hopped to a neighbour.
+                self._dwell_steps = int(getattr(self, '_dwell_steps', 0)) + 1
+                wait = max(1, int(min_dwell_steps))
+                decay = float(np.clip(gamma, 0.0, 1.0))
+                if self._dwell_steps >= wait:
+                    self.set_contact_switch_confidence(
+                        self.contact_switch_confidence * decay)
+                return self.contact_switch_confidence
             self._dwell_steps = 0
             self._dwell_best_cost = cost
             self.set_contact_switch_confidence(1.0)
             return self.contact_switch_confidence
 
+        last_cost = getattr(self, '_dwell_last_cost', self._dwell_best_cost)
+        was_active = getattr(self, '_dwell_was_active', True)
+        self._dwell_last_cost = cost
+        traveling = (not bool(active)) and bool(time_decay)
+        self._dwell_was_active = bool(active) or traveling
+        if not active and not time_decay:
+            return self.contact_switch_confidence
+        if getattr(self, '_dwell_blocked', False):
+            return self.contact_switch_confidence
+        if traveling:
+            dead_increment = False
+        if not was_active and not traveling:
+            # Rebase against the final travelling sample.  Otherwise gravity
+            # or an earlier push during a lift resets accumulated failures on
+            # the next approach, despite this patch doing no useful work.
+            self._dwell_best_cost = last_cost
         best = self._dwell_best_cost
-        if best is None or cost < float(best) - float(improve_eps):
+        improved = best is None or cost < float(best) - float(improve_eps)
+        if improved:
             self._dwell_best_cost = cost
-            self._dwell_steps = 0
-            self.set_contact_switch_confidence(1.0)
-            return self.contact_switch_confidence
-
-        if not active:
-            return self.contact_switch_confidence
+            # A dead on-patch visit is already a failed local contact.
+            # Pose chatter (the object sliding a few millimetres while
+            # rotation gets worse) must not wipe the failure streak.
+            if not dead_increment:
+                self._dwell_steps = 0
+                self.set_contact_switch_confidence(1.0)
+                return self.contact_switch_confidence
 
         self._dwell_steps += 1
         # A contact that the fingertip already reached, but that cannot
@@ -279,13 +367,32 @@ class LambdaContactControlOptimizer:
                 self.contact_switch_confidence * decay)
             if self.contact_switch_confidence <= unlock:
                 self.lock_contact_patch = False
-                # Blacklist now, not only after a later switch.  Otherwise
-                # the next cycle still picks a 1 cm neighbour on the same
-                # trunk/ear patch.
+                self._dwell_blocked = True
+                if block_radius is None:
+                    radius = 2.0 * self.contact_switch_radius
+                else:
+                    radius = float(block_radius)
+                neighbours = np.flatnonzero(
+                    self.sample_geodesic[int(self._dwell_idx)] <= radius)
+                failures = getattr(self, '_contact_patch_failures', {})
+                visits = 1 + max(
+                    (failures.get(int(neighbour), 0) for neighbour in neighbours),
+                    default=0)
+                for neighbour in neighbours:
+                    failures[int(neighbour)] = visits
+                self._contact_patch_failures = failures
+                max_cycles = max(1, int(getattr(
+                    self, 'contact_patch_max_block_cycles', 320)))
+                cooldown = min(
+                    max_cycles,
+                    max(40, int(block_cycles)) * 2 ** min(visits - 1, 8))
+                # Count one failure per visit, not once per low-confidence
+                # frame.  Keep the failed neighbourhood excluded long enough
+                # to reach and evaluate a different patch before revisiting.
                 self.block_contact_patch(
                     self._dwell_idx,
-                    cycles=max(40, int(block_cycles)),
-                    radius=2.0 * self.contact_switch_radius)
+                    cycles=cooldown,
+                    radius=radius)
                 self.last_selected_idx = None
                 self.last_selected_local = None
                 self.last_executed_idx = None
@@ -392,9 +499,9 @@ class LambdaContactControlOptimizer:
         confidence = float(np.clip(
             getattr(self, 'contact_switch_confidence', 1.0), 0.0, 1.0))
         if (getattr(self, 'lock_contact_patch', False) and prev is not None
-                and confidence > 0.05 and int(prev) in ids):
+                and confidence >= (1.0 - 1e-9) and int(prev) in ids):
             return int(prev)
-        if prev is not None and confidence > 0.05 and int(prev) in ids:
+        if prev is not None and confidence >= (1.0 - 1e-9) and int(prev) in ids:
             try:
                 geo = self.sample_geodesic[int(prev), ids]
                 local = ids[geo <= float(self.contact_switch_radius)]
@@ -498,7 +605,11 @@ class LambdaContactControlOptimizer:
         # Gravity is supplied as a force, whereas the dual contact variable
         # is an impulse.  Convert gravity to an impulse before solving for
         # the generalized velocity increment.
-        b = self.h * tau_o_np + cs.transpose(J_arm_world) @ (R_contact @ lam_arm)
+        # In physical rollout mode the optimized contact wrench is a force,
+        # so convert it to an impulse over this control interval.  The legacy
+        # ideal-contact mode keeps its historical impulse convention.
+        wrench_scale = self.h if self.wrench_is_force else 1.0
+        b = self.h * tau_o_np + wrench_scale * cs.transpose(J_arm_world) @ (R_contact @ lam_arm)
         
         # Environment response, matching the reference K J Q^{-1} b model.
         Q_inv_mx = cs.MX(self.Q_inv)
@@ -515,7 +626,8 @@ class LambdaContactControlOptimizer:
             D_inv_i = D_inv[row_start:row_end, :]
             J_tilde_i_Q_inv_b = J_tilde_i @ Q_inv_b
             contact_force_i = -D_inv_i @ J_tilde_i_Q_inv_b
-            contact_force_i = cs.fmax(contact_force_i, 0)
+            contact_force_i = 0.5 * (contact_force_i + cs.sqrt(
+                contact_force_i * contact_force_i + self._positive_part_eps))
             v_plus += Q_inv_mx @ J_tilde_i.T @ contact_force_i
 
         v_now = v_last + v_plus
@@ -662,6 +774,27 @@ class LambdaContactControlOptimizer:
         self.last_global_total_cost = float(costs[global_local])
         chosen_local = global_local
 
+        # Not sitting on a trusted patch: ranking *is* the raw lambda
+        # optimum.  Incumbent / debounce hysteresis otherwise keeps a
+        # nearby foot or leg as ``best_contact`` while the fingertip
+        # travels, which is the local-optimum trap.
+        if anchor_sample_idx is None:
+            self.last_switch_required = bool(
+                prev_sample_idx is not None and int(prev_sample_idx) != global_idx)
+            self._pending_selected_idx = None
+            self._pending_selected_count = 0
+            chosen_idx = global_idx
+            self.last_best_idx = chosen_idx
+            if force_buffer is None:
+                self.last_best_force = None
+            else:
+                self.last_best_force = np.asarray(force_buffer[chosen_local], dtype=np.float32)
+            self.last_selected_local = np.asarray(self.sample_point[chosen_idx], dtype=np.float32)
+            self.last_selected_idx = chosen_idx
+            self.last_transition_cost = float(np.asarray(transition_costs[chosen_local]).reshape(()))
+            self.last_selected_total_cost = float(np.asarray(total_costs[chosen_local]).reshape(()))
+            return chosen_idx, float(np.min(finite_costs)), float(np.max(finite_costs)), chosen_local
+
         locked_incumbent_local = None
         # A hard lock only makes sense while the dwell policy still trusts
         # this patch.  Once confidence has collapsed, keep the incumbent
@@ -789,7 +922,7 @@ class LambdaContactControlOptimizer:
         return None
 
     def _precompute_sample_geodesic(self):
-        if getattr(self.pp, 'graph', None) is None:
+        if getattr(getattr(self, 'pp', None), 'graph', None) is None:
             return np.linalg.norm(self.sample_point[:, None, :] - self.sample_point[None, :, :], axis=2)
 
         n_samples = self.sample_vertex_indices.shape[0]
@@ -811,6 +944,7 @@ class LambdaContactControlOptimizer:
             except (RuntimeError, ValueError, FloatingPointError) as exc:
                 self.acados_failure_count += 1
                 self.last_acados_failure_reason = str(exc)
+                self.acados_failure_reasons[str(exc)] = self.acados_failure_reasons.get(str(exc), 0) + 1
             if self._acados_fallbacks_this_cycle >= self.acados_max_fallbacks_per_cycle:
                 self.last_solver_status = 'acados-failed-skip'
                 return None
@@ -851,53 +985,85 @@ class LambdaContactControlOptimizer:
         from planning.acados_env import ensure_acados_env
         ensure_acados_env()
         from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver, ACADOS_INFTY
-        cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
+        # This is a one-shot contact optimization, rather than a dynamical
+        # MPC problem.  Represent lambda as the acados state and use N=0.
+        # The previous N=1 formulation put lambda in ``u`` and put the pose
+        # update in ``disc_dyn_expr``.  SQP_RTI then linearized the transition
+        # around the initial guess while the Python post-processing evaluated
+        # it again, so the terminal objective optimized by acados could differ
+        # from the reported x_plus.  With N=0 the terminal NLP contains the
+        # exact same CasADi x_plus expression that is returned below.
+        cs_c = cs.SX.sym('xcur', 7); cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
         cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
         cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
-        prm = cs.vertcat(cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp)
-        x = cs.SX.sym('x', 7); u = cs.SX.sym('u', 3)
+        prm = cs.vertcat(cs_c, cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp)
+        x = cs.SX.sym('lambda', 3); u = cs.SX.sym('u', 0, 0)
         Jc = cs.SX.zeros(3, 6); Jc[:3, :3] = cs.SX.eye(3); Jc[0,4],Jc[0,5]=cs_cp[2],-cs_cp[1]; Jc[1,3],Jc[1,5]=-cs_cp[2],cs_cp[0]; Jc[2,3],Jc[2,4]=cs_cp[1],-cs_cp[0]
-        Rct = cs.horzcat(cs_n, cs_t1, cs_t2); b = self.h*cs_tau + cs.transpose(Jc) @ (Rct @ u); qinv = cs.DM(self.Q_inv); qib=qinv@b; vp=qib
+        wrench_scale = self.h if self.wrench_is_force else 1.0
+        Rct = cs.horzcat(cs_n, cs_t1, cs_t2); b = self.h*cs_tau + wrench_scale*cs.transpose(Jc) @ (Rct @ x); qinv = cs.DM(self.Q_inv); qib=qinv@b; vp=qib
         for i in range(self.max_contacts):
-            sl=slice(4*i,4*(i+1)); Ji=cs_j[sl,:]; Di=cs_d[sl,:]; fi=cs.fmax(-Di@(Ji@qib),0); vp += qinv@cs.transpose(Ji)@fi
-        vn=cs_v+vp; quat=x[3:7]; H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
-        qn=cs.vertcat(x[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
-        # Smooth the Euclidean norm at zero; the raw norm has an undefined
-        # derivative and can make the first acados QP report NAN_DETECTED.
-        # The terminal cost is evaluated on the terminal state ``x`` (the
-        # state at stage N, i.e. qn after the discrete transition).  Using
-        # the transition expression qn directly here makes acados reject the
-        # model because terminal costs may not depend on control ``u``.
-        terminal_pos_cost = self.pos_coef * cs.sumsqr(x[:3] - cs_p[:3])
-        terminal_ori_cost = self.ori_coef * (1-cs.dot(x[3:7],cs_p[3:7])**2)
+            sl=slice(4*i,4*(i+1)); Ji=cs_j[sl,:]; Di=cs_d[sl,:]
+            # fmax has a kink exactly at the no-contact solution (the usual
+            # initial point), which makes acados' exact-Hessian SQP stop with
+            # MINSTEP.  Use the same numerically equivalent C1 positive part
+            # as the Python/CasADi post-processing path.
+            gap_impulse = -Di@(Ji@qib)
+            fi = 0.5 * (gap_impulse + cs.sqrt(gap_impulse * gap_impulse + 1e-12))
+            vp += qinv@cs.transpose(Ji)@fi
+        vn=cs_v+vp; quat=cs_c[3:7]
+        H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
+        qn=cs.vertcat(cs_c[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
+        terminal_pos_cost = self.pos_coef * cs.sumsqr(qn[:3] - cs_p[:3])
+        terminal_ori_cost = self.ori_coef * (1-cs.dot(qn[3:7],cs_p[3:7])**2)
         # Bump the generated-solver name whenever force constraints change;
         # otherwise an old /tmp binary can silently ignore the current bounds.
         # Keep acados' objective identical to the CasADi/Torch candidate
         # objective.  Without the force term the selected wrench can be a
         # high-force outlier even though its reported post-hoc cost is high.
-        model=AcadosModel(); model.name=f'contact_lambda_acados_v11_dv_m{self.max_contacts}_f{int(self.max_contact_force*1000)}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
-        model.cost_expr_ext_cost = (self.friction_reg_coef * cs.sumsqr(u[1:3]) +
-                                    self.force_reg_coef * cs.sumsqr(u))
-        model.cost_expr_ext_cost_e = terminal_pos_cost + terminal_ori_cost
-        ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.cost.cost_type='EXTERNAL'; ocp.cost.cost_type_e='EXTERNAL';
+        model=AcadosModel(); model.name=f'contact_lambda_acados_v18_n0smooth_m{self.max_contacts}_f{int(self.max_contact_force*1000)}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=x
+        model.cost_expr_ext_cost_e = (terminal_pos_cost + terminal_ori_cost +
+                                      self.friction_reg_coef * cs.sumsqr(x[1:3]) +
+                                      self.force_reg_coef * cs.sumsqr(x))
+        ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.cost.cost_type_e='EXTERNAL';
         mu = float(self.mu_arm_obj)
-        model.con_h_expr = cs.vertcat(u[0], u[1]-mu*u[0], -u[1]-mu*u[0], u[2]-mu*u[0], -u[2]-mu*u[0], cs.sumsqr(u))
+        model.con_h_expr_e = cs.vertcat(x[0], x[1]-mu*x[0], -x[1]-mu*x[0], x[2]-mu*x[0], -x[2]-mu*x[0], cs.sumsqr(x))
         # No-contact (zero normal force) is a valid candidate while the
         # fingertip approaches a patch.  A positive lower bound made RTI
         # return a boundary zero that was then misclassified as invalid and
         # sent to the slow IPOPT fallback.
-        ocp.constraints.lh = np.array([0.0, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, 0.0])
-        ocp.constraints.uh = np.array([self.max_normal_force, 0., 0., 0., 0., self.max_contact_force ** 2])
-        ocp.constraints.idxbx_0=np.arange(7); ocp.constraints.lbx_0=np.zeros(7); ocp.constraints.ubx_0=np.zeros(7)
-        ocp.solver_options.N_horizon=1; ocp.solver_options.tf=float(self.h); ocp.solver_options.qp_solver='PARTIAL_CONDENSING_HPIPM'; ocp.solver_options.hessian_approx='EXACT'; ocp.solver_options.integrator_type='DISCRETE'; ocp.solver_options.nlp_solver_type='SQP_RTI'; ocp.solver_options.regularize_method='PROJECT'; ocp.solver_options.print_level=0
+        ocp.constraints.lh_e = np.array([0.0, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, 0.0])
+        ocp.constraints.uh_e = np.array([self.max_normal_force, 0., 0., 0., 0., self.max_contact_force ** 2])
+        ocp.solver_options.N_horizon=0; ocp.solver_options.qp_solver='FULL_CONDENSING_HPIPM'; ocp.solver_options.hessian_approx='EXACT'; ocp.solver_options.integrator_type='DISCRETE'; ocp.solver_options.nlp_solver_type='SQP'; ocp.solver_options.globalization='MERIT_BACKTRACKING'; ocp.solver_options.regularize_method='MIRROR'; ocp.solver_options.nlp_solver_ext_qp_res=1; ocp.solver_options.nlp_solver_max_iter=200; ocp.solver_options.qp_solver_iter_max=200; ocp.solver_options.tol=1e-7; ocp.solver_options.print_level=0
         d='/tmp/'+model.name+'_codegen'; os.makedirs(d,exist_ok=True); ocp.code_gen_opts.code_export_directory=d; jf=os.path.join(d,model.name+'.json'); so=os.path.join(d,'libacados_ocp_solver_'+model.name+'.so')
         if os.path.isfile(jf) and os.path.isfile(so):
             return AcadosOcpSolver(ocp,json_file=jf,generate=False,build=False,check_reuse_possible=False,verbose=False)
         return AcadosOcpSolver(ocp,json_file=jf,generate=True,build=True,check_reuse_possible=True,verbose=False)
 
     def _solve_optimization_acados(self, **kwargs):
-        solver=self.acados_solver; xcur=np.asarray(kwargs['current_x'],float).reshape(7); p=np.concatenate([np.asarray(kwargs['x_d']).reshape(-1),np.asarray(kwargs['v_last']).reshape(-1),np.asarray(kwargs['J_tilde']).reshape(-1,order='F'),np.asarray(kwargs['D_inv']).reshape(-1,order='F'),np.asarray(kwargs['tau_o_np']).reshape(-1),np.asarray(kwargs['n_arm']).reshape(-1),np.asarray(kwargs['t1']).reshape(-1),np.asarray(kwargs['t2']).reshape(-1),np.asarray(kwargs['p_arm']).reshape(-1)])
-        solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur); solver.set(0,'u',np.array([.01,0,0])); solver.set(0,'p',p); solver.set(1,'x',xcur); solver.set(1,'p',p); status=int(solver.solve())
+        solver=self.acados_solver; xcur=np.asarray(kwargs['current_x'],float).reshape(7)
+        p=np.concatenate([xcur, np.asarray(kwargs['x_d']).reshape(-1),
+                          np.asarray(kwargs['v_last']).reshape(-1),
+                          np.asarray(kwargs['J_tilde']).reshape(-1,order='F'),
+                          np.asarray(kwargs['D_inv']).reshape(-1,order='F'),
+                          np.asarray(kwargs['tau_o_np']).reshape(-1),
+                          np.asarray(kwargs['n_arm']).reshape(-1),
+                          np.asarray(kwargs['t1']).reshape(-1),
+                          np.asarray(kwargs['t2']).reshape(-1),
+                          np.asarray(kwargs['p_arm']).reshape(-1)])
+        # N=0: lambda is the only state and the terminal NLP evaluates the
+        # complete x_plus objective directly.  There is no stage-1 pose to
+        # seed or accidentally overwrite with current_x.
+        # Each sampled patch changes J/D/contact frame and therefore defines a
+        # different one-shot NLP.  Reusing the previous SQP primal/dual
+        # iterate across patches can leave HPIPM with an infeasible warm start
+        # (the frequent status-4 failures seen during rollout).  Reset the
+        # acados memory, then provide the same small feasible normal-force
+        # seed for every independent solve.
+        try:
+            solver.reset()
+        except AttributeError:
+            pass
+        solver.set(0,'x',np.array([.01,0.,0.], dtype=float)); solver.set(0,'p',p); status=int(solver.solve())
         # SQP_RTI can report a recoverable QP failure for a degenerate patch.
         # Treat a nonzero status as a failed candidate and let the bounded
         # IPOPT fallback in _solve_optimization() handle it.
@@ -909,10 +1075,22 @@ class LambdaContactControlOptimizer:
             # Raise here so _solve_optimization() uses its IPOPT fallback and
             # the caller can distinguish a real zero-force optimum from a
             # failed Acados solve.
-            self.acados_qp_failure_count += 1
-            raise RuntimeError(f'acados status {status}')
-        else:
-            lam=np.asarray(solver.get(0,'u')).reshape(3)
+            # ACADOS return code 2 is MAXITER.  For this tiny terminal NLP,
+            # SQP can hit the iteration cap while the KKT residual is already
+            # below the contact-model accuracy needed by the outer MPC.  Keep
+            # that finite, near-stationary iterate instead of switching the
+            # whole candidate to IPOPT; hard QP/NAN failures still propagate.
+            try:
+                residuals = np.asarray(solver.get_stats('residuals'), dtype=float).reshape(-1)
+                near_stationary = (status == 2 and residuals.size > 0 and
+                                   np.isfinite(residuals).all() and
+                                   float(np.max(residuals)) <= 1e-5)
+            except Exception:
+                near_stationary = False
+            if not near_stationary:
+                self.acados_qp_failure_count += 1
+                raise RuntimeError(f'acados status {status}')
+        lam=np.asarray(solver.get(0,'x')).reshape(3)
         if not np.isfinite(lam).all():
             raise FloatingPointError('acados returned non-finite contact wrench')
         fn = float(np.clip(lam[0], 0.0, self.max_normal_force))
@@ -924,11 +1102,12 @@ class LambdaContactControlOptimizer:
         Jc[1, 3], Jc[1, 5] = -cp[2], cp[0]
         Jc[2, 3], Jc[2, 4] = cp[1], -cp[0]
         Rcontact=np.column_stack((kwargs['n_arm'], kwargs['t1'], kwargs['t2']))
-        b=self.h*np.asarray(kwargs['tau_o_np']).reshape(6)+Jc.T@(Rcontact@lam)
+        wrench_scale = self.h if self.wrench_is_force else 1.0
+        b=self.h*np.asarray(kwargs['tau_o_np']).reshape(6)+wrench_scale*Jc.T@(Rcontact@lam)
         qib=self.Q_inv@b; vplus=qib
         Jenv=np.asarray(kwargs['J_tilde']); D=np.asarray(kwargs['D_inv'])
         for i in range(self.max_contacts):
-            sl=slice(4*i,4*(i+1)); fi=np.maximum(-(D[sl]@(Jenv[sl]@qib)),0.0)
+            sl=slice(4*i,4*(i+1)); gap_impulse=-(D[sl]@(Jenv[sl]@qib)); fi=0.5*(gap_impulse + np.sqrt(gap_impulse*gap_impulse + self._positive_part_eps))
             vplus += self.Q_inv@Jenv[sl].T@fi
         vnow=np.asarray(kwargs['v_last']).reshape(6)+vplus
         qnext=np.asarray(self.cs_qposInteg_(xcur,vnow)).reshape(7)
@@ -982,12 +1161,15 @@ class LambdaContactControlOptimizer:
         def evaluate():
             fn = 0.001 + (self.max_normal_force - 0.001) * torch.sigmoid(z[0])
             lam = torch.cat((fn.reshape(1), self.mu_arm_obj * fn * torch.tanh(z[1:])))
-            b = self.h * tau + Jc.T @ (Rcontact @ lam)
+            wrench_scale = self.h if self.wrench_is_force else 1.0
+            b = self.h * tau + wrench_scale * (Jc.T @ (Rcontact @ lam))
             qinv_b = qinv @ b
             vplus = qinv_b
             for i in range(self.max_contacts):
                 sl = slice(4 * i, 4 * (i + 1))
-                fi = torch.relu(-(D[sl] @ (Jenv[sl] @ qinv_b)))
+                gap_impulse = -(D[sl] @ (Jenv[sl] @ qinv_b))
+                fi = 0.5 * (gap_impulse + torch.sqrt(
+                    gap_impulse * gap_impulse + self._positive_part_eps))
                 vplus = vplus + qinv @ Jenv[sl].T @ fi
             vnow = vl + vplus
             quat = xc[3:7]
@@ -1064,13 +1246,16 @@ class LambdaContactControlOptimizer:
             fn = 1e-6 + (self.max_normal_force - 1e-6) * torch.sigmoid(z[:, 0])
             lam = torch.cat((fn[:, None], self.mu_arm_obj * fn[:, None] * torch.tanh(z[:, 1:])), dim=1)
             wrench = torch.bmm(Rcontact, lam[:, :, None]).squeeze(-1)
-            b = self.h * tau[None, :] + torch.bmm(Jc.transpose(1, 2), wrench[:, :, None]).squeeze(-1)
+            wrench_scale = self.h if self.wrench_is_force else 1.0
+            b = self.h * tau[None, :] + wrench_scale * torch.bmm(Jc.transpose(1, 2), wrench[:, :, None]).squeeze(-1)
             qinv_b = torch.matmul(b, qinv.T)
             vplus = qinv_b
             for i in range(self.max_contacts):
                 sl = slice(4 * i, 4 * (i + 1))
                 env_proj = torch.matmul(qinv_b, Jenv[sl].T)
-                fi = torch.relu(-torch.matmul(env_proj, D[sl].T))
+                gap_impulse = -torch.matmul(env_proj, D[sl].T)
+                fi = 0.5 * (gap_impulse + torch.sqrt(
+                    gap_impulse * gap_impulse + self._positive_part_eps))
                 vplus = vplus + torch.matmul(fi, Jenv[sl] @ qinv.T)
             vnow = vplus + vl[None, :]
             quat = xc[3:7]

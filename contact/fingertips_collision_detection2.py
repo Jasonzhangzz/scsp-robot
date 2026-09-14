@@ -22,6 +22,25 @@ class Contact:
         # physical contact location when applying an ideal pose update.
         self.object_contacts_world = []
 
+    @staticmethod
+    def _contact_jacobian_body_frame(jacobian, body_mat):
+        """Express an object contact Jacobian in the object body frame.
+
+        MuJoCo free-joint translational/angular qvel components are world
+        frame quantities.  The lambda optimizer uses body-frame contact
+        points and wrenches, so its object columns must be right-multiplied
+        by diag(R_body, R_body) before they are passed downstream.
+        """
+        jacobian = np.asarray(jacobian, dtype=np.float64).copy()
+        if jacobian.ndim != 2 or jacobian.shape[1] < 6:
+            return jacobian
+        R = np.asarray(body_mat, dtype=np.float64).reshape(3, 3)
+        frame = np.zeros((6, 6), dtype=np.float64)
+        frame[:3, :3] = R
+        frame[3:, 3:] = R
+        jacobian[:, :6] = jacobian[:, :6] @ frame
+        return jacobian
+
     def get_actual_fingertip_contact(self):
         """Return the closest object/fingertip contact from the last pass.
 
@@ -75,7 +94,11 @@ class Contact:
             if (geom1_name in self.param_.object_names_):
                 # 世界坐标系中的接触点位置
                 con_pos_world = contact_i.pos
-                con_dist = contact_i.dist * 0.5
+                # ``contact.dist`` is the signed gap between the two geom
+                # surfaces.  The midpoint reconstruction below uses half of
+                # it, but the constraint residual passed to lambda must keep
+                # the full MuJoCo gap.
+                con_dist = float(contact_i.dist)
                 con_mu = self.param_.mu_object_
 
                 # 接触帧的旋转矩阵 (3x3)
@@ -136,7 +159,8 @@ class Contact:
                 # 存储物体坐标系中的接触点位置
                 if geom2_name == 'table':
                     con_pos_list.append(con_pos_body)  # 或者使用 con_pos_local
-                    con_jac_env_list.append(con_jac)
+                    con_jac_env_list.append(
+                        self._contact_jacobian_body_frame(con_jac, body_mat))
                     con_phi_env_list.append(con_dist)
                 con_phi_list.append(con_dist)
                 con_frame_list.append(con_frame)
@@ -145,7 +169,7 @@ class Contact:
             elif (geom2_name in self.param_.object_names_):
                 # 世界坐标系中的接触点位置
                 con_pos_world = contact_i.pos
-                con_dist = contact_i.dist * 0.5
+                con_dist = float(contact_i.dist)
                 con_mu = self.param_.mu_object_
 
                 # 接触帧的旋转矩阵 (3x3)
@@ -199,7 +223,8 @@ class Contact:
                 # 存储物体坐标系中的接触点位置
                 if geom1_name == 'table':
                     con_pos_list.append(con_pos_body)  # 或者使用 con_pos_local
-                    con_jac_env_list.append(con_jac)
+                    con_jac_env_list.append(
+                        self._contact_jacobian_body_frame(con_jac, body_mat))
                     con_phi_env_list.append(con_dist)
 
                 con_phi_list.append(con_dist)

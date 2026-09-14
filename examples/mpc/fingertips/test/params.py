@@ -9,12 +9,12 @@ import trimesh
 def _mujoco_collision_mesh(mesh_path, model_path):
     """Extract MuJoCo's compiled convex mesh into a cached STL.
 
-    MuJoCo retains the full STL for rendering but compiles a convex polygon
-    set for mesh collisions.  Sampling the source STL can therefore select
+    MuJoCo retains the full STL for rendering but uses its convex hull for
+    mesh collisions.  Sampling the source STL can therefore select
     concave points (for example the inside of the trunk) that the simulator
-    will never report as contact.  The ``mesh_poly*`` arrays are the exact
-    compiled collision hull, so exporting them keeps lambda and MuJoCo on the
-    same geometry.  Return the original path when extraction is unavailable.
+    will never report as contact.  Rebuild that hull from compiled vertices
+    in the object body frame.  Return the original path when extraction is
+    unavailable.
     """
     try:
         import mujoco
@@ -26,40 +26,27 @@ def _mujoco_collision_mesh(mesh_path, model_path):
         # selecting that compiled mesh also avoids accidentally using the
         # visual duplicate geoms.
         mesh_idx = 0 if model.nmesh == 1 else None
-        if mesh_idx is None or int(model.mesh_polynum[mesh_idx]) <= 0:
+        if mesh_idx is None:
             return mesh_path
         v0 = int(model.mesh_vertadr[mesh_idx]); nv = int(model.mesh_vertnum[mesh_idx])
         vertices = np.asarray(model.mesh_vert[v0:v0 + nv], dtype=np.float64)
-        # ``mesh_vert`` is in MuJoCo's compiled mesh frame.  Convert it to the
-        # object geom/body frame, which is the frame used by the optimizer and
-        # by the STL asset.  The mesh and geom transforms are equivalent for
-        # this XML; use the geom transform so this remains correct if an asset
-        # transform is moved from ``<mesh>`` to ``<geom>`` later.
+        # The compiled geom pose already incorporates mesh centering and
+        # principal-axis alignment.  ``mesh_vert`` therefore needs only
+        # geom_quat/geom_pos to reach the body frame.  Applying mesh_pos/quat
+        # as well repeats that transform and shifts/rotates the contact hull.
         geom_id = model.geom('obj').id
         rot_flat = np.empty(9, dtype=np.float64)
         mujoco.mju_quat2Mat(rot_flat, np.asarray(model.geom_quat[geom_id], dtype=np.float64))
         geom_rot = rot_flat.reshape(3, 3)
         vertices = np.asarray(model.geom_pos[geom_id], dtype=np.float64) + vertices @ geom_rot.T
-        p0 = int(model.mesh_polyadr[mesh_idx]); npoly = int(model.mesh_polynum[mesh_idx])
-        polys = []
-        for i in range(p0, p0 + npoly):
-            a = int(model.mesh_polyvertadr[i]); n = int(model.mesh_polyvertnum[i])
-            ids = np.asarray(model.mesh_polyvert[a:a + n], dtype=np.int64)
-            # mesh_polyvert stores indices in the mesh-local vertex array.
-            ids = ids - v0 if ids.size and ids.max() >= nv else ids
-            if ids.size >= 3:
-                polys.extend([ids[[0, j, j + 1]] for j in range(1, len(ids) - 1)])
-        if not polys:
-            return mesh_path
-        hull = trimesh.Trimesh(vertices=vertices, faces=np.asarray(polys), process=False)
-        hull.remove_unreferenced_vertices()
-        # mesh_poly facets can be emitted with mixed winding after fan
-        # triangulation.  Reorient the closed hull before exporting so vertex
-        # normals used by projection are nonzero and consistently outward.
-        hull.fix_normals()
+        # Fan triangulation of mesh_poly* can create inward-facing or
+        # non-supporting triangles on nearly coplanar polygon groups.
+        # Rebuilding the convex hull gives closed, outward-facing facets;
+        # each facet's radius-offset sphere then touches MuJoCo's geom.
+        hull = trimesh.convex.convex_hull(vertices)
         stat = os.stat(mesh_path)
         model_stat = os.stat(model_path)
-        key = hashlib.sha1(f'bodyframe-v6:{os.path.abspath(mesh_path)}:{stat.st_mtime_ns}:{os.path.abspath(model_path)}:{model_stat.st_mtime_ns}:{len(polys)}'.encode()).hexdigest()[:16]
+        key = hashlib.sha1(f'bodyframe-v8-single-transform:{os.path.abspath(mesh_path)}:{stat.st_mtime_ns}:{os.path.abspath(model_path)}:{model_stat.st_mtime_ns}:{len(hull.faces)}'.encode()).hexdigest()[:16]
         cached = os.path.join(tempfile.gettempdir(), f'mujoco_collision_{key}.stl')
         if not os.path.exists(cached):
             hull.export(cached)
@@ -106,11 +93,12 @@ class ExplicitMPCParams:
         self.mesh_path_ = "envs/assets/objects/"+args.obj+".stl"
         self.object_names_ = ['obj']
         # The MuJoCo mesh geom is rendered from the full STL but collisions
-        # are evaluated on its convex representation.  Use that same hull for
-        # elephant contact candidates; this removes unreachable concave
-        # samples (inside the trunk/feet) from lambda optimisation.
+        # are evaluated on its compiled convex representation.  Lambda must
+        # sample that same representation (including MuJoCo's mesh/geom frame
+        # transform), otherwise it can select a point that mj_forward can
+        # never contact.  Keep an explicit override for compatibility.
         requested_hull = getattr(args, 'collision_hull', None)
-        self.collision_hull = (args.obj == 'elephant' if requested_hull is None
+        self.collision_hull = (True if requested_hull is None
                                else bool(requested_hull))
         self._collision_mesh_extracted = False
         if self.collision_hull:
@@ -126,11 +114,23 @@ class ExplicitMPCParams:
         except Exception:
             self.object_circumradius = 0.08
 
-        # Keep the calibrated outer MPC discretization.  Lambda uses this
-        # same step below; the previous h*10 setting produced 0.5 s pose
-        # increments that were written every 0.02 s simulation cycle.
-        self.h_ = 0.05
+        # MPC / MuJoCo execution can stay on the 20 ms control interval in
+        # rollout.  Lambda contact *ranking* must not: a 20 ms step with a
+        # force-scaled wrench against the historical Q=50 inertia predicts
+        # micrometre-scale x_plus for every sample, flattens the pose-cost
+        # landscape, and traps the switch policy on the nearest patch.
         self.frame_skip_ = int(10)
+        try:
+            import mujoco
+            _model_dt = float(mujoco.MjModel.from_xml_path(self.model_path_).opt.timestep)
+        except Exception:
+            _model_dt = 0.002
+        self.h_ = (_model_dt * self.frame_skip_
+                   if bool(getattr(args, 'rollout', False)) else 0.05)
+        # Calibrated one-step ranking horizon, shared with
+        # --ideal_contact_switch.  Do not couple this to the MuJoCo control
+        # interval; object motion in rollout still comes from physics.
+        self.lambda_h_ = 0.05
 
         # system dimensions:
         self.n_robot_qpos_ = 9 - 6
@@ -217,6 +217,31 @@ class ExplicitMPCParams:
             self.init_robot_qpos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
             self.init_robot_qpos_[2] = 0.02 + 0.03 * float(np.random.rand())
 
+        # Rollout uses MuJoCo's free-body mass matrix instead of the old
+        # hand-tuned lambda inertia.  Keep both representations: MPC's state
+        # uses world-frame free-joint qvel, while lambda contact points and
+        # wrenches are expressed in the object body frame.
+        lambda_obj_inertia = None
+        if bool(getattr(args, 'rollout', False)):
+            try:
+                import mujoco
+                _mj_model = mujoco.MjModel.from_xml_path(self.model_path_)
+                _mj_data = mujoco.MjData(_mj_model)
+                _mj_data.qpos[:7] = self.init_obj_qpos_
+                mujoco.mj_forward(_mj_model, _mj_data)
+                _full_mass = np.zeros((_mj_model.nv, _mj_model.nv), dtype=np.float64)
+                mujoco.mj_fullM(_mj_model, _mj_data, _full_mass)
+                _mass_world = np.asarray(_full_mass[:6, :6], dtype=np.float64)
+                _body_rot = np.asarray(
+                    _mj_data.xmat[_mj_model.body('obj').id], dtype=np.float64).reshape(3, 3)
+                _frame = np.zeros((6, 6), dtype=np.float64)
+                _frame[:3, :3] = _body_rot
+                _frame[3:, 3:] = _body_rot
+                lambda_obj_inertia = _frame.T @ _mass_world @ _frame
+                self._mujoco_object_inertia_world = _mass_world.copy()
+            except Exception:
+                lambda_obj_inertia = None
+
         # random target pose for object
         if target_type == 'ground-rotation':
             # target_xy_rand = 0.05 * np.random.rand(2) - 0.1
@@ -258,7 +283,16 @@ class ExplicitMPCParams:
         # magnitude and requires a separate force-model calibration.
         self.obj_inertia_[0:3, 0:3] = 50 * np.eye(3)
         self.obj_inertia_[3:, 3:] = 0.05 * np.eye(3)
-        self.robot_stiff_ = np.diag(self.n_cmd_ * [200])
+        # Keep the explicit MPC in its historically conditioned numerical
+        # coordinates.  The physical MuJoCo mass matrix is passed separately
+        # to LambdaContactControlOptimizer below; putting values around 1e-6
+        # directly into this Q makes Q^{-1} ill-conditioned and causes the
+        # acados planner to fail before it can generate lateral motion.
+        # MjSimulator drives the fingertip with -100*dpos - 2*dvel.  The
+        # simplified MPC uses the command as a position increment, so its
+        # stiffness term should match that 100 N/m rollout actuator.
+        self.robot_stiff_ = np.diag(
+            self.n_cmd_ * [100 if bool(getattr(args, 'rollout', False)) else 200])
 
         Q = np.zeros((self.n_qvel_, self.n_qvel_))
         Q[:6, :6] = self.obj_inertia_
@@ -297,13 +331,18 @@ class ExplicitMPCParams:
                                                 # discretization.  The old
                                                 # h*10 value (0.5 s) caused
                                                 # severe pose teleportation.
-                                                time_step=self.h_,
+                                                time_step=self.lambda_h_,
                                                 sample_num=args.sample_num,
                                                 pos_coef=args.pos_coef,
                                                 ori_coef=args.ori_coef,
                                                 friction_reg_coef=getattr(args, 'friction_reg_coef', 0.0),
                                                 force_reg_coef=getattr(args, 'force_reg_coef', 0.01),
-                                                max_contact_force=getattr(args, 'max_contact_force', 10.0),
+                                                # Keep the ranking force cap on the same impulse
+                                                # scale as --ideal_contact_switch.  A 0.75 N
+                                                # physical cap made every candidate look equally
+                                                # powerless against Q=50, so nearest-patch
+                                                # hysteresis always won.
+                                                max_contact_force=float(getattr(args, 'max_contact_force', 10.0)),
                                                 contact_switch_radius=getattr(args, 'contact_switch_radius', 0.03),
                                                 contact_switch_margin_ratio=getattr(args, 'contact_switch_margin_ratio', 0.2),
                                                 contact_switch_margin_abs=getattr(args, 'contact_switch_margin_abs', 1e-3),
@@ -311,6 +350,22 @@ class ExplicitMPCParams:
                                                 normal_stability_cos=getattr(args, 'normal_stability_cos', 0.95),
                                                 solver=getattr(args, 'solver', 'ipopt'),
                                                 torch_max_iter=getattr(args, 'torch_max_iter', 100),
+                                                # The raw MuJoCo rotational inertia is only a few
+                                                # 1e-6 kg m^2.  The reduced one-step contact model
+                                                # has no compliant contact state, so using it directly
+                                                # turns the table reaction into an enormous angular
+                                                # impulse.  Keep the calibrated effective inertia for
+                                                # candidate ranking; MuJoCo remains the execution
+                                                # model and the measured mass is retained above for
+                                                # diagnostics.
+                                                obj_inertia=None,
+                                                # Ranking uses the historical impulse-like lambda.
+                                                # Interpreting the wrench as a force (times h)
+                                                # is a physical-unit conversion for diagnostics
+                                                # only and must not be used to score patches:
+                                                # it collapses the cost gaps that let the
+                                                # switch policy reject a nearby local optimum.
+                                                wrench_is_force=False,
                                                 # An extracted mesh already is
                                                 # MuJoCo's hull; only apply the
                                                 # trimesh fallback hull when
