@@ -5,7 +5,7 @@ x, y, z = ca.SX.sym('x'), ca.SX.sym('y'), ca.SX.sym('z')
 mx, my, mz = ca.SX.sym('mx'), ca.SX.sym('my'), ca.SX.sym('mz')  # 磁矩分量
 
 # 定义磁偶极子场的符号表达式（通用方向）
-r = ca.sqrt(x**2 + y**2 + z**2)
+r = ca.sqrt(x**2 + y**2 + z**2 + 1e-12)
 
 phi_m = (mx*x + my*y + mz*z) / (4 * ca.pi * r**3)
 phi_m_field = ca.Function('phi_m_field', [x, y, z, mx, my, mz], [phi_m])

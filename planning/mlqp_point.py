@@ -158,6 +158,8 @@ class LambdaContactControlOptimizer:
             self.contact_switch_confirm_steps = 1
         self._pending_selected_idx = None
         self._pending_selected_count = 0
+        self._pending_global_idx = None
+        self._pending_global_count = 0
         # Confidence in the current (nearest/anchored) surface patch.  A
         # value of one preserves the historical anti-switching behavior;
         # reducing it lets the raw lambda objective select a distant patch
@@ -401,6 +403,8 @@ class LambdaContactControlOptimizer:
                 self.last_executed_force = None
                 self._pending_selected_idx = None
                 self._pending_selected_count = 0
+                self._pending_global_idx = None
+                self._pending_global_count = 0
         return self.contact_switch_confidence
 
     def block_contact_patch(self, sample_idx, cycles=20, radius=None):
@@ -770,6 +774,47 @@ class LambdaContactControlOptimizer:
         # zero-force candidates have been removed.
         global_local = int(finite_local_indices[int(np.argmin(finite_costs))])
         global_idx = int(ids[global_local])
+        # last_global_idx is the rollout travel target.  One-QP RTI costs
+        # jitter enough that raw argmin flips sides every cycle; full-SQP
+        # on origin looked stable because the winner was clearer.  Hold
+        # the incumbent global unless the new winner is clearly cheaper
+        # or confidence has collapsed (explicit explore).
+        prev_global = self.last_global_idx
+        confirm_global = max(3, int(self.contact_switch_confirm_steps))
+        if (prev_global is not None and int(prev_global) != global_idx
+                and float(np.clip(getattr(self, 'contact_switch_confidence', 1.0),
+                                  0.0, 1.0)) > 0.05):
+            prev_hits = np.flatnonzero(ids == int(prev_global))
+            if prev_hits.size and finite_mask[int(prev_hits[0])]:
+                prev_local = int(prev_hits[0])
+                prev_cost = float(costs[prev_local])
+                new_cost = float(costs[global_local])
+                g_margin = (float(self.contact_switch_margin_abs) +
+                            float(self.contact_switch_margin_ratio) *
+                            max(abs(new_cost), 1e-4))
+                if prev_cost <= new_cost + g_margin:
+                    global_idx = int(prev_global)
+                    global_local = prev_local
+                    self._pending_global_idx = None
+                    self._pending_global_count = 0
+                else:
+                    if self._pending_global_idx == global_idx:
+                        self._pending_global_count += 1
+                    else:
+                        self._pending_global_idx = global_idx
+                        self._pending_global_count = 1
+                    if self._pending_global_count < confirm_global:
+                        global_idx = int(prev_global)
+                        global_local = prev_local
+                    else:
+                        self._pending_global_idx = None
+                        self._pending_global_count = 0
+            else:
+                self._pending_global_idx = None
+                self._pending_global_count = 0
+        else:
+            self._pending_global_idx = None
+            self._pending_global_count = 0
         self.last_global_idx = global_idx
         self.last_global_total_cost = float(costs[global_local])
         chosen_local = global_local
@@ -985,14 +1030,10 @@ class LambdaContactControlOptimizer:
         from planning.acados_env import ensure_acados_env
         ensure_acados_env()
         from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver, ACADOS_INFTY
-        # This is a one-shot contact optimization, rather than a dynamical
-        # MPC problem.  Represent lambda as the acados state and use N=0.
-        # The previous N=1 formulation put lambda in ``u`` and put the pose
-        # update in ``disc_dyn_expr``.  SQP_RTI then linearized the transition
-        # around the initial guess while the Python post-processing evaluated
-        # it again, so the terminal objective optimized by acados could differ
-        # from the reported x_plus.  With N=0 the terminal NLP contains the
-        # exact same CasADi x_plus expression that is returned below.
+        # One-shot contact NLP: wrench is the state, N=0 / nu=0, full SQP
+        # (not SQP_RTI).  Origin used EXACT + EXTERNAL + 1/||q||; that
+        # Hessian is NaN at the default quaternion.  Same SQP loop, but
+        # NONLINEAR_LS + Gauss-Newton (JᵀJ) and a regularized quat norm.
         cs_c = cs.SX.sym('xcur', 7); cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
         cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
         cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
@@ -1003,37 +1044,62 @@ class LambdaContactControlOptimizer:
         Rct = cs.horzcat(cs_n, cs_t1, cs_t2); b = self.h*cs_tau + wrench_scale*cs.transpose(Jc) @ (Rct @ x); qinv = cs.DM(self.Q_inv); qib=qinv@b; vp=qib
         for i in range(self.max_contacts):
             sl=slice(4*i,4*(i+1)); Ji=cs_j[sl,:]; Di=cs_d[sl,:]
-            # fmax has a kink exactly at the no-contact solution (the usual
-            # initial point), which makes acados' exact-Hessian SQP stop with
-            # MINSTEP.  Use the same numerically equivalent C1 positive part
-            # as the Python/CasADi post-processing path.
             gap_impulse = -Di@(Ji@qib)
             fi = 0.5 * (gap_impulse + cs.sqrt(gap_impulse * gap_impulse + 1e-12))
             vp += qinv@cs.transpose(Ji)@fi
         vn=cs_v+vp; quat=cs_c[3:7]
         H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
-        qn=cs.vertcat(cs_c[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
-        terminal_pos_cost = self.pos_coef * cs.sumsqr(qn[:3] - cs_p[:3])
-        terminal_ori_cost = self.ori_coef * (1-cs.dot(qn[3:7],cs_p[3:7])**2)
-        # Bump the generated-solver name whenever force constraints change;
-        # otherwise an old /tmp binary can silently ignore the current bounds.
-        # Keep acados' objective identical to the CasADi/Torch candidate
-        # objective.  Without the force term the selected wrench can be a
-        # high-force outlier even though its reported post-hoc cost is high.
-        model=AcadosModel(); model.name=f'contact_lambda_acados_v18_n0smooth_m{self.max_contacts}_f{int(self.max_contact_force*1000)}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=x
-        model.cost_expr_ext_cost_e = (terminal_pos_cost + terminal_ori_cost +
-                                      self.friction_reg_coef * cs.sumsqr(x[1:3]) +
-                                      self.force_reg_coef * cs.sumsqr(x))
-        ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.cost.cost_type_e='EXTERNAL';
+        qn_pos = cs_c[:3] + self.h*vn[:3]
+        qn_quat = quat + 0.5*self.h*H@vn[3:6]
+        qn_quat = qn_quat / cs.sqrt(cs.sumsqr(qn_quat) + 1e-8)
+        qn = cs.vertcat(qn_pos, qn_quat)
+        y_e = cs.vertcat(
+            cs.sqrt(2.0 * self.pos_coef) * (qn[:3] - cs_p[:3]),
+            cs.sqrt(2.0 * self.ori_coef) * cs.sqrt(
+                1.0 - cs.dot(qn[3:7], cs_p[3:7]) ** 2 + 1e-8),
+            cs.sqrt(2.0 * max(self.friction_reg_coef, 0.0) + 1e-16) * x[1:3],
+            cs.sqrt(2.0 * max(self.force_reg_coef, 0.0) + 1e-16) * x,
+        )
+        model=AcadosModel()
+        model.name = (
+            f'contact_lambda_acados_v25_n0sqp_nls_m{self.max_contacts}'
+            f'_f{int(self.max_contact_force * 1000)}')
+        model.x = x
+        model.u = u
+        model.p = prm
+        model.disc_dyn_expr = x
+        model.cost_y_expr_e = y_e
+        ocp = AcadosOcp()
+        ocp.model = model
+        p0 = np.zeros(int(prm.size1()), dtype=float)
+        p0[3] = 1.0
+        p0[10] = 1.0
+        off = 7 + 7 + 6 + 4 * self.max_contacts * 6 + 4 * self.max_contacts * 4 + 6
+        p0[off] = 1.0
+        p0[off + 4] = 1.0
+        p0[off + 8] = 1.0
+        ocp.parameter_values = p0
+        ny_e = int(y_e.size1())
+        ocp.cost.cost_type_e = 'NONLINEAR_LS'
+        ocp.cost.W_e = np.eye(ny_e)
+        ocp.cost.yref_e = np.zeros(ny_e)
         mu = float(self.mu_arm_obj)
         model.con_h_expr_e = cs.vertcat(x[0], x[1]-mu*x[0], -x[1]-mu*x[0], x[2]-mu*x[0], -x[2]-mu*x[0], cs.sumsqr(x))
-        # No-contact (zero normal force) is a valid candidate while the
-        # fingertip approaches a patch.  A positive lower bound made RTI
-        # return a boundary zero that was then misclassified as invalid and
-        # sent to the slow IPOPT fallback.
         ocp.constraints.lh_e = np.array([0.0, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, 0.0])
         ocp.constraints.uh_e = np.array([self.max_normal_force, 0., 0., 0., 0., self.max_contact_force ** 2])
-        ocp.solver_options.N_horizon=0; ocp.solver_options.qp_solver='FULL_CONDENSING_HPIPM'; ocp.solver_options.hessian_approx='EXACT'; ocp.solver_options.integrator_type='DISCRETE'; ocp.solver_options.nlp_solver_type='SQP'; ocp.solver_options.globalization='MERIT_BACKTRACKING'; ocp.solver_options.regularize_method='MIRROR'; ocp.solver_options.nlp_solver_ext_qp_res=1; ocp.solver_options.nlp_solver_max_iter=200; ocp.solver_options.qp_solver_iter_max=200; ocp.solver_options.tol=1e-7; ocp.solver_options.print_level=0
+        ocp.solver_options.N_horizon = 0
+        ocp.solver_options.qp_solver = 'FULL_CONDENSING_HPIPM'
+        ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
+        ocp.solver_options.integrator_type = 'DISCRETE'
+        ocp.solver_options.nlp_solver_type = 'SQP'
+        ocp.solver_options.globalization = 'MERIT_BACKTRACKING'
+        ocp.solver_options.regularize_method = 'PROJECT'
+        ocp.solver_options.nlp_solver_ext_qp_res = 1
+        ocp.solver_options.nlp_solver_max_iter = 200
+        ocp.solver_options.qp_solver_iter_max = 200
+        ocp.solver_options.tol = 1e-7
+        ocp.solver_options.levenberg_marquardt = 1e-3
+        ocp.solver_options.print_level = 0
         d='/tmp/'+model.name+'_codegen'; os.makedirs(d,exist_ok=True); ocp.code_gen_opts.code_export_directory=d; jf=os.path.join(d,model.name+'.json'); so=os.path.join(d,'libacados_ocp_solver_'+model.name+'.so')
         if os.path.isfile(jf) and os.path.isfile(so):
             return AcadosOcpSolver(ocp,json_file=jf,generate=False,build=False,check_reuse_possible=False,verbose=False)
@@ -1041,7 +1107,18 @@ class LambdaContactControlOptimizer:
 
     def _solve_optimization_acados(self, **kwargs):
         solver=self.acados_solver; xcur=np.asarray(kwargs['current_x'],float).reshape(7)
-        p=np.concatenate([xcur, np.asarray(kwargs['x_d']).reshape(-1),
+        qcur = np.asarray(xcur[3:7], dtype=float)
+        qn = float(np.linalg.norm(qcur))
+        if (not np.isfinite(qcur).all()) or qn < 1e-8:
+            raise FloatingPointError('non-finite or zero current quaternion')
+        xcur = np.concatenate([xcur[:3], qcur / qn])
+        xd = np.asarray(kwargs['x_d'], dtype=float).reshape(-1)
+        qd = xd[3:7]
+        qdn = float(np.linalg.norm(qd))
+        if (not np.isfinite(qd).all()) or qdn < 1e-8:
+            raise FloatingPointError('non-finite or zero target quaternion')
+        xd = np.concatenate([xd[:3], qd / qdn])
+        p=np.concatenate([xcur, xd,
                           np.asarray(kwargs['v_last']).reshape(-1),
                           np.asarray(kwargs['J_tilde']).reshape(-1,order='F'),
                           np.asarray(kwargs['D_inv']).reshape(-1,order='F'),
@@ -1050,36 +1127,15 @@ class LambdaContactControlOptimizer:
                           np.asarray(kwargs['t1']).reshape(-1),
                           np.asarray(kwargs['t2']).reshape(-1),
                           np.asarray(kwargs['p_arm']).reshape(-1)])
-        # N=0: lambda is the only state and the terminal NLP evaluates the
-        # complete x_plus objective directly.  There is no stage-1 pose to
-        # seed or accidentally overwrite with current_x.
-        # Each sampled patch changes J/D/contact frame and therefore defines a
-        # different one-shot NLP.  Reusing the previous SQP primal/dual
-        # iterate across patches can leave HPIPM with an infeasible warm start
-        # (the frequent status-4 failures seen during rollout).  Reset the
-        # acados memory, then provide the same small feasible normal-force
-        # seed for every independent solve.
+        if not np.isfinite(p).all():
+            raise FloatingPointError('non-finite acados parameter vector')
         try:
             solver.reset()
         except AttributeError:
             pass
-        solver.set(0,'x',np.array([.01,0.,0.], dtype=float)); solver.set(0,'p',p); status=int(solver.solve())
-        # SQP_RTI can report a recoverable QP failure for a degenerate patch.
-        # Treat a nonzero status as a failed candidate and let the bounded
-        # IPOPT fallback in _solve_optimization() handle it.
+        solver.set(0,'x',np.array([.01,0.,0.], dtype=float)); solver.set(0,'p',p)
+        status=int(solver.solve())
         if status != 0:
-            # Do not turn a failed RTI QP into a finite zero-force solution.
-            # A zero wrench is a valid near-target optimum, but it is not a
-            # valid replacement for a solver failure during contact-point
-            # selection: it wins the pose cost while producing no pose step.
-            # Raise here so _solve_optimization() uses its IPOPT fallback and
-            # the caller can distinguish a real zero-force optimum from a
-            # failed Acados solve.
-            # ACADOS return code 2 is MAXITER.  For this tiny terminal NLP,
-            # SQP can hit the iteration cap while the KKT residual is already
-            # below the contact-model accuracy needed by the outer MPC.  Keep
-            # that finite, near-stationary iterate instead of switching the
-            # whole candidate to IPOPT; hard QP/NAN failures still propagate.
             try:
                 residuals = np.asarray(solver.get_stats('residuals'), dtype=float).reshape(-1)
                 near_stationary = (status == 2 and residuals.size > 0 and
@@ -1089,6 +1145,10 @@ class LambdaContactControlOptimizer:
                 near_stationary = False
             if not near_stationary:
                 self.acados_qp_failure_count += 1
+                try:
+                    solver.reset()
+                except AttributeError:
+                    pass
                 raise RuntimeError(f'acados status {status}')
         lam=np.asarray(solver.get(0,'x')).reshape(3)
         if not np.isfinite(lam).all():
@@ -1309,7 +1369,7 @@ class LambdaContactControlOptimizer:
         qpos = cs.SX.sym('qpos', 7)
         next_obj_pos = qpos[0:3] + self.h * qvel[0:3]
         next_obj_quat = (qpos[3:7] + 0.5 * self.h * self.cs_qmat_body_fn_(qpos[3:7]) @ qvel[3:6])
-        next_obj_quat = next_obj_quat / cs.norm_2(next_obj_quat)
+        next_obj_quat = next_obj_quat / cs.sqrt(cs.sumsqr(next_obj_quat) + 1e-12)
         next_qpos = cs.vertcat(next_obj_pos, next_obj_quat)
         self.cs_qposInteg_ = cs.Function('cs_qposInte', [qpos, qvel], [next_qpos])
 
