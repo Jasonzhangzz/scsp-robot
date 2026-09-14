@@ -63,6 +63,16 @@ def build_parser():
                         help='Multiply switch-confidence each stagnant on-patch step.')
     parser.add_argument('--contact_dwell_steps', type=int, default=6,
                         help='Grace steps on a patch before confidence starts decaying.')
+    parser.add_argument('--value_tau', type=float, default=1.0,
+                        help='Temperature for p_arm advantage → quality (value-style).')
+    parser.add_argument('--value_rel_scale', type=float, default=0.08,
+                        help='Advantage scale as a fraction of |V_best|; avoids raw-cost gates.')
+    parser.add_argument('--value_rho', type=float, default=0.08,
+                        help='Polyak rate for the V_best target network.')
+    parser.add_argument('--value_alpha', type=float, default=0.25,
+                        help='Online EMA rate for V_arm.')
+    parser.add_argument('--verify_beta', type=float, default=0.18,
+                        help='Soft update rate for verify_cost in [0, 1].')
     parser.add_argument('--ideal_contact_surface_margin', type=float, default=-0.0005)
     parser.add_argument('--spline_escape_cost', type=int, default=1)
     parser.add_argument('--ideal_contact_distance', type=float, default=0.006)
@@ -80,10 +90,11 @@ def build_parser():
     mode.add_argument('--ideal_contact_pose', action='store_true',
                       help='Set object pose from x_plus_opt only when contact distance is near 0.')
     mode.add_argument('--ideal_contact_switch', action='store_true',
-                      help='Use verify_cost on the nearest contact (p_arm_world), '
-                           'and set object pose only when contact distance is near 0.')
+                      help='Same contact policy as --rollout, but apply x_plus '
+                           'when contact distance is near 0.')
     mode.add_argument('--rollout', action='store_true',
-                      help='Advance with MuJoCo physics; object pose is not overwritten.')
+                      help='Same policy as --ideal_contact_switch; object motion '
+                           'comes from MuJoCo contact, not set-pose.')
     return parser
 
 
@@ -147,6 +158,101 @@ def _contact_distance_after_step(contact, env):
     return abs(float(measured.get('dist', float('inf'))))
 
 
+class ContactValueTracker:
+    """Value-network style estimates of lambda costs (lower cost = higher value).
+
+    Raw lambda costs are a bad gate: a loose margin executes a bad nearest
+    ``p_arm`` and the ranked best is never used; a tight margin never turns
+    ``verify_cost`` on.  This tracker keeps a slow target for the best
+    cost, a conservative online estimate for ``p_arm``, and a soft
+    ``verify`` that only rises when the executed point is both near-optimal
+    and near the fingertip.
+    """
+
+    def __init__(self, tau=1.0, rel_scale=0.08, rho=0.08, alpha=0.25,
+                 beta=0.18, dist_mid=0.022, dist_width=0.006):
+        self.tau = float(tau)
+        self.rel_scale = float(rel_scale)
+        self.rho = float(rho)
+        self.alpha = float(alpha)
+        self.beta = float(beta)
+        self.dist_mid = float(dist_mid)
+        self.dist_width = float(dist_width)
+        self.v_best = None
+        self.v_arm = None
+        self.verify = 0.0
+        self.last_arm_idx = None
+
+    @staticmethod
+    def _ema(old, new, rate):
+        new = float(new)
+        if old is None or not np.isfinite(old):
+            return new
+        return (1.0 - rate) * float(old) + rate * new
+
+    def reset_arm(self, sample_idx):
+        if sample_idx is None:
+            return
+        idx = int(sample_idx)
+        if self.last_arm_idx is None or idx != int(self.last_arm_idx):
+            self.v_arm = None
+            self.verify *= 0.5
+            self.last_arm_idx = idx
+
+    def update_values(self, c_best, c_arm, solver_ok=True):
+        """Update V_best / V_arm and score whether p_arm is near-optimal."""
+        info = {
+            'quality': 0.0,
+            'verify': float(self.verify),
+            'accept_p_arm': False,
+            'v_best': self.v_best,
+            'v_arm': self.v_arm,
+            'c_arm_cons': None,
+            'scale': None,
+            'q_dist': 0.0,
+            'adv': None,
+        }
+        if c_best is None or not np.isfinite(float(c_best)):
+            return info
+
+        c_best = float(c_best)
+        self.v_best = self._ema(self.v_best, c_best, self.rho)
+        scale = max(self.rel_scale * abs(self.v_best), 0.05)
+        info['scale'] = scale
+        info['v_best'] = self.v_best
+
+        arm_ok = bool(solver_ok) and c_arm is not None and np.isfinite(float(c_arm))
+        quality = 0.0
+        if arm_ok:
+            c_arm = float(c_arm)
+            self.v_arm = self._ema(self.v_arm, c_arm, self.alpha)
+            # Clipped-double-Q analogue for costs: do not overestimate
+            # value (underestimate cost) from a single lucky solve.
+            c_arm_cons = max(c_arm, float(self.v_arm))
+            adv = c_arm_cons - float(self.v_best)
+            quality = float(np.exp(-max(adv, 0.0) / (self.tau * scale)))
+            info['c_arm_cons'] = c_arm_cons
+            info['adv'] = adv
+            info['v_arm'] = self.v_arm
+        # Hysteresis: once verify is committed, keep p_arm through noise;
+        # before that, require a clearer value match to start using it.
+        accept = arm_ok and quality >= (0.40 if self.verify > 0.35 else 0.55)
+        info['quality'] = quality
+        info['accept_p_arm'] = bool(accept)
+        return info
+
+    def update_verify(self, quality, dist_exec):
+        """Soft policy: rise only when the executed point is near and good."""
+        dist = float(dist_exec) if np.isfinite(float(dist_exec)) else 1.0
+        q_dist = 1.0 / (1.0 + np.exp((dist - self.dist_mid) / self.dist_width))
+        target = float(np.clip(quality, 0.0, 1.0)) * float(q_dist)
+        # Rise like an online critic; decay like a slow target network so
+        # a one-frame gap does not slam verify_cost back to zero.
+        rate = self.beta if target >= self.verify else 0.35 * self.beta
+        self.verify = (1.0 - rate) * self.verify + rate * target
+        return float(self.verify), float(q_dist)
+
+
 def main(args=None):
     if args is None:
         args = build_parser().parse_args()
@@ -154,9 +260,13 @@ def main(args=None):
     use_ideal_object_pose = bool(args.ideal_object_pose)
     use_ideal_contact_pose = bool(args.ideal_contact_pose)
     use_ideal_contact_switch = bool(getattr(args, 'ideal_contact_switch', False))
-    use_contact_gated_pose = use_ideal_contact_pose or use_ideal_contact_switch
     use_rollout = bool(args.rollout) or not (
         use_ideal_object_pose or use_ideal_contact_pose or use_ideal_contact_switch)
+    # Switch and rollout share one contact policy.  The only difference is
+    # how a made contact moves the object: set-pose vs MuJoCo physics.
+    use_switch_policy = use_ideal_contact_switch or use_rollout
+    use_gated_contact_policy = use_ideal_contact_pose or use_switch_policy
+    use_set_pose = use_ideal_object_pose or use_ideal_contact_pose or use_ideal_contact_switch
 
     save_flag = False
     success_rate = 0
@@ -201,9 +311,15 @@ def main(args=None):
         consecutive_success_time = 0
         min_pos_err = float('inf')
         min_quat_err = float('inf')
-        verify_cost = 0
-        low_err_coef = args.low_err_coef
-        upper_err_coef = args.upper_err_coef
+        verify_cost = 0.0
+        value_tracker = ContactValueTracker(
+            tau=float(args.value_tau),
+            rel_scale=float(args.value_rel_scale),
+            rho=float(args.value_rho),
+            alpha=float(args.value_alpha),
+            beta=float(args.verify_beta),
+        )
+        value_info = {}
         f_c = 1.0
         dt = env.model_.opt.timestep * env.param_.frame_skip_
         tau = 1.0 / (2.0 * np.pi * f_c)
@@ -230,7 +346,7 @@ def main(args=None):
             visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
                 curr_q[0:3], R_obj_to_world, param.target_p_, args.ground_height_threshold,
                 viewpoint_local=None,
-                heading_filter=not use_contact_gated_pose)
+                heading_filter=not use_gated_contact_policy)
 
             last_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
             last_exec_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
@@ -242,7 +358,7 @@ def main(args=None):
             # the nearest p_arm selector may explore.  Do not force-append
             # a blacklisted trunk/ear sample.  The same rules apply to
             # best_contact and to p_arm_world.
-            if use_contact_gated_pose:
+            if use_gated_contact_policy:
                 visible_point_idx = np.asarray(visible_point_idx, dtype=np.int32)
                 for idx in (last_idx, last_exec_idx):
                     if idx is None:
@@ -252,7 +368,7 @@ def main(args=None):
                         visible_point_idx = np.append(visible_point_idx, int(idx))
                 incumbents = [int(idx) for idx in (last_idx, last_exec_idx)
                               if idx is not None]
-                if (pose_apply_count > 0 and
+                if ((pose_apply_count > 0 or value_tracker.verify > 0.5) and
                         param.lambda_optimizer.contact_switch_confidence > 0.05
                         and any(idx not in blocked for idx in incumbents)):
                     param.lambda_optimizer.lock_contact_patch = True
@@ -268,7 +384,7 @@ def main(args=None):
                 # optimum as a successful contact.  This is especially
                 # important for the nearest p_arm branch, which reuses the
                 # candidate buffers produced here.
-                force_required=bool(use_contact_gated_pose),
+                force_required=bool(use_gated_contact_policy),
             )
             cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
             cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
@@ -283,6 +399,8 @@ def main(args=None):
                 fingertip_radius, args.ideal_contact_surface_margin)
             attract_point_world = best_contact_world - args.attract_point_comp * best_normal_world
             attract_point_world[2] = max(attract_point_world[2], best_contact_world[2])
+            p_arm_track_world = best_contact_track_world
+            p_arm_surface_world = best_contact_world
 
             if use_ideal_object_pose or use_ideal_contact_pose:
                 p_arm_world = best_contact_world
@@ -316,45 +434,28 @@ def main(args=None):
                 p_arm_inward_local = -np.asarray(p_arm_normal_out, dtype=np.float64)
                 p_arm_inward_world = R_obj_to_world @ p_arm_inward_local
                 p_arm_inward_world /= max(float(np.linalg.norm(p_arm_inward_world)), 1e-9)
-                p_arm_world = p_arm_surface_world - max(
+                p_arm_track_world = p_arm_surface_world - max(
                     1e-4, float(fingertip_radius) + float(args.ideal_contact_surface_margin)
                 ) * p_arm_inward_world
+                p_arm_world = p_arm_track_world
 
-                # A nearest point is only an extra option when its lambda
-                # solution is genuinely comparable to the ranked best point.
-                # Use a robust cost span: one failed/outlier candidate must not
-                # make every p_arm acceptable.  If it fails, switch degrades to
-                # the proven ideal_contact_pose candidate.
-                candidate_costs = np.asarray(
-                    getattr(param.lambda_optimizer, 'last_candidate_costs', []),
-                    dtype=np.float64).reshape(-1)
-                finite_candidate_costs = candidate_costs[np.isfinite(candidate_costs)]
-                if finite_candidate_costs.size:
-                    robust_hi = float(np.percentile(finite_candidate_costs, 90.0))
-                    robust_span = max(0.0, robust_hi - reference_error)
-                else:
-                    robust_span = max(0.0, float(max_error - reference_error))
-                switch_confidence = float(np.clip(
-                    getattr(param.lambda_optimizer, 'contact_switch_confidence', 1.0),
-                    0.0, 1.0))
-                quality_margin = max(
-                    float(args.contact_switch_margin_abs),
-                    float(args.low_err_coef) * min(robust_span, max(abs(float(min_error)), 1e-4))
-                )
-                # Confidence tightens acceptance while preserving recovery:
-                # once a patch is exhausted, a new nearby candidate may still
-                # be selected if its own lambda solution is valid.
-                quality_margin *= 0.5 + 0.5 * switch_confidence
                 p_arm_force = np.asarray(info.get('control_input', np.zeros(3)), dtype=np.float64).reshape(-1)
-                p_arm_quality_ok = (
+                solver_ok = (
                     not bool(info.get('solver_failed', False)) and
                     np.isfinite(float(error)) and
-                    float(error) <= reference_error + quality_margin and
                     p_arm_force.size >= 3 and np.isfinite(p_arm_force[:3]).all() and
                     float(np.linalg.norm(p_arm_force[:3])) > 1e-3
                 )
-                if not p_arm_quality_ok:
-                    p_arm_world = best_contact_world
+                value_tracker.reset_arm(getattr(param.lambda_optimizer, 'last_executed_idx', None))
+                value_info = value_tracker.update_values(
+                    reference_error, error, solver_ok=solver_ok)
+                # Conservative value: a p_arm that overestimates how good it
+                # is (underestimates cost) is not executed.  Fall back to
+                # the ranked best so high-quality contacts are not skipped.
+                if not value_info['accept_p_arm']:
+                    p_arm_world = best_contact_track_world
+                    p_arm_track_world = best_contact_track_world
+                    p_arm_surface_world = best_contact_world
                     x_plus_opt = cached_x_plus
                     error = float(cached_cost) if cached_cost is not None else float(min_error)
                     info = {
@@ -367,7 +468,19 @@ def main(args=None):
                         param.lambda_optimizer.last_executed_x_plus = cached_x_plus
                         param.lambda_optimizer.last_executed_cost = cached_cost
                         param.lambda_optimizer.last_executed_force = cached_force
+                    exec_quality = 1.0
+                else:
+                    exec_quality = float(value_info['quality'])
+                verify_now, q_dist = value_tracker.update_verify(
+                    exec_quality, float(np.linalg.norm(curr_q[7:10] - p_arm_world)))
+                value_info['verify'] = verify_now
+                value_info['q_dist'] = q_dist
+                value_info['exec_quality'] = exec_quality
 
+            exec_inward = p_arm_surface_world - p_arm_track_world
+            exec_inward = exec_inward / max(float(np.linalg.norm(exec_inward)), 1e-9)
+            attract_point_world = p_arm_surface_world - args.attract_point_comp * exec_inward
+            attract_point_world[2] = max(attract_point_world[2], p_arm_surface_world[2])
             if filtered_attract is None:
                 filtered_attract = attract_point_world.copy()
             else:
@@ -377,30 +490,24 @@ def main(args=None):
                 # Keep one objective: sit on the selected patch or go around
                 # the object.  Press 1.5 mm along the inward normal so the
                 # quadratic equilibrium is in contact, not 1 mm outside.
-                verify_cost = 0
+                verify_cost = 0.0
                 patch_out = best_contact_track_world - best_contact_world
                 patch_out = patch_out / max(float(np.linalg.norm(patch_out)), 1e-9)
                 mpc_virtual_point = best_contact_track_world - 0.0015 * patch_out
                 mpc_contact_point = best_contact_world
+            elif use_switch_policy:
+                # Soft verify only blends the contact term.  The attract
+                # target is the executed press point (same as pose), not
+                # the 10 cm waypoint: otherwise the ball sits on the via
+                # and q_dist never rises, so verify stays 0 forever.
+                verify_cost = float(value_info.get('verify', 0.0))
+                patch_out = p_arm_track_world - p_arm_surface_world
+                patch_out = patch_out / max(float(np.linalg.norm(patch_out)), 1e-9)
+                exec_press = p_arm_track_world - 0.0015 * patch_out
+                mpc_virtual_point = exec_press
+                mpc_contact_point = exec_press
             else:
-                if verify_cost:
-                    low_err_coef = args.low_err_coef
-                elif float(np.linalg.norm(curr_q[7:10] - filtered_attract)) < 5e-2:
-                    low_err_coef *= 1.1
-                upper_err_coef = max(args.upper_err_coef if not verify_cost else upper_err_coef - 0.002, 0.7)
-                # Ignore pathological failed/outlier candidates when setting
-                # the verification threshold for the executed contact.
-                finite_costs = np.asarray(
-                    getattr(param.lambda_optimizer, 'last_candidate_costs', []),
-                    dtype=np.float64).reshape(-1)
-                finite_costs = finite_costs[np.isfinite(finite_costs)]
-                if finite_costs.size:
-                    robust_max = float(np.percentile(finite_costs, 90.0))
-                    delta_error = max(robust_max - float(reference_error), 1e-6)
-                else:
-                    delta_error = max(float(max_error - reference_error), 1e-6)
-                adaptive = delta_error * upper_err_coef if verify_cost else delta_error * low_err_coef
-                verify_cost = 1 if float(error) < (reference_error + adaptive) else 0
+                verify_cost = 1.0
                 mpc_virtual_point = filtered_attract
                 mpc_contact_point = p_arm_world
 
@@ -411,7 +518,13 @@ def main(args=None):
             global_cost = getattr(param.lambda_optimizer, 'last_global_total_cost', None)
             print(f'花费时间: {choose_dt:.4f}')
             print('min error:', min_error, 'max error', max_error, 'actual error:', error)
-            print("verify cost:", verify_cost,
+            print("verify cost:", None if verify_cost is None else round(float(verify_cost), 4),
+                  "p_arm_quality:", None if not value_info else round(float(value_info.get('quality', 0.0)), 4),
+                  "accept_p_arm:", None if not value_info else int(bool(value_info.get('accept_p_arm', False))),
+                  "v_best:", None if not value_info or value_info.get('v_best') is None else round(float(value_info['v_best']), 4),
+                  "v_arm:", None if not value_info or value_info.get('v_arm') is None else round(float(value_info['v_arm']), 4),
+                  "adv:", None if not value_info or value_info.get('adv') is None else round(float(value_info['adv']), 4),
+                  "q_dist:", None if not value_info else round(float(value_info.get('q_dist', 0.0)), 4),
                   "pose_pos_err:", float(metrics.comp_pos_error(curr_q[0:3], param.target_p_)),
                   "pose_pos_vec:", np.round(np.asarray(curr_q[0:3], dtype=float) - param.target_p_, 4).tolist(),
                   "pose_rot_err:", float(metrics.comp_quat_error(curr_q[3:7], param.target_q_)),
@@ -474,13 +587,20 @@ def main(args=None):
             obj_qpos_before = env.data_.qpos[:7].copy()
             env.step(sol['action'])
             ideal_pose_applied = False
-
-            if use_ideal_object_pose or use_contact_gated_pose:
+            contact_distance = float('inf')
+            apply_scale = None
+            if use_rollout:
+                mujoco.mj_forward(env.model_, env.data_)
+                contact_distance = _contact_distance_after_step(contact, env)
+                if contact_distance <= float(args.ideal_contact_distance):
+                    pose_apply_count += 1
+                    ideal_pose_applied = True
+                print('contact_distance:', None if not np.isfinite(contact_distance) else round(contact_distance, 6),
+                      'physics_contact:', int(ideal_pose_applied))
+            elif use_set_pose:
                 q_after = env.get_state()
                 ideal_pose_applied = _x_plus_is_usable(x_plus_opt, info)
-                contact_distance = float('inf')
-                apply_scale = None
-                if use_contact_gated_pose:
+                if use_ideal_contact_pose or use_ideal_contact_switch:
                     contact_distance = _contact_distance_after_step(contact, env)
                     if contact_distance > float(args.ideal_contact_distance):
                         ideal_pose_applied = False
@@ -558,15 +678,20 @@ def main(args=None):
             # selected / executed patch, a frozen pose or an unusable x_plus
             # is a failed dwell even if set-pose never fired (trunk local
             # optimum).  The same schedule now governs p_arm_world.
-            use_dwell = use_ideal_contact_pose or use_ideal_contact_switch
+            use_dwell = use_gated_contact_policy
+            if use_rollout:
+                dwell_active = bool(use_dwell and pose_apply_count > 0)
+                dwell_dead = False
+            else:
+                dwell_active = bool(use_dwell and (pose_apply_count > 0 or near_patch))
+                dwell_dead = bool(use_dwell and near_patch and not ideal_pose_applied)
             param.lambda_optimizer.note_contact_progress(
                 progress_idx,
                 pose_score,
-                active=bool(use_dwell and (pose_apply_count > 0 or near_patch)),
+                active=dwell_active,
                 gamma=float(args.contact_dwell_gamma),
                 min_dwell_steps=int(args.contact_dwell_steps),
-                dead_increment=bool(use_dwell and near_patch
-                                    and not ideal_pose_applied),
+                dead_increment=dwell_dead,
             )
             if consecutive_success_time > consecutive_success_time_threshold:
                 # Last step() already synced the viewer.  Sleep only; an extra
