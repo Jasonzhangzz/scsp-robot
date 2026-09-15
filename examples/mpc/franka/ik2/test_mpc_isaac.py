@@ -22,16 +22,43 @@ if parent_dir not in sys.path:
 from planning.acados_env import ensure_acados_env
 ensure_acados_env()
 
-from examples.mpc.franka.ik2.params import ExplicitMPCParams
+from examples.mpc.franka.ik2.params import ExplicitMPCParams, build_lambda_optimizer
 from examples.mpc.franka.ik2.test_mppi_isaac import (
     IsaacFrankaSimulator,
     _parse_bool_arg,
     _extract_quat_xyzw,
     _extract_vec3,
 )
-from planning.mpc_explicit import MPCExplicitIsaac
+from examples.mpc.fingertips.test.test_0902 import (
+    ContactValueTracker,
+    ModelCostConfidence,
+    SmoothedApproachVia,
+    _arrived_at_best_contact,
+    _blend_travel_to_press,
+    _candidate_solution,
+    _floor_slide_away_from_patch,
+    _keepout_radius,
+    _lambda_pose_cost,
+    _line_in_best_fov_and_cone,
+    _nearest_sample_idx,
+    _object_top_z_world,
+    _on_opposite_sides,
+    _patch_press_point,
+    _patch_proximity,
+    _predicted_object_pose,
+    _protect_destination_dwell,
+    _rollout_dwell_assignment,
+    _rollout_verify_cost,
+    _same_contact_patch,
+    _sample_world,
+    _should_observe_model_cost,
+    _sphere_center_on_patch,
+    _verify_distance,
+    _verify_is_chatter,
+    _x_plus_is_usable,
+)
+from planning.mpc_explicit import MPCExplicit
 from planning.MPPIExplicit import _contact_jacobian, _franka_fk_T_jax, _tangent_basis_from_normal
-from planning.mlqp_point_v1_ip import LambdaContactControlOptimizer
 from planning.mpc_implicit import MPCImplicit
 from planning.screenshot import create_isaacgym_svg_screenshot_recorder
 from utils import metrics, rotations
@@ -87,22 +114,18 @@ DEFAULT_ELEPHANT_TRIAL_REPLAY = {
     "obj": "foam_brick",
     "attract_coef": 0.5,
     "reject_coef": 0.001,
-    "contact_coef": 0.5,
-    "contact_cost_param": 0.0,
+    "contact_coef": 0.7,
+    "contact_cost_param": 1.0,
     "model_param": 7.0,
-    "reject_dis": 0.01,
+    "reject_dis": 0.02,
     "attract_point_comp": 0.1,
     "ground_height_threshold": 0.012,
     "sample_num": 70,
-    "pos_coef": 1,
-    "ori_coef": 0.005,
-    "low_err_coef": 0.3,
-    "upper_err_coef": 1,
+    "pos_coef": 500,
+    "ori_coef": 20,
     "sim_device": "cuda:0",
     "graphics_device_id": 0,
-    "cartesian_step": 0.05,
     "cartesian_joint_stiffness": 100.0,
-    "cartesian_dls_lambda": 0.0001,
     "osc_pos_stiffness": 2000.0,
     "osc_ori_stiffness": 400.0,
     "trial_start": 3,
@@ -178,7 +201,6 @@ def _set_actor_mass(gym, env, actor_handle, mass):
 
 
 def _apply_dywa_physics_to_param(param):
-    param.h_ = DYWA_SIM_DT
     param.sim_dt_ = DYWA_SIM_DT
     param.sim_substeps_ = DYWA_SIM_SUBSTEPS
     param.physx_solver_type_ = DYWA_PHYSX_SOLVER_TYPE
@@ -336,6 +358,20 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             0,
             gymapi.MESH_VISUAL,
             gymapi.Vec3(1.0, 0.9, 0.1),
+        )
+
+        best_marker_pose = gymapi.Transform()
+        best_marker_pose.p = gymapi.Vec3(0.3, 0.05, 0.4)
+        best_marker_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        self.best_contact_marker_actor = self.gym.create_actor(
+            self.env, self.marker_asset, best_marker_pose, "best_contact_marker", 0, 0
+        )
+        self.gym.set_rigid_body_color(
+            self.env,
+            self.best_contact_marker_actor,
+            0,
+            gymapi.MESH_VISUAL,
+            gymapi.Vec3(1.0, 0.1, 0.1),
         )
 
     @staticmethod
@@ -610,6 +646,11 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         p_task, r_task = self._get_body_pose(self.task_body_local_idx)
         return p_task.astype(np.float32), r_task
 
+    def get_policy_state(self):
+        full_q = self.get_state()
+        ee_pos, _ = self.get_end_effector_pos()
+        return np.hstack([full_q[:7], ee_pos]).astype(np.float32)
+
     def get_object_velocity_world(self):
         obj_state = self.gym.get_actor_rigid_body_states(self.env, self.obj_actor, gymapi.STATE_ALL)
         linear_velocity = _extract_vec3(obj_state["vel"]["linear"][0])
@@ -634,13 +675,23 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
     def get_R(self):
         return self.R_d
 
-    def show_point(self, goal_pos=None):
-        marker_state = self.gym.get_actor_rigid_body_states(self.env, self.p_arm_marker_actor, gymapi.STATE_ALL)
+    def _set_marker_pos(self, actor, goal_pos=None):
+        marker_state = self.gym.get_actor_rigid_body_states(self.env, actor, gymapi.STATE_ALL)
         if goal_pos is not None:
             marker_state["pose"]["p"][0] = (float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2]))
         marker_state["vel"]["linear"][0] = (0.0, 0.0, 0.0)
         marker_state["vel"]["angular"][0] = (0.0, 0.0, 0.0)
-        self.gym.set_actor_rigid_body_states(self.env, self.p_arm_marker_actor, marker_state, gymapi.STATE_ALL)
+        self.gym.set_actor_rigid_body_states(self.env, actor, marker_state, gymapi.STATE_ALL)
+
+    def show_point(self, goal_pos=None):
+        self._set_marker_pos(self.p_arm_marker_actor, goal_pos)
+
+    def show_target(self, goal_pos=None, goal_quat=None):
+        self.show_point(goal_pos)
+
+    def show_best_contact(self, goal_pos=None):
+        marker = getattr(self, "best_contact_marker_actor", self.p_arm_marker_actor)
+        self._set_marker_pos(marker, goal_pos)
 
     def _get_task_jacobian(self):
         jac_task_idx = self._jacobian_body_index(self.task_body_local_idx)
@@ -874,12 +925,17 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
 class ContactIsaacCartesian:
     def __init__(self, param):
         self.param_ = param
+        self._last_fingertip_contact = None
+
+    def get_actual_fingertip_contact(self):
+        return self._last_fingertip_contact
 
     def detect_once(self, simulator: IsaacFrankaOSCSimulator):
         full_q = simulator.get_state()
         full_q = np.asarray(full_q, dtype=np.float32)
         obj_pos = full_q[0:3]
         obj_quat_wxyz = full_q[3:7]
+        self._last_fingertip_contact = None
 
         nv = self.param_.n_qvel_
         max_ncon = self.param_.max_ncon_
@@ -892,8 +948,10 @@ class ContactIsaacCartesian:
         contacts = simulator.get_physx_contacts()
         mu = float(self.param_.mu_object_)
         contact_sep_threshold = float(getattr(self.param_, "if_contact_separation_threshold_", 0.0))
+        fingertip_sim_idx = getattr(simulator, "franka_body_name_to_index", {}).get("fingertip")
         row_idx = 0
         row_env_idx = 0
+        best_ft_sep = float("inf")
         for c in contacts:
             b0 = c["body0"]
             b1 = c["body1"]
@@ -928,11 +986,15 @@ class ContactIsaacCartesian:
             con_jac = np.array(_contact_jacobian(n, t1, t2, j_rel_point, mu), dtype=np.float32)
 
             other_is_franka = (b0 in simulator.franka_body_indices) or (b1 in simulator.franka_body_indices)
+            other_is_fingertip = fingertip_sim_idx is not None and other_sim_idx == fingertip_sim_idx
             # Isaac rigid contacts may include proximity pairs with positive separation.
             # We only report a true robot-object contact when the pair is actually
             # touching / penetrating according to PhysX's separation convention.
             if other_is_franka and sep <= contact_sep_threshold:
                 if_contact = True
+            if other_is_fingertip and sep < best_ft_sep:
+                best_ft_sep = sep
+                self._last_fingertip_contact = {"dist": float(sep), "point_world": cpos}
             if other_is_franka and row_idx < max_ncon:
                 phi_vec[4 * row_idx : 4 * row_idx + 4] = 0.5 * sep
                 jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac
@@ -978,114 +1040,113 @@ def adapt_param_for_cartesian_solver(param, args):
     q[:6, :6] = param.obj_inertia_
     q[6:, 6:] = param.robot_stiff_
     param.Q = q
+    param.mpc_u_lb_ = -float(getattr(args, "mpc_step_limit", 0.005))
+    param.mpc_u_ub_ = -param.mpc_u_lb_
     param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), np.array([-1.0, -1.0, table_height + 0.02])))
     param.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), np.array([1.5, 1.0, 1.5])))
-    # Match the MuJoCo object geometry scale so the interaction point optimizer and
-    # visible avoidance distance are comparable across simulators.
-    print("param.mesh_path_ = ", param.mesh_path_ )
-    param.lambda_optimizer = LambdaContactControlOptimizer(
-        mesh_path=param.mesh_path_,
-        obj_mass=param.obj_mass_,
-        arm_friction=param.mu_object_,
-        contact_stiffness=param.model_params,
-        time_step=param.h_,
-        sample_num=args.sample_num,
-        pos_coef=args.pos_coef,
-        ori_coef=args.ori_coef,
-        scale_factors=[1.0]*3,
-    )
+    args.solver = "acados"
+    param.torch_solver = "acados"
+    param.planner_solver_ = "acados"
+    param.lambda_optimizer = build_lambda_optimizer(param, args)
+    param.lambda_optimizer.solver = "acados"
     param.sol_guess_ = None
     return param
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--obj", type=str, default="stanford_bunny2", help="name of obj")
-    parser.add_argument("--use-xml-texture", action="store_true", help="apply object texture parsed from env_fingertips_*.xml")
-    parser.add_argument("--attract_coef", type=float, default=0.5, help="coef of attract function")
-    parser.add_argument("--reject_coef", type=float, default=0.01, help="coef of reject function")
-    parser.add_argument("--contact_coef", type=float, default=0.5, help="coef of contact function")
-    parser.add_argument("--contact_cost_param", type=float, default=0.0, help="mass center or project point attract")
-    parser.add_argument("--model_param", type=float, default=7, help="model param")
-    parser.add_argument("--reject_dis", type=float, default=0.01, help="reject radius")
-    parser.add_argument("--attract_point_comp", type=float, default=0.05, help="distance compensation of attract point")
-    parser.add_argument("--ground_height_threshold", type=float, default=0.33, help="threshold of sample points height")
-    parser.add_argument("--sample_num", type=int, default=70, help="number of sample point")
-    parser.add_argument("--pos_coef", type=float, default=1, help="coef of position cost in mlqp_point")
-    parser.add_argument("--ori_coef", type=float, default=0.02, help="coef of orientation cost in mlqp_point")
-    parser.add_argument("--low_err_coef", type=float, default=0.75, help="coef of delta error")
-    parser.add_argument("--upper_err_coef", type=float, default=0.75, help="coef of delta error")
+def _isaac_contact_distance(contact, env):
+    contact.detect_once(env)
+    measured = contact.get_actual_fingertip_contact()
+    if measured is None:
+        return float("inf")
+    return abs(float(measured.get("dist", float("inf"))))
+
+
+def _configure_rollout_param(param, args):
+    param.rollout_press_patch = True
+    param.quadratic_contact_track = True
+    param.attract_coef = max(float(param.attract_coef), 20.0)
+    param.field_cost_weight = 0.0
+    param.contact_coef = max(float(param.contact_coef), float(param.attract_coef))
+    param.lambda_optimizer.lock_contact_patch = False
+    param.lambda_optimizer.contact_switch_confirm_steps = max(
+        1, int(args.contact_switch_confirm_steps)
+    )
+    return param
+
+
+def _add_rollout_policy_args(parser):
+    parser.add_argument("--obj", type=str, default="stanford_bunny2")
+    parser.add_argument("--use-xml-texture", action="store_true")
+    parser.add_argument("--attract_coef", type=float, default=0.5)
+    parser.add_argument("--reject_coef", type=float, default=0.001)
+    parser.add_argument("--contact_coef", type=float, default=0.7)
+    parser.add_argument("--contact_cost_param", type=float, default=1)
+    parser.add_argument("--model_param", type=float, default=7)
+    parser.add_argument("--reject_dis", type=float, default=0.02)
+    parser.add_argument("--attract_point_comp", type=float, default=0.1)
+    parser.add_argument("--ground_height_threshold", type=float, default=0.012)
+    parser.add_argument("--fingertip_clearance", type=float, default=0.011)
+    parser.add_argument("--sample_num", type=int, default=70)
+    parser.add_argument("--top_k", type=int, default=2)
+    parser.add_argument("--normal_stability_cos", type=float, default=0.95)
+    parser.add_argument("--pos_coef", type=float, default=500)
+    parser.add_argument("--ori_coef", type=float, default=20)
+    parser.add_argument("--mpc_step_limit", type=float, default=0.005)
+    parser.add_argument("--friction_reg_coef", type=float, default=1.0)
+    parser.add_argument("--force_reg_coef", type=float, default=0.01)
+    parser.add_argument("--max_contact_force", type=float, default=10.0)
+    parser.add_argument("--contact_switch_radius", type=float, default=0.03)
+    parser.add_argument("--contact_switch_margin_ratio", type=float, default=0.08)
+    parser.add_argument("--contact_switch_margin_abs", type=float, default=0.001)
+    parser.add_argument("--contact_switch_confirm_steps", type=int, default=5)
+    parser.add_argument("--contact_dwell_gamma", type=float, default=0.70)
+    parser.add_argument("--contact_dwell_steps", type=int, default=4)
+    parser.add_argument("--model_cost_error_threshold", type=float, default=6.0)
+    parser.add_argument("--model_cost_error_eps", type=float, default=1e-6)
+    parser.add_argument("--model_cost_error_min_steps", type=int, default=3)
+    parser.add_argument("--value_tau", type=float, default=1.0)
+    parser.add_argument("--value_rel_scale", type=float, default=0.08)
+    parser.add_argument("--value_rho", type=float, default=0.08)
+    parser.add_argument("--value_alpha", type=float, default=0.25)
+    parser.add_argument("--verify_beta", type=float, default=0.18)
+    parser.add_argument("--verify_window", "--verify_window_size", dest="verify_window_size", type=int, default=5)
+    parser.add_argument("--verify_enter_steps", type=int, default=5)
+    parser.add_argument("--verify_hold_steps", type=int, default=30)
+    parser.add_argument("--verify_release_steps", type=int, default=8)
+    parser.add_argument("--ideal_contact_surface_margin", type=float, default=-0.0005)
+    parser.add_argument("--spline_escape_cost", type=int, default=1)
+    parser.add_argument("--detour_attract_coef", type=float, default=80.0)
+    parser.add_argument("--detour_repel_coef", type=float, default=40.0)
+    parser.add_argument("--detour_lift_coef", type=float, default=25.0)
+    parser.add_argument("--detour_align_thresh", type=float, default=0.50)
     parser.add_argument("--headless", dest="headless", action="store_true")
     parser.add_argument("--viewer", dest="headless", action="store_false")
     parser.add_argument("--sim-device", type=str, default="cuda:0")
     parser.add_argument("--graphics-device-id", type=int, default=0)
-    parser.add_argument(
-        "--show-ghost-object",
-        type=_parse_bool_arg,
-        default=False,
-        help="whether to render the semi-transparent ghost object mesh at the target pose (true/false)",
-    )
-    parser.add_argument("--cartesian-step", type=float, default=0.1, help="bound of xyz delta action per MPC step")
-    parser.add_argument("--cartesian-joint-stiffness", type=float, default=2000.0, help="internal stiffness used in explicit model")
-    parser.add_argument("--cartesian-dls-lambda", type=float, default=1e-4, help="damped least squares term for J^+")
-    parser.add_argument("--osc-pos-stiffness", type=float, default=1000.0, help="Cartesian position stiffness used by the Isaac OSC tracker")
-    parser.add_argument("--osc-ori-stiffness", type=float, default=100.0, help="Cartesian orientation stiffness used by the Isaac OSC tracker")
-    parser.add_argument("--obj-vel-linear-process-var", type=float, default=1e-4, help="Kalman process variance for object linear velocity in world frame")
-    parser.add_argument("--obj-vel-angular-process-var", type=float, default=5e-4, help="Kalman process variance for object angular velocity in world frame")
-    parser.add_argument("--obj-vel-linear-measurement-var", type=float, default=5e-3, help="Kalman measurement variance for object linear velocity in world frame")
-    parser.add_argument("--obj-vel-angular-measurement-var", type=float, default=2e-2, help="Kalman measurement variance for object angular velocity in world frame")
-    parser.add_argument("--obj-vel-linear-deadband", type=float, default=1e-2, help="Zero out filtered object local linear velocity components below this threshold (m/s)")
-    parser.add_argument("--obj-vel-angular-deadband", type=float, default=5e-2, help="Zero out filtered object local angular velocity components below this threshold (rad/s)")
-    parser.add_argument(
-        "--svg-screenshot-dir",
-        type=str,
-        default="/home/lab423/scsp/scsp-robot/examples/mpc/franka/ik2/figs",
-        help="Directory to save Isaac Gym SVG screenshots. Leave empty to disable periodic capture.",
-    )
-    parser.add_argument(
-        "--svg-screenshot-interval",
-        type=float,
-        default=0.2,
-        help="Simulation-time seconds between Isaac Gym SVG screenshots.",
-    )
-    parser.add_argument(
-        "--svg-screenshot-width",
-        type=int,
-        default=1280,
-        help="Width of Isaac Gym SVG screenshots in pixels.",
-    )
-    parser.add_argument(
-        "--svg-screenshot-height",
-        type=int,
-        default=960,
-        help="Height of Isaac Gym SVG screenshots in pixels.",
-    )
+    parser.add_argument("--show-ghost-object", type=_parse_bool_arg, default=False)
+    parser.add_argument("--cartesian-joint-stiffness", type=float, default=100.0)
+    parser.add_argument("--osc-pos-stiffness", type=float, default=1000.0)
+    parser.add_argument("--osc-ori-stiffness", type=float, default=100.0)
+    parser.add_argument("--svg-screenshot-dir", type=str, default="")
+    parser.add_argument("--svg-screenshot-interval", type=float, default=0.2)
+    parser.add_argument("--svg-screenshot-width", type=int, default=1280)
+    parser.add_argument("--svg-screenshot-height", type=int, default=960)
+    parser.add_argument("--cartesian_stiffness", type=float, nargs="+", default=DEFAULT_CARTESIAN_STIFFNESS.tolist())
+    parser.add_argument("--cartesian_damping", type=float, nargs="+", default=None)
+    parser.add_argument("--effort-joint-damping", type=float, default=DEFAULT_EFFORT_JOINT_DAMPING)
+    parser.add_argument("--trial-start", type=int, default=0)
+    parser.add_argument("--trial-count", type=int, default=20)
+    parser.add_argument("--max_rollout_length", type=int, default=5000)
+    parser.set_defaults(headless=False, **DEFAULT_ELEPHANT_TRIAL_REPLAY)
+    return parser
 
-    parser.add_argument(
-        "--cartesian_stiffness",
-        type=float,
-        nargs="+",
-        default=DEFAULT_CARTESIAN_STIFFNESS.tolist(),
-        help="Cartesian stiffness gains; pass 1, 2, or 6 values. Default matches MuJoCo.",
-    )
-    parser.add_argument(
-        "--cartesian_damping",
-        type=float,
-        nargs="+",
-        default=None,
-        help="Cartesian damping gains; pass 1, 2, or 6 values. Default uses critical damping from stiffness.",
-    )
-    parser.add_argument(
-        "--effort-joint-damping",
-        type=float,
-        default=DEFAULT_EFFORT_JOINT_DAMPING,
-        help="Passive damping applied to the 7 arm joints in Isaac effort mode.",
-    )
-    parser.add_argument("--trial-start", type=int, default=0, help="first trial id / random seed to evaluate")
-    parser.add_argument("--trial-count", type=int, default=20, help="number of consecutive trials to run")
 
-    parser.set_defaults(**DEFAULT_ELEPHANT_TRIAL_REPLAY)
+def main():
+    parser = argparse.ArgumentParser()
+    _add_rollout_policy_args(parser)
     args = parser.parse_args()
+    args.solver = "acados"
+    args.rollout = True
 
     if args.trial_start < 0:
         raise ValueError(f"trial_start must be non-negative, got {args.trial_start}")
@@ -1098,7 +1159,8 @@ def main():
     success_pos_threshold = 0.02
     success_quat_threshold = 0.04
     consecutive_success_time_threshold = 20
-    max_rollout_length = 5000
+    max_rollout_length = max(1, int(args.max_rollout_length))
+    fingertip_radius = 0.01
     success_rate = 0
 
     for trial_count in range(trial_start, trial_stop):
@@ -1106,6 +1168,7 @@ def main():
         param = _apply_dywa_physics_to_param(param)
         param.use_jax_contact_ = False
         param = adapt_param_for_cartesian_solver(param, args)
+        param = _configure_rollout_param(param, args)
         param.osc_pos_stiffness_ = float(args.osc_pos_stiffness)
         param.osc_ori_stiffness_ = float(args.osc_ori_stiffness)
         param.cartesian_stiffness_ = np.array(args.cartesian_stiffness, dtype=np.float32)
@@ -1129,174 +1192,451 @@ def main():
         )
         env.show_target_object_pose(param.target_p_, param.target_q_)
 
-        mpc = MPCExplicitIsaac(param) if param.mpc_model == "explicit" else MPCImplicit(param)
-        obj_velocity_filter = VelocityKalmanFilter6D(
-            process_variance=np.array(
-                3 * [args.obj_vel_linear_process_var] + 3 * [args.obj_vel_angular_process_var],
-                dtype=np.float32,
-            ),
-            measurement_variance=np.array(
-                3 * [args.obj_vel_linear_measurement_var] + 3 * [args.obj_vel_angular_measurement_var],
-                dtype=np.float32,
-            ),
-        )
+        mpc = MPCExplicit(param) if param.mpc_model == "explicit" else MPCImplicit(param)
+        table_ground = float(param.table_height) + 0.012
+        height_threshold = float(param.table_height) + float(args.ground_height_threshold)
 
         rollout_step = 0
         consecutive_success_time = 0
-        verify_cost = 0
-        current_x = np.zeros(7, dtype=np.float32)
-        current_x[3] = 1.0
+        verify_cost = 0.0
+        value_tracker = ContactValueTracker(
+            tau=float(args.value_tau),
+            rel_scale=float(args.value_rel_scale),
+            rho=float(args.value_rho),
+            alpha=float(args.value_alpha),
+            beta=float(args.verify_beta),
+            window_size=int(args.verify_window_size),
+            confirm_steps=int(args.verify_enter_steps),
+            min_hold_steps=int(args.verify_hold_steps),
+            release_steps=int(args.verify_release_steps),
+            accept_margin_ratio=0.05,
+            accept_margin_abs=0.02,
+        )
+        value_info = {}
+        arrived_hold = False
+        arrived_dest_idx = None
+        approach_via = SmoothedApproachVia(
+            max_step=max(1e-4, float(args.mpc_step_limit) + 0.001)
+        )
+        last_verify_cost = None
+        last_accept_p_arm = None
+        verify_chatter = False
+        model_cost_conf = ModelCostConfidence(
+            threshold=float(args.model_cost_error_threshold),
+            eps=float(args.model_cost_error_eps),
+            min_steps=int(args.model_cost_error_min_steps),
+        )
+        pred_reduction = None
+        act_reduction = None
+        c_now_cost = None
+        choose_times = []
 
-        low_err_coef = args.low_err_coef
-        upper_err_coef = args.upper_err_coef
-        prev_action = np.zeros((param.n_cmd_,), dtype=np.float32)
-        consecutive_detect_time = 0
-        consecutive_contact_time = 0
-
-        rollout_q_traj = []
         while rollout_step < max_rollout_length:
-            if not env.dyn_paused_:
-                curr_q = env.get_state()
-                rollout_q_traj.append(curr_q)
-                ee_pos = env.get_end_effector_pos()[0].copy()
-                curr_x_solver = np.hstack([curr_q[:7], ee_pos]).astype(np.float32)
+            if env.dyn_paused_:
+                env._simulate_once()
+                continue
 
-                phi_vec, jac_mat, con_point, jac_mat_env, if_contact = contact.detect_once(env)
-                quaternion = [curr_q[4], curr_q[5], curr_q[6], curr_q[3]]
-                r_obj_to_world = Rotation.from_quat(quaternion).as_matrix()
-                obj_linear_velocity_world, obj_angular_velocity_world = env.get_object_velocity_world()
-                v_obj_world_raw = np.hstack([obj_linear_velocity_world, obj_angular_velocity_world]).astype(np.float32)
-                v_obj_world_filtered = obj_velocity_filter.update(v_obj_world_raw)
-                # This Isaac Gym setup uses a Z-up world frame and rigid-body quaternions in xyzw.
-                # Rotation.from_quat(quaternion) gives R_obj_to_world, so world-frame linear/angular
-                # velocities must be rotated back with R^T to match the optimizer's object-local frame.
-                v_obj = np.hstack([
-                    r_obj_to_world.T @ v_obj_world_filtered[:3],
-                    r_obj_to_world.T @ v_obj_world_filtered[3:],
-                ]).astype(np.float32)
-                v_obj = _apply_velocity_deadband(
-                    v_obj,
-                    linear_deadband=args.obj_vel_linear_deadband,
-                    angular_deadband=args.obj_vel_angular_deadband,
+            curr_q = env.get_policy_state()
+            phi_vec, jac_mat, _con_point, jac_mat_env, if_contact = contact.detect_once(env)
+            r_obj_to_world = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
+            gravity = np.hstack([r_obj_to_world.T @ param.gravity_[:3] * param.obj_mass_, np.zeros(3)])
+            target_quat_local = rotations.quaternion_multiply(
+                rotations.quaternion_conjugate(curr_q[3:7]), param.target_q_
+            )
+            target_pose_eval = np.hstack([r_obj_to_world.T @ (param.target_p_ - curr_q[:3]), target_quat_local])
+            current_pose_eval = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+            current_tip_local = r_obj_to_world.T @ (curr_q[7:10] - curr_q[:3])
+
+            param.lambda_optimizer.update_Jacobian(jac_mat_env)
+            visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
+                curr_q[0:3], r_obj_to_world, param.target_p_, height_threshold,
+                viewpoint_local=None, heading_filter=False,
+            )
+            visible_point_idx = param.lambda_optimizer.filter_rankable_indices(visible_point_idx)
+
+            last_idx = getattr(param.lambda_optimizer, "last_selected_idx", None)
+            last_exec_idx = getattr(param.lambda_optimizer, "last_executed_idx", None)
+            blocked = getattr(param.lambda_optimizer, "_blocked_contact_indices", {})
+            visible_point_idx = np.asarray(visible_point_idx, dtype=np.int32)
+            incumbents = [int(idx) for idx in (last_idx, last_exec_idx) if idx is not None]
+            param.lambda_optimizer.lock_contact_patch = bool(
+                value_tracker.contact_active
+                and value_tracker._holding_p_arm
+                and param.lambda_optimizer.contact_switch_confidence >= (1.0 - 1e-9)
+                and any(idx in visible_point_idx and idx not in blocked for idx in incumbents)
+            )
+
+            start_time = time.time()
+            rank_anchor_local = None
+            last_global = getattr(param.lambda_optimizer, "last_global_idx", None)
+            if last_idx is not None:
+                last_best_world = _sample_world(param.lambda_optimizer, last_idx, curr_q[:3], r_obj_to_world)
+                near_selected = float(np.linalg.norm(curr_q[7:10] - last_best_world)) <= float(
+                    param.lambda_optimizer.contact_switch_radius
                 )
-                gravity = np.hstack([r_obj_to_world.T @ param.gravity_[:3] * param.obj_mass_, np.zeros(3)])
-
-                target_pos_ = param.target_p_ - curr_q[0:3]
-                target_pos_[2] = 0.0
-                target_quat_local = rotations.quaternion_multiply(
-                    rotations.quaternion_conjugate(curr_q[3:7]),
-                    param.target_q_,
+                same_as_global = last_global is None or _same_contact_patch(
+                    param.lambda_optimizer, last_idx, last_global, radius=0.03
                 )
-                target_pose_local = np.hstack([r_obj_to_world.T @ target_pos_, target_quat_local])
+                if near_selected and same_as_global:
+                    rank_anchor_local = current_tip_local
 
-                param.lambda_optimizer.update_Jacobian(jac_mat_env)
-                
-                visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
-                    curr_q[0:3], r_obj_to_world, param.target_p_, args.ground_height_threshold
+            best_contact_point, normal, min_error, max_error, _ = param.lambda_optimizer.choose_contact_points(
+                target_pose_eval,
+                current_pose_eval,
+                gravity,
+                visible_point_idx,
+                contact_anchor_local=rank_anchor_local,
+                v_last=None,
+                force_required=True,
+            )
+            cached_x_plus = getattr(param.lambda_optimizer, "last_best_x_plus", None)
+            cached_force = getattr(param.lambda_optimizer, "last_best_force", None)
+            cached_cost = getattr(param.lambda_optimizer, "last_best_cost", None)
+            global_cost = getattr(param.lambda_optimizer, "last_global_total_cost", None)
+            candidate_costs = getattr(param.lambda_optimizer, "last_candidate_costs", None)
+            reference_candidates = [global_cost, min_error]
+            reference_candidates.extend(
+                np.asarray(candidate_costs if candidate_costs is not None else [], dtype=np.float64).reshape(-1).tolist()
+            )
+            reference_candidates = [
+                float(v) for v in reference_candidates if v is not None and np.isfinite(float(v))
+            ]
+            reference_error = min(reference_candidates) if reference_candidates else None
+            choose_dt = time.time() - start_time
+            choose_times.append(choose_dt)
+
+            guide_idx = param.lambda_optimizer.choose_nearby_topk_idx(current_tip_local)
+            if guide_idx is None:
+                guide_idx = getattr(param.lambda_optimizer, "last_global_idx", None)
+            if guide_idx is not None:
+                guide_idx = int(guide_idx)
+                best_contact_point = param.lambda_optimizer.sample_point[guide_idx]
+                normal = param.lambda_optimizer.normal[guide_idx]
+                cached_x_plus, cached_force, cached_cost = _candidate_solution(param.lambda_optimizer, guide_idx)
+                if cached_x_plus is not None:
+                    param.lambda_optimizer.last_best_x_plus = cached_x_plus
+                if cached_force is not None:
+                    param.lambda_optimizer.last_best_force = cached_force
+                if cached_cost is not None:
+                    param.lambda_optimizer.last_best_cost = cached_cost
+
+            best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
+                curr_q[:3], r_obj_to_world, best_contact_point, normal,
+                fingertip_radius, args.ideal_contact_surface_margin,
+            )
+            p_arm_local, p_arm_normal_out, x_plus_opt, error, info = param.lambda_optimizer.resolve_executed_contact(
+                current_tip_local, visible_point_idx,
+                target_pose_eval, current_pose_eval, gravity,
+                v_last=None,
+                sphere_radius=max(1e-4, float(fingertip_radius) + float(args.ideal_contact_surface_margin)),
+            )
+            p_arm_surface_world = r_obj_to_world @ p_arm_local + curr_q[:3]
+            p_arm_inward_local = -np.asarray(p_arm_normal_out, dtype=np.float64)
+            p_arm_inward_world = r_obj_to_world @ p_arm_inward_local
+            p_arm_inward_world /= max(float(np.linalg.norm(p_arm_inward_world)), 1e-9)
+            p_arm_track_world = p_arm_surface_world - max(
+                1e-4, float(fingertip_radius) + float(args.ideal_contact_surface_margin)
+            ) * p_arm_inward_world
+            p_arm_world = p_arm_track_world
+
+            p_arm_force = np.asarray(info.get("control_input", np.zeros(3)), dtype=np.float64).reshape(-1)
+            solver_ok = (
+                not bool(info.get("solver_failed", False))
+                and np.isfinite(float(error))
+                and p_arm_force.size >= 3
+                and np.isfinite(p_arm_force[:3]).all()
+                and float(np.linalg.norm(p_arm_force[:3])) > 1e-3
+            )
+            p_arm_idx = getattr(param.lambda_optimizer, "last_executed_idx", None)
+            best_idx = getattr(param.lambda_optimizer, "last_global_idx", None)
+            if best_idx is None:
+                best_idx = getattr(param.lambda_optimizer, "last_selected_idx", None)
+            occupied_idx = _nearest_sample_idx(param.lambda_optimizer, current_tip_local)
+            arrived_at_best = _arrived_at_best_contact(
+                curr_q[7:10], best_contact_world, best_contact_track_world,
+                occupied_idx, best_idx, param.lambda_optimizer,
+            )
+            dist_best_now = min(
+                float(np.linalg.norm(curr_q[7:10] - best_contact_world)),
+                float(np.linalg.norm(curr_q[7:10] - best_contact_track_world)),
+            )
+            if arrived_at_best:
+                arrived_hold = True
+                if arrived_dest_idx is None and best_idx is not None:
+                    arrived_dest_idx = int(best_idx)
+            elif arrived_hold and dist_best_now > 0.035:
+                arrived_hold = False
+                arrived_dest_idx = None
+            arrived_at_best = bool(arrived_at_best or arrived_hold)
+            if (
+                _on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world)
+                or _floor_slide_away_from_patch(curr_q[7:10], best_contact_world, ground=table_ground)
+            ):
+                arrived_at_best = False
+                arrived_hold = False
+                arrived_dest_idx = None
+            if arrived_at_best and best_idx is not None:
+                param.lambda_optimizer.last_executed_idx = int(best_idx)
+                param.lambda_optimizer.last_executed_x_plus = cached_x_plus
+                param.lambda_optimizer.last_executed_cost = cached_cost
+                param.lambda_optimizer.last_executed_force = cached_force
+                p_arm_idx = int(best_idx)
+                p_arm_world = best_contact_track_world
+                p_arm_track_world = best_contact_track_world
+                p_arm_surface_world = best_contact_world
+                x_plus_opt = cached_x_plus
+                error = float(cached_cost) if cached_cost is not None else float(min_error)
+                info = {
+                    "control_input": cached_force if cached_force is not None else np.zeros(3),
+                    "solver_failed": cached_x_plus is None,
+                }
+            same_patch = _same_contact_patch(param.lambda_optimizer, p_arm_idx, best_idx, radius=0.03)
+            if arrived_at_best:
+                same_patch = True
+            dist_arm = float(np.linalg.norm(curr_q[7:10] - p_arm_world))
+            near_arm = dist_arm <= float(param.lambda_optimizer.contact_switch_radius)
+            is_best_sample = best_idx is not None and p_arm_idx is not None and int(best_idx) == int(p_arm_idx)
+            if arrived_at_best:
+                is_best_sample = True
+            value_tracker.reset_arm(p_arm_idx)
+            model_cost_conf.note_sample(
+                param.lambda_optimizer, best_idx if best_idx is not None else p_arm_idx
+            )
+            model_tightness = model_cost_conf.tightness()
+            value_info = value_tracker.update_values(
+                reference_error, error, solver_ok=solver_ok,
+                candidate_costs=candidate_costs, same_patch=same_patch,
+                near_arm=near_arm, is_best_sample=is_best_sample,
+                confidence=param.lambda_optimizer.contact_switch_confidence,
+                stagnant_steps=getattr(param.lambda_optimizer, "_dwell_steps", 0),
+                min_error=min_error, max_error=max_error, tightness=model_tightness,
+            )
+            if not value_info["accept_p_arm"]:
+                p_arm_world = best_contact_track_world
+                p_arm_track_world = best_contact_track_world
+                p_arm_surface_world = best_contact_world
+                x_plus_opt = cached_x_plus
+                error = float(cached_cost) if cached_cost is not None else float(min_error)
+                info = {
+                    "control_input": cached_force if cached_force is not None else np.zeros(3),
+                    "solver_failed": cached_x_plus is None,
+                }
+            dist_surface = float(np.linalg.norm(curr_q[7:10] - best_contact_world))
+            dist_track = float(np.linalg.norm(curr_q[7:10] - best_contact_track_world))
+            dist_to_exec = float(np.linalg.norm(curr_q[7:10] - p_arm_world))
+            align_info = _line_in_best_fov_and_cone(
+                curr_q[7:10], p_arm_world, p_arm_surface_world, best_normal_world,
+                mu=float(getattr(param.lambda_optimizer, "mu_arm_obj", 0.9)),
+            )
+            near_patch = _patch_proximity(dist_surface, dist_track, dist_to_exec) <= 0.03
+            if (
+                align_info["ok"] and near_patch
+                and not _on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world)
+                and not _floor_slide_away_from_patch(curr_q[7:10], best_contact_world, ground=table_ground)
+            ):
+                arrived_at_best = True
+            dist_to_exec = _verify_distance(dist_to_exec, dist_surface, dist_track, arrived=arrived_at_best)
+            verify_now, q_dist = value_tracker.update_verify(
+                dist_exec=dist_to_exec, tightness=model_tightness
+            )
+            value_info.update({
+                "occupied_idx": occupied_idx,
+                "on_target": bool(arrived_at_best or dist_to_exec <= 0.03 or (align_info["ok"] and near_patch)),
+                "arrived_at_best": bool(arrived_at_best),
+                "approach_fov": bool(align_info["fov"]),
+                "approach_cone": bool(align_info["cone"]),
+                "verify": verify_now,
+                "q_dist": q_dist,
+                "same_patch": bool(same_patch),
+                "contact_active": bool(value_tracker.contact_active),
+            })
+
+            verify_cost = _rollout_verify_cost(value_info.get("verify", 0.0))
+            exec_press = _patch_press_point(p_arm_track_world, p_arm_surface_world)
+            opposite = _on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world)
+            floor_slide = _floor_slide_away_from_patch(curr_q[7:10], best_contact_world, ground=table_ground)
+            top_z = _object_top_z_world(
+                curr_q[:3], r_obj_to_world,
+                getattr(param, "object_aabb_lo", (-0.06, -0.04, -0.04)),
+                getattr(param, "object_aabb_hi", (0.06, 0.04, 0.06)),
+            )
+            keepout = _keepout_radius(
+                getattr(param, "object_aabb_lo", (-0.06, -0.04, -0.04)),
+                getattr(param, "object_aabb_hi", (0.06, 0.04, 0.06)),
+                getattr(param, "object_circumradius", None),
+            )
+            use_via, via_pos, via_phase = approach_via.update(
+                curr_q[7:10], curr_q[:3], p_arm_surface_world, p_arm_track_world,
+                top_z, keepout, bool(value_info.get("arrived_at_best", False)), exec_press,
+            )
+            travel, escape_on = _blend_travel_to_press(
+                via_pos, exec_press, model_cost_conf.tightness(), use_via,
+                via_phase=via_phase, opposite=opposite,
+            )
+            mpc_virtual_point = travel
+            path_blocked = bool(getattr(approach_via, "blocked", opposite))
+            mpc_contact_point = travel if path_blocked else exec_press
+            accept_now = bool(value_info.get("accept_p_arm", False))
+            verify_chatter = _verify_is_chatter(last_verify_cost, verify_cost)
+            last_verify_cost = float(verify_cost)
+            last_accept_p_arm = accept_now
+
+            print(
+                f"choose_dt={choose_dt:.4f} verify={float(verify_cost):.3f} "
+                f"tight={model_cost_conf.tightness():.3f} conf={param.lambda_optimizer.contact_switch_confidence:.3f} "
+                f"accept={int(accept_now)} arrived={int(arrived_at_best)} via={via_phase} "
+                f"contact={int(if_contact)}"
+            )
+            env.show_target(mpc_virtual_point)
+            env.show_best_contact(best_contact_world)
+
+            c_now_cost = _lambda_pose_cost(
+                curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
+                param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
+            )
+            pred_reduction = None
+            if x_plus_opt is not None and _x_plus_is_usable(x_plus_opt, info):
+                pred_pos, pred_quat = _predicted_object_pose(curr_q[:7], x_plus_opt)
+                c_pred = _lambda_pose_cost(
+                    pred_pos, pred_quat, param.target_p_, param.target_q_,
+                    param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
                 )
-                st = time.time()
-                # best_contact_point, normal, min_error, max_error, curr_ori_coef = param.lambda_optimizer.choose_contact_points(
-                #     target_pose_local, current_x, gravity, visible_point_idx, v_obj=v_obj
-                # )
-                best_contact_point, normal, min_error, max_error, curr_ori_coef = param.lambda_optimizer.choose_contact_points(
-                    target_pose_local, current_x, gravity, visible_point_idx
+                pred_reduction = c_now_cost - c_pred
+
+            sol = mpc.plan_once(
+                param.target_p_,
+                param.target_q_,
+                curr_q,
+                phi_vec,
+                jac_mat,
+                verify_cost_param=verify_cost,
+                virtual_point=mpc_virtual_point,
+                contact_point=mpc_contact_point,
+                sol_guess=param.sol_guess_,
+            )
+            param.sol_guess_ = sol["sol_guess"]
+            env.step(np.asarray(sol["action"], dtype=np.float32))
+            contact_distance = _isaac_contact_distance(contact, env)
+            measured_contact = contact.get_actual_fingertip_contact()
+            on_exec_contact = bool(
+                measured_contact is not None
+                and float(measured_contact["dist"]) <= 0.003
+                and float(np.linalg.norm(env.get_policy_state()[7:10] - np.asarray(p_arm_world, dtype=float))) <= 0.03
+            )
+            rollout_step += 1
+
+            curr_q = env.get_policy_state()
+            pos_err_now = float(metrics.comp_pos_error(curr_q[0:3], param.target_p_))
+            quat_err_now = float(metrics.comp_quat_error(curr_q[3:7], param.target_q_))
+            if c_now_cost is not None:
+                c_after = _lambda_pose_cost(
+                    curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
+                    param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
                 )
-                print("time = ", time.time() - st)
-                best_contact_point_world = r_obj_to_world @ best_contact_point + curr_q[0:3]
-                
-                attract_point = best_contact_point.copy()
-                attract_point_world = r_obj_to_world @ attract_point + curr_q[0:3]
-                original_height = attract_point_world[2]
-                attract_point_world -= args.attract_point_comp * r_obj_to_world @ normal
-                attract_point_world[2] = max(attract_point_world[2], original_height)
-                
-                local_point = r_obj_to_world.T @ (ee_pos - curr_q[0:3])
-                # p_arm_local, _, x_plus_opt, error, info = param.lambda_optimizer.optimize_control_input(
-                #     target_pose_local, current_x, gravity, local_point, v_obj=v_obj
-                # )
-                p_arm_local, _, x_plus_opt, error, info = param.lambda_optimizer.optimize_control_input(
-                    target_pose_local, current_x, gravity, local_point
+                act_reduction = c_now_cost - c_after
+                opt = param.lambda_optimizer
+                if _should_observe_model_cost(opt.has_delta_span(), getattr(opt, "last_pose_cost_now", None)):
+                    pred_delta = pred_reduction
+                    if pred_delta is None or not np.isfinite(float(pred_delta)):
+                        pred_delta = getattr(opt, "last_best_delta", None)
+                    if pred_delta is None or not np.isfinite(float(pred_delta)):
+                        finite = np.asarray(getattr(opt, "last_candidate_deltas", []), dtype=np.float64).reshape(-1)
+                        finite = finite[np.isfinite(finite)]
+                        pred_delta = float(np.max(finite)) if finite.size else None
+                    if pred_delta is None:
+                        model_cost_conf.observe_unusable_prediction()
+                    else:
+                        pred_n = opt.normalize_cost_delta(pred_delta)
+                        act_n = opt.normalize_cost_delta(act_reduction)
+                        if pred_n is None or act_n is None:
+                            model_cost_conf.observe_unusable_prediction()
+                        else:
+                            model_cost_conf.observe(pred_n, act_n)
+
+            if pos_err_now < success_pos_threshold and quat_err_now < success_quat_threshold:
+                consecutive_success_time += 1
+            else:
+                consecutive_success_time = 0
+
+            tip_now = np.asarray(curr_q[7:10], dtype=float)
+            r_now = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
+            tip_local_now = r_now.T @ (tip_now - curr_q[:3])
+            post_physical = bool(np.isfinite(contact_distance) and contact_distance <= 0.003)
+            (progress_idx, dwell_active, dwell_dead, occupied_for_log,
+             on_exec_patch, _dist_exec_now) = _rollout_dwell_assignment(
+                param.lambda_optimizer, tip_local_now, tip_now,
+                curr_q[:3], r_now,
+                getattr(param.lambda_optimizer, "last_executed_idx", None),
+                p_arm_world, post_physical,
+                prev_dwell=getattr(param.lambda_optimizer, "_dwell_idx", None),
+            )
+            if dwell_active and not on_exec_patch:
+                dwell_dead = True
+            elif dwell_active and on_exec_patch:
+                dwell_dead = False
+                dwell_active = False
+            if (not last_accept_p_arm) and not on_exec_patch and escape_on:
+                dwell_dead = False
+                dwell_active = False
+            if progress_idx is None:
+                progress_idx = (
+                    getattr(param.lambda_optimizer, "last_global_idx", None)
+                    or getattr(param.lambda_optimizer, "last_executed_idx", None)
                 )
-                p_arm_world = r_obj_to_world @ p_arm_local + curr_q[:3]
+            if verify_chatter:
+                progress_idx = occupied_for_log or progress_idx
+                dwell_active = True
+                dwell_dead = True
+            dest_idx = getattr(param.lambda_optimizer, "last_global_idx", None)
+            dest_protected = bool(
+                dest_idx is not None and progress_idx is not None
+                and _same_contact_patch(param.lambda_optimizer, progress_idx, dest_idx, radius=0.03)
+            )
+            dwell_active, dwell_dead = _protect_destination_dwell(
+                param.lambda_optimizer, progress_idx, dest_idx, dwell_active, dwell_dead
+            )
+            param.lambda_optimizer.note_contact_progress(
+                progress_idx,
+                pos_err_now,
+                active=dwell_active,
+                gamma=float(args.contact_dwell_gamma),
+                min_dwell_steps=int(args.contact_dwell_steps),
+                improve_eps=0.002,
+                dead_increment=dwell_dead,
+                merge_radius=0.03,
+                block_radius=0.03,
+                block_cycles=80,
+                time_decay=bool(last_accept_p_arm and not dest_protected),
+            )
+            if consecutive_success_time > consecutive_success_time_threshold:
+                break
 
-                visual_point = attract_point_world if not verify_cost else p_arm_world
-                env.show_point(visual_point)
-                if verify_cost:
-                    low_err_coef = args.low_err_coef
-                else:
-                    if np.linalg.norm(ee_pos - attract_point_world) < 5e-2:
-                        low_err_coef *= 1.1
-                upper_err_coef = max(args.upper_err_coef if not verify_cost else upper_err_coef - 0.002, 0.7)
-
-                eps = 1e-6
-                delta_error = max_error - min_error
-                delta_error = max(delta_error, eps)
-
-                # norm_err = (error - min_error) / delta_error
-                rel_impr = (max_error - error)
-
-                # 条件1：相对于未接触有一定提升
-                impr_th = (max_error - min_error)
-
-                improvement = rel_impr / impr_th
-
-                if verify_cost:
-                    upper_err_coef = args.upper_err_coef
-                elif np.linalg.norm(ee_pos[:2] - attract_point_world[:2]) < 5e-2:
-                    upper_err_coef *= 0.8
-
-                consecutive_contact_time = consecutive_contact_time + int(if_contact) if verify_cost else 0
-                if (not verify_cost and improvement > upper_err_coef) or (verify_cost and improvement <= low_err_coef):
-                    consecutive_detect_time += 1
-                else:
-                    consecutive_detect_time = 0
-
-                if not verify_cost and consecutive_detect_time >= 5:
-                    verify_cost = 1
-                elif verify_cost and consecutive_detect_time >= 1 and consecutive_contact_time >= 5:
-                    verify_cost = 0
-                
-                sol = mpc.plan_once(
-                    param.target_p_,
-                    param.target_q_,
-                    curr_x_solver,
-                    phi_vec,
-                    jac_mat,
-                    verify_cost_param=verify_cost,
-                    virtual_point=attract_point_world,
-                    contact_point=p_arm_world,
-                    curr_ori_coef=curr_ori_coef,
-                    sol_guess=param.sol_guess_,
-                )
-                param.sol_guess_ = sol["sol_guess"]
-                raw_action = np.asarray(sol["action"], dtype=np.float32)
-                action = raw_action.copy()
-                st1 = time.time()
-                
-                # action = np.ones(3) * 0.1
-                env.step(action)
-                # print("action = ", action, time.time() - st1)
-                rollout_step += 1
-
-                curr_q = env.get_state()
-                if (
-                    metrics.comp_pos_error(curr_q[0:3], param.target_p_) < success_pos_threshold
-                    and metrics.comp_quat_error(curr_q[3:7], param.target_q_) < success_quat_threshold
-                ):
-                    consecutive_success_time += 1
-                else:
-                    consecutive_success_time = 0
-
-                if consecutive_success_time > consecutive_success_time_threshold:
-                    break
-
+        lambda_failures = int(getattr(param.lambda_optimizer, "acados_failure_count", 0))
+        mpc_failures = int(getattr(mpc, "acados_failure_count", 0))
+        if lambda_failures or mpc_failures or getattr(mpc, "acados_solver_", None) is None:
+            print("acados diagnostics:", {
+                "lambda_solves": int(getattr(param.lambda_optimizer, "acados_solve_count", 0)),
+                "lambda_failures": lambda_failures,
+                "mpc_solves": int(getattr(mpc, "acados_solve_count", 0)),
+                "mpc_failures": mpc_failures,
+                "mpc_init_error": str(getattr(mpc, "_acados_init_error", "")) or None,
+            })
+        print("trial_summary:", {
+            "trial": trial_count,
+            "mode": "rollout",
+            "success": int(rollout_step < max_rollout_length),
+            "steps": rollout_step,
+            "final_pos_err": round(pos_err_now, 5) if rollout_step else None,
+            "final_quat_err": round(quat_err_now, 5) if rollout_step else None,
+            "choose_dt_mean": round(float(np.mean(choose_times)), 5) if choose_times else None,
+        })
         success_rate += 1 if rollout_step < max_rollout_length else 0
         env.close()
 
     print(
         f"Success rate over {trial_num} trials "
         f"(trial ids {trial_start} to {trial_stop - 1}): "
-        f"{success_rate}/{trial_num} = {success_rate/trial_num:.2%}"
+        f"{success_rate}/{trial_num} = {success_rate / trial_num:.2%}"
     )
 
 

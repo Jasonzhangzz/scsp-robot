@@ -41,6 +41,10 @@ def build_parser():
     parser.add_argument('--ground_height_threshold', type=float, default=0.012)
     parser.add_argument('--fingertip_clearance', type=float, default=0.011)
     parser.add_argument('--sample_num', type=int, default=70)
+    parser.add_argument('--top_k', type=int, default=2,
+                        help='Keep the k cheapest lambda contact samples; '
+                             'a nearer runner-up is used only if its cost '
+                             'is almost the best.  --top_k 1 disables that.')
     parser.add_argument('--normal_stability_cos', type=float, default=0.95)
     parser.add_argument('--random_init_tilt', dest='random_init_tilt', action='store_true',
                         help='Randomize the initial object tilt so flip starts are not upright.')
@@ -227,6 +231,28 @@ def _sample_world(optimizer, sample_idx, obj_pos, obj_rot):
         np.asarray(obj_rot, dtype=np.float64).reshape(3, 3) @ local)
 
 
+def _candidate_solution(optimizer, sample_idx):
+    ids = getattr(optimizer, 'last_candidate_ids', None)
+    if ids is None or sample_idx is None:
+        return None, None, None
+    hits = np.flatnonzero(np.asarray(ids, dtype=np.int32).reshape(-1) == int(sample_idx))
+    if not hits.size:
+        return None, None, None
+    loc = int(hits[0])
+    x_buf = getattr(optimizer, 'last_candidate_x_plus', None)
+    f_buf = getattr(optimizer, 'last_candidate_forces', None)
+    c_buf = getattr(optimizer, 'last_candidate_costs', None)
+    x_plus = x_buf[loc] if x_buf is not None and loc < len(x_buf) else None
+    force = f_buf[loc] if f_buf is not None and loc < len(f_buf) else None
+    cost = None
+    if c_buf is not None and loc < len(c_buf):
+        try:
+            cost = float(c_buf[loc])
+        except (TypeError, ValueError):
+            cost = None
+    return x_plus, force, cost
+
+
 def _same_contact_patch(optimizer, idx_a, idx_b, radius=None):
     if idx_a is None or idx_b is None:
         return False
@@ -298,6 +324,28 @@ def _chord_clears_object(tip, goal, obj, clearance=0.045):
         return True
     d_line = float(np.linalg.norm(np.cross(chord, obj - tip))) / clen
     return d_line >= float(clearance)
+
+
+def _segment_hits_core(tip, goal, obj, radius=0.028, end_clear=0.0):
+    """True if the tip→goal segment passes through a COM ball.
+
+    ``end_clear`` ignores the last centimetres at ``goal`` so a press
+    that itself sits inside the ball does not make every inbound chord
+    look blocked.
+    """
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    goal = np.asarray(goal, dtype=float).reshape(3)
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    chord = goal - tip
+    clen = float(np.linalg.norm(chord))
+    if clen < 1e-9:
+        return False
+    t_hi = 1.0
+    if float(end_clear) > 0.0 and clen > float(end_clear):
+        t_hi = max(0.0, 1.0 - float(end_clear) / clen)
+    t = float(np.clip(np.dot(obj - tip, chord) / (clen * clen), 0.0, t_hi))
+    closest = tip + t * chord
+    return float(np.linalg.norm(closest - obj)) < float(radius)
 
 
 def _near_blocked_cluster(optimizer, tip_world, obj_pos, obj_rot, radius=0.03):
@@ -404,22 +452,348 @@ def _should_escape_blocked(optimizer, occupied_idx, tip_world, obj_pos, obj_rot,
     return True, int(escape_idx)
 
 
-def _track_best_via(obj, goal, object_top_z):
-    """Object-anchored over-the-top waypoint toward best_contact.
+def _hover_via_along_normal(best_surface, best_track, hover=0.018):
+    """Hover just outside the sphere-center target, along the contact axis."""
+    surface = np.asarray(best_surface, dtype=float).reshape(3)
+    track = np.asarray(best_track, dtype=float).reshape(3)
+    out = track - surface
+    nrm = float(np.linalg.norm(out))
+    if nrm < 1e-9:
+        via = surface.copy()
+        via[2] += float(hover)
+        return via
+    return track + float(hover) * (out / nrm)
 
-    The waypoint is fixed on the object, not on the fingertip.  A
-    tip-relative via grows every frame and the ball runs away.
-    """
+
+def _keepout_radius(aabb_lo, aabb_hi, circumradius=None):
+    half = 0.5 * (np.asarray(aabb_hi, dtype=float).reshape(3)
+                  - np.asarray(aabb_lo, dtype=float).reshape(3))
+    r_xy = float(np.hypot(half[0], half[1]) + 0.02)
+    if circumradius is not None:
+        r_xy = max(r_xy, 0.55 * float(circumradius) + 0.02)
+    return max(0.055, r_xy)
+
+
+def _goal_rim_xy(obj, best, radius):
     obj = np.asarray(obj, dtype=float).reshape(3)
-    goal = np.asarray(goal, dtype=float).reshape(3)
-    via = obj.copy()
-    toward = goal - obj
-    toward[2] = 0.0
-    tn = float(np.linalg.norm(toward))
-    if tn > 1e-6:
-        via[:2] = obj[:2] + min(0.025, tn) * (toward[:2] / tn)
-    via[2] = max(0.02, float(object_top_z) + 0.015)
-    return via
+    best = np.asarray(best, dtype=float).reshape(3)
+    d = best[:2] - obj[:2]
+    n = float(np.linalg.norm(d))
+    if n < 1e-6:
+        return obj[:2] + np.array([float(radius), 0.0])
+    return obj[:2] + max(float(radius), n) * (d / n)
+
+
+def _orbit_xy(tip_xy, obj_xy, goal_xy, radius, step_rad=0.70):
+    """Next point on the COM keep-out circle toward the goal.
+
+    One circle around the object COM.  If tip and press sit on the same
+    half-plane but the COM azimuth span is wide, the short arc cuts
+    through the object; walk the long way around the same COM.
+    """
+    c = np.asarray(obj_xy, dtype=float).reshape(2)
+    r = float(radius)
+
+    def on_circle(xy):
+        v = np.asarray(xy, dtype=float).reshape(2) - c
+        n = float(np.linalg.norm(v))
+        if n < 1e-9:
+            return c + np.array([r, 0.0])
+        return c + r * (v / n)
+
+    a = on_circle(tip_xy)
+    b = on_circle(goal_xy)
+    ang_a = float(np.arctan2(a[1] - c[1], a[0] - c[0]))
+    ang_b = float(np.arctan2(b[1] - c[1], b[0] - c[0]))
+    delta = (ang_b - ang_a + np.pi) % (2.0 * np.pi) - np.pi
+    a_u = (a - c) / r
+    b_u = (b - c) / r
+    if (float(np.dot(a_u, b_u)) > 0.0 and
+            abs(delta) > np.deg2rad(50.0)):
+        delta = delta - float(np.sign(delta) if delta != 0.0 else 1.0) * 2.0 * np.pi
+    if abs(delta) <= 0.40:
+        return b
+    ang = ang_a + float(np.sign(delta)) * min(abs(delta), float(step_rad))
+    return c + r * np.array([np.cos(ang), np.sin(ang)])
+
+
+def _line_in_best_fov_and_cone(tip, p_arm, best, normal, mu=0.9, fov_deg=30.0):
+    """Arrive when the tip is over the patch, or on a relaxed approach ray.
+
+    World-xy overlay is the wrong projection for a side face.  The stored
+    normal is inward; the patch plane uses the outward axis.  FOV+cone only
+    relax that in-plane test when ``p_arm`` is a *different* aim point —
+    if ``p_arm`` is already best, tip→p_arm always contains best, so FOV
+    alone would fire from across the room and never means “drop”.
+    """
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    p_arm = np.asarray(p_arm, dtype=float).reshape(3)
+    best = np.asarray(best, dtype=float).reshape(3)
+    n = np.asarray(normal, dtype=float).reshape(3)
+    n = n / max(float(np.linalg.norm(n)), 1e-9)
+    n_out = n if float(np.dot(tip - best, n)) >= 0.0 else -n
+    delta = tip - best
+    height = float(np.dot(delta, n_out))
+    in_plane = float(np.linalg.norm(delta - height * n_out))
+    on_patch = bool(in_plane <= 0.03 and height >= -0.004)
+    ray = p_arm - tip
+    to_best = best - tip
+    nr = float(np.linalg.norm(ray))
+    nb = float(np.linalg.norm(to_best))
+    p_arm_is_best = float(np.linalg.norm(p_arm - best)) <= 0.008
+    if nb <= 0.018 or nr <= 1e-6:
+        in_fov, in_cone = True, True
+    else:
+        ray_u = ray / nr
+        fov_cos = float(np.cos(np.deg2rad(float(fov_deg))))
+        in_fov = bool(p_arm_is_best or float(np.dot(ray_u, to_best / nb)) >= fov_cos)
+        cone_cos = 1.0 / np.sqrt(1.0 + float(mu) * float(mu))
+        in_cone = float(np.dot(ray_u, -n_out)) >= cone_cos
+    relaxed = (not p_arm_is_best) and in_fov and in_cone and in_plane <= 0.055
+    return {
+        'fov': bool(in_fov),
+        'cone': bool(in_cone),
+        'ok': bool(on_patch or relaxed),
+        'in_plane': in_plane,
+        'height': height,
+    }
+
+
+def _heading_open_weight(tip, obj, press):
+    """1 when tip and press share an XY heading, 0 when opposite.
+
+    Continuous in the horizontal dot; used to lower via.z toward press
+    as the orbit lines up, instead of holding a hover setpoint.
+    """
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    press = np.asarray(press, dtype=float).reshape(3)
+    tip_h = tip[:2] - obj[:2]
+    goal_h = press[:2] - obj[:2]
+    tn = float(np.linalg.norm(tip_h))
+    gn = float(np.linalg.norm(goal_h))
+    if gn < 0.015 or tn < 1e-6:
+        return 1.0
+    return float(np.clip(0.5 * (1.0 + np.dot(tip_h, goal_h) / (tn * gn)), 0.0, 1.0))
+
+
+def _com_azimuth_span(tip, obj, press):
+    """Angle at the object COM between tip and press, in the XY plane."""
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    press = np.asarray(press, dtype=float).reshape(3)
+    tip_h = tip[:2] - obj[:2]
+    goal_h = press[:2] - obj[:2]
+    tn = float(np.linalg.norm(tip_h))
+    gn = float(np.linalg.norm(goal_h))
+    if gn < 0.015 or tn < 1e-6:
+        return 0.0
+    cosine = float(np.clip(np.dot(tip_h, goal_h) / (tn * gn), -1.0, 1.0))
+    return float(np.arccos(cosine))
+
+
+def _press_path_blocked(tip, obj, press, keepout):
+    """True until the tip is above the dest, then the drop is free.
+
+    One orbit: the keep-out circle around the object COM.  Face points
+    on the same half-plane can have a small azimuth and still sit on
+    the mesh, so azimuth alone is not "above dest".  Stay on the
+    circle until XY is over press, or the tip has reached the dest
+    sector of the rim and can fall in from outside.
+    """
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    press = np.asarray(press, dtype=float).reshape(3)
+    if (float(np.linalg.norm(tip - press)) <= 0.03 or
+            float(np.linalg.norm(tip[:2] - press[:2])) <= 0.03):
+        return False
+    tip_r = float(np.linalg.norm(tip[:2] - obj[:2]))
+    keepout = float(keepout)
+    if tip_r > keepout + 0.012:
+        return True
+    if _on_opposite_sides(tip, obj, press):
+        return True
+    if _com_azimuth_span(tip, obj, press) <= np.deg2rad(30.0):
+        return False
+    return True
+
+
+def _press_approach_desired(tip, obj, press, keepout, top_z):
+    """Keep-out orbit at object-top height until XY is over dest.
+
+    Stay on the COM circle and stay high.  Height mix from heading
+    dropped via into the face before the ball was above press.
+    """
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    press = np.asarray(press, dtype=float).reshape(3)
+    top = float(top_z)
+    blocked = _press_path_blocked(tip, obj, press, keepout)
+    if not blocked:
+        return press.copy(), False
+    rim_xy = _goal_rim_xy(obj, press, keepout)
+    desired = np.zeros(3, dtype=float)
+    desired[:2] = _orbit_xy(tip[:2], obj[:2], rim_xy, keepout)
+    desired[2] = top
+    return desired, True
+
+
+class SmoothedApproachVia:
+    """Low-pass filter of a desired point that itself goes to press.
+
+    ``desired`` is the COM keep-out rim at object-top height until the
+    tip is XY-over press, then press itself.  The via never jumps;
+    MPC tracks this filtered point.  ``phase`` is a log label.
+    """
+
+    def __init__(self, rate=0.10, max_step=None, max_lead=None):
+        self.rate = float(rate)
+        self.max_step = None if max_step is None else max(1e-6, float(max_step))
+        self.max_lead = None if max_lead is None else max(1e-6, float(max_lead))
+        self.via = None
+        self.phase = 'lift'
+        self.blocked = False
+
+    def reset(self):
+        self.via = None
+        self.phase = 'lift'
+        self.blocked = False
+
+    def _lerp_toward(self, desired, tip=None, rate=None):
+        """Slow lerp toward desired, clipped to the ball's reach.
+
+        Desired may jump; via must stay a short lead ahead of the
+        fingertip or attract/reject line up and the ball sits still.
+        """
+        desired = np.asarray(desired, dtype=float).reshape(3)
+        step = self.rate if rate is None else float(rate)
+        step = float(np.clip(step, 0.0, 1.0))
+        if self.via is None:
+            proposed = desired.copy()
+        else:
+            proposed = (1.0 - step) * self.via + step * desired
+            if self.max_step is not None:
+                delta = proposed - self.via
+                dist = float(np.linalg.norm(delta))
+                if dist > self.max_step:
+                    proposed = self.via + delta * (self.max_step / dist)
+        if tip is not None and self.max_lead is not None:
+            tip = np.asarray(tip, dtype=float).reshape(3)
+            offset = proposed - tip
+            lead = float(np.linalg.norm(offset))
+            if lead > self.max_lead:
+                proposed = tip + offset * (self.max_lead / lead)
+        self.via = proposed
+        return self.via
+
+    def update(self, tip, obj, best_surface, best_track, object_top_z, keepout,
+               arrived, exec_press):
+        tip = np.asarray(tip, dtype=float).reshape(3)
+        obj = np.asarray(obj, dtype=float).reshape(3)
+        press = np.asarray(exec_press, dtype=float).reshape(3)
+        top = float(object_top_z) + 0.018
+        desired, blocked = _press_approach_desired(
+            tip, obj, press, keepout, top)
+        self.blocked = bool(blocked)
+        if blocked:
+            self.phase = 'lift' if float(tip[2]) < top - 0.012 else 'cross'
+        else:
+            self.phase = 'drop'
+        use_via = bool(blocked or float(np.linalg.norm(tip - press)) > 0.018)
+        self._lerp_toward(desired, tip=tip)
+        return bool(use_via), self.via, self.phase
+
+
+def _patch_proximity(*dists):
+    """Closest finite distance among surface / track / exec targets."""
+    finite = []
+    for dist in dists:
+        try:
+            value = float(dist)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(value):
+            finite.append(value)
+    return min(finite) if finite else float('inf')
+
+
+def _verify_distance(dist_exec, dist_surface, dist_track, arrived=False,
+                     near_radius=0.03):
+    """Distance fed to q_dist / verify.
+
+    A curved tail can put the sphere-centre track ~1 cm past the surface
+    the ball already touches.  Only then may the miss be clamped.  A far
+    false arrival must keep the real centimetres, or verify slams on
+    while the fingertip is still 6--9 cm from the patch.
+    """
+    close = _patch_proximity(dist_exec, dist_surface, dist_track)
+    if arrived and close <= float(near_radius):
+        return min(close, 0.01)
+    return close
+
+
+def _on_opposite_sides(tip, obj, best):
+    """True when the fingertip and best_contact sit on opposite XY sides."""
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    best = np.asarray(best, dtype=float).reshape(3)
+    tip_h = tip[:2] - obj[:2]
+    goal_h = best[:2] - obj[:2]
+    if float(np.linalg.norm(goal_h)) < 0.015 or float(np.linalg.norm(tip_h)) < 1e-6:
+        return False
+    return float(np.dot(tip_h, goal_h)) <= 0.0
+
+
+def _floor_slide_away_from_patch(tip, best, ground=0.012, patch_clearance=0.004):
+    """True when the ball is on the table *beside* a raised patch.
+
+    A 3 cm XY graze at tip_z≈1 cm is not contact.  XY≤2 cm is the
+    landing corridor: the sphere is coming down onto the sample and
+    must not be yanked back to the sky via.
+    """
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    best = np.asarray(best, dtype=float).reshape(3)
+    if float(np.linalg.norm(tip[:2] - best[:2])) <= 0.020:
+        return False
+    return (float(tip[2]) <= float(ground) and
+            float(best[2]) > float(tip[2]) + float(patch_clearance))
+
+
+def _travel_press_weight(tightness=0.0, via_phase=None, opposite=False):
+    """How hard travel should commit to the executed press.
+
+    Tightness may drop onto the patch only after the ball is on the same
+    side *and* already over it.  During lift/cross/above, or while the
+    goal is on the far face, weight stays 0 so the keep-out / hover via
+    is not lerped through the mesh onto the table.
+    """
+    if opposite or via_phase in ('lift', 'cross', 'above'):
+        return 0.0
+    return float(np.clip(tightness, 0.0, 1.0))
+
+
+def _blend_travel_to_press(via_pos, exec_press, tightness, use_via,
+                           via_phase=None, opposite=False):
+    """Emit the temporally smoothed via.  Does not touch verify_cost.
+
+    ``tightness`` / ``verify_cost`` / ``use_via`` may flip 0↔1 in one
+    step.  Travel must not teleport onto press when they do: the via
+    filter already lerps toward press once the orbit is done.
+    """
+    via = np.asarray(via_pos, dtype=float).reshape(3)
+    orbiting = opposite or via_phase in ('lift', 'cross', 'above')
+    return via.copy(), bool(orbiting or use_via)
+
+
+def _rollout_verify_cost(tracker_verify):
+    """Verify is the critic score.  Via / p_arm / curvature must not override it."""
+    try:
+        value = float(tracker_verify)
+    except (TypeError, ValueError):
+        return 0.0
+    if not np.isfinite(value):
+        return 0.0
+    return float(np.clip(value, 0.0, 1.0))
 
 
 def _arrived_at_best_contact(tip_world, best_surface_world, best_track_world,
@@ -440,10 +814,14 @@ def _arrived_at_best_contact(tip_world, best_surface_world, best_track_world,
     if best_track_world is not None:
         dists.append(float(np.linalg.norm(
             tip - np.asarray(best_track_world, dtype=float).reshape(3))))
+    patch = (best_surface_world if best_surface_world is not None
+             else best_track_world)
+    if patch is not None and _floor_slide_away_from_patch(tip, patch):
+        return False
     if dists and min(dists) <= float(radius):
         return True
     if (optimizer is not None and occupied_idx is not None and
-            best_idx is not None and dists and min(dists) <= 0.05):
+            best_idx is not None and dists and min(dists) <= float(radius)):
         return _same_contact_patch(
             optimizer, occupied_idx, best_idx, radius=radius)
     return False
@@ -461,32 +839,38 @@ def _protect_destination_dwell(optimizer, progress_idx, dest_idx,
 
 def _should_track_best_via(tip_world, executed_world, obj_pos, on_target,
                            object_top_z=None, holding=False):
-    """Go over the object toward best_contact when no quality p_arm exists."""
+    """Climb only until the ball is on the same side as best_contact.
+
+    A 4–5 cm COM clearance rejects almost every elephant chord, so using
+    that test as the only via-off gate parks the ball on the sky waypoint.
+    Drop once the fingertip is already on the goal's side (or the goal is
+    under the COM).  Do not drop from the opposite face: that is the
+    through-mesh hover on the back.
+    """
     if on_target or executed_world is None:
         return False
     tip = np.asarray(tip_world, dtype=float).reshape(3)
     obj = np.asarray(obj_pos, dtype=float).reshape(3)
     goal = np.asarray(executed_world, dtype=float).reshape(3)
     dist_goal = float(np.linalg.norm(tip - goal))
-    # A tail-like best_contact sits far from the COM.  The far-drift
-    # pull-back must not keep the via once the tip is already there.
     if dist_goal <= 0.03:
         return False
-    horiz = float(np.linalg.norm(tip[:2] - obj[:2]))
-    # Already drifted away: pull back to the object top, do not disable.
-    if horiz > 0.08:
-        if dist_goal <= 0.05:
+    tip_h = tip[:2] - obj[:2]
+    goal_h = goal[:2] - obj[:2]
+    goal_h_n = float(np.linalg.norm(goal_h))
+    same_side = (goal_h_n < 0.015) or float(np.dot(tip_h, goal_h)) > 0.0
+    xy_to_goal = float(np.linalg.norm(tip[:2] - goal[:2]))
+    if object_top_z is not None:
+        via = goal.copy()
+        via[2] = max(float(goal[2]) + 0.02, float(object_top_z) + 0.012)
+        if float(np.linalg.norm(tip - via)) <= 0.018:
             return False
-        return True
-    # Over the object: drop onto best_contact.  The via sits at
-    # top+1.5 cm; requiring top+1.2 cm left the ball 2 mm short and
-    # chasing the waypoint forever.
-    if (object_top_z is not None and float(tip[2]) >= float(object_top_z) + 0.005
-            and horiz <= 0.04):
+    if dist_goal <= 0.05 and not _segment_hits_core(tip, goal, obj, radius=0.028):
         return False
-    clearance = 0.055 if holding else 0.045
-    return not _chord_clears_object(
-        tip, executed_world, obj, clearance=clearance)
+    if (same_side and xy_to_goal <= 0.035 and
+            not _segment_hits_core(tip, goal, obj, radius=0.028)):
+        return False
+    return True
 
 
 def _sphere_center_on_patch(obj_pos, obj_rot, local_point, local_normal, radius, margin):
@@ -495,6 +879,30 @@ def _sphere_center_on_patch(obj_pos, obj_rot, local_point, local_normal, radius,
     normal = np.asarray(obj_rot, dtype=np.float64).reshape(3, 3) @ np.asarray(local_normal, dtype=np.float64).reshape(3)
     normal = normal / max(float(np.linalg.norm(normal)), 1e-9)
     return world - max(1e-4, float(radius) + float(margin)) * normal, world, normal
+
+
+def _patch_press_point(track, surface, inset=0.0025):
+    """Sphere-centre press sitting on the ranked patch.
+
+    ``track`` is already the fingertip centre that kisses the surface
+    (plus the contact margin).  A couple of millimetres inward makes the
+    quadratic minimum a contact, not a 1 mm hover.  A 6 mm inset used to
+    put the target inside the mesh: via and best_contact looked like the
+    same point while the ball bounced and never held contact.
+    """
+    track = np.asarray(track, dtype=float).reshape(3)
+    surface = np.asarray(surface, dtype=float).reshape(3)
+    outward = track - surface
+    norm = float(np.linalg.norm(outward))
+    if norm < 1e-9:
+        press = track.copy()
+    else:
+        press = track - float(inset) * (outward / norm)
+    # Do not sink the press below the sample.  An absolute z floor
+    # (e.g. 2 cm) lifts a foot patch into free air and the ball
+    # then falls through onto the table.
+    press[2] = max(float(press[2]), float(surface[2]))
+    return press
 
 
 def _x_plus_is_usable(x_plus_opt, info):
@@ -583,14 +991,29 @@ def _pose_mismatch_diagnostics(q_before, q_after, x_plus_opt,
     return out
 
 
+def _should_observe_model_cost(has_delta_span, pose_cost_now=None):
+    """Observe whenever this cycle has a ranking cost band or C(now).
+
+    Predicted and actual ΔC are both projected through the ranking
+    unit-range of C(x_plus).  C(now) is only needed to turn a ΔC
+    back into a cost on that band.
+    """
+    if pose_cost_now is not None:
+        try:
+            return float(pose_cost_now) > 1e-12
+        except (TypeError, ValueError):
+            return False
+    return bool(has_delta_span)
+
+
 class ModelCostConfidence:
     """Tighten verify from accumulated lambda-vs-reality cost-reduction error.
 
-    When the fingertip actually executes a contact, compare the pose-cost
-    decrease predicted by ``x_plus`` with the decrease MuJoCo produced.
-    Only the under-delivery ``max(0, pred - actual)`` is accumulated.
-    ``tightness`` in [0, 1] then shrinks the verify cost gate from
-    ``max_error`` down to ``min_error``; the sample is never blacklisted.
+    Compare clip(ΔC / C(now), -1, 1) of the selected ``x_plus_opt`` with
+    the same map of the MuJoCo actual reduction.  Airborne actual ΔC is
+    0 (maps to 0).  A contact that makes pose worse maps negative, even
+    if that is below every sample's best-wrench prediction.
+    Under-delivery raises tightness; over-delivery lowers it.
     """
 
     def __init__(self, threshold=6.0, eps=1e-6, min_steps=3):
@@ -618,10 +1041,16 @@ class ModelCostConfidence:
         self.last_act = act
         if not np.isfinite(pred) or not np.isfinite(act):
             return self.tightness()
-        if pred > self.eps and act < pred - self.eps:
-            # One optimistic x_plus (pos_coef=500) can miss by >2 cost units.
-            # Cap so tightness needs several failed contacts, not one bounce.
-            self.accum += min(pred - act, self._step_cap())
+        gap = pred - act
+        if abs(gap) <= self.eps:
+            return self.tightness()
+        step = min(abs(gap), self._step_cap())
+        if gap > 0.0:
+            # Under-delivery (airborne actual=0 vs a positive best delta).
+            self.accum += step
+        else:
+            self.accum -= step
+        self.accum = float(np.clip(self.accum, 0.0, self.threshold))
         return self.tightness()
 
     def observe_unusable_prediction(self):
@@ -653,24 +1082,21 @@ class ModelCostConfidence:
 
 
 class ContactValueTracker:
-    """Value-network style estimates of lambda costs (lower cost = higher value).
+    """Accept / verify follow one continuous tightness, not projected costs.
 
-    ``best_contact`` is the default executed target.  ``p_arm`` is only a
-    lazy hold of that same patch: accept it when it still sits on the
-    ranked-best neighbourhood *and* its lambda cost beats the verify
-    gate.  In rollout the gate is ``min_error + (1-tightness)*(max_error
-    - min_error)``; tightness comes from accumulated model-vs-reality
-    cost-reduction error, so a failed local hold is released without
-    blacklisting the sample.  At ``best_contact`` the cost is
-    ``min_error``, so the ball still drops.  A fingertip-nearest sample
-    on another patch is never a reason to turn ``verify_cost`` on.
+    Tightness is the caller's model-vs-reality confidence: 0 keeps a lazy
+    local ``p_arm`` hold, 1 commits travel and press to ``best_contact``.
+    The lambda cost of whichever sample the ball currently projects onto
+    is logged only.  Comparing that cost to a shrinking gate made
+    neighbouring mesh samples chatter the target into a local hole.
     """
 
     def __init__(self, tau=1.0, rel_scale=0.08, rho=0.08, alpha=0.25,
                  beta=0.18, dist_mid=0.022, dist_width=0.006,
                  window_size=5, enter_threshold=0.55, exit_threshold=0.35,
                  confirm_steps=5, min_hold_steps=30, release_steps=8,
-                 accept_margin_ratio=0.2, accept_margin_abs=0.001):
+                 accept_margin_ratio=0.2, accept_margin_abs=0.001,
+                 accept_enter_tightness=0.45, accept_release_tightness=0.65):
         self.tau = float(tau)
         self.rel_scale = float(rel_scale)
         self.rho = float(rho)
@@ -688,14 +1114,13 @@ class ContactValueTracker:
         self.release_steps = max(1, int(release_steps))
         self.accept_margin_ratio = max(0.0, float(accept_margin_ratio))
         self.accept_margin_abs = max(0.0, float(accept_margin_abs))
+        self.accept_enter_tightness = float(np.clip(accept_enter_tightness, 0.0, 1.0))
+        self.accept_release_tightness = float(np.clip(
+            max(accept_release_tightness, self.accept_enter_tightness), 0.0, 1.0))
         self.v_best = None
         self.v_arm = None
         self.verify = 0.0
         self.last_arm_idx = None
-        # Keep evidence separate from the EMA.  The EMA damps amplitude,
-        # while this window damps the binary decision that selects the
-        # contact cost.  A single bad solve therefore cannot turn contact
-        # off, just as a single lucky solve cannot turn it on.
         self._target_window = deque(maxlen=self.window_size)
         self.contact_active = False
         self.good_streak = 0
@@ -739,9 +1164,10 @@ class ContactValueTracker:
                       same_patch=False, near_arm=False, is_best_sample=False,
                       confidence=1.0, stagnant_steps=0, margin_gamma=0.8,
                       min_error=None, max_error=None, tightness=0.0):
-        """Score whether p_arm is a lazy hold of the current ranked best."""
+        """Accept a local hold from tightness, never from the projected cost."""
+        tight = float(np.clip(tightness, 0.0, 1.0))
         info = {
-            'quality': 0.0,
+            'quality': 1.0 - tight,
             'verify': float(self.verify),
             'accept_p_arm': False,
             'v_best': self.v_best,
@@ -756,184 +1182,63 @@ class ContactValueTracker:
             'candidate_scale': None,
             'same_patch': bool(same_patch),
             'cost_ok': False,
-            'accept_scale': 1.0,
-            'cost_thresh': None,
-            'tightness': float(np.clip(tightness, 0.0, 1.0)),
+            'accept_scale': 1.0 - tight,
+            'cost_thresh': _verify_cost_threshold(min_error, max_error, tight)
+            if min_error is not None else None,
+            'tightness': tight,
         }
-        if c_best is None or not np.isfinite(float(c_best)):
-            return info
-
-        c_best = float(c_best)
-        self.v_best = self._ema(self.v_best, c_best, self.rho)
-        finite_costs = np.asarray(candidate_costs if candidate_costs is not None
-                                   else [], dtype=np.float64).reshape(-1)
-        finite_costs = finite_costs[np.isfinite(finite_costs)]
-        if finite_costs.size >= 2:
-            q25, q75 = np.percentile(finite_costs, [25.0, 75.0])
-            robust_spread = float((q75 - q25) / 1.349)
-        else:
-            robust_spread = 0.0
-        # Scale quality against the current best, not the spread of every
-        # sample.  The full-set IQR is large on a mesh, so a far, weak
-        # nearest contact used to look competitive.
-        scale = max(self.rel_scale * max(abs(c_best), abs(self.v_best), 1e-4),
-                    1e-4)
-        info['scale'] = scale
-        info['candidate_scale'] = robust_spread
+        # c_best / c_arm are diagnostics.  A neighbour's NLP residual can
+        # jump by a factor of two across 1 cm of mesh; using it here is
+        # what locked the ball onto a foot/ear local minimum.
+        if c_best is not None:
+            try:
+                if np.isfinite(float(c_best)):
+                    self.v_best = self._ema(self.v_best, float(c_best), self.rho)
+            except (TypeError, ValueError):
+                pass
+        if c_arm is not None:
+            try:
+                if np.isfinite(float(c_arm)):
+                    self.v_arm = self._ema(self.v_arm, float(c_arm), self.alpha)
+                    if self.v_best is not None:
+                        info['adv'] = float(self.v_arm) - float(self.v_best)
+                    info['c_arm_cons'] = float(self.v_arm)
+            except (TypeError, ValueError):
+                pass
         info['v_best'] = self.v_best
+        info['v_arm'] = self.v_arm
 
-        arm_ok = bool(solver_ok) and c_arm is not None and np.isfinite(float(c_arm))
-        quality = 0.0
-        cost_ok = False
-        use_span_gate = min_error is not None
-        cost_thresh = _verify_cost_threshold(
-            min_error, max_error, tightness) if use_span_gate else None
-        info['cost_thresh'] = cost_thresh
-        if arm_ok:
-            c_arm = float(c_arm)
-            self.v_arm = self._ema(self.v_arm, c_arm, self.alpha)
-            # Clipped-double-Q analogue for costs: do not overestimate
-            # value (underestimate cost) from a single lucky solve.
-            c_arm_cons = max(c_arm, float(self.v_arm))
-            adv = c_arm_cons - c_best
-            if use_span_gate:
-                quality = _cost_span_quality(c_arm, min_error, max_error)
-                tighten = 1.0 - float(np.clip(tightness, 0.0, 1.0))
-                # Compare the raw lambda cost to the min/max gate.  The
-                # EMA (c_arm_cons) lags while min_error falls, and would
-                # reject even the current best_contact after one step.
-                at_min = float(c_arm) <= float(min_error) + 1e-6
-                cost_ok = bool(is_best_sample) or at_min or (
-                    cost_thresh is not None and
-                    float(c_arm) <= float(cost_thresh) + 1e-6)
-            else:
-                quality = float(np.exp(-max(adv, 0.0) / (self.tau * scale)))
-                tighten = float(np.clip(margin_gamma, 0.0, 1.0)) ** max(
-                    0, int(stagnant_steps))
-                margin = tighten * (self.accept_margin_abs +
-                                    self.accept_margin_ratio * max(abs(c_best), 1e-4))
-                cost_ok = c_arm_cons <= c_best + margin
-            info['accept_scale'] = tighten
-            info['c_arm_cons'] = c_arm_cons
-            info['adv'] = adv
-            info['v_arm'] = self.v_arm
-        # Lazy update only.  A same-patch neighbour that the fingertip
-        # has not reached yet must not steal the target from best_contact:
-        # that swap made q_dist (and therefore verify) jump every cycle.
-        # Once a lazy hold is committed, keep it through cost noise until
-        # the sample leaves the patch or blows a looser release margin.
-        on_best_or_here = bool(is_best_sample) or bool(near_arm)
-        # Model-error tightness is a verify gate, not a blacklist.  The
-        # older confidence<1 path still hard-rejects when the caller has
-        # not supplied a min/max span.
-        trusted = use_span_gate or float(confidence) >= (1.0 - 1e-9)
-        if not trusted:
-            accept = False
-        elif self._holding_p_arm:
-            if arm_ok:
-                if use_span_gate:
-                    at_min = float(info.get('c_arm_cons', c_arm)) <= float(min_error) + 1e-6
-                    still_cheap = bool(is_best_sample) or at_min or (
-                        cost_thresh is not None and
-                        float(c_arm) <= float(cost_thresh) + 1e-6)
-                else:
-                    tighten = float(info.get('accept_scale', 1.0))
-                    release_margin = tighten * (self.accept_margin_abs +
-                        2.0 * self.accept_margin_ratio * max(abs(c_best), 1e-4))
-                    still_cheap = float(info['c_arm_cons']) <= c_best + release_margin
-            else:
-                still_cheap = False
-            accept = arm_ok and bool(same_patch) and still_cheap
+        if bool(is_best_sample) and bool(near_arm):
+            accept = True
+        elif bool(same_patch) and bool(near_arm):
+            limit = (self.accept_release_tightness if self._holding_p_arm
+                     else self.accept_enter_tightness)
+            accept = tight < limit
         else:
-            accept = arm_ok and bool(same_patch) and cost_ok and on_best_or_here
+            accept = False
         self._holding_p_arm = bool(accept)
-        info['quality'] = quality
-        info['cost_ok'] = bool(cost_ok)
+        info['quality'] = 1.0 if is_best_sample else (1.0 - tight)
+        info['cost_ok'] = bool(accept)
         info['accept_p_arm'] = bool(accept)
         return info
 
-    def update_verify(self, quality, dist_exec, physical_contact=None,
+    def update_verify(self, quality=1.0, dist_exec=0.0, physical_contact=None,
                       on_target=True, stagnant_steps=0, margin_gamma=0.8,
                       tightness=0.0, allow_approach_press=False):
-        """Soft policy: rise only when the executed best-patch target is near."""
-        dist = float(dist_exec) if np.isfinite(float(dist_exec)) else 1.0
+        """verify_cost is an EMA of tightness.  Distance / quality / contact do not write it."""
+        try:
+            dist = float(dist_exec)
+        except (TypeError, ValueError):
+            dist = 1.0
+        if not np.isfinite(dist):
+            dist = 1.0
         q_dist = 1.0 / (1.0 + np.exp((dist - self.dist_mid) / self.dist_width))
-        quality = float(np.clip(quality, 0.0, 1.0))
-        raw = quality * float(q_dist)
-        stale = 1.0 - float(np.clip(margin_gamma, 0.0, 1.0)) ** max(
-            0, int(stagnant_steps))
-        tight = max(float(np.clip(tightness, 0.0, 1.0)), stale)
-        # The real switch gate is the min/max cost threshold.  Only lift
-        # verify-enter modestly: raising it to 1.0 would block even
-        # min_error because q_dist is never exactly one.
-        enter = self.enter_threshold + (0.85 - self.enter_threshold) * tight
-        # Before contact mode, ignore mediocre / unconfirmed evidence so a
-        # rejected nearest sample cannot enter.  After contact mode, keep
-        # the continuous score: hard-zeroing one noisy frame emptied the
-        # window and slammed verify_cost.
-        if not self.contact_active and quality < enter:
-            target = 0.0
-        else:
-            target = raw
-        if self.contact_active and quality < enter:
-            target = max(target, float(self._last_verify_target), self.exit_threshold)
-        # Contact on the wrong patch (elephant foot while the ranked
-        # target is on the back) is not evidence.  Do not hold the last
-        # target in that case, or verify stays on and pins the ball.
-        if not on_target:
-            target = 0.0
-        elif physical_contact is not None and not physical_contact:
-            # Near a feasible min_error target the ball must be allowed to
-            # press down.  Requiring physical contact first is what left
-            # verify at 0 while the tip chattered 1 cm above best_contact.
-            if allow_approach_press and quality >= enter:
-                target = raw
-            elif self.contact_active:
-                target = max(float(self._last_verify_target), self.exit_threshold)
-            else:
-                target = 0.0
-        self._last_verify_target = float(target)
+        target = float(np.clip(tightness, 0.0, 1.0))
+        rate = self.beta if target >= self.verify else 0.35 * self.beta
+        self.verify = (1.0 - rate) * float(self.verify) + rate * target
+        self._last_verify_target = target
         self._target_window.append(target)
-        window_mean = float(np.mean(self._target_window))
-
-        # Windowed enter/hold/release logic follows the stable policy used by
-        # the MPPI experiment, but retains a continuous verify_cost for MPC.
-        # Use the tightened enter gate so a mediocre local p_arm cannot
-        # confirm contact after the model-error threshold has collapsed
-        # onto min_error.
-        if (len(self._target_window) == self.window_size and
-                window_mean >= enter):
-            self.good_streak += 1
-        else:
-            self.good_streak = 0
-        if window_mean <= self.exit_threshold:
-            self.bad_streak += 1
-        else:
-            self.bad_streak = 0
-
-        if not self.contact_active:
-            if self.good_streak >= self.confirm_steps:
-                self.contact_active = True
-                self.contact_phase_steps = 0
-                self.bad_streak = 0
-        else:
-            self.contact_phase_steps += 1
-            if (self.contact_phase_steps >= self.min_hold_steps and
-                    self.bad_streak >= self.release_steps):
-                self.contact_active = False
-                self.contact_phase_steps = 0
-                self.good_streak = 0
-
-        # Rise like an online critic; decay like a slow target network so a
-        # one-frame gap does not slam verify_cost back to zero.  During the
-        # hold phase, never feed a zero target to the MPC solely because the
-        # latest frame was noisy.
-        # Do not blend in contact cost before the five-window confirmation.
-        effective_target = window_mean if self.contact_active else 0.0
-        if self.contact_active and self.contact_phase_steps < self.min_hold_steps:
-            effective_target = max(effective_target, self.exit_threshold)
-        rate = self.beta if effective_target >= self.verify else 0.35 * self.beta
-        self.verify = (1.0 - rate) * self.verify + rate * effective_target
+        self.contact_active = float(self.verify) >= float(self.exit_threshold)
         return float(self.verify), float(q_dist)
 
 
@@ -977,6 +1282,18 @@ def main(args=None):
         param = ExplicitMPCParams(args, rand_seed=trial_count, target_type='ground-rotation', model='explicit')
         param.torch_solver = 'acados'
         param.lambda_optimizer.solver = 'acados'
+        if use_rollout:
+            # Quadratic patch tracking: log-barrier + COM contact cost leave
+            # a hover equilibrium on the near face when best_contact is
+            # on the far / lateral side.
+            param.rollout_press_patch = True
+            param.quadratic_contact_track = True
+            param.attract_coef = max(float(param.attract_coef), 20.0)
+            param.field_cost_weight = 0.0
+            # Press must stay at least as strong as attract.  verify→1
+            # used to drop the weight from 20 to 1.2, so once via sat on
+            # the patch the ball fell onto the table and contact flickered.
+            param.contact_coef = max(float(param.contact_coef), float(param.attract_coef))
         param.lambda_optimizer.lock_contact_patch = False
         param.lambda_optimizer.contact_switch_confirm_steps = max(
             1, int(args.contact_switch_confirm_steps))
@@ -1041,6 +1358,11 @@ def main(args=None):
         escape_hold_idx = None
         escape_released = False
         travel_via_hold = False
+        arrived_hold = False
+        arrived_dest_idx = None
+        mpc_step = max(1e-4, float(getattr(args, 'mpc_step_limit', 0.005)))
+        approach_via = SmoothedApproachVia(
+            rate=0.10, max_step=mpc_step, max_lead=mpc_step)
         last_verify_cost = None
         last_accept_p_arm = None
         verify_chatter = False
@@ -1073,6 +1395,9 @@ def main(args=None):
                 curr_q[0:3], R_obj_to_world, param.target_p_, args.ground_height_threshold,
                 viewpoint_local=None,
                 heading_filter=not use_gated_contact_policy)
+            if use_gated_contact_policy:
+                visible_point_idx = param.lambda_optimizer.filter_rankable_indices(
+                    visible_point_idx)
 
             last_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
             last_exec_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
@@ -1149,28 +1474,22 @@ def main(args=None):
             # Rollout travel is guided by the raw lambda optimum, not the
             # hysteresis-selected incumbent.
             if use_rollout:
-                guide_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
+                guide_idx = param.lambda_optimizer.choose_nearby_topk_idx(
+                    current_tip_local)
+                if guide_idx is None:
+                    guide_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
                 if guide_idx is not None:
                     guide_idx = int(guide_idx)
                     best_contact_point = param.lambda_optimizer.sample_point[guide_idx]
                     normal = param.lambda_optimizer.normal[guide_idx]
-                    cand_ids = getattr(param.lambda_optimizer, 'last_candidate_ids', None)
-                    if cand_ids is not None:
-                        hits = np.flatnonzero(np.asarray(cand_ids) == guide_idx)
-                        if hits.size:
-                            loc = int(hits[0])
-                            x_buf = getattr(param.lambda_optimizer, 'last_candidate_x_plus', None)
-                            f_buf = getattr(param.lambda_optimizer, 'last_candidate_forces', None)
-                            c_buf = getattr(param.lambda_optimizer, 'last_candidate_costs', None)
-                            if x_buf is not None and loc < len(x_buf):
-                                cached_x_plus = x_buf[loc]
-                                param.lambda_optimizer.last_best_x_plus = cached_x_plus
-                            if f_buf is not None and loc < len(f_buf):
-                                cached_force = f_buf[loc]
-                                param.lambda_optimizer.last_best_force = cached_force
-                            if c_buf is not None and loc < len(c_buf):
-                                cached_cost = float(c_buf[loc])
-                                param.lambda_optimizer.last_best_cost = cached_cost
+                    cached_x_plus, cached_force, cached_cost = _candidate_solution(
+                        param.lambda_optimizer, guide_idx)
+                    if cached_x_plus is not None:
+                        param.lambda_optimizer.last_best_x_plus = cached_x_plus
+                    if cached_force is not None:
+                        param.lambda_optimizer.last_best_force = cached_force
+                    if cached_cost is not None:
+                        param.lambda_optimizer.last_best_cost = cached_cost
 
             best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
                 curr_q[:3], R_obj_to_world, best_contact_point, normal,
@@ -1233,6 +1552,23 @@ def main(args=None):
                 arrived_at_best = bool(use_rollout) and _arrived_at_best_contact(
                     curr_q[7:10], best_contact_world, best_contact_track_world,
                     occupied_idx, best_idx, param.lambda_optimizer)
+                if use_rollout:
+                    dist_best_now = min(
+                        float(np.linalg.norm(curr_q[7:10] - best_contact_world)),
+                        float(np.linalg.norm(curr_q[7:10] - best_contact_track_world)))
+                    if arrived_at_best:
+                        arrived_hold = True
+                        if arrived_dest_idx is None and best_idx is not None:
+                            arrived_dest_idx = int(best_idx)
+                    elif arrived_hold and dist_best_now > 0.035:
+                        arrived_hold = False
+                        arrived_dest_idx = None
+                    arrived_at_best = bool(arrived_at_best or arrived_hold)
+                    if (_on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world) or
+                            _floor_slide_away_from_patch(curr_q[7:10], best_contact_world)):
+                        arrived_at_best = False
+                        arrived_hold = False
+                        arrived_dest_idx = None
                 # resolve_executed_contact writes the fingertip-nearest
                 # leftover.  On the ranked-best patch that leftover is
                 # not the sample we should drop on.
@@ -1262,7 +1598,6 @@ def main(args=None):
                                   int(best_idx) == int(p_arm_idx))
                 if arrived_at_best:
                     is_best_sample = True
-                    near_arm = True
                 value_tracker.reset_arm(p_arm_idx)
                 if use_rollout:
                     model_cost_conf.note_sample(
@@ -1284,9 +1619,7 @@ def main(args=None):
                 # chatter among neighbouring mesh samples.
                 if not value_info['accept_p_arm']:
                     # Do not slam verify here.  A one-frame p_arm reject
-                    # (ear-tip normal flip) used to reset the window and
-                    # make verify_cost chatter.  Patch changes still
-                    # reset below via last_verify_idx.
+                    # used to reset the window and make verify_cost chatter.
                     p_arm_world = best_contact_track_world
                     p_arm_track_world = best_contact_track_world
                     p_arm_surface_world = best_contact_world
@@ -1302,40 +1635,44 @@ def main(args=None):
                     # small neighbour-cost gap drop verify and reopen
                     # nearest-point hunting.
                     exec_quality = 1.0
-                verify_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
-                if last_verify_idx is not None and verify_idx is not None:
-                    patch_distance = param.lambda_optimizer.sample_geodesic[
-                        int(last_verify_idx), int(verify_idx)]
-                    if (patch_distance > param.lambda_optimizer.contact_switch_radius or
-                            int(last_verify_idx) in blocked):
-                        value_tracker.reset_contact()
-                last_verify_idx = verify_idx
+                last_verify_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
                 measured_contact = contact.get_actual_fingertip_contact()
                 physical_contact = bool(measured_contact is not None and
                                         float(measured_contact['dist']) <= 0.0)
                 dist_surface = float(np.linalg.norm(curr_q[7:10] - best_contact_world))
                 dist_track = float(np.linalg.norm(curr_q[7:10] - best_contact_track_world))
                 dist_to_exec = float(np.linalg.norm(curr_q[7:10] - p_arm_world))
-                if use_rollout and arrived_at_best:
-                    # Curved tails put the sphere-centre target ~1 cm from
-                    # the mesh sample.  q_dist uses dist_mid=2.2 cm, so a
-                    # 3.1 cm track miss never reaches the enter gate.
-                    dist_to_exec = min(dist_to_exec, dist_surface, dist_track, 0.01)
+                align_info = _line_in_best_fov_and_cone(
+                    curr_q[7:10], p_arm_world, p_arm_surface_world,
+                    best_normal_world,
+                    mu=float(getattr(param.lambda_optimizer, 'mu_arm_obj', 0.9)))
+                near_patch = _patch_proximity(
+                    dist_surface, dist_track, dist_to_exec) <= 0.03
+                # FOV/cone alone is not arrival.  On a jumped ear-tip that
+                # check stayed true at 6--9 cm and froze arrived_hold.
+                if (align_info['ok'] and near_patch and
+                        not _on_opposite_sides(
+                            curr_q[7:10], curr_q[:3], best_contact_world) and
+                        not _floor_slide_away_from_patch(
+                            curr_q[7:10], best_contact_world)):
+                    arrived_at_best = True
+                if use_rollout:
+                    dist_to_exec = _verify_distance(
+                        dist_to_exec, dist_surface, dist_track,
+                        arrived=arrived_at_best)
                 on_verify_target = bool(
-                    arrived_at_best or dist_to_exec <= 0.03)
-                if use_rollout and physical_contact and not on_verify_target:
-                    value_tracker.reset_contact()
+                    arrived_at_best or dist_to_exec <= 0.03
+                    or (align_info['ok'] and near_patch))
                 verify_now, q_dist = value_tracker.update_verify(
-                    exec_quality, dist_to_exec,
-                    physical_contact=physical_contact if use_rollout else None,
-                    on_target=on_verify_target if use_rollout else True,
-                    stagnant_steps=getattr(
-                        param.lambda_optimizer, '_dwell_steps', 0),
-                    tightness=model_tightness if use_rollout else 0.0,
-                    allow_approach_press=bool(use_rollout and on_verify_target))
+                    dist_exec=dist_to_exec,
+                    tightness=model_tightness if use_rollout else 0.0)
                 value_info['occupied_idx'] = occupied_idx
                 value_info['on_target'] = on_verify_target
                 value_info['arrived_at_best'] = bool(arrived_at_best)
+                value_info['approach_fov'] = bool(align_info['fov'])
+                value_info['approach_cone'] = bool(align_info['cone'])
+                value_info['approach_in_plane'] = float(align_info.get('in_plane', np.inf))
+                value_info['approach_height'] = float(align_info.get('height', 0.0))
                 value_info['verify'] = verify_now
                 value_info['q_dist'] = q_dist
                 value_info['exec_quality'] = exec_quality
@@ -1365,69 +1702,54 @@ def main(args=None):
                 mpc_virtual_point = best_contact_track_world - 0.0015 * patch_out
                 mpc_contact_point = best_contact_world
             elif use_switch_policy:
-                # Soft verify only blends the contact term.  The attract
-                # target is the executed press point (same as pose), not
-                # the 10 cm waypoint: otherwise the ball sits on the via
-                # and q_dist never rises, so verify stays 0 forever.
-                verify_cost = float(value_info.get('verify', 0.0))
-                patch_out = p_arm_track_world - p_arm_surface_world
-                patch_out = patch_out / max(float(np.linalg.norm(patch_out)), 1e-9)
-                exec_press = p_arm_track_world - 0.0015 * patch_out
+                verify_cost = _rollout_verify_cost(value_info.get('verify', 0.0))
+                exec_press = _patch_press_point(
+                    p_arm_track_world, p_arm_surface_world)
                 mpc_virtual_point = exec_press
-                mpc_contact_point = exec_press
+                mpc_contact_point = p_arm_surface_world if use_rollout else exec_press
                 if use_rollout:
+                    # Always run the via filter.  accept_p_arm / verify_cost
+                    # may flip 0↔1; resetting via or snapping travel onto
+                    # press is what made the fingertip jump.
+                    opposite = _on_opposite_sides(
+                        curr_q[7:10], curr_q[:3], best_contact_world)
+                    floor_slide = _floor_slide_away_from_patch(
+                        curr_q[7:10], best_contact_world)
                     top_z = _object_top_z_world(
                         curr_q[:3], R_obj_to_world,
                         getattr(param, 'object_aabb_lo', (-0.06, -0.04, -0.04)),
                         getattr(param, 'object_aabb_hi', (0.06, 0.04, 0.06)))
-                    tracking_best = not bool(value_info.get('accept_p_arm', False))
-                    if tracking_best:
-                        escape_hold_idx = None
-                        travel_via_on = _should_track_best_via(
-                            curr_q[7:10], p_arm_world, curr_q[:3],
-                            bool(value_info.get('on_target', False)),
-                            object_top_z=top_z, holding=travel_via_hold)
-                        travel_via_hold = bool(travel_via_on)
-                        escape_on = bool(travel_via_on)
-                        if travel_via_on:
-                            mpc_virtual_point = _track_best_via(
-                                curr_q[:3], exec_press, top_z)
-                            mpc_contact_point = mpc_virtual_point
-                            verify_cost = 0.0
+                    keepout = _keepout_radius(
+                        getattr(param, 'object_aabb_lo', (-0.06, -0.04, -0.04)),
+                        getattr(param, 'object_aabb_hi', (0.06, 0.04, 0.06)),
+                        getattr(param, 'object_circumradius', None))
+                    use_via, via_pos, via_phase = approach_via.update(
+                        curr_q[7:10], curr_q[:3], p_arm_surface_world,
+                        p_arm_track_world, top_z, keepout,
+                        bool(value_info.get('arrived_at_best', False)),
+                        exec_press)
+                    travel, escape_on = _blend_travel_to_press(
+                        via_pos, exec_press,
+                        model_cost_conf.tightness(), use_via,
+                        via_phase=via_phase, opposite=opposite)
+                    mpc_virtual_point = travel
+                    # Via is the continuous approach.  Contact is press
+                    # once the tip→press chord is free; while the chord
+                    # still hits the object, both terms stay on the via
+                    # so verify cannot pull through the mesh.
+                    path_blocked = bool(getattr(approach_via, 'blocked', opposite))
+                    if path_blocked:
+                        mpc_contact_point = travel
                     else:
-                        travel_via_hold = False
-                        escape_on, escape_idx = _should_escape_blocked(
-                            param.lambda_optimizer, value_info.get('occupied_idx'),
-                            curr_q[7:10], curr_q[:3], R_obj_to_world, p_arm_world,
-                            bool(value_info.get('on_target', False)),
-                            object_top_z=top_z, hold_idx=escape_hold_idx,
-                            physical_contact=bool(if_contact),
-                            released=escape_released)
-                        if escape_hold_idx is not None and not escape_on:
-                            tip_now = np.asarray(curr_q[7:10], dtype=float)
-                            left_cluster = _near_blocked_cluster(
-                                param.lambda_optimizer, tip_now, curr_q[:3],
-                                R_obj_to_world, radius=0.04) is None
-                            height_clear = float(tip_now[2]) >= float(top_z) + 0.012
-                            if height_clear or (left_cluster and not if_contact):
-                                escape_released = True
-                        escape_hold_idx = escape_idx if escape_on else None
-                        if escape_on:
-                            n_local = np.asarray(
-                                param.lambda_optimizer.normal[int(escape_idx)],
-                                dtype=float).reshape(3)
-                            n_world = R_obj_to_world @ n_local
-                            mpc_virtual_point = _blocked_escape_via(
-                                curr_q[7:10], curr_q[:3], exec_press, n_world,
-                                object_top_z=top_z)
-                            mpc_contact_point = mpc_virtual_point
-                            verify_cost = 0.0
-                            # Keep the failed neighbourhood excluded for the
-                            # whole detour.  The per-cycle decrement otherwise
-                            # expires mid-climb and ranks the leg again.
-                            for key in list(param.lambda_optimizer._blocked_contact_indices):
-                                param.lambda_optimizer._blocked_contact_indices[key] = max(
-                                    80, int(param.lambda_optimizer._blocked_contact_indices[key]))
+                        mpc_contact_point = exec_press
+                    holding = (not path_blocked and not floor_slide and
+                               bool(value_info.get('accept_p_arm', False)))
+                    value_info['via_phase'] = 'hold' if holding else via_phase
+                    value_info['opposite_sides'] = bool(opposite)
+                    value_info['path_blocked'] = bool(path_blocked)
+                    value_info['press_z'] = float(exec_press[2])
+                    value_info['contact_is_via'] = bool(
+                        np.allclose(mpc_contact_point, mpc_virtual_point))
             else:
                 verify_cost = 1.0
                 mpc_virtual_point = filtered_attract
@@ -1449,8 +1771,26 @@ def main(args=None):
             executed_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
             global_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
             global_cost = getattr(param.lambda_optimizer, 'last_global_total_cost', None)
+            curv = getattr(param.lambda_optimizer, 'point_curvature', None)
+            curv_lim = float(getattr(param.lambda_optimizer, 'region_max_point_curvature', 0.25))
+
+            def _curv_of(idx):
+                if curv is None or idx is None:
+                    return None
+                try:
+                    return round(float(curv[int(idx)]), 4)
+                except (IndexError, TypeError, ValueError):
+                    return None
             print(f'花费时间: {choose_dt:.4f}')
-            print('min error:', min_error, 'max error', max_error, 'actual error:', error)
+            raw_costs = getattr(param.lambda_optimizer, 'last_candidate_raw_costs', None)
+            if raw_costs is not None:
+                raw_finite = np.asarray(raw_costs, dtype=np.float64).reshape(-1)
+                raw_finite = raw_finite[np.isfinite(raw_finite)]
+            else:
+                raw_finite = np.zeros(0, dtype=np.float64)
+            print('min error:', min_error, 'max error', max_error, 'actual error:', error,
+                  'raw_min:', None if raw_finite.size == 0 else round(float(np.min(raw_finite)), 6),
+                  'raw_max:', None if raw_finite.size == 0 else round(float(np.max(raw_finite)), 6))
             print("verify cost:", None if verify_cost is None else round(float(verify_cost), 4),
                   "verify_chatter:", int(bool(verify_chatter)),
                   "p_arm_quality:", None if not value_info else round(float(value_info.get('quality', 0.0)), 4),
@@ -1469,12 +1809,14 @@ def main(args=None):
                   "pose_pos_vec:", np.round(np.asarray(curr_q[0:3], dtype=float) - param.target_p_, 4).tolist(),
                   "pose_rot_err:", float(metrics.comp_quat_error(curr_q[3:7], param.target_q_)),
                   "ball_to_best_contact:", round(float(np.linalg.norm(curr_q[7:10] - best_contact_world)), 6),
+                  "xy_to_best:", round(float(np.linalg.norm(curr_q[7:9] - best_contact_world[:2])), 4),
                   "ball_to_p_arm:", round(float(np.linalg.norm(curr_q[7:10] - p_arm_world)), 6),
                   "ball_to_virtual:", round(float(np.linalg.norm(curr_q[7:10] - mpc_virtual_point)), 6),
                   "best_contact_world:", np.round(best_contact_world, 4).tolist(),
                   "selected_idx:", selected_idx,
                   "executed_idx:", executed_idx,
                   "global_idx:", global_idx,
+                  "topk:", np.asarray(getattr(param.lambda_optimizer, 'last_topk_ids', []), dtype=int).tolist(),
                   "selected_cost:", None if cached_cost is None else round(float(cached_cost), 6),
                   "global_cost:", None if global_cost is None else round(float(global_cost), 6),
                   "locked:", int(bool(param.lambda_optimizer.lock_contact_patch)),
@@ -1485,19 +1827,43 @@ def main(args=None):
                   else round(float(value_info['cost_thresh']), 6),
                   "pred_dcost:", None if pred_reduction is None else round(float(pred_reduction), 6),
                   "act_dcost:", None if act_reduction is None else round(float(act_reduction), 6),
+                  "best_delta:", None if getattr(param.lambda_optimizer, 'last_best_delta', None) is None
+                  else round(float(param.lambda_optimizer.last_best_delta), 6),
+                  "delta_lo:", round(float(getattr(param.lambda_optimizer, 'last_delta_lo', 0.0)), 6),
+                  "delta_hi:", round(float(getattr(param.lambda_optimizer, 'last_delta_hi', 0.0)), 6),
+                  "cost_lo:", round(float(getattr(param.lambda_optimizer, 'last_cost_lo', 0.0)), 6),
+                  "cost_hi:", round(float(getattr(param.lambda_optimizer, 'last_cost_hi', 0.0)), 6),
+                  "c_now:", round(float(getattr(param.lambda_optimizer, 'last_pose_cost_now', 0.0)), 6),
+                  "pred_dcost_n:", None if model_cost_conf.last_pred is None
+                  else round(float(model_cost_conf.last_pred), 4),
+                  "act_dcost_n:", None if model_cost_conf.last_act is None
+                  else round(float(model_cost_conf.last_act), 4),
                   "dwell:", int(getattr(param.lambda_optimizer, '_dwell_steps', 0)),
                   "dwell_idx:", getattr(param.lambda_optimizer, '_dwell_idx', None),
                   "occupied_idx:", None if not value_info else value_info.get('occupied_idx'),
                   "on_target:", None if not value_info else int(bool(value_info.get('on_target', True))),
                   "arrived:", None if not value_info else int(bool(value_info.get('arrived_at_best', False))),
+                  "fov:", None if not value_info else int(bool(value_info.get('approach_fov', False))),
+                  "cone:", None if not value_info else int(bool(value_info.get('approach_cone', False))),
                   "blocked:", len(getattr(param.lambda_optimizer, '_blocked_contact_indices', {})),
                   "escape:", int(bool(escape_on)),
+                  "via_phase:", None if not value_info else value_info.get('via_phase'),
+                  "path_blocked:", None if not value_info else int(bool(value_info.get('path_blocked', False))),
+                  "contact_is_via:", None if not value_info else int(bool(value_info.get('contact_is_via', False))),
+                  "press_z:", None if not value_info or value_info.get('press_z') is None
+                  else round(float(value_info['press_z']), 4),
+                  "opposite:", None if not value_info else int(bool(value_info.get('opposite_sides', False))),
                   "esc_rel:", int(bool(escape_released)),
                   "tip_z:", round(float(curr_q[9]), 4),
                   "virt_z:", round(float(mpc_virtual_point[2]), 4),
                   "exec_z:", round(float(p_arm_world[2]), 4),
                   "obj_z:", round(float(curr_q[2]), 4),
                   "lambda_backend:", getattr(param.lambda_optimizer, 'last_solver_status', 'unknown'),
+                  "best_curv:", _curv_of(global_idx),
+                  "exec_curv:", _curv_of(executed_idx),
+                  "sel_curv:", _curv_of(selected_idx),
+                  "high_curv:", int(bool(_curv_of(global_idx) is not None and
+                                        _curv_of(global_idx) > curv_lim)),
                   "if_contact:", int(if_contact))
             if use_ideal_contact_pose:
                 tip = np.asarray(curr_q[7:10], dtype=np.float64)
@@ -1650,11 +2016,29 @@ def main(args=None):
                         curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
                         param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef)
                     act_reduction = c_now_cost - c_after
-                    if on_exec_contact and last_accept_p_arm:
-                        if pred_reduction is None:
+                    opt = param.lambda_optimizer
+                    if _should_observe_model_cost(
+                            opt.has_delta_span(),
+                            getattr(opt, 'last_pose_cost_now', None)):
+                        pred_delta = pred_reduction
+                        if pred_delta is None or not np.isfinite(float(pred_delta)):
+                            pred_delta = getattr(opt, 'last_best_delta', None)
+                        if pred_delta is None or not np.isfinite(float(pred_delta)):
+                            finite = np.asarray(
+                                getattr(opt, 'last_candidate_deltas', []),
+                                dtype=np.float64).reshape(-1)
+                            finite = finite[np.isfinite(finite)]
+                            pred_delta = float(np.max(finite)) if finite.size else None
+                        if pred_delta is None:
                             model_cost_conf.observe_unusable_prediction()
                         else:
-                            model_cost_conf.observe(pred_reduction, act_reduction)
+                            # Same unit-range C(x_plus) map as ranking.
+                            pred_n = opt.normalize_cost_delta(pred_delta)
+                            act_n = opt.normalize_cost_delta(act_reduction)
+                            if pred_n is None or act_n is None:
+                                model_cost_conf.observe_unusable_prediction()
+                            else:
+                                model_cost_conf.observe(pred_n, act_n)
                 ideal_pose_applied = bool(
                     on_exec_contact and
                     act_reduction is not None and pred_reduction is not None and

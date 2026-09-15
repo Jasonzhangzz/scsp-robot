@@ -87,6 +87,11 @@ class ProjectionPoint:
         except Exception:
             stability = np.ones(len(self.vertices), dtype=np.float64)
         self.vertex_normal_stability = stability
+        # Mean neighbourhood agreement is enough to drop sharp tips.
+        # A worst-neighbour crease with a large k marks every vertex
+        # near a leg/ear dihedral, including the flat side faces that
+        # actually improve pose.  Those faces stay in the sample pool;
+        # junction rejection happens later on the sampled set.
         self.stable_vertex_mask = stability >= self.normal_stability_cos
         # Always retain a usable candidate set.  The fallback only matters for
         # unusually coarse meshes whose every vertex is classified as sharp.

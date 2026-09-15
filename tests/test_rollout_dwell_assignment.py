@@ -163,14 +163,15 @@ def test_rank_switch_still_charges_the_occupied_foot():
     assert not on_exec
 
 
-def test_verify_ignores_wrong_patch_contact():
-    tracker = ContactValueTracker(window_size=5, confirm_steps=1,
-                                  min_hold_steps=0, release_steps=2)
-    for _ in range(8):
-        value, _ = tracker.update_verify(
-            1.0, 0.08, physical_contact=True, on_target=False)
-        assert value == 0.0
-        assert not tracker.contact_active
+def test_verify_follows_tightness_even_off_target():
+    tracker = ContactValueTracker(beta=1.0, exit_threshold=0.2)
+    value, _ = tracker.update_verify(
+        1.0, 0.08, physical_contact=True, on_target=False, tightness=0.0)
+    assert value == 0.0
+    value, _ = tracker.update_verify(
+        1.0, 0.08, physical_contact=True, on_target=False, tightness=0.55)
+    assert value == 0.55
+    assert tracker.contact_active
 
 
 def test_dead_increment_ignores_sliding_pose_noise():

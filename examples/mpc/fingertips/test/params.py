@@ -333,6 +333,7 @@ class ExplicitMPCParams:
                                                 # severe pose teleportation.
                                                 time_step=self.lambda_h_,
                                                 sample_num=args.sample_num,
+                                                top_k=getattr(args, 'top_k', 2),
                                                 pos_coef=args.pos_coef,
                                                 ori_coef=args.ori_coef,
                                                 friction_reg_coef=getattr(args, 'friction_reg_coef', 0.0),
@@ -429,10 +430,16 @@ class ExplicitMPCParams:
             contact_point_cost = (cs.sumsqr(x[7:10] - contact_point)
                                   if getattr(self, 'quadratic_contact_track', False)
                                   else self.log_barrier_function(x, contact_point))
+            # Rollout press must track the selected patch, not the COM.
+            # ||tip-obj|| pulls the ball into the nearest body face (the
+            # elephant's back) and cancels a drop onto best_contact.
+            press_cost = contact_point_cost
+            if float(getattr(self, 'contact_cost_param', 0.0)) > 0.0 and not getattr(
+                    self, 'rollout_press_patch', False):
+                press_cost = (self.contact_cost_param * contact_cost
+                              + (1 - self.contact_cost_param) * contact_point_cost)
             base_cost = ((1 - verify_cost_param) * attract_cost
-                         + self.contact_coef * verify_cost_param
-                         * (self.contact_cost_param * contact_cost
-                            + (1 - self.contact_cost_param) * contact_point_cost))
+                         + self.contact_coef * verify_cost_param * press_cost)
             final_cost = 500 * position_cost + 5.0 * quaternion_cost * 4
             control_weight = 50.0
 

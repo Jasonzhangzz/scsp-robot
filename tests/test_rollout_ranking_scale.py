@@ -44,11 +44,12 @@ def test_same_patch_near_best_is_lazy_accepted():
     assert info['cost_ok']
 
 
-def test_same_patch_best_sample_is_accepted_without_near_arm():
+def test_far_best_sample_does_not_hold_and_kill_the_via():
     tracker = ContactValueTracker()
     info = tracker.update_values(0.10, 0.10, solver_ok=True, same_patch=True,
-                                 is_best_sample=True)
-    assert info['accept_p_arm']
+                                 is_best_sample=True, near_arm=False,
+                                 tightness=1.0)
+    assert not info['accept_p_arm']
 
 
 def test_same_patch_far_neighbour_is_not_a_lazy_hold():
@@ -56,17 +57,14 @@ def test_same_patch_far_neighbour_is_not_a_lazy_hold():
     info = tracker.update_values(0.10, 0.11, solver_ok=True, same_patch=True,
                                  near_arm=False, is_best_sample=False)
     assert not info['accept_p_arm']
-    assert info['cost_ok']
 
 
-def test_same_patch_much_worse_is_rejected():
+def test_same_patch_much_worse_cost_is_still_held_at_low_tightness():
     tracker = ContactValueTracker()
     info = tracker.update_values(0.10, 0.50, solver_ok=True,
                                  candidate_costs=[0.10, 0.28, 0.50],
-                                 same_patch=True, near_arm=True)
-    assert not info['accept_p_arm']
-    assert not info['cost_ok']
-    assert info['quality'] < 0.40
+                                 same_patch=True, near_arm=True, tightness=0.0)
+    assert info['accept_p_arm']
 
 
 def test_lazy_hold_survives_cost_noise():
@@ -74,31 +72,30 @@ def test_lazy_hold_survives_cost_noise():
     first = tracker.update_values(0.10, 0.11, solver_ok=True, same_patch=True,
                                   near_arm=True)
     assert first['accept_p_arm']
-    # 25% worse is above the 20% enter margin but inside the 40% release.
     held = tracker.update_values(0.10, 0.13, solver_ok=True, same_patch=True,
                                  near_arm=True)
     assert held['accept_p_arm']
 
 
-def test_stagnant_steps_tighten_p_arm_accept_margin():
+def test_tightness_releases_a_local_hold():
     tracker = ContactValueTracker()
     loose = tracker.update_values(0.10, 0.11, solver_ok=True, same_patch=True,
-                                  near_arm=True, stagnant_steps=0)
+                                  near_arm=True, tightness=0.0)
     assert loose['accept_p_arm']
     tight = ContactValueTracker().update_values(
         0.10, 0.11, solver_ok=True, same_patch=True, near_arm=True,
-        stagnant_steps=20, margin_gamma=0.8)
+        tightness=1.0)
     assert not tight['accept_p_arm']
-    assert tight['accept_scale'] < 0.05
+    assert tight['accept_scale'] == 0.0
 
 
 def test_decaying_confidence_abandons_p_arm():
     tracker = ContactValueTracker()
     first = tracker.update_values(0.10, 0.10, solver_ok=True, same_patch=True,
-                                  near_arm=True, confidence=1.0)
+                                  near_arm=True, tightness=0.0)
     assert first['accept_p_arm']
     abandoned = tracker.update_values(0.10, 0.10, solver_ok=True, same_patch=True,
-                                      near_arm=True, confidence=0.85)
+                                      near_arm=True, tightness=0.85)
     assert not abandoned['accept_p_arm']
     assert not tracker._holding_p_arm
 

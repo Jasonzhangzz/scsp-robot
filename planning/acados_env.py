@@ -58,14 +58,20 @@ def _repo_root_dir():
 def acados_root_candidates(repo_root=None):
     if repo_root is None:
         repo_root = _repo_root_dir()
+    home = str(Path.home())
     candidates = []
     acados_source_dir = os.environ.get("ACADOS_SOURCE_DIR")
     if acados_source_dir:
         candidates.append(os.path.abspath(acados_source_dir))
-    candidates.append(os.path.abspath(os.path.join(repo_root, "..", "thirdparty", "acados")))
-    candidates.append(os.path.abspath(os.path.join(repo_root, "..", "acados")))
-    candidates.append(os.path.abspath(os.path.join(repo_root, "thirdparty", "acados")))
-    candidates.append(os.path.abspath(DEFAULT_ACADOS_SOURCE_DIR))
+    candidates.extend((
+        os.path.abspath(os.path.join(repo_root, "..", "thirdparty", "acados")),
+        os.path.abspath(os.path.join(repo_root, "..", "acados")),
+        os.path.abspath(os.path.join(repo_root, "thirdparty", "acados")),
+        os.path.abspath(os.path.join(repo_root, "..", "zz_ws", "acados")),
+        os.path.abspath(os.path.join(home, "zz_ws", "acados")),
+        os.path.abspath(os.path.join(home, "acados")),
+        os.path.abspath(DEFAULT_ACADOS_SOURCE_DIR),
+    ))
 
     deduped = []
     for candidate in candidates:
@@ -78,7 +84,15 @@ def _is_acados_tree(acados_root):
     interface = os.path.join(
         acados_root, "interfaces", "acados_template", "acados_template", "__init__.py"
     )
-    return os.path.isfile(interface)
+    if not os.path.isfile(interface):
+        return False
+    lib_dir = os.path.join(acados_root, "lib")
+    has_lib = any(
+        os.path.isfile(os.path.join(lib_dir, name))
+        for name in ("libacados.so", "libacados.so.1", "libacados.dylib", "acados.dll")
+    )
+    has_link_libs = os.path.isfile(os.path.join(lib_dir, "link_libs.json"))
+    return has_lib and has_link_libs
 
 
 def _preload_acados_shared_libraries(acados_root):
@@ -118,10 +132,9 @@ def ensure_acados_env():
             chosen = acados_root
             break
     if chosen is None:
-        os.environ.setdefault("ACADOS_SOURCE_DIR", DEFAULT_ACADOS_SOURCE_DIR)
-        chosen = os.path.abspath(os.environ["ACADOS_SOURCE_DIR"])
+        chosen = os.path.abspath(os.environ.get("ACADOS_SOURCE_DIR") or DEFAULT_ACADOS_SOURCE_DIR)
 
-    os.environ.setdefault("ACADOS_SOURCE_DIR", chosen)
+    os.environ["ACADOS_SOURCE_DIR"] = chosen
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
     acados_lib_dir = os.path.join(chosen, "lib")
