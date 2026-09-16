@@ -501,17 +501,18 @@ def test_keepout_local_through_body_still_orbits():
     assert float(np.linalg.norm(target[:2] - obj[:2])) >= 0.09
 
 
-def test_wide_com_azimuth_keeps_the_orbit():
+def test_wide_com_azimuth_inside_keepout_may_drop():
+    """Same-side contacts already inside the keep-out are a slide, not an orbit."""
     obj = np.array([0.0, 0.0, 0.03])
     tip = np.array([0.05, 0.035, 0.05])
     press = np.array([0.05, -0.035, 0.05])
     keepout = 0.09
     assert not _on_opposite_sides(tip, obj, press)
-    assert float(np.linalg.norm(tip - press)) > 0.03
-    assert _press_path_blocked(tip, obj, press, keepout)
+    assert float(np.linalg.norm(tip[:2] - obj[:2])) <= keepout
+    assert not _press_path_blocked(tip, obj, press, keepout)
 
 
-def test_face_crossing_orbits_around_the_back():
+def test_orbit_helper_still_takes_the_long_way_around_the_back():
     obj = np.array([0.0, 0.0, 0.03])
     tip = np.array([0.06, 0.04, 0.04])
     press = np.array([0.06, -0.04, 0.04])
@@ -519,27 +520,21 @@ def test_face_crossing_orbits_around_the_back():
     nxt = _orbit_xy(tip[:2], obj[:2], press[:2], keepout)
     # Short arc would walk toward +x / the snout.  The long way goes +y.
     assert float(nxt[1]) > float(nxt[0])
-    desired, blocked = _press_approach_desired(
-        tip, obj, press, keepout, 0.08)
-    assert blocked
-    assert float(desired[1]) > float(desired[0])
-    assert float(desired[2]) == pytest.approx(0.08)
 
 
-def test_same_half_face_cheeks_stay_high_on_the_com_circle():
-    """Small COM azimuth is not "above dest" — stay on the circle, high."""
+def test_same_half_face_cheeks_may_drop():
+    """Small COM azimuth on the same face is a slide onto press."""
     obj = np.array([0.0, 0.0, 0.03])
     tip = np.array([0.05, 0.018, 0.04])
     press = np.array([0.05, -0.018, 0.04])
     keepout = 0.09
     assert not _on_opposite_sides(tip, obj, press)
-    assert float(np.linalg.norm(tip[:2] - press[:2])) > 0.03
-    assert _press_path_blocked(tip, obj, press, keepout)
+    assert float(np.linalg.norm(tip[:2] - obj[:2])) <= keepout
+    assert not _press_path_blocked(tip, obj, press, keepout)
     desired, blocked = _press_approach_desired(
         tip, obj, press, keepout, 0.098)
-    assert blocked
-    assert float(desired[2]) == pytest.approx(0.098)
-    assert float(np.linalg.norm(desired[:2] - obj[:2])) == pytest.approx(keepout)
+    assert not blocked
+    assert np.allclose(desired, press)
 
 
 def test_aligned_on_keepout_rim_drops_onto_press():
@@ -569,7 +564,8 @@ def test_aligned_inside_keepout_keeps_dropping():
     assert np.allclose(desired, press)
 
 
-def test_far_same_side_approach_stays_on_the_keepout():
+def test_far_same_side_radial_approach_may_drop():
+    """A radial inbound chord misses the COM ball; do not force an orbit."""
     obj = np.array([0.0, 0.0, 0.03])
     tip = np.array([0.18, 0.0, 0.05])
     press = np.array([0.06, 0.0, 0.04])
@@ -577,14 +573,14 @@ def test_far_same_side_approach_stays_on_the_keepout():
     assert float(np.linalg.norm(tip[:2] - obj[:2])) > keepout
     assert float(np.linalg.norm(tip[:2] - press[:2])) > 0.03
     assert not _on_opposite_sides(tip, obj, press)
-    assert _press_path_blocked(tip, obj, press, keepout)
+    assert not _press_path_blocked(tip, obj, press, keepout)
     via = SmoothedApproachVia(rate=1.0)
     _, target, phase = via.update(
         tip, obj, press, press + np.array([0.0, 0.0, 0.01]),
         0.08, keepout, False, press)
-    assert via.blocked
-    assert phase in ('lift', 'cross')
-    assert float(np.linalg.norm(target[:2] - obj[:2])) >= keepout - 1e-6
+    assert not via.blocked
+    assert phase == 'drop'
+    assert np.allclose(target, press)
 
 
 def test_far_inbound_chord_still_orbits():
@@ -602,3 +598,16 @@ def test_far_inbound_chord_still_orbits():
     assert via.blocked
     assert phase in ('lift', 'cross')
     assert float(target[2]) > float(press[2]) + 0.01
+
+
+def test_opposite_face_still_orbits():
+    obj = np.array([0.0, 0.0, 0.03])
+    tip = np.array([0.08, 0.0, 0.06])
+    press = np.array([-0.08, 0.0, 0.04])
+    keepout = 0.09
+    assert _on_opposite_sides(tip, obj, press)
+    assert _press_path_blocked(tip, obj, press, keepout)
+    desired, blocked = _press_approach_desired(
+        tip, obj, press, keepout, 0.098)
+    assert blocked
+    assert float(np.linalg.norm(desired[:2] - obj[:2])) == pytest.approx(keepout)

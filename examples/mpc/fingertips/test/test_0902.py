@@ -593,57 +593,55 @@ def _com_azimuth_span(tip, obj, press):
 
 
 def _press_path_blocked(tip, obj, press, keepout):
-    """True until the tip is above the dest, then the drop is free.
+    """True when the tip must orbit instead of pressing.
 
-    One orbit: the keep-out circle around the object COM.  Face points
-    on the same half-plane can have a small azimuth and still sit on
-    the mesh, so azimuth alone is not "above dest".  Stay on the
-    circle until XY is over press, or the tip has reached the dest
-    sector of the rim and can fall in from outside.
+    Opposite faces still go around.  A same-side hop already inside the
+    keep-out is a surface slide: that chord almost always nicks the COM
+    ball, so it is not an inbound through-mesh approach.  The core test
+    is only for a tip still outside the keep-out, where the chord really
+    is an approach.  Requiring XY-over-press before drop parked the ball
+    above lateral elephant patches that never sit under the COM.
     """
-    tip = np.asarray(tip, dtype=float).reshape(3)
-    obj = np.asarray(obj, dtype=float).reshape(3)
-    press = np.asarray(press, dtype=float).reshape(3)
-    if (float(np.linalg.norm(tip - press)) <= 0.03 or
-            float(np.linalg.norm(tip[:2] - press[:2])) <= 0.03):
-        return False
-    tip_r = float(np.linalg.norm(tip[:2] - obj[:2]))
-    keepout = float(keepout)
-    if tip_r > keepout + 0.012:
-        return True
     if _on_opposite_sides(tip, obj, press):
         return True
-    if _com_azimuth_span(tip, obj, press) <= np.deg2rad(30.0):
+    tip = np.asarray(tip, dtype=float).reshape(3)
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    if float(np.linalg.norm(tip[:2] - obj[:2])) <= float(keepout):
         return False
-    return True
+    radius = max(0.028, 0.45 * float(keepout))
+    return _segment_hits_core(tip, press, obj, radius=radius)
 
 
 def _press_approach_desired(tip, obj, press, keepout, top_z):
-    """Keep-out orbit at object-top height until XY is over dest.
+    """Keep-out orbit while blocked; press itself once the chord is free.
 
-    Stay on the COM circle and stay high.  Height mix from heading
-    dropped via into the face before the ball was above press.
+    ``desired`` always contains a component toward press.  Height is
+    ``(1-open)*top + open*press_z`` so via.z falls as the heading
+    lines up.  XY stays on the keep-out rim only while the chord
+    intersects the object.
     """
     tip = np.asarray(tip, dtype=float).reshape(3)
     obj = np.asarray(obj, dtype=float).reshape(3)
     press = np.asarray(press, dtype=float).reshape(3)
     top = float(top_z)
+    open_w = _heading_open_weight(tip, obj, press)
     blocked = _press_path_blocked(tip, obj, press, keepout)
     if not blocked:
         return press.copy(), False
     rim_xy = _goal_rim_xy(obj, press, keepout)
     desired = np.zeros(3, dtype=float)
     desired[:2] = _orbit_xy(tip[:2], obj[:2], rim_xy, keepout)
-    desired[2] = top
+    desired[2] = (1.0 - open_w) * top + open_w * float(press[2])
     return desired, True
 
 
 class SmoothedApproachVia:
     """Low-pass filter of a desired point that itself goes to press.
 
-    ``desired`` is the COM keep-out rim at object-top height until the
-    tip is XY-over press, then press itself.  The via never jumps;
-    MPC tracks this filtered point.  ``phase`` is a log label.
+    Opposite / through-COM approaches stay on the COM keep-out rim.
+    Same-side contacts already inside the keep-out drop onto press,
+    including lateral patches that are never XY-over the COM.  Lerp
+    keeps the emitted via a short lead ahead of the fingertip.
     """
 
     def __init__(self, rate=0.10, max_step=None, max_lead=None):
