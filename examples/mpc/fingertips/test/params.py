@@ -73,6 +73,8 @@ class ExplicitMPCParams:
         self.spline_escape_cost = bool(getattr(args, 'spline_escape_cost', 0))
         self.contact_coef = args.contact_coef
         self.reject_dis = args.reject_dis
+        self.pos_coef = float(getattr(args, 'pos_coef', 500.0))
+        self.ori_coef = float(getattr(args, 'ori_coef', 20.0))
         # --ideal_contact_pose replaces the verify_cost 0/1 switch with a
         # single C-inf detour: always attract to the selected patch, and
         # stay outside the object except in a cone around that patch.
@@ -440,7 +442,10 @@ class ExplicitMPCParams:
                               + (1 - self.contact_cost_param) * contact_point_cost)
             base_cost = ((1 - verify_cost_param) * attract_cost
                          + self.contact_coef * verify_cost_param * press_cost)
-            final_cost = 500 * position_cost + 5.0 * quaternion_cost * 4
+            # Lambda pose: pos_coef||Δp||² + ori_coef(1 − q·q*)². Path
+            # stays attract/press; verify_cost does not scale this term.
+            final_cost = (float(getattr(self, 'pos_coef', 500.0)) * position_cost
+                          + float(getattr(self, 'ori_coef', 20.0)) * quaternion_cost)
             control_weight = 50.0
 
         path_cost_fn = cs.Function('path_cost_fn', [x, u, cost_param], [base_cost + control_weight * control_cost])

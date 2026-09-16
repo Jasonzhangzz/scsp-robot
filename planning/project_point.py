@@ -8,7 +8,9 @@ import open3d as o3d
 class ProjectionPoint:
     def __init__(self, mesh_path, scale_factors=[1.0, 1.0, 1.0],
                  collision_hull=False, normal_stability_cos=0.90,
-                 normal_stability_k=16):
+                 normal_stability_k=16,
+                 max_vertex_curvature=0.25,
+                 max_vertex_mean_curvature=0.10):
         self.mesh_path = mesh_path
         self.scale_factors = scale_factors  # Default scaling factors
         # MuJoCo uses a convex collision representation for mesh geoms while
@@ -23,6 +25,12 @@ class ProjectionPoint:
         # vertices using the normal agreement in a small metric neighbourhood.
         self.normal_stability_cos = float(normal_stability_cos)
         self.normal_stability_k = max(4, int(normal_stability_k))
+        # Incident-face curvature of a mesh vertex.  0.5 is a 90° dihedral;
+        # face interiors sit near 0.  Sampling stays on the low-curvature
+        # subset so elephant trunk / bunny-ear hull tips never enter the
+        # contact set.
+        self.max_vertex_curvature = float(max_vertex_curvature)
+        self.max_vertex_mean_curvature = float(max_vertex_mean_curvature)
         self.source_mesh = None
         self.scaled_mesh = None
         self.kdtree = None
@@ -32,6 +40,9 @@ class ProjectionPoint:
         self.vertices = None
         self.vertex_to_face = None  # Maps vertex indices to face indices
         self.vertex_normal_stability = None
+        self.vertex_curvature = None
+        self.vertex_curvature_mean = None
+        self.vertex_angle_defect = None
         self.stable_vertex_mask = None
         self.stable_vertex_indices = None
         self.stable_kdtree = None
@@ -43,6 +54,65 @@ class ProjectionPoint:
 
     def set_scale_factors(self, scale_x, scale_y, scale_z):
         self.scale_factors = [scale_x, scale_y, scale_z]
+
+    @staticmethod
+    def _vertex_angle_defect(vertices, faces):
+        """Discrete Gaussian curvature: ``|2π − Σ incident face angles|``."""
+        vertices = np.asarray(vertices, dtype=np.float64)
+        faces = np.asarray(faces, dtype=np.int64)
+        angle_sum = np.zeros(len(vertices), dtype=np.float64)
+        v0 = vertices[faces[:, 0]]
+        v1 = vertices[faces[:, 1]]
+        v2 = vertices[faces[:, 2]]
+
+        def _corner_angle(apex, p, q):
+            a = p - apex
+            b = q - apex
+            denom = np.maximum(
+                np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1), 1e-12)
+            cos = np.clip(np.sum(a * b, axis=1) / denom, -1.0, 1.0)
+            return np.arccos(cos)
+
+        np.add.at(angle_sum, faces[:, 0], _corner_angle(v0, v1, v2))
+        np.add.at(angle_sum, faces[:, 1], _corner_angle(v1, v0, v2))
+        np.add.at(angle_sum, faces[:, 2], _corner_angle(v2, v0, v1))
+        return np.abs(2.0 * np.pi - angle_sum)
+
+    @staticmethod
+    def _incident_face_curvature(n_vertices, faces, face_normals):
+        """Per-vertex max/mean of ``0.5(1 − n_i·n_j)`` over incident faces.
+
+        Face interiors are ~0.  A 90° crease or a sharp tip is 0.5.
+        """
+        n_vertices = int(n_vertices)
+        faces = np.asarray(faces, dtype=np.int64)
+        fn = np.asarray(face_normals, dtype=np.float64)
+        fn = fn / np.maximum(np.linalg.norm(fn, axis=1, keepdims=True), 1e-12)
+        incident = [[] for _ in range(n_vertices)]
+        for fi, (a, b, c) in enumerate(faces):
+            incident[int(a)].append(fi)
+            incident[int(b)].append(fi)
+            incident[int(c)].append(fi)
+        max_c = np.zeros(n_vertices, dtype=np.float64)
+        mean_c = np.zeros(n_vertices, dtype=np.float64)
+        for vi, fis in enumerate(incident):
+            if len(fis) < 2:
+                continue
+            ns = fn[np.asarray(fis, dtype=np.int64)]
+            dots = np.clip(ns @ ns.T, -1.0, 1.0)
+            dis = 0.5 * (1.0 - dots[np.triu_indices(len(fis), k=1)])
+            if dis.size:
+                max_c[vi] = float(np.max(dis))
+                mean_c[vi] = float(np.mean(dis))
+        return max_c, mean_c
+
+    def _high_vertex_curvature_mask(self):
+        """True on corners / creases, False on flat face interiors."""
+        max_c = np.asarray(self.vertex_curvature, dtype=np.float64).reshape(-1)
+        mean_c = np.asarray(self.vertex_curvature_mean, dtype=np.float64).reshape(-1)
+        return (
+            (max_c > float(self.max_vertex_curvature))
+            & (mean_c > float(self.max_vertex_mean_curvature)))
 
     def load_and_scale_mesh(self):
         """Load and scale the mesh, and compute vertex-to-face mapping."""
@@ -87,18 +157,27 @@ class ProjectionPoint:
         except Exception:
             stability = np.ones(len(self.vertices), dtype=np.float64)
         self.vertex_normal_stability = stability
-        # Mean neighbourhood agreement is enough to drop sharp tips.
-        # A worst-neighbour crease with a large k marks every vertex
-        # near a leg/ear dihedral, including the flat side faces that
-        # actually improve pose.  Those faces stay in the sample pool;
-        # junction rejection happens later on the sampled set.
-        self.stable_vertex_mask = stability >= self.normal_stability_cos
-        # Always retain a usable candidate set.  The fallback only matters for
-        # unusually coarse meshes whose every vertex is classified as sharp.
-        if int(np.count_nonzero(self.stable_vertex_mask)) < max(8, min(32, len(self.vertices))):
-            keep = np.argsort(stability)[-max(8, min(32, len(self.vertices))):]
+        self.vertex_angle_defect = self._vertex_angle_defect(
+            self.vertices, self.faces)
+        self.vertex_curvature, self.vertex_curvature_mean = (
+            self._incident_face_curvature(
+                len(self.vertices), self.faces, self.face_normals))
+        # Mean neighbourhood agreement drops rounded tips whose incident
+        # faces are still locally consistent.  Incident-face curvature
+        # drops creases and hull corners so sampling never starts
+        # there.  Flat face interiors next to a crease stay eligible:
+        # they have high max with one neighbour face but a low mean.
+        high_curv = self._high_vertex_curvature_mask()
+        self.stable_vertex_mask = (
+            (stability >= self.normal_stability_cos) & ~high_curv)
+        # Always retain a usable candidate set.  Prefer the flattest
+        # remaining vertices, not the sharpest leftover tips.
+        min_keep = max(8, min(32, len(self.vertices)))
+        if int(np.count_nonzero(self.stable_vertex_mask)) < min_keep:
+            order = np.lexsort((-stability, self.vertex_curvature_mean,
+                                self.vertex_curvature))
             self.stable_vertex_mask[:] = False
-            self.stable_vertex_mask[keep] = True
+            self.stable_vertex_mask[order[:min_keep]] = True
         self.stable_vertex_indices = np.flatnonzero(self.stable_vertex_mask)
         self.stable_kdtree = cKDTree(self.vertices[self.stable_vertex_indices])
 
@@ -227,8 +306,8 @@ class ProjectionPoint:
             self.load_and_scale_mesh()
         
         vertices = self.vertices
-        # Sample only geometrically stable vertices.  The optimizer's contact
-        # set therefore excludes tail/ear/trunk tips with unreliable normals.
+        # Sample only low-curvature, geometrically stable vertices.  Tips
+        # and sharp creases stay out of the contact set.
         if self.stable_vertex_indices is not None and len(self.stable_vertex_indices):
             candidate_indices = self.stable_vertex_indices
         else:
@@ -245,7 +324,9 @@ class ProjectionPoint:
             # preserve the requested array shape.
             if num_samples > len(out) and len(out) < len(vertices):
                 rest = np.flatnonzero(~self.stable_vertex_mask)
-                rest = rest[np.argsort(self.vertex_normal_stability[rest])[::-1]]
+                curv = (self.vertex_curvature if self.vertex_curvature is not None
+                        else -self.vertex_normal_stability)
+                rest = rest[np.argsort(np.asarray(curv)[rest], kind='stable')]
                 out = np.concatenate([out, rest[:num_samples - len(out)]])
             return out if return_indices else vertices[out]
         

@@ -611,3 +611,44 @@ def test_opposite_face_still_orbits():
         tip, obj, press, keepout, 0.098)
     assert blocked
     assert float(np.linalg.norm(desired[:2] - obj[:2])) == pytest.approx(keepout)
+
+
+def test_mpc_terminal_pose_matches_lambda_weights():
+    from examples.mpc.fingertips.test.params import ExplicitMPCParams
+
+    param = ExplicitMPCParams.__new__(ExplicitMPCParams)
+    param.n_qpos_ = 10
+    param.n_cmd_ = 3
+    param.max_ncon_ = 1
+    param.n_qvel_ = 9
+    param.attract_coef = 20.0
+    param.reject_coef = 0.0
+    param.reject_dis = 0.02
+    param.contact_coef = 20.0
+    param.contact_cost_param = 0.0
+    param.spline_escape_cost = True
+    param.field_cost_weight = 0.0
+    param.quadratic_contact_track = True
+    param.rollout_press_patch = True
+    param.pos_coef = 500.0
+    param.ori_coef = 20.0
+    param.smooth_contact_detour = False
+    path_fn, final_fn = param.init_cost_fns()
+    x = np.zeros(10)
+    x[3] = 1.0
+    n_phi = 4
+    n_jac = 4 * 9
+    p_off = np.concatenate([
+        [0.10, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+        np.zeros(n_phi), np.zeros(n_jac), [1.0],
+        np.zeros(3), np.zeros(3),
+    ])
+    p_on = p_off.copy()
+    p_on[:3] = 0.0
+    # Path must stay attract/press only; object pose lives on the terminal.
+    u = np.zeros(3)
+    assert float(np.asarray(path_fn(x, u, p_off)).reshape(())) == pytest.approx(
+        float(np.asarray(path_fn(x, u, p_on)).reshape(())))
+    terminal = float(np.asarray(final_fn(x, p_off)).reshape(()))
+    assert terminal == pytest.approx(10.0 * _lambda_pose_cost(
+        x[:3], x[3:7], [0.10, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], 500.0, 20.0))

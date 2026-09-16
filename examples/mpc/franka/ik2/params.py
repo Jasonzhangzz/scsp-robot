@@ -2,6 +2,7 @@ import casadi as cs
 import numpy as np
 import trimesh
 
+from examples.mpc.fingertips.test.params import _mujoco_collision_mesh
 from utils import rotations
 from planning.attract_function import compute_scalar_potential_and_gradient
 from planning.mlqp_point import LambdaContactControlOptimizer
@@ -12,7 +13,7 @@ def build_lambda_optimizer(param, args):
     extracted = bool(getattr(param, "_collision_mesh_extracted", False))
     return LambdaContactControlOptimizer(
         mesh_path=param.mesh_path_,
-        obj_mass=param.obj_mass_,
+        obj_mass=float(getattr(param, "lambda_obj_mass_", 0.01)),
         arm_friction=param.mu_object_,
         contact_stiffness=param.model_params,
         time_step=getattr(param, "lambda_h_", 0.05),
@@ -33,7 +34,6 @@ def build_lambda_optimizer(param, args):
         obj_inertia=None,
         wrench_is_force=False,
         collision_hull=(bool(getattr(param, "collision_hull", True)) and not extracted),
-        scale_factors=[1.0] * 3,
     )
 
 
@@ -47,6 +47,8 @@ class ExplicitMPCParams:
         self.spline_escape_cost = bool(getattr(args, "spline_escape_cost", 0))
         self.contact_coef = args.contact_coef
         self.reject_dis = args.reject_dis
+        self.pos_coef = float(getattr(args, "pos_coef", 500.0))
+        self.ori_coef = float(getattr(args, "ori_coef", 20.0))
         self.smooth_contact_detour = bool(getattr(args, "ideal_contact_pose", False))
         self.detour_attract_coef = float(getattr(args, "detour_attract_coef", 80.0))
         self.detour_repel_coef = float(getattr(args, "detour_repel_coef", 40.0))
@@ -63,6 +65,10 @@ class ExplicitMPCParams:
         requested_hull = getattr(args, "collision_hull", None)
         self.collision_hull = True if requested_hull is None else bool(requested_hull)
         self._collision_mesh_extracted = False
+        if self.collision_hull:
+            source_mesh = self.mesh_path_
+            self.mesh_path_ = _mujoco_collision_mesh(source_mesh, self.model_path_)
+            self._collision_mesh_extracted = self.mesh_path_ != source_mesh
         try:
             bounds = np.asarray(trimesh.load_mesh(self.mesh_path_, process=False).bounds, dtype=np.float64)
             self.object_aabb_lo = bounds[0].copy()
@@ -130,6 +136,9 @@ class ExplicitMPCParams:
         self.Q = Q
 
         self.obj_mass_ = 0.1
+        # Ranking mass matches fingertips --rollout (0.01).  Isaac / DyWA
+        # may overwrite obj_mass_ for physics; lambda keeps this value.
+        self.lambda_obj_mass_ = 0.01
         self.gravity_ = np.array([0.00, 0.00, -9.8, 0.0, 0.0, 0.0])
         self.model_params = args.model_param
 
@@ -224,7 +233,11 @@ class ExplicitMPCParams:
                     + (1 - self.contact_cost_param) * contact_point_cost
                 )
             base_cost = (1 - verify_cost_param) * attract_cost + self.contact_coef * verify_cost_param * press_cost
-            final_cost = 500 * position_cost + 5.0 * quaternion_cost * 4
+            # Lambda pose: pos_coef||Δp||² + ori_coef(1 − q·q*)².
+            final_cost = (
+                float(getattr(self, "pos_coef", 500.0)) * position_cost
+                + float(getattr(self, "ori_coef", 20.0)) * quaternion_cost
+            )
             control_weight = 50.0
 
         path_cost_fn = cs.Function("path_cost_fn", [x, u, cost_param], [base_cost + control_weight * control_cost])

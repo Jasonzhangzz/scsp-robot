@@ -1240,6 +1240,298 @@ class ContactValueTracker:
         return float(self.verify), float(q_dist)
 
 
+def compute_rollout_contact_via(
+    param,
+    args,
+    curr_q,
+    r_obj_to_world,
+    gravity,
+    jac_mat_env,
+    fingertip_radius,
+    value_tracker,
+    model_cost_conf,
+    approach_via,
+    arrived_hold,
+    arrived_dest_idx,
+    floor_ground=0.012,
+):
+    """--rollout contact ranking, verify/confidence, and MPC via.
+
+    Shared by the Franka Isaac script so lambda / verify / confidence / via
+    stay one policy with ``test_0902.py --rollout``.  ``floor_ground`` is
+    the table-plane z used by the floor-slide gate (0.012 in MuJoCo,
+    table height plus that margin in Isaac).
+    """
+    current_tip_local = r_obj_to_world.T @ (curr_q[7:10] - curr_q[:3])
+    target_quat_local = rotations.quaternion_multiply(
+        rotations.quaternion_conjugate(curr_q[3:7]), param.target_q_)
+    target_pose_eval = np.hstack(
+        [r_obj_to_world.T @ (param.target_p_ - curr_q[:3]), target_quat_local])
+    current_pose_eval = np.array([0., 0., 0., 1., 0., 0., 0.])
+
+    param.lambda_optimizer.update_Jacobian(jac_mat_env)
+    visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
+        curr_q[0:3], r_obj_to_world, param.target_p_, args.ground_height_threshold,
+        viewpoint_local=None, heading_filter=False)
+    visible_point_idx = param.lambda_optimizer.filter_rankable_indices(
+        visible_point_idx)
+
+    last_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
+    last_exec_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+    blocked = getattr(param.lambda_optimizer, '_blocked_contact_indices', {})
+    visible_point_idx = np.asarray(visible_point_idx, dtype=np.int32)
+    incumbents = [int(idx) for idx in (last_idx, last_exec_idx) if idx is not None]
+    param.lambda_optimizer.lock_contact_patch = bool(
+        value_tracker.contact_active and
+        value_tracker._holding_p_arm and
+        param.lambda_optimizer.contact_switch_confidence >= (1.0 - 1e-9) and
+        any(idx in visible_point_idx and idx not in blocked for idx in incumbents))
+
+    start_time = time.time()
+    rank_anchor_local = None
+    last_global = getattr(param.lambda_optimizer, 'last_global_idx', None)
+    if last_idx is not None:
+        last_best_world = _sample_world(
+            param.lambda_optimizer, last_idx, curr_q[:3], r_obj_to_world)
+        near_selected = float(np.linalg.norm(
+            curr_q[7:10] - last_best_world)) <= float(
+                param.lambda_optimizer.contact_switch_radius)
+        same_as_global = (last_global is None or _same_contact_patch(
+            param.lambda_optimizer, last_idx, last_global, radius=0.03))
+        if near_selected and same_as_global:
+            rank_anchor_local = current_tip_local
+    best_contact_point, normal, min_error, max_error, _ = param.lambda_optimizer.choose_contact_points(
+        target_pose_eval,
+        current_pose_eval,
+        gravity,
+        visible_point_idx,
+        contact_anchor_local=rank_anchor_local,
+        v_last=None,
+        force_required=True,
+    )
+    cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
+    cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
+    cached_cost = getattr(param.lambda_optimizer, 'last_best_cost', None)
+    global_cost = getattr(param.lambda_optimizer, 'last_global_total_cost', None)
+    candidate_costs = getattr(param.lambda_optimizer, 'last_candidate_costs', None)
+    reference_candidates = [global_cost, min_error]
+    reference_candidates.extend(np.asarray(
+        candidate_costs if candidate_costs is not None else [],
+        dtype=np.float64).reshape(-1).tolist())
+    reference_candidates = [float(v) for v in reference_candidates
+                            if v is not None and np.isfinite(float(v))]
+    reference_error = min(reference_candidates) if reference_candidates else None
+    choose_dt = time.time() - start_time
+
+    guide_idx = param.lambda_optimizer.choose_nearby_topk_idx(current_tip_local)
+    if guide_idx is None:
+        guide_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
+    if guide_idx is not None:
+        guide_idx = int(guide_idx)
+        best_contact_point = param.lambda_optimizer.sample_point[guide_idx]
+        normal = param.lambda_optimizer.normal[guide_idx]
+        cached_x_plus, cached_force, cached_cost = _candidate_solution(
+            param.lambda_optimizer, guide_idx)
+        if cached_x_plus is not None:
+            param.lambda_optimizer.last_best_x_plus = cached_x_plus
+        if cached_force is not None:
+            param.lambda_optimizer.last_best_force = cached_force
+        if cached_cost is not None:
+            param.lambda_optimizer.last_best_cost = cached_cost
+
+    best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
+        curr_q[:3], r_obj_to_world, best_contact_point, normal,
+        fingertip_radius, args.ideal_contact_surface_margin)
+    p_arm_local, p_arm_normal_out, x_plus_opt, error, info = param.lambda_optimizer.resolve_executed_contact(
+        current_tip_local, visible_point_idx,
+        target_pose_eval, current_pose_eval, gravity,
+        v_last=None,
+        sphere_radius=max(1e-4, float(fingertip_radius) +
+                          float(args.ideal_contact_surface_margin)))
+    p_arm_surface_world = r_obj_to_world @ p_arm_local + curr_q[:3]
+    p_arm_inward_local = -np.asarray(p_arm_normal_out, dtype=np.float64)
+    p_arm_inward_world = r_obj_to_world @ p_arm_inward_local
+    p_arm_inward_world /= max(float(np.linalg.norm(p_arm_inward_world)), 1e-9)
+    p_arm_track_world = p_arm_surface_world - max(
+        1e-4, float(fingertip_radius) + float(args.ideal_contact_surface_margin)
+    ) * p_arm_inward_world
+    p_arm_world = p_arm_track_world
+
+    p_arm_force = np.asarray(info.get('control_input', np.zeros(3)), dtype=np.float64).reshape(-1)
+    solver_ok = (
+        not bool(info.get('solver_failed', False)) and
+        np.isfinite(float(error)) and
+        p_arm_force.size >= 3 and np.isfinite(p_arm_force[:3]).all() and
+        float(np.linalg.norm(p_arm_force[:3])) > 1e-3
+    )
+    p_arm_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+    best_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
+    if best_idx is None:
+        best_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
+    occupied_idx = _nearest_sample_idx(param.lambda_optimizer, current_tip_local)
+    arrived_at_best = _arrived_at_best_contact(
+        curr_q[7:10], best_contact_world, best_contact_track_world,
+        occupied_idx, best_idx, param.lambda_optimizer)
+    dist_best_now = min(
+        float(np.linalg.norm(curr_q[7:10] - best_contact_world)),
+        float(np.linalg.norm(curr_q[7:10] - best_contact_track_world)))
+    if arrived_at_best:
+        arrived_hold = True
+        if arrived_dest_idx is None and best_idx is not None:
+            arrived_dest_idx = int(best_idx)
+    elif arrived_hold and dist_best_now > 0.035:
+        arrived_hold = False
+        arrived_dest_idx = None
+    arrived_at_best = bool(arrived_at_best or arrived_hold)
+    if (_on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world) or
+            _floor_slide_away_from_patch(
+                curr_q[7:10], best_contact_world, ground=floor_ground)):
+        arrived_at_best = False
+        arrived_hold = False
+        arrived_dest_idx = None
+    if arrived_at_best and best_idx is not None:
+        param.lambda_optimizer.last_executed_idx = int(best_idx)
+        param.lambda_optimizer.last_executed_x_plus = cached_x_plus
+        param.lambda_optimizer.last_executed_cost = cached_cost
+        param.lambda_optimizer.last_executed_force = cached_force
+        p_arm_idx = int(best_idx)
+        p_arm_world = best_contact_track_world
+        p_arm_track_world = best_contact_track_world
+        p_arm_surface_world = best_contact_world
+        x_plus_opt = cached_x_plus
+        error = float(cached_cost) if cached_cost is not None else float(min_error)
+        info = {
+            'control_input': cached_force if cached_force is not None else np.zeros(3),
+            'solver_failed': cached_x_plus is None,
+        }
+    same_patch = _same_contact_patch(
+        param.lambda_optimizer, p_arm_idx, best_idx, radius=0.03)
+    if arrived_at_best:
+        same_patch = True
+    dist_arm = float(np.linalg.norm(curr_q[7:10] - p_arm_world))
+    near_arm = dist_arm <= float(param.lambda_optimizer.contact_switch_radius)
+    is_best_sample = (best_idx is not None and p_arm_idx is not None and
+                      int(best_idx) == int(p_arm_idx))
+    if arrived_at_best:
+        is_best_sample = True
+    value_tracker.reset_arm(p_arm_idx)
+    model_cost_conf.note_sample(
+        param.lambda_optimizer, best_idx if best_idx is not None else p_arm_idx)
+    model_tightness = model_cost_conf.tightness()
+    value_info = value_tracker.update_values(
+        reference_error, error, solver_ok=solver_ok,
+        candidate_costs=candidate_costs, same_patch=same_patch,
+        near_arm=near_arm, is_best_sample=is_best_sample,
+        confidence=param.lambda_optimizer.contact_switch_confidence,
+        stagnant_steps=getattr(param.lambda_optimizer, '_dwell_steps', 0),
+        min_error=min_error, max_error=max_error, tightness=model_tightness)
+    if not value_info['accept_p_arm']:
+        p_arm_world = best_contact_track_world
+        p_arm_track_world = best_contact_track_world
+        p_arm_surface_world = best_contact_world
+        x_plus_opt = cached_x_plus
+        error = float(cached_cost) if cached_cost is not None else float(min_error)
+        info = {
+            'control_input': cached_force if cached_force is not None else np.zeros(3),
+            'solver_failed': cached_x_plus is None,
+        }
+        exec_quality = 1.0
+    else:
+        exec_quality = 1.0
+    dist_surface = float(np.linalg.norm(curr_q[7:10] - best_contact_world))
+    dist_track = float(np.linalg.norm(curr_q[7:10] - best_contact_track_world))
+    dist_to_exec = float(np.linalg.norm(curr_q[7:10] - p_arm_world))
+    align_info = _line_in_best_fov_and_cone(
+        curr_q[7:10], p_arm_world, p_arm_surface_world, best_normal_world,
+        mu=float(getattr(param.lambda_optimizer, 'mu_arm_obj', 0.9)))
+    near_patch = _patch_proximity(dist_surface, dist_track, dist_to_exec) <= 0.03
+    if (align_info['ok'] and near_patch and
+            not _on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world) and
+            not _floor_slide_away_from_patch(
+                curr_q[7:10], best_contact_world, ground=floor_ground)):
+        arrived_at_best = True
+    dist_to_exec = _verify_distance(
+        dist_to_exec, dist_surface, dist_track, arrived=arrived_at_best)
+    on_verify_target = bool(
+        arrived_at_best or dist_to_exec <= 0.03
+        or (align_info['ok'] and near_patch))
+    verify_now, q_dist = value_tracker.update_verify(
+        dist_exec=dist_to_exec, tightness=model_tightness)
+    value_info['occupied_idx'] = occupied_idx
+    value_info['on_target'] = on_verify_target
+    value_info['arrived_at_best'] = bool(arrived_at_best)
+    value_info['approach_fov'] = bool(align_info['fov'])
+    value_info['approach_cone'] = bool(align_info['cone'])
+    value_info['approach_in_plane'] = float(align_info.get('in_plane', np.inf))
+    value_info['approach_height'] = float(align_info.get('height', 0.0))
+    value_info['verify'] = verify_now
+    value_info['q_dist'] = q_dist
+    value_info['exec_quality'] = exec_quality
+    value_info['same_patch'] = bool(same_patch)
+    value_info['window_mean'] = (
+        float(np.mean(value_tracker._target_window))
+        if value_tracker._target_window else 0.0)
+    value_info['contact_active'] = bool(value_tracker.contact_active)
+
+    verify_cost = _rollout_verify_cost(value_info.get('verify', 0.0))
+    exec_press = _patch_press_point(p_arm_track_world, p_arm_surface_world)
+    mpc_virtual_point = exec_press
+    mpc_contact_point = p_arm_surface_world
+    opposite = _on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world)
+    floor_slide = _floor_slide_away_from_patch(
+        curr_q[7:10], best_contact_world, ground=floor_ground)
+    top_z = _object_top_z_world(
+        curr_q[:3], r_obj_to_world,
+        getattr(param, 'object_aabb_lo', (-0.06, -0.04, -0.04)),
+        getattr(param, 'object_aabb_hi', (0.06, 0.04, 0.06)))
+    keepout = _keepout_radius(
+        getattr(param, 'object_aabb_lo', (-0.06, -0.04, -0.04)),
+        getattr(param, 'object_aabb_hi', (0.06, 0.04, 0.06)),
+        getattr(param, 'object_circumradius', None))
+    use_via, via_pos, via_phase = approach_via.update(
+        curr_q[7:10], curr_q[:3], p_arm_surface_world, p_arm_track_world,
+        top_z, keepout, bool(value_info.get('arrived_at_best', False)), exec_press)
+    travel, escape_on = _blend_travel_to_press(
+        via_pos, exec_press, model_cost_conf.tightness(), use_via,
+        via_phase=via_phase, opposite=opposite)
+    mpc_virtual_point = travel
+    path_blocked = bool(getattr(approach_via, 'blocked', opposite))
+    mpc_contact_point = travel if path_blocked else exec_press
+    holding = (not path_blocked and not floor_slide and
+               bool(value_info.get('accept_p_arm', False)))
+    value_info['via_phase'] = 'hold' if holding else via_phase
+    value_info['opposite_sides'] = bool(opposite)
+    value_info['path_blocked'] = bool(path_blocked)
+    value_info['press_z'] = float(exec_press[2])
+    value_info['contact_is_via'] = bool(
+        np.allclose(mpc_contact_point, mpc_virtual_point))
+
+    return {
+        'verify_cost': float(verify_cost),
+        'mpc_virtual_point': np.asarray(mpc_virtual_point, dtype=float).reshape(3),
+        'mpc_contact_point': np.asarray(mpc_contact_point, dtype=float).reshape(3),
+        'p_arm_world': np.asarray(p_arm_world, dtype=float).reshape(3),
+        'p_arm_track_world': np.asarray(p_arm_track_world, dtype=float).reshape(3),
+        'p_arm_surface_world': np.asarray(p_arm_surface_world, dtype=float).reshape(3),
+        'best_contact_world': np.asarray(best_contact_world, dtype=float).reshape(3),
+        'best_contact_track_world': np.asarray(best_contact_track_world, dtype=float).reshape(3),
+        'x_plus_opt': x_plus_opt,
+        'error': error,
+        'info': info,
+        'value_info': value_info,
+        'min_error': min_error,
+        'max_error': max_error,
+        'cached_cost': cached_cost,
+        'cached_x_plus': cached_x_plus,
+        'cached_force': cached_force,
+        'choose_dt': choose_dt,
+        'escape_on': bool(escape_on),
+        'arrived_hold': bool(arrived_hold),
+        'arrived_dest_idx': arrived_dest_idx,
+        'arrived_at_best': bool(arrived_at_best),
+    }
+
+
 def main(args=None):
     if args is None:
         args = build_parser().parse_args()
