@@ -1960,7 +1960,7 @@ class LambdaContactControlOptimizer:
     
     def get_availble_point_idx(self, pos, R, target_pos, threshold=0.025,
                                viewpoint_local=None, viewpoint_cos=-0.50,
-                               heading_filter=True):
+                               heading_filter=True, floor_z=0.0):
         """Return sampled contacts whose fingertip target clears the floor.
 
         ``self.normal`` points into the object.  The fingertip centre is
@@ -1977,7 +1977,7 @@ class LambdaContactControlOptimizer:
         # facing underside therefore gets rejected near the floor, while an
         # upward/side-facing point at a similarly low height remains usable
         # during a flip.
-        floor_z = 0.0
+        floor_z = float(floor_z)
         # Even with a zero CLI threshold, the sphere centre must remain at
         # least one clearance above the plane.  The default threshold adds a
         # small extra safety margin without imposing a large global height

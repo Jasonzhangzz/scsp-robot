@@ -422,3 +422,28 @@ def test_available_points_drop_a_downward_sole_near_the_floor():
     assert 0 not in idx
     assert 1 in idx
     assert 2 in idx
+
+
+def test_available_points_use_floor_z_for_a_raised_table():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.sample_point = np.array([
+        [0.00, 0.00, -0.02],
+        [0.00, 0.00, 0.04],
+        [0.05, 0.00, 0.00],
+    ], dtype=np.float64)
+    opt.normal = np.array([
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, -1.0],
+        [-1.0, 0.0, 0.0],
+    ], dtype=np.float64)
+    opt.fingertip_clearance = 0.011
+    pos = np.array([0.0, 0.0, 0.38])
+    target = np.array([0.10, 0.0, 0.38])
+    # Default floor_z=0 leaves the sole in (world z=0.36 > 0.045).
+    idx0 = set(int(i) for i in opt.get_availble_point_idx(
+        pos, np.eye(3), target, 0.012, heading_filter=False, floor_z=0.0))
+    assert 0 in idx0
+    idx = set(int(i) for i in opt.get_availble_point_idx(
+        pos, np.eye(3), target, 0.012, heading_filter=False, floor_z=0.35))
+    assert 0 not in idx
+    assert 1 in idx

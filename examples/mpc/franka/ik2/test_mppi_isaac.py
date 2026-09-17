@@ -1,13 +1,21 @@
 import argparse
 import os
+import re
+import shutil
 import sys
-import time
 import xml.etree.ElementTree as ET
 
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from isaacgym import gymapi, gymtorch
+if __name__ == "__main__" and "--sync-planner" not in sys.argv:
+    os.environ.setdefault("SCSP_PLANNER_ONLY", "1")
+
+if os.environ.get("SCSP_PLANNER_ONLY") == "1":
+    gymapi = None
+    gymtorch = None
+else:
+    from isaacgym import gymapi, gymtorch
 
 DEFAULT_CARTESIAN_STIFFNESS = np.array([500.0, 500.0, 500.0, 50.0, 50.0, 50.0], dtype=np.float32)
 POSE_AXIS_LENGTH = 0.08
@@ -37,16 +45,29 @@ if loaded_examples and not os.path.abspath(loaded_examples_file).startswith(pare
             del sys.modules[module_name]
 
 from examples.mpc.franka.ik2.params import ExplicitMPCParams
-from planning.MPPIExplicit import (
-    MPPIExplicit,
-    _franka_fk_T_jax,
-    _franka_jacobian_pos_jax,
-    _tangent_basis_from_normal,
-    _contact_jacobian,
+from examples.mpc.fingertips.test.test_0902 import (
+    add_rollout_via_args,
+    _lambda_pose_cost,
+    _predicted_object_pose,
+    _x_plus_is_usable,
 )
-from planning.mpc_implicit import MPCImplicit
-from planning.mlqp_point_v1_ip import LambdaContactControlOptimizer
-from utils import metrics, rotations
+from planning.MPPIExplicit import _contact_jacobian, _franka_fk_T_jax, _tangent_basis_from_normal
+from utils import metrics
+
+
+DYWA_SIM_DT = 0.0125
+DYWA_SIM_SUBSTEPS = 1
+DYWA_PHYSX_SOLVER_TYPE = 1
+DYWA_PHYSX_POSITION_ITERATIONS = 8
+DYWA_PHYSX_VELOCITY_ITERATIONS = 1
+DYWA_PHYSX_CONTACT_OFFSET = 0.001
+DYWA_PHYSX_REST_OFFSET = 0.0
+DYWA_PHYSX_FRICTION_OFFSET_THRESHOLD = 0.001
+DYWA_PHYSX_FRICTION_CORRELATION_DISTANCE = 0.0005
+DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY = 10.0
+DYWA_TABLE_FRICTION_RANGE = (0.3, 0.8)
+DYWA_OBJECT_FRICTION_RANGE = (0.2, 1.0)
+DYWA_OBJECT_MASS_RANGE = (0.1, 0.5)
 
 
 def _extract_vec3(v) -> np.ndarray:
@@ -80,6 +101,47 @@ def _parse_bool_arg(value):
     raise argparse.ArgumentTypeError(f"Expected true or false, got: {value}")
 
 
+def _set_actor_friction(gym, env, actor_handle, friction):
+    shape_props = gym.get_actor_rigid_shape_properties(env, actor_handle)
+    for prop in shape_props:
+        prop.friction = float(friction)
+        prop.torsion_friction = float(friction)
+        prop.rolling_friction = float(friction)
+    gym.set_actor_rigid_shape_properties(env, actor_handle, shape_props)
+
+
+def _set_actor_mass(gym, env, actor_handle, mass):
+    body_props = gym.get_actor_rigid_body_properties(env, actor_handle)
+    for prop in body_props:
+        prop.mass = float(mass)
+    gym.set_actor_rigid_body_properties(env, actor_handle, body_props, True)
+
+
+def _apply_dywa_physics_to_param(param):
+    param.sim_dt_ = DYWA_SIM_DT
+    param.sim_substeps_ = DYWA_SIM_SUBSTEPS
+    param.physx_solver_type_ = DYWA_PHYSX_SOLVER_TYPE
+    param.physx_position_iterations_ = DYWA_PHYSX_POSITION_ITERATIONS
+    param.physx_velocity_iterations_ = DYWA_PHYSX_VELOCITY_ITERATIONS
+    param.physx_contact_offset_ = DYWA_PHYSX_CONTACT_OFFSET
+    param.physx_rest_offset_ = DYWA_PHYSX_REST_OFFSET
+    param.physx_friction_offset_threshold_ = DYWA_PHYSX_FRICTION_OFFSET_THRESHOLD
+    param.physx_friction_correlation_distance_ = DYWA_PHYSX_FRICTION_CORRELATION_DISTANCE
+    param.physx_max_depenetration_velocity_ = DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY
+    param.table_friction_ = float(np.random.uniform(*DYWA_TABLE_FRICTION_RANGE))
+    param.object_friction_ = float(np.random.uniform(*DYWA_OBJECT_FRICTION_RANGE))
+    param.obj_mass_ = float(np.random.uniform(*DYWA_OBJECT_MASS_RANGE))
+    param.mu_object_ = float(param.object_friction_)
+    param.gravity_[2] = -9.81
+    return param
+
+
+def _mjcf_quat_wxyz_to_urdf_rpy(quat_wxyz):
+    quat_wxyz = np.asarray(quat_wxyz, dtype=np.float64)
+    quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]], dtype=np.float64)
+    return Rotation.from_quat(quat_xyzw).as_euler("xyz", degrees=False)
+
+
 class IsaacFrankaSimulator:
     """Isaac Gym version of the MuJoCo MjSimulator interface used in test_mppi.py."""
 
@@ -94,18 +156,22 @@ class IsaacFrankaSimulator:
 
         compute_id = int(sim_device.split(":")[-1]) if ":" in sim_device else 0
         sim_params = gymapi.SimParams()
-        sim_params.dt = 0.01
-        sim_params.substeps = 2
+        sim_params.dt = float(getattr(self.param_, "sim_dt_", 0.01))
+        sim_params.substeps = int(getattr(self.param_, "sim_substeps_", 2))
         sim_params.up_axis = gymapi.UP_AXIS_Z
         sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
         # This script uses CPU-style state APIs (get/set_actor_rigid_body_states),
         # so disable GPU pipeline to avoid invalid resource handle errors.
         sim_params.use_gpu_pipeline = False
-        sim_params.physx.solver_type = 1
-        sim_params.physx.num_position_iterations = 8
-        sim_params.physx.num_velocity_iterations = 1
-        sim_params.physx.contact_offset = 0.01
-        sim_params.physx.rest_offset = 0.0
+        sim_params.physx.solver_type = int(getattr(self.param_, "physx_solver_type_", 1))
+        sim_params.physx.num_position_iterations = int(
+            getattr(self.param_, "physx_position_iterations_", 8)
+        )
+        sim_params.physx.num_velocity_iterations = int(
+            getattr(self.param_, "physx_velocity_iterations_", 1)
+        )
+        sim_params.physx.contact_offset = float(getattr(self.param_, "physx_contact_offset_", 0.01))
+        sim_params.physx.rest_offset = float(getattr(self.param_, "physx_rest_offset_", 0.0))
         sim_params.physx.use_gpu = (compute_id >= 0)
 
         self.sim = self.gym.create_sim(compute_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
@@ -154,13 +220,20 @@ class IsaacFrankaSimulator:
         self.table_asset = self.gym.create_box(self.sim, 2.0, 2.0, 0.35, table_opts)
 
         mesh_path = getattr(self.param_, "mesh_path_", None)
-        print("mesh_path = ", mesh_path)
+        visual_mesh_path = getattr(self.param_, "visual_mesh_path_", mesh_path)
+        print("mesh_path = ", mesh_path, "visual_mesh_path = ", visual_mesh_path)
         mesh_obj_urdf_rel, mesh_target_urdf_rel, mesh_asset_root = self._prepare_mesh_urdf_assets(
-            repo_root, mesh_path
+            repo_root,
+            mesh_path,
+            visual_mesh_path,
+            mass=float(getattr(self.param_, "sim_obj_mass_", getattr(self.param_, "obj_mass_", 0.01))),
+            inertia_diag=getattr(self.param_, "sim_obj_inertia_diag_", None),
         )
         obj_opts = gymapi.AssetOptions()
         obj_opts.density = 200.0
         obj_opts.use_mesh_materials = True
+        if hasattr(obj_opts, "vhacd_enabled"):
+            obj_opts.vhacd_enabled = False
         self.obj_asset = self.gym.load_asset(self.sim, mesh_asset_root, mesh_obj_urdf_rel, obj_opts)
 
         target_obj_opts = gymapi.AssetOptions()
@@ -295,6 +368,7 @@ class IsaacFrankaSimulator:
         #     self.env, self.marker_asset, p_arm_marker_pose, "p_arm_marker", 0, 0
         # )
 
+        self._apply_optional_scene_physics()
         texture_applied = self._apply_object_surface_texture(repo_root, self.obj_actor)
         if not texture_applied:
             self.gym.set_rigid_body_color(self.env, self.obj_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.2, 0.6, 1.0))
@@ -379,37 +453,48 @@ class IsaacFrankaSimulator:
         )
 
     @staticmethod
-    def _prepare_mesh_urdf_assets(repo_root, mesh_path):
+    def _prepare_mesh_urdf_assets(repo_root, mesh_path, visual_mesh_path=None, mass=0.01, inertia_diag=None):
         if mesh_path is None:
             raise ValueError("param.mesh_path_ is required for Isaac object asset loading")
 
-        mesh_abs_path = mesh_path if os.path.isabs(mesh_path) else os.path.join(repo_root, mesh_path)
-        mesh_abs_path = os.path.abspath(mesh_abs_path)
-        if not os.path.isfile(mesh_abs_path):
-            raise FileNotFoundError(f"Mesh file not found: {mesh_abs_path}")
+        def _abs_mesh(path):
+            abs_path = path if os.path.isabs(path) else os.path.join(repo_root, path)
+            abs_path = os.path.abspath(abs_path)
+            if not os.path.isfile(abs_path):
+                raise FileNotFoundError(f"Mesh file not found: {abs_path}")
+            return abs_path
+
+        collision_abs = _abs_mesh(mesh_path)
+        visual_abs = _abs_mesh(visual_mesh_path or mesh_path)
 
         mesh_asset_root = os.path.join(repo_root, "envs", "assets", "objects", "_isaac_tmp")
         os.makedirs(mesh_asset_root, exist_ok=True)
-        mesh_rel_to_urdf = os.path.relpath(mesh_abs_path, mesh_asset_root)
-        # mesh_scale = "0.0025 0.0025 0.0025"
+        visual_rel = "obj_mesh_visual.stl"
+        collision_rel = "obj_mesh_collision.stl"
+        shutil.copy2(visual_abs, os.path.join(mesh_asset_root, visual_rel))
+        shutil.copy2(collision_abs, os.path.join(mesh_asset_root, collision_rel))
         mesh_scale = "1 1 1"
         obj_urdf_rel = "obj_mesh_dynamic.urdf"
         obj_urdf_abs = os.path.join(mesh_asset_root, obj_urdf_rel)
         target_urdf_rel = "obj_mesh_target_ghost.urdf"
         target_urdf_abs = os.path.join(mesh_asset_root, target_urdf_rel)
+        if inertia_diag is None:
+            inertia_diag = (1.5e-6, 1.5e-6, 1.5e-6)
+        ixx, iyy, izz = [float(v) for v in np.asarray(inertia_diag, dtype=np.float64).reshape(3)]
+        mass = float(mass)
 
         obj_urdf = f"""<?xml version="1.0"?>
 <robot name="mesh_obj">
   <link name="base">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.05"/>
-      <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
+      <mass value="{mass}"/>
+      <inertia ixx="{ixx}" ixy="0" ixz="0" iyy="{iyy}" iyz="0" izz="{izz}"/>
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="{mesh_rel_to_urdf}" scale="{mesh_scale}"/>
+        <mesh filename="{visual_rel}" scale="{mesh_scale}"/>
       </geometry>
       <material name="obj_color">
         <color rgba="0.2 0.6 1.0 1.0"/>
@@ -418,7 +503,7 @@ class IsaacFrankaSimulator:
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="{mesh_rel_to_urdf}" scale="{mesh_scale}"/>
+        <mesh filename="{collision_rel}" scale="{mesh_scale}"/>
       </geometry>
     </collision>
   </link>
@@ -430,7 +515,7 @@ class IsaacFrankaSimulator:
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="{mesh_rel_to_urdf}" scale="{mesh_scale}"/>
+        <mesh filename="{visual_rel}" scale="{mesh_scale}"/>
       </geometry>
       <material name="ghost_color">
         <color rgba="0.95 0.95 0.95 0.35"/>
@@ -445,6 +530,16 @@ class IsaacFrankaSimulator:
             f.write(ghost_urdf)
 
         return obj_urdf_rel, target_urdf_rel, mesh_asset_root
+
+    def _apply_optional_scene_physics(self):
+        if not hasattr(self, "table_actor") or not hasattr(self, "obj_actor"):
+            return
+        if hasattr(self.param_, "table_friction_"):
+            _set_actor_friction(self.gym, self.env, self.table_actor, float(self.param_.table_friction_))
+        if hasattr(self.param_, "object_friction_"):
+            _set_actor_friction(self.gym, self.env, self.obj_actor, float(self.param_.object_friction_))
+        if hasattr(self.param_, "obj_mass_"):
+            _set_actor_mass(self.gym, self.env, self.obj_actor, float(self.param_.obj_mass_))
 
     @staticmethod
     def _prepare_marker_urdf_asset(repo_root):
@@ -594,61 +689,75 @@ class IsaacFrankaSimulator:
                 return c[n]
         return default
 
-    def get_physx_contacts(self):
+    def _contact_bodies(self, c):
+        body0 = self._contact_field(c, "body0", "bodyA", default=-1)
+        body1 = self._contact_field(c, "body1", "bodyB", default=-1)
+        if body0 is None or body1 is None:
+            return None, None
+        return int(body0), int(body1)
+
+    def _contact_sep_normal(self, c):
+        # Isaac Gym's RigidContact has no ``separation`` field.
+        # ``initial_overlap`` is positive for penetration, while the
+        # explicit model expects MuJoCo's negative-distance convention.
+        contact_offset = float(getattr(self.param_, "physx_contact_offset_", 0.001))
+        separation_raw = self._contact_field(c, "separation", "distance", default=None)
+        speculative = False
+        if separation_raw is None:
+            initial_overlap = self._contact_field(c, "initial_overlap", default=0.0)
+            overlap = float(initial_overlap if initial_overlap is not None else 0.0)
+            if overlap > 1e-8:
+                separation = -overlap
+            else:
+                separation = contact_offset
+                speculative = True
+        else:
+            separation = float(separation_raw)
+            speculative = separation > 1e-8
+        normal_raw = self._contact_field(c, "normal", default=np.array([0.0, 0.0, 1.0], dtype=np.float32))
+        normal = _extract_vec3(normal_raw)
+        nrm = float(np.linalg.norm(normal))
+        if nrm > 1e-8:
+            normal = normal / nrm
+        else:
+            normal = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        return float(separation), bool(speculative), normal
+
+    def _contact_world_pos(self, c, body0, body1, pose_cache):
+        pos_field = self._contact_field(c, "pos", "position", default=None)
+        if pos_field is not None:
+            return _extract_vec3(pos_field)
+        local_pos0 = self._contact_field(c, "local_pos0", default=None)
+        local_pos1 = self._contact_field(c, "local_pos1", default=None)
+        world_points = []
+        for body_idx, local_pos in ((body0, local_pos0), (body1, local_pos1)):
+            if local_pos is None:
+                continue
+            if body_idx not in pose_cache:
+                pose_cache[body_idx] = self.get_body_pose_by_sim_index(body_idx)
+            body_pos, body_quat_xyzw = pose_cache[body_idx]
+            if body_pos is None:
+                continue
+            body_rot = Rotation.from_quat(body_quat_xyzw).as_matrix()
+            world_points.append(body_pos + body_rot @ _extract_vec3(local_pos))
+        if world_points:
+            return np.mean(np.stack(world_points, axis=0), axis=0).astype(np.float32)
+        return None
+
+    def get_physx_contacts(self, need_world_pos=True):
         contacts_raw = self.gym.get_env_rigid_contacts(self.env)
         contacts = []
         if contacts_raw is None:
             return contacts
-
+        pose_cache = {}
         for c in contacts_raw:
-            body0 = self._contact_field(c, "body0", "bodyA", default=-1)
-            body1 = self._contact_field(c, "body1", "bodyB", default=-1)
-            if body0 is None or body1 is None:
+            body0, body1 = self._contact_bodies(c)
+            if body0 is None:
                 continue
-            body0 = int(body0)
-            body1 = int(body1)
-
-            # Isaac Gym's RigidContact has no ``separation`` field.
-            # ``initial_overlap`` is positive for penetration, while the
-            # explicit model expects MuJoCo's negative-distance convention.
-            separation_raw = self._contact_field(c, "separation", "distance", default=None)
-            if separation_raw is None:
-                initial_overlap = self._contact_field(c, "initial_overlap", default=0.0)
-                separation = -float(initial_overlap if initial_overlap is not None else 0.0)
-            else:
-                separation = float(separation_raw)
-
-            normal_raw = self._contact_field(c, "normal", default=np.array([0.0, 0.0, 1.0], dtype=np.float32))
-            normal = _extract_vec3(normal_raw)
-            nrm = np.linalg.norm(normal)
-            if nrm > 1e-8:
-                normal = normal / nrm
-            else:
-                normal = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-
-            # RigidContact exposes feature points in each body's local frame.
-            # Convert both to world and average them.  A fabricated point near
-            # the object center gives the wrong object moment arm and robot
-            # point Jacobian.
+            separation, speculative, normal = self._contact_sep_normal(c)
             pos = None
-            pos_field = self._contact_field(c, "pos", "position", default=None)
-            if pos_field is not None:
-                pos = _extract_vec3(pos_field)
-            else:
-                local_pos0 = self._contact_field(c, "local_pos0", default=None)
-                local_pos1 = self._contact_field(c, "local_pos1", default=None)
-                world_points = []
-                for body_idx, local_pos in ((body0, local_pos0), (body1, local_pos1)):
-                    if local_pos is None:
-                        continue
-                    body_pos, body_quat_xyzw = self.get_body_pose_by_sim_index(body_idx)
-                    if body_pos is None:
-                        continue
-                    body_rot = Rotation.from_quat(body_quat_xyzw).as_matrix()
-                    world_points.append(body_pos + body_rot @ _extract_vec3(local_pos))
-                if world_points:
-                    pos = np.mean(np.stack(world_points, axis=0), axis=0).astype(np.float32)
-
+            if need_world_pos:
+                pos = self._contact_world_pos(c, body0, body1, pose_cache)
             contacts.append(
                 {
                     "body0": body0,
@@ -656,10 +765,40 @@ class IsaacFrankaSimulator:
                     "separation": separation,
                     "normal": normal,
                     "pos": pos,
+                    "speculative": bool(speculative),
                 }
             )
-
         return contacts
+
+    def fingertip_object_contact(self):
+        """Fingertip/object pair only.  No world-pose fetches."""
+        fingertip_sim_idx = getattr(self, "franka_body_name_to_index", {}).get("fingertip")
+        obj_idx = getattr(self, "obj_body_idx", None)
+        if fingertip_sim_idx is None or obj_idx is None:
+            return False, None, float("inf")
+        thresh = float(getattr(self.param_, "if_contact_separation_threshold_", 0.0))
+        contacts_raw = self.gym.get_env_rigid_contacts(self.env)
+        if contacts_raw is None:
+            return False, None, float("inf")
+        in_contact = False
+        best_n = None
+        best_sep = float("inf")
+        for c in contacts_raw:
+            body0, body1 = self._contact_bodies(c)
+            if body0 is None:
+                continue
+            if fingertip_sim_idx not in (body0, body1) or obj_idx not in (body0, body1):
+                continue
+            sep, speculative, normal = self._contact_sep_normal(c)
+            if speculative or sep > thresh:
+                continue
+            in_contact = True
+            if body1 == obj_idx:
+                normal = -normal
+            if sep < best_sep:
+                best_sep = sep
+                best_n = np.asarray(normal, dtype=np.float32)
+        return in_contact, best_n, best_sep
 
     def _get_actor_body_pose(self, actor_handle, local_body_idx):
         states = self.gym.get_actor_rigid_body_states(self.env, actor_handle, gymapi.STATE_POS)
@@ -916,11 +1055,170 @@ class IsaacFrankaSimulator:
             self.sim = None
 
 
+class IsaacFrankaJointSimulator(IsaacFrankaSimulator):
+    """Position-controlled no-hand Franka with the same fingertip sphere as the OSC branch."""
+
+    @staticmethod
+    def _get_franka_asset_info(repo_root):
+        asset_root = os.path.join(repo_root, "envs/robots/assets/urdf")
+        src_urdf = os.path.join(asset_root, "franka_description", "robots", "franka_panda.urdf")
+        dst_rel = os.path.join("franka_description", "robots", "franka_panda_nohand_sphere_tmp.urdf")
+        dst_urdf = os.path.join(asset_root, dst_rel)
+        attachment_rpy = _mjcf_quat_wxyz_to_urdf_rpy([0.3826834, 0.0, 0.0, 0.9238795])
+
+        with open(src_urdf, "r", encoding="ascii") as f:
+            urdf_text = f.read()
+
+        strip_patterns = [
+            r'\s*<joint name="panda_hand_joint"[\s\S]*?</joint>',
+            r'\s*<link name="panda_hand">[\s\S]*?</link>',
+            r'\s*<link name="panda_leftfinger">[\s\S]*?</link>',
+            r'\s*<link name="panda_rightfinger">[\s\S]*?</link>',
+            r'\s*<joint name="panda_finger_joint1"[\s\S]*?</joint>',
+            r'\s*<joint name="panda_finger_joint2"[\s\S]*?</joint>',
+        ]
+        for pattern in strip_patterns:
+            urdf_text = re.sub(pattern, "\n", urdf_text, flags=re.MULTILINE)
+
+        attachment_block = f"""
+  <link name="attachment">
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.005" length="0.06"/>
+      </geometry>
+      <material name="attachment_dark">
+        <color rgba="0.1 0.1 0.1 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.005" length="0.06"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="attachment_joint" type="fixed">
+    <parent link="panda_link7"/>
+    <child link="attachment"/>
+    <origin xyz="0 0 0.107" rpy="{attachment_rpy[0]} {attachment_rpy[1]} {attachment_rpy[2]}"/>
+  </joint>
+  <link name="fingertip">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.01"/>
+      </geometry>
+      <material name="fingertip_red">
+        <color rgba="0.8 0.2 0.2 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.01"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="fingertip_joint" type="fixed">
+    <parent link="attachment"/>
+    <child link="fingertip"/>
+    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+  </joint>
+"""
+        urdf_text = urdf_text.replace("</robot>", attachment_block + "\n</robot>")
+        with open(dst_urdf, "w", encoding="ascii") as f:
+            f.write(urdf_text)
+        return asset_root, dst_rel
+
+    def _create_scene_actors(self):
+        super()._create_scene_actors()
+        p_arm_marker_pose = gymapi.Transform()
+        p_arm_marker_pose.p = gymapi.Vec3(0.3, 0.0, 0.4)
+        p_arm_marker_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        self.p_arm_marker_actor = self.gym.create_actor(
+            self.env, self.marker_asset, p_arm_marker_pose, "p_arm_marker", 0, 0
+        )
+        self.gym.set_rigid_body_color(
+            self.env, self.p_arm_marker_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(1.0, 0.9, 0.1)
+        )
+        best_marker_pose = gymapi.Transform()
+        best_marker_pose.p = gymapi.Vec3(0.3, 0.05, 0.4)
+        best_marker_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        self.best_contact_marker_actor = self.gym.create_actor(
+            self.env, self.marker_asset, best_marker_pose, "best_contact_marker", 0, 0
+        )
+        self.gym.set_rigid_body_color(
+            self.env, self.best_contact_marker_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(1.0, 0.1, 0.1)
+        )
+
+    def _build_body_index_cache(self):
+        super()._build_body_index_cache()
+        self.fingertip_body_idx = (
+            self.franka_body_names.index("fingertip") if "fingertip" in self.franka_body_names else 0
+        )
+        self.task_body_local_idx = self.fingertip_body_idx
+
+    def get_end_effector_pos(self):
+        p, q_xyzw = self._get_actor_body_pose(self.franka_actor, self.task_body_local_idx)
+        r = Rotation.from_quat(q_xyzw).as_matrix().astype(np.float32)
+        return p.astype(np.float32), r
+
+    def get_policy_state(self):
+        full_q = self.get_state()
+        ee_pos, _ = self.get_end_effector_pos()
+        return np.hstack([full_q[:7], ee_pos]).astype(np.float32)
+
+    def _set_marker_pos(self, actor, goal_pos=None):
+        marker_state = self.gym.get_actor_rigid_body_states(self.env, actor, gymapi.STATE_ALL)
+        if goal_pos is not None:
+            marker_state["pose"]["p"][0] = (float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2]))
+        marker_state["vel"]["linear"][0] = (0.0, 0.0, 0.0)
+        marker_state["vel"]["angular"][0] = (0.0, 0.0, 0.0)
+        self.gym.set_actor_rigid_body_states(self.env, actor, marker_state, gymapi.STATE_ALL)
+
+    def show_point(self, goal_pos=None):
+        self._set_marker_pos(self.p_arm_marker_actor, goal_pos)
+
+    def show_target(self, goal_pos=None, goal_quat=None):
+        del goal_quat
+        self.show_point(goal_pos)
+
+    def show_best_contact(self, goal_pos=None):
+        self._set_marker_pos(self.best_contact_marker_actor, goal_pos)
+
+    def step_joint_delta(self, dq):
+        q = self.get_current_joint_position()
+        dq = np.asarray(dq, dtype=np.float32).reshape(7)
+        q_des = q + dq
+        self._joint_targets[:7] = q_des
+        if self.franka_dof_count >= 9:
+            self._joint_targets[7] = 0.04
+            self._joint_targets[8] = 0.04
+        self.gym.set_actor_dof_position_targets(self.env, self.franka_actor, self._joint_targets)
+        control_substeps = max(int(getattr(self.param_, "control_substeps_", 1)), 1)
+        for _ in range(control_substeps):
+            self._simulate_once()
+
+
 class ContactIsaac:
     """Isaac replacement for contact.franka_collision_detection2.Contact."""
 
     def __init__(self, param):
         self.param_ = param
+
+    @staticmethod
+    def _contact_jacobian_body_frame(jacobian, body_mat):
+        """Match contact.fingertips_collision_detection2.Contact."""
+        jacobian = np.asarray(jacobian, dtype=np.float64).copy()
+        if jacobian.ndim != 2 or jacobian.shape[1] < 6:
+            return jacobian
+        rot = np.asarray(body_mat, dtype=np.float64).reshape(3, 3)
+        frame = np.zeros((6, 6), dtype=np.float64)
+        frame[:3, :3] = rot
+        frame[3:, 3:] = rot
+        jacobian[:, :6] = jacobian[:, :6] @ frame
+        return jacobian
 
     def detect_once(self, simulator: IsaacFrankaSimulator):
         q = simulator.get_state()
@@ -935,7 +1233,11 @@ class ContactIsaac:
 
         obj_pos = q[0:3]
         obj_quat_wxyz = q[3:7]
-        q_robot = q[-self.param_.n_robot_qpos_:]
+        quat_xyzw = np.array(
+            [obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]],
+            dtype=np.float32,
+        )
+        r_obj_to_world = Rotation.from_quat(quat_xyzw).as_matrix()
 
         mu = float(self.param_.mu_object_)
         contact_sep_threshold = float(getattr(self.param_, "if_contact_separation_threshold_", 0.0))
@@ -1004,15 +1306,11 @@ class ContactIsaac:
             # rollout while Isaac remains the source of physical friction.
             other_is_table = (b0 == simulator.table_body_idx) or (b1 == simulator.table_body_idx)
             if other_is_table and row_env_idx < max_ncon:
-                jac_mat_env[4 * row_env_idx: 4 * row_env_idx + 4, :] = con_jac
-                row_env_idx += 1
-                # Return table contact point in object-local frame.
-                quat_xyzw = np.array(
-                    [obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]],
-                    dtype=np.float32,
+                jac_mat_env[4 * row_env_idx: 4 * row_env_idx + 4, :6] = self._contact_jacobian_body_frame(
+                    con_jac[:, :6], r_obj_to_world
                 )
-                R_obj_to_world = Rotation.from_quat(quat_xyzw).as_matrix()
-                con_pos_local = R_obj_to_world.T @ (cpos - obj_pos)
+                row_env_idx += 1
+                con_pos_local = r_obj_to_world.T @ (cpos - obj_pos)
                 con_pos_list.append(np.array(con_pos_local, dtype=np.float32))
 
         # Fallback to geometric table contact if PhysX did not report one this frame.
@@ -1026,462 +1324,435 @@ class ContactIsaac:
                     [np.eye(3), np.zeros((3, 3)), np.zeros((3, self.param_.n_robot_qpos_))], axis=1
                 )
                 con_jac_table = np.array(_contact_jacobian(n_t, t1_t, t2_t, J_rel_table, mu), dtype=np.float32)
-                jac_mat_env[0:4, :] = con_jac_table
+                jac_mat_env[0:4, :6] = self._contact_jacobian_body_frame(
+                    con_jac_table[:, :6], r_obj_to_world
+                )
                 con_pos_list.append(np.array([0.0, 0.0, -0.025], dtype=np.float32))
 
         return phi_vec, jac_mat, con_pos_list, jac_mat_env, if_contact
 
 
 def adapt_param_for_joint_mppi(param, args):
-    """Configure the explicit rollout model for Panda joint-delta MPPI."""
-    param.n_cmd_ = 7
-    param.n_robot_qpos_ = 7
-    param.n_qpos_ = 14
-    param.n_qvel_ = 13
-    param.mppi_tabletop_lock_ = True
+    """MPPI joint-space model.  Does not overwrite cartesian ranking dims."""
+    from planning.MPPIWarp import adapt_param_for_joint_mppi as _adapt
+    return _adapt(param, args)
 
-    joint_stiffness = float(args.joint_model_stiffness)
-    param.robot_stiff_ = np.diag(np.full(7, joint_stiffness, dtype=np.float32))
-    q_metric = np.zeros((13, 13), dtype=np.float32)
-    q_metric[:6, :6] = param.obj_inertia_
-    q_metric[6:, 6:] = param.robot_stiff_
-    param.Q = q_metric
 
-    joint_step = float(args.joint_step)
-    param.mpc_u_lb_ = -joint_step * np.ones(7, dtype=np.float32)
-    param.mpc_u_ub_ = joint_step * np.ones(7, dtype=np.float32)
-    panda_q_lb = np.array(
-        [-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973],
-        dtype=np.float32,
+class _ConfView:
+    def __init__(self, tightness, accum):
+        self.accum = float(accum)
+        self._tightness = float(tightness)
+
+    def tightness(self):
+        return self._tightness
+
+
+def _plan_payload(env, contact, table_ground, dwell=None):
+    curr_q = env.get_policy_state()
+    full_q = env.get_state()
+    phi_vec, jac_mat, _con, jac_mat_env, if_contact = contact.detect_once(env)
+    payload = {
+        "cmd": "plan",
+        "policy_q": np.asarray(curr_q, dtype=np.float32),
+        "full_q": np.asarray(full_q, dtype=np.float32),
+        "phi_vec": np.asarray(phi_vec, dtype=np.float64),
+        "jac_mat": np.asarray(jac_mat, dtype=np.float64),
+        "jac_mat_env": np.asarray(jac_mat_env, dtype=np.float64),
+        "if_contact": bool(if_contact),
+        "table_ground": float(table_ground),
+    }
+    if dwell is not None:
+        payload["dwell"] = dwell
+    measured = contact.get_actual_fingertip_contact()
+    if measured is None:
+        contact_distance = float("inf")
+    else:
+        contact_distance = abs(float(measured.get("dist", float("inf"))))
+    return payload, curr_q, if_contact, contact_distance
+
+
+def _apply_plan_result(param, env, result, curr_q, print_fn):
+    from planning.MPPIWarp import _apply_opt_snapshot
+
+    _apply_opt_snapshot(param.lambda_optimizer, result.get("opt_snapshot"))
+    policy = result["policy"]
+    print_fn(
+        param, curr_q, policy, policy["value_info"], result["verify_cost"],
+        result["verify_chatter"],
+        _ConfView(result["model_tightness"], result["model_accum"]),
+        None, None, result.get("if_contact", False), policy["escape_on"],
     )
-    panda_q_ub = np.array(
-        [2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973],
-        dtype=np.float32,
+    print(
+        "rank_dt:", round(float(result["rank_dt"]), 4),
+        "plan_dt:", round(float(result.get("plan_dt", result.get("mppi_dt", 0.0))), 4),
     )
-    param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), panda_q_lb))
-    param.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), panda_q_ub))
+    if env is not None:
+        env.show_target(policy["mpc_virtual_point"])
+        env.show_best_contact(policy["best_contact_world"])
+    return policy
 
-    for name in (
-        "Nsample", "Hsample", "Hnode", "Ndiffuse", "Ndiffuse_init",
-        "temp_sample", "sigma_scale", "traj_diffuse_factor", "horizon_diffuse_factor",
-    ):
-        setattr(param, f"mppi_{name}_", getattr(args, f"mppi_{name}"))
-    for name in (
-        "base", "object_pos", "ee_ori", "joint_limit", "manip", "cond", "energy", "vel", "acc",
-    ):
-        setattr(param, f"mppi_w_{name}_", getattr(args, f"mppi_w_{name}"))
-    param.mppi_seed_ = int(args.mppi_seed)
 
-    # The shared DyWA setup randomizes mass/friction after ExplicitMPCParams
-    # creates this optimizer, so rebuild it with the actual trial parameters.
-    param.lambda_optimizer = LambdaContactControlOptimizer(
-        mesh_path=param.mesh_path_,
-        obj_mass=param.obj_mass_,
-        arm_friction=param.mu_object_,
-        contact_stiffness=param.model_params,
-        time_step=param.h_,
-        sample_num=args.sample_num,
-        pos_coef=args.pos_coef,
-        ori_coef=args.ori_coef,
-        scale_factors=[1.0] * 3,
+def _plan_from_obs(obs, dwell=None):
+    payload = {
+        "cmd": "plan",
+        "policy_q": np.asarray(obs["policy_q"], dtype=np.float32),
+        "full_q": np.asarray(obs.get("full_q", obs["policy_q"]), dtype=np.float32),
+        "if_contact": bool(obs.get("if_contact", False)),
+        "table_ground": float(obs["table_ground"]),
+    }
+    for key in ("phi_vec", "jac_mat", "jac_mat_env"):
+        if obs.get(key) is not None:
+            payload[key] = np.asarray(obs[key], dtype=np.float64)
+    if dwell is not None:
+        payload["dwell"] = dwell
+    return payload, np.asarray(obs["policy_q"], dtype=np.float32)
+
+
+def _pred_reduction_from_policy(param, curr_q, policy):
+    c_now_cost = _lambda_pose_cost(
+        curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
+        param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
     )
-    param.sol_guess_ = None
+    pred_reduction = None
+    x_plus_opt = policy.get("x_plus_opt")
+    info = policy.get("info")
+    if x_plus_opt is not None and _x_plus_is_usable(x_plus_opt, info):
+        pred_pos, pred_quat = _predicted_object_pose(curr_q[:7], x_plus_opt)
+        c_pred = _lambda_pose_cost(
+            pred_pos, pred_quat, param.target_p_, param.target_q_,
+            param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
+        )
+        pred_reduction = c_now_cost - c_pred
+    return c_now_cost, pred_reduction
+
+
+def _dwell_payload(
+    env, args, contact, policy, last_accept_p_arm, escape_on, verify_chatter,
+    c_now_cost, pred_reduction, contact_distance, pos_err_now,
+    curr_q=None, param=None,
+):
+    if param is None:
+        param = env.param_
+    if curr_q is None:
+        curr_q = env.get_policy_state()
+    r_now = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
+    c_after = _lambda_pose_cost(
+        curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
+        param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
+    )
+    return {
+        "tip_now": np.asarray(curr_q[7:10], dtype=float),
+        "obj_pos": np.asarray(curr_q[:3], dtype=float),
+        "r_now": np.asarray(r_now, dtype=float),
+        "p_arm_world": np.asarray(policy["p_arm_world"], dtype=float),
+        "post_physical": bool(np.isfinite(contact_distance) and contact_distance <= 0.003),
+        "last_accept_p_arm": bool(last_accept_p_arm),
+        "escape_on": bool(escape_on),
+        "verify_chatter": bool(verify_chatter),
+        "pos_err_now": float(pos_err_now),
+        "c_now_cost": None if c_now_cost is None else float(c_now_cost),
+        "pred_reduction": None if pred_reduction is None else float(pred_reduction),
+        "c_after": float(c_after),
+    }
+
+
+def _publish_then_sync(env, planner, payload):
+    """Publish latest state, wait on the Isaac clock, then take a ready action."""
+    if planner is not None:
+        planner.publish_state(payload)
+    env.sync_realtime()
+    if planner is None:
+        return None
+    return planner.take_action()
+
+
+def _configure_rollout_param(param, args):
+    param.rollout_press_patch = True
+    param.quadratic_contact_track = True
+    param.attract_coef = max(float(param.attract_coef), 20.0)
+    param.field_cost_weight = 0.0
+    param.contact_coef = max(float(param.contact_coef), float(param.attract_coef))
+    param.lambda_optimizer.lock_contact_patch = False
+    param.lambda_optimizer.contact_switch_confirm_steps = max(
+        1, int(args.contact_switch_confirm_steps)
+    )
     return param
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--obj', type=str, default='foam_brick', help='name of obj')
-    parser.add_argument('--use-xml-texture', action='store_true', help='apply object texture parsed from env_fingertips_*.xml')
-    parser.add_argument('--attract_coef', type=float, default=0.5, help='coef of attract function')
-    parser.add_argument('--reject_coef', type=float, default=0.01, help='coef of reject function')
-    parser.add_argument('--contact_coef', type=float, default=0.5, help='coef of contact function')
-    parser.add_argument('--contact_cost_param', type=float, default=0.0, help='mass center or project point attract')
-    parser.add_argument('--model_param', type=float, default=7, help='model param')
-    parser.add_argument('--reject_dis', type=float, default=0.01, help='reject radius')
-    parser.add_argument('--attract_point_comp', type=float, default=0.05, help='normal offset from the surface used only by the hover/detach phase')
-    parser.add_argument('--ground_height_threshold', type=float, default=0.33, help='threshold of sample points height')
+def _add_mppi_policy_args(parser):
+    add_rollout_via_args(parser)
+    parser.add_argument("--use-xml-texture", action="store_true")
+    parser.add_argument("--headless", dest="headless", action="store_true")
+    parser.add_argument("--viewer", dest="headless", action="store_false")
+    parser.add_argument("--sim-device", type=str, default="cuda:0")
+    parser.add_argument("--graphics-device-id", type=int, default=0)
+    parser.add_argument("--show-ghost-object", type=_parse_bool_arg, default=False)
+    parser.add_argument("--cartesian-joint-stiffness", type=float, default=100.0)
+    parser.add_argument("--osc-pos-stiffness", type=float, default=12000.0)
+    parser.add_argument("--osc-ori-stiffness", type=float, default=0.0)
+    parser.add_argument("--nullspace-stiffness", type=float, default=10.0)
+    parser.add_argument("--svg-screenshot-dir", type=str, default="")
+    parser.add_argument("--svg-screenshot-interval", type=float, default=0.2)
+    parser.add_argument("--svg-screenshot-width", type=int, default=1280)
+    parser.add_argument("--svg-screenshot-height", type=int, default=960)
+    parser.add_argument("--cartesian_stiffness", type=float, nargs="+", default=None)
+    parser.add_argument("--cartesian_damping", type=float, nargs="+", default=None)
+    parser.add_argument("--effort-joint-damping", type=float, default=0.0)
     parser.add_argument(
-        '--hover-switch-distance',
+        "--target-type",
+        dest="target_type",
+        type=str,
+        default="ground-rotation",
+        choices=("ground-rotation", "rotation"),
+        help="ground-rotation matches fingertips --rollout (90 deg pitch flip).",
+    )
+    parser.add_argument("--trial-start", type=int, default=0)
+    parser.add_argument(
+        "--control-substeps",
+        type=int,
+        default=0,
+        help="OSC frames per MPPI joint update.  0 uses the 20 ms --rollout interval.",
+    )
+    parser.add_argument(
+        "--joint-step",
         type=float,
         default=0.02,
-        help='switch from the hover point to the selected surface point after reaching this distance',
-    )
-    parser.add_argument('--sample_num', type=int, default=70, help='number of sample point')
-    parser.add_argument('--pos_coef', type=float, default=1, help='coef of position cost in mlqp_point')
-    parser.add_argument('--ori_coef', type=float, default=0.005, help='coef of orientation cost in mlqp_point')
-    parser.add_argument('--low_err_coef', type=float, default=0.3, help='coef of delta error')
-    parser.add_argument('--upper_err_coef', type=float, default=1.0, help='coef of delta error')
-    parser.add_argument('--joint-step', type=float, default=0.08, help='maximum joint delta (rad) per MPPI step')
-    parser.add_argument('--joint-model-stiffness', type=float, default=300.0, help='joint stiffness in explicit rollout model')
-    parser.add_argument(
-        '--control-substeps',
-        type=int,
-        default=3,
-        help='number of Isaac/OSC frames used to track each MPPI joint-delta action',
+        help="MPPI joint-delta limit per 20 ms (rad).  Smaller is smoother.",
     )
     parser.add_argument(
-        '--contact-min-hold-steps',
-        type=int,
-        default=30,
-        help='minimum outer-loop steps to keep the surface-contact phase before allowing a detach',
+        "--action-smooth",
+        type=float,
+        default=0.35,
+        help="EMA blend of the executed joint action.  1 is raw MPPI.",
     )
     parser.add_argument(
-        '--contact-release-bad-steps',
-        type=int,
-        default=8,
-        help='consecutive poor-contact assessments required to leave the surface-contact phase',
+        "--via-max-lead",
+        type=float,
+        default=0.008,
+        help="Max via/press offset from the current fingertip (m).",
     )
-    parser.add_argument('--mppi_Nsample', type=int, default=128)
-    parser.add_argument('--mppi_Hsample', type=int, default=20)
-    parser.add_argument('--mppi_Hnode', type=int, default=5)
-    parser.add_argument('--mppi_Ndiffuse', type=int, default=1, help='sequential MPPI updates after warm start')
-    parser.add_argument('--mppi_Ndiffuse_init', type=int, default=2, help='MPPI updates on the first solve')
-    parser.add_argument('--mppi_temp_sample', type=float, default=0.5)
-    parser.add_argument('--mppi_sigma_scale', type=float, default=0.6)
-    parser.add_argument('--mppi_traj_diffuse_factor', type=float, default=0.5)
-    parser.add_argument('--mppi_horizon_diffuse_factor', type=float, default=0.9)
-    parser.add_argument('--mppi_seed', type=int, default=0)
-    parser.add_argument('--mppi_w_base', type=float, default=1.0, help='weight for the interaction potential')
     parser.add_argument(
-        '--mppi_w_object_pos',
+        "--via-smooth-rate",
+        type=float,
+        default=0.05,
+        help="SmoothedApproachVia lerp rate.  Smaller interpolates more.",
+    )
+    parser.add_argument("--joint-model-stiffness", type=float, default=300.0)
+    parser.add_argument("--mppi_Nsample", type=int, default=256)
+    parser.add_argument("--mppi_Hsample", type=int, default=16)
+    parser.add_argument("--mppi_Ndiffuse", type=int, default=2)
+    parser.add_argument("--mppi_Ndiffuse_init", type=int, default=3)
+    parser.add_argument("--mppi_temp_sample", type=float, default=0.5)
+    parser.add_argument("--mppi_sigma_scale", type=float, default=0.6)
+    parser.add_argument("--mppi_traj_diffuse_factor", type=float, default=0.5)
+    parser.add_argument("--mppi_seed", type=int, default=0)
+    parser.add_argument(
+        "--mppi_w_energy",
         type=float,
         default=50.0,
-        help='contact-stage running weight for object XY translation tracking',
+        help="0902 plan_once control weight on ||u||^2.",
     )
-    parser.add_argument('--mppi_w_ee_ori', type=float, default=1.0, help='weight for EE orientation hold cost')
-    parser.add_argument('--mppi_w_joint_limit', type=float, default=100.0, help='weight for joint limit penalty')
-    parser.add_argument('--mppi_w_manip', type=float, default=0.0, help='weight for manipulability penalty')
-    parser.add_argument('--mppi_w_cond', type=float, default=0.0, help='weight for Jacobian condition penalty')
-    parser.add_argument('--mppi_w_energy', type=float, default=0.01, help='weight for action energy penalty')
-    parser.add_argument('--mppi_w_vel', type=float, default=0.0, help='weight for joint velocity penalty')
-    parser.add_argument('--mppi_w_acc', type=float, default=0.0, help='weight for joint acceleration penalty')
-
-    parser.add_argument('--headless', action='store_true')
-    parser.add_argument('--sim-device', type=str, default='cuda:0')
-    parser.add_argument('--graphics-device-id', type=int, default=0)
-    parser.add_argument('--osc-pos-stiffness', type=float, default=2000.0)
-    parser.add_argument('--osc-ori-stiffness', type=float, default=400.0)
-    parser.add_argument('--effort-joint-damping', type=float, default=10.0)
-    parser.add_argument('--trial-start', type=int, default=3)
-    parser.add_argument('--trial-count', type=int, default=1)
-    parser.add_argument('--max-rollout-length', type=int, default=5000)
+    parser.add_argument("--mppi_w_nopen", type=float, default=80.0)
+    parser.add_argument("--mppi_w_joint_limit", type=float, default=100.0)
+    parser.add_argument("--mppi_nopen_margin", type=float, default=0.002)
     parser.add_argument(
-        '--debug-motion',
-        action='store_true',
-        help='print predicted/actual object motion diagnostics (adds host-side overhead)',
+        "--async-planner",
+        dest="async_planner",
+        action="store_true",
+        help="ROS-style latest-only state/action topics in a second process.",
     )
     parser.add_argument(
-        '--show-ghost-object',
-        type=_parse_bool_arg,
-        default=False,
-        help='whether to render the semi-transparent ghost object mesh at the target pose (true/false)',
+        "--sync-planner",
+        dest="async_planner",
+        action="store_false",
+        help="Rank+MPPI in the Isaac process (debug).",
+    )
+    parser.add_argument("--viewer-hz", type=float, default=60.0)
+    parser.add_argument(
+        "--gpu-physx",
+        action="store_true",
+        help="GPU PhysX in the viewer (fights Warp MPPI on the same device).",
+    )
+    parser.set_defaults(headless=False, async_planner=True)
+    return parser
+
+
+def run_mppi_planner(bus, args):
+    from examples.mpc.franka.ik2.isaac_bus import wait_trial_obs
+    from examples.mpc.franka.ik2.test_mpc_isaac import (
+        DEFAULT_CARTESIAN_STIFFNESS,
+        adapt_param_for_cartesian_solver,
+        _apply_dywa_physics_to_param as _apply_mpc_physics_to_param,
+        _configure_rollout_param as _configure_mpc_rollout_param,
+        _print_rollout_step,
+    )
+    from planning.MPPIWarp import (
+        _build_planner_runtime,
+        blend_action,
+        handle_planner_request,
+        planner_init_payload,
     )
 
-    args = parser.parse_args()
-
-    if args.trial_start < 0 or args.trial_count <= 0:
-        raise ValueError("trial-start must be non-negative and trial-count must be positive")
-    if args.control_substeps <= 0:
-        raise ValueError("control-substeps must be positive")
-    if args.contact_min_hold_steps < 0 or args.contact_release_bad_steps <= 0:
-        raise ValueError("contact hold/release step counts must be non-negative/positive")
-
-    save_flag = False
-    if save_flag:
-        save_dir = './examples/mpc/trifinger/elephant/save/'
-        prefix_data_name = 'ours_'
-        save_data = dict()
+    if args.cartesian_stiffness is None:
+        args.cartesian_stiffness = DEFAULT_CARTESIAN_STIFFNESS.tolist()
+    if args.trial_start < 0:
+        raise ValueError(f"trial_start must be non-negative, got {args.trial_start}")
+    if int(args.trial_num) <= 0:
+        raise ValueError(f"trial_num must be positive, got {args.trial_num}")
 
     trial_start = int(args.trial_start)
-    trial_num = int(args.trial_count)
+    trial_num = max(1, int(args.trial_num))
     trial_stop = trial_start + trial_num
     success_pos_threshold = 0.02
-    success_quat_threshold = 0.04
-    consecutive_success_time_threshold = 20
-    if args.max_rollout_length <= 0:
-        raise ValueError("max-rollout-length must be positive")
-    max_rollout_length = int(args.max_rollout_length)
+    success_quat_threshold = 0.015
+    consecutive_success_time_threshold = 0
+    max_rollout_length = max(1, int(args.max_rollout_length))
     success_rate = 0
-
-    # Use the identical Isaac Gym/OSC implementation and randomized DyWA
-    # physics configuration as test_mpc_isaac.py.  MPPI remains the only
-    # planner difference and emits seven joint deltas to the same controller.
-    # Avoid loading a second copy of this module when this file is executed as
-    # a script and test_mpc_isaac imports its shared base simulator.
-    sys.modules.setdefault("examples.mpc.franka.ik2.test_mppi_isaac", sys.modules[__name__])
-    from examples.mpc.franka.ik2.test_mpc_isaac import (
-        IsaacFrankaOSCSimulator,
-        _apply_dywa_physics_to_param,
-    )
+    viewer_quit = False
 
     for trial_count in range(trial_start, trial_stop):
-        param = ExplicitMPCParams(args, rand_seed=trial_count, target_type='rotation', mpc_model='explicit')
-        param = _apply_dywa_physics_to_param(param)
-        param.use_jax_contact_ = False
-        param = adapt_param_for_joint_mppi(param, args)
-        param.osc_pos_stiffness_ = float(args.osc_pos_stiffness)
-        param.osc_ori_stiffness_ = float(args.osc_ori_stiffness)
-        param.effort_joint_damping_ = float(args.effort_joint_damping)
-        param.control_substeps_ = int(args.control_substeps)
-        param.show_ghost_object_ = bool(args.show_ghost_object)
-        param.svg_screenshot_dir_ = None
-
-        contact = ContactIsaac(param)
-        env = IsaacFrankaOSCSimulator(
-            param,
-            headless=args.headless,
-            sim_device=args.sim_device,
-            graphics_device_id=args.graphics_device_id,
+        param = ExplicitMPCParams(
+            args,
+            rand_seed=trial_count,
+            target_type=getattr(args, "target_type", "ground-rotation"),
+            mpc_model="explicit",
         )
-        env.show_target_object_pose(param.target_p_, param.target_q_)
+        param = _apply_mpc_physics_to_param(param)
+        param.use_jax_contact_ = False
+        param = adapt_param_for_cartesian_solver(param, args)
+        param = _configure_mpc_rollout_param(param, args)
+        param = adapt_param_for_joint_mppi(param, args)
+        param.control_substeps_ = int(args.control_substeps)
+        init = planner_init_payload(args, param, trial_count, args.sim_device)
+        _, plan_param, mpc, trackers = _build_planner_runtime(init)
 
-        mpc = MPPIExplicit(param) if param.mpc_model == 'explicit' else MPCImplicit(param)
+        obs = wait_trial_obs(bus, trial_count)
+        if obs is None:
+            viewer_quit = True
+            break
 
+        prev_action = None
+        policy = None
+        c_now_cost = None
+        pred_reduction = None
+        last_accept_p_arm = False
+        escape_on = False
+        verify_chatter = False
         rollout_step = 0
         consecutive_success_time = 0
-        verify_cost = 0
-        current_x = np.zeros(7)
-        current_x[3] = 1
+        min_pos_err = float("inf")
+        min_quat_err = float("inf")
+        pose_apply_count = 0
+        choose_times = []
+        pos_err_now = None
+        quat_err_now = None
+        action = np.zeros(7, dtype=np.float32)
 
-        low_err_coef = args.low_err_coef
-        upper_err_coef = args.upper_err_coef
-        consecutive_detect_time = 0
-        consecutive_contact_time = 0
-        contact_phase_steps = 0
-        bad_contact_steps = 0
-        initial_object_pose = None
-
-        rollout_q_traj = []
         while rollout_step < max_rollout_length:
-            if not env.dyn_paused_:
-                curr_q = env.get_state()
-                rollout_q_traj.append(curr_q)
-                if initial_object_pose is None:
-                    initial_object_pose = curr_q[:7].copy()
-
-                phi_vec, jac_mat, con_point, jac_mat_env, if_contact = contact.detect_once(env)
-                quanternion = [curr_q[4], curr_q[5], curr_q[6], curr_q[3]]  # wxyz -> xyzw
-                R_obj_to_world = Rotation.from_quat(quanternion).as_matrix()
-                gravity = np.hstack([R_obj_to_world.T @ param.gravity_[:3] * param.obj_mass_, np.zeros(3)])
-
-                target_pos_ = param.target_p_ - curr_q[0:3]
-                target_pos_[2] = 0
-
-                target_quat_local = rotations.quaternion_multiply(
-                    rotations.quaternion_conjugate(curr_q[3:7]),
-                    param.target_q_)
-                target_pose_local = np.hstack([R_obj_to_world.T @ target_pos_, target_quat_local])
-
-                param.lambda_optimizer.update_Jacobian(jac_mat_env)
-                visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
-                    curr_q[0:3], R_obj_to_world, param.target_p_, args.ground_height_threshold
-                )
-                best_contact_point, normal, min_error, max_error, curr_ori_coef = param.lambda_optimizer.choose_contact_points(
-                    target_pose_local, current_x, gravity, visible_point_idx
-                )
-
-                best_contact_point_world = R_obj_to_world @ best_contact_point + curr_q[0:3]
-                attract_point = best_contact_point.copy()
-                attract_point_world = R_obj_to_world @ attract_point + curr_q[0:3]
-                original_height = attract_point_world[2]
-                attract_point_world -= args.attract_point_comp * R_obj_to_world @ normal
-                attract_point_world[2] = max(attract_point_world[2], original_height)
-
-                ee_pos = env.get_end_effector_pos()[0].copy()
-                local_point = R_obj_to_world.T @ (ee_pos - curr_q[0:3])
-                p_arm_local, _, x_plus_opt, error, info = param.lambda_optimizer.optimize_control_input(
-                    target_pose_local, current_x, gravity, local_point
-                )
-                # Enforce that p_arm is represented by a vertex of the same
-                # scaled mesh used to create the Isaac object (scale 1, no
-                # local URDF offset).  optimize_control_input currently does
-                # this projection too; repeating it here makes the geometric
-                # contract explicit and guards future optimizer changes.
-                p_arm_raw_local = np.asarray(p_arm_local, dtype=np.float32).reshape(3)
-                p_arm_surface_idx, _, _, _ = param.lambda_optimizer.pp.project_point_to_mesh(
-                    p_arm_raw_local
-                )
-                p_arm_local = np.asarray(
-                    param.lambda_optimizer.pp.scaled_mesh.vertices[p_arm_surface_idx],
-                    dtype=np.float32,
-                )
-                p_arm_projection_residual = float(np.linalg.norm(p_arm_raw_local - p_arm_local))
-                p_arm_world = R_obj_to_world @ p_arm_local + curr_q[:3]
-                surface_distance = float(np.linalg.norm(ee_pos - best_contact_point_world))
-                template_to_arm_surface_distance = float(
-                    np.linalg.norm(best_contact_point_world - p_arm_world)
-                )
-                hover_distance = float(np.linalg.norm(ee_pos - attract_point_world))
-
-                if verify_cost:
-                    low_err_coef = args.low_err_coef
-                else:
-                    if np.linalg.norm(ee_pos - attract_point_world) < 5e-2:
-                        low_err_coef = min(low_err_coef * 1.1, 1.0)
-
-                delta_error = max(float(max_error - min_error), 1e-6)
-                improvement = float(max_error - error) / delta_error
-                if not verify_cost:
-                    # Phase 0 has exactly one purpose: reach the normal-offset
-                    # hover/detach point.  Do not let an abstract object-pose
-                    # improvement switch the geometric target prematurely.
-                    hover_ready = hover_distance <= args.hover_switch_distance
-                    consecutive_detect_time = consecutive_detect_time + 1 if hover_ready else 0
-                    if consecutive_detect_time >= 2:
-                        verify_cost = 1
-                        consecutive_detect_time = 0
-                        consecutive_contact_time = 0
-                        contact_phase_steps = 0
-                        bad_contact_steps = 0
-                else:
-                    # Contact must be held long enough to transmit momentum to
-                    # the object.  The old cumulative five-contact-frame test
-                    # could immediately switch back to the hover target and
-                    # unload the fingertip before any useful push occurred.
-                    contact_phase_steps += 1
-                    consecutive_contact_time = consecutive_contact_time + 1 if if_contact else 0
-                    bad_contact_steps = bad_contact_steps + 1 if improvement <= low_err_coef else 0
-                    may_release = contact_phase_steps >= args.contact_min_hold_steps
-                    persistently_bad = bad_contact_steps >= args.contact_release_bad_steps
-                    if may_release and persistently_bad:
-                        verify_cost = 0
-                        consecutive_detect_time = 0
-                        consecutive_contact_time = 0
-                        contact_phase_steps = 0
-                        bad_contact_steps = 0
-                print('min error:', min_error, 'max error', max_error, 'actual error:', error, 'low_coef:', low_err_coef)
-                print("verify cost:", verify_cost)
-
-                st = time.time()
-                sol = mpc.plan_once(
-                    param.target_p_,
-                    param.target_q_,
-                    curr_q,
-                    phi_vec,
-                    jac_mat,
-                    verify_cost_param=verify_cost,
-                    virtual_point=attract_point_world,
-                    # p_arm_world is the nearest valid surface point.  The
-                    # best template point is used only to assess whether the
-                    # nearby contact is good enough.
-                    contact_point=p_arm_world,
-                    curr_ori_coef=curr_ori_coef,
-                    sol_guess=param.sol_guess_,
-                )
-                param.sol_guess_ = sol['sol_guess']
-                action = np.asarray(sol['action'], dtype=np.float32)
-                predicted_object_delta = None
-                predicted_contact_force_norm = None
-                if args.debug_motion:
-                    # One-step model diagnostic: this must become non-zero when
-                    # a candidate action loads an active robot-object contact.
-                    q_inv = np.linalg.inv(np.asarray(param.Q, dtype=np.float32))
-                    model_gravity = np.asarray(param.gravity_, dtype=np.float32).copy()
-                    if bool(getattr(param, "mppi_tabletop_lock_", False)):
-                        model_gravity[2] = 0.0
-                    b_model = np.hstack(
-                        [
-                            float(param.obj_mass_) * model_gravity,
-                            np.asarray(param.robot_stiff_, dtype=np.float32) @ action,
-                        ]
-                    )
-                    jqb_model = jac_mat @ q_inv @ b_model
-                    contact_force_model = np.maximum(
-                        -float(param.model_params) * (jqb_model + phi_vec),
-                        0.0,
-                    )
-                    velocity_model = (
-                        q_inv @ b_model + q_inv @ jac_mat.T @ contact_force_model
-                    ) / float(param.h_)
-                    predicted_object_delta = float(param.h_) * velocity_model[:3]
-                    if bool(getattr(param, "mppi_tabletop_lock_", False)):
-                        predicted_object_delta[2] = 0.0
-                    predicted_contact_force_norm = float(np.linalg.norm(contact_force_model))
-                # env.draw_rollout_lines(sol.get("rollout_q", None))
-                print("time_cost = ", time.time() - st, action.shape)
-                print("attract_point_world = ", attract_point_world)
-                active_target = p_arm_world if verify_cost else attract_point_world
-                print(
-                    "surface_distance = ",
-                    surface_distance,
-                    "template_to_arm_surface_distance = ",
-                    template_to_arm_surface_distance,
-                    "hover_distance = ",
-                    hover_distance,
-                    "active_target_distance = ",
-                    float(np.linalg.norm(ee_pos - active_target)),
-                    "p_arm_projection_residual = ",
-                    p_arm_projection_residual,
-                    "if_contact = ",
-                    bool(if_contact),
-                    "contact_phase_steps = ",
-                    contact_phase_steps,
-                    "action_norm = ",
-                    float(np.linalg.norm(action)),
-                    "object_displacement = ",
-                    float(np.linalg.norm(curr_q[:3] - initial_object_pose[:3])),
-                )
-                if args.debug_motion:
-                    print(
-                        "motion_debug: object_rotation_change = ",
-                        float(metrics.comp_quat_error(curr_q[3:7], initial_object_pose[3:7])),
-                        "target_pos_error = ",
-                        float(metrics.comp_pos_error(curr_q[:3], param.target_p_)),
-                        "target_quat_error = ",
-                        float(metrics.comp_quat_error(curr_q[3:7], param.target_q_)),
-                        "predicted_object_delta = ",
-                        predicted_object_delta,
-                        "predicted_contact_force_norm = ",
-                        predicted_contact_force_norm,
-                    )
-
-                env.show_point(active_target)
-                state_before_execution = curr_q.copy()
-                env.step(action)
-
-                rollout_step = rollout_step + 1
-
-                curr_q = env.get_state()
-                if args.debug_motion:
-                    print(
-                        "actual_object_step_delta = ",
-                        curr_q[:3] - state_before_execution[:3],
-                        "actual_object_step_rotation = ",
-                        float(metrics.comp_quat_error(curr_q[3:7], state_before_execution[3:7])),
-                    )
-                if (metrics.comp_pos_error(curr_q[0:3], param.target_p_) < success_pos_threshold) \
-                        and (metrics.comp_quat_error(curr_q[3:7], param.target_q_) < success_quat_threshold):
-                    consecutive_success_time = consecutive_success_time + 1
-                else:
-                    consecutive_success_time = 0
-
-                if consecutive_success_time > consecutive_success_time_threshold:
-                    break
-
-        env.close()
-
-        if save_flag:
-            save_data.update(target_obj_pos=param.target_p_)
-            save_data.update(target_obj_quat=param.target_q_)
-            save_data.update(rollout_traj=np.array(rollout_q_traj))
-            if rollout_step < max_rollout_length:
-                save_data.update(success=True)
+            if obs.get("break_out") or obs.get("viewer_closed") or obs.get("cmd") == "stop":
+                viewer_quit = True
+                break
+            curr_q = np.asarray(obs["policy_q"], dtype=np.float32)
+            pos_err_now = float(metrics.comp_pos_error(curr_q[0:3], param.target_p_))
+            quat_err_now = float(metrics.comp_quat_error(curr_q[3:7], param.target_q_))
+            min_pos_err = min(min_pos_err, pos_err_now)
+            min_quat_err = min(min_quat_err, quat_err_now)
+            if pos_err_now < success_pos_threshold and quat_err_now < success_quat_threshold:
+                consecutive_success_time += 1
             else:
-                save_data.update(success=False)
-            metrics.save_data(
-                save_data,
-                data_name=prefix_data_name + 'trial_' + str(trial_count) + '_rollout',
-                save_dir=save_dir,
-            )
+                consecutive_success_time = 0
+            if consecutive_success_time > consecutive_success_time_threshold:
+                break
 
-        success_rate = success_rate + (1 if rollout_step < max_rollout_length else 0)
+            contact_distance = float(obs.get("contact_distance", float("inf")))
+            dwell = None
+            if policy is not None:
+                dwell = _dwell_payload(
+                    None, args, None, policy, last_accept_p_arm, escape_on,
+                    verify_chatter, c_now_cost, pred_reduction, contact_distance,
+                    pos_err_now, curr_q=curr_q, param=param,
+                )
+            payload, curr_q = _plan_from_obs(obs, dwell)
+            result = handle_planner_request(args, plan_param, mpc, trackers, payload)
+            policy = _apply_plan_result(param, None, result, curr_q, _print_rollout_step)
+            choose_times.append(float(result["rank_dt"]))
+            c_now_cost, pred_reduction = _pred_reduction_from_policy(param, curr_q, policy)
+            last_accept_p_arm = bool(policy["value_info"].get("accept_p_arm", False))
+            escape_on = bool(policy["escape_on"])
+            verify_chatter = bool(result["verify_chatter"])
+            raw = np.asarray(result["action"], dtype=np.float32).reshape(7)
+            action = blend_action(prev_action, raw, float(getattr(args, "action_smooth", 0.35)))
+            prev_action = action.copy()
+
+            on_exec_contact = False
+            if np.isfinite(contact_distance) and contact_distance <= 0.003:
+                post_tip = np.asarray(curr_q[7:10], dtype=float)
+                on_exec_contact = (
+                    float(np.linalg.norm(post_tip - np.asarray(policy["p_arm_world"], dtype=float))) <= 0.03
+                )
+                if on_exec_contact:
+                    pose_apply_count += 1
+            print(
+                "contact_distance:",
+                None if not np.isfinite(contact_distance) else round(contact_distance, 6),
+                "physics_contact:", int(on_exec_contact),
+                "mppi_action_norm:", round(float(np.linalg.norm(action)), 6),
+            )
+            bus.publish_cmd({
+                "kind": "joint",
+                "action": action,
+                "markers": {
+                    "target": policy["mpc_virtual_point"],
+                    "best_contact": policy["best_contact_world"],
+                },
+            })
+            rollout_step += 1
+            obs = bus.wait_obs(timeout=180.0)
+            if obs is None:
+                viewer_quit = True
+                break
+
+        bus.publish_cmd({"cmd": "end_trial"})
+        choose_arr = np.asarray(choose_times, dtype=np.float64) if choose_times else np.array([0.0])
+        print("trial_summary:", {
+            "trial": trial_count,
+            "mode": "mppi_planner",
+            "success": int(rollout_step < max_rollout_length),
+            "steps": rollout_step,
+            "pose_applies": pose_apply_count,
+            "final_pos_err": None if pos_err_now is None else round(float(pos_err_now), 5),
+            "final_quat_err": None if quat_err_now is None else round(float(quat_err_now), 5),
+            "min_pos_err": None if not np.isfinite(min_pos_err) else round(float(min_pos_err), 5),
+            "min_quat_err": None if not np.isfinite(min_quat_err) else round(float(min_quat_err), 5),
+            "choose_dt_mean": round(float(np.mean(choose_arr)), 5),
+            "choose_dt_max": round(float(np.max(choose_arr)), 5),
+            "choose_dt_p95": round(float(np.percentile(choose_arr, 95)), 5),
+        })
+        success_rate += 1 if rollout_step < max_rollout_length else 0
+        if viewer_quit:
+            break
+
     print(
         f"Success rate over {trial_num} trials "
         f"(trial ids {trial_start} to {trial_stop - 1}): "
-        f"{success_rate}/{trial_num} = {success_rate/trial_num:.2%}"
+        f"{success_rate}/{trial_num} = {success_rate / trial_num:.2%}"
     )
+    return viewer_quit
 
 
-if __name__ == '__main__':
+def planner_worker(cmd_q, obs_q, ready_q, init):
+    from examples.mpc.franka.ik2.isaac_bus import IsaacBus, args_from_init
+
+    if ready_q is not None:
+        ready_q.put({"ok": True, "pid": os.getpid()})
+    run_mppi_planner(IsaacBus(cmd_q, obs_q), args_from_init(init))
+
+
+def main():
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.py")
+    os.environ.pop("SCSP_PLANNER_ONLY", None)
+    os.execv(sys.executable, [sys.executable, script, "--planner", "mppi", *sys.argv[1:]])
+
+
+if __name__ == "__main__":
     main()

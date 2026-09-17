@@ -1,11 +1,139 @@
 import casadi as cs
+import re
 import numpy as np
 import trimesh
 
-from examples.mpc.fingertips.test.params import _mujoco_collision_mesh
 from utils import rotations
 from planning.attract_function import compute_scalar_potential_and_gradient
 from planning.mlqp_point import LambdaContactControlOptimizer
+from examples.mpc.fingertips.test.params import (
+    _mujoco_collision_mesh,
+    _mujoco_visual_mesh,
+)
+
+# Historical elephant goal-geom offset, same as fingertips --rollout.
+_GOAL_GEOM_Q = np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], dtype=np.float64)
+
+
+def add_via_init_pose_args(parser):
+    """Same tilted-start flags as examples/mpc/fingertips/test/test_0902.py."""
+    parser.add_argument(
+        "--random_init_tilt",
+        dest="random_init_tilt",
+        action="store_true",
+        help="Randomize the initial object tilt so flip starts are not upright.",
+    )
+    parser.add_argument("--no_random_init_tilt", dest="random_init_tilt", action="store_false")
+    parser.set_defaults(random_init_tilt=True)
+    parser.add_argument("--init_tilt_deg", type=float, default=75.0)
+    parser.add_argument("--init_tilt_min_deg", type=float, default=35.0)
+    return parser
+
+
+def _tilted_init_quaternion(args, yaw_angle):
+    yaw = float(np.asarray(yaw_angle, dtype=np.float64).reshape(-1)[0])
+    pitch_angle = 0.0
+    roll_angle = 0.0
+    if getattr(args, "random_init_tilt", False):
+        max_tilt = np.deg2rad(max(0.0, float(getattr(args, "init_tilt_deg", 65.0))))
+        min_tilt = np.deg2rad(max(0.0, float(getattr(args, "init_tilt_min_deg", 0.0))))
+        min_tilt = min(min_tilt, max_tilt)
+        tilt = np.sqrt(min_tilt ** 2 + np.random.rand() * (max_tilt ** 2 - min_tilt ** 2))
+        axis_angle = 2.0 * np.pi * np.random.rand()
+        pitch_angle = float(tilt * np.cos(axis_angle))
+        roll_angle = float(tilt * np.sin(axis_angle))
+    return rotations.rpy_to_quaternion(np.hstack([yaw, pitch_angle, roll_angle]))
+
+
+def _quat_wxyz_to_R(quat_wxyz):
+    qw, qx, qy, qz = np.asarray(quat_wxyz, dtype=float).reshape(4)
+    return np.array(
+        [
+            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+            [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _lift_init_height_for_tilt(init_height, quat_wxyz, local_bounds, table_height):
+    rot = _quat_wxyz_to_R(quat_wxyz)
+    corners = np.array(np.meshgrid(*zip(local_bounds[0], local_bounds[1]))).T.reshape(-1, 3)
+    min_world_z = float(np.min(corners @ rot[2, :]))
+    return max(float(init_height), float(table_height) + 0.002 - min_world_z)
+
+
+def _xml_obj_geom_quat_wxyz(model_path):
+    """Standing offset baked into the MuJoCo obj geom (wxyz).
+
+    piggy_bank / mug / teapot / foam_brick / rubber_duck use +90 deg about Y
+    so the raw STL rests on its feet.  Elephant / bunny are already identity.
+    """
+    identity = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    try:
+        text = open(model_path, "r", encoding="ascii").read()
+    except OSError:
+        return identity
+    tag = None
+    for match in re.finditer(r"<geom\b[^>]*>", text):
+        chunk = match.group(0)
+        if re.search(r'\bname="obj"', chunk):
+            tag = chunk
+            break
+    if tag is None:
+        return identity
+    quat_m = re.search(r'\bquat="([^"]+)"', tag)
+    if quat_m is None:
+        return identity
+    quat = np.fromstring(quat_m.group(1), sep=" ", dtype=np.float64)
+    if quat.size != 4:
+        return identity
+    nrm = float(np.linalg.norm(quat))
+    if nrm < 1e-9:
+        return identity
+    return quat / nrm
+
+
+def _source_standing_quat_wxyz(model_path):
+    """Stand the *source STL* using the XML obj geom quat.
+
+    piggy_bank / mug / teapot / foam_brick / rubber_duck bake +90 deg about
+    Y so authored +X becomes world +Z.  Ry(-90) is the inverse and stands
+    those meshes on their heads.  Elephant / bunny already use identity.
+    """
+    return _xml_obj_geom_quat_wxyz(model_path)
+
+
+def _ground_rotation_target_q(target_roll_sample):
+    """Same 90 deg pitch flip as fingertips test_0902 ground-rotation."""
+    body_target_q = rotations.rpy_to_quaternion(
+        np.hstack([0.0, -0.5 * np.pi, np.pi * float(target_roll_sample) - 0.5 * np.pi])
+    )
+    return rotations.quaternion_multiply(body_target_q, _GOAL_GEOM_Q)
+
+
+def _actor_quat_from_body(body_q, standing_q, extracted):
+    """Map a MuJoCo body quaternion into the Isaac actor frame."""
+    body_q = np.asarray(body_q, dtype=np.float64).reshape(4)
+    if extracted:
+        return body_q
+    return rotations.quaternion_multiply(body_q, np.asarray(standing_q, dtype=np.float64).reshape(4))
+
+
+def _box_inertia_diag(mass, aabb_lo, aabb_hi):
+    """Principal box inertia for a uniform solid of the given AABB."""
+    extents = np.asarray(aabb_hi, dtype=np.float64).reshape(3) - np.asarray(aabb_lo, dtype=np.float64).reshape(3)
+    extents = np.maximum(np.abs(extents), 1e-4)
+    mass = float(mass)
+    return np.array(
+        [
+            mass / 12.0 * (extents[1] ** 2 + extents[2] ** 2),
+            mass / 12.0 * (extents[0] ** 2 + extents[2] ** 2),
+            mass / 12.0 * (extents[0] ** 2 + extents[1] ** 2),
+        ],
+        dtype=np.float64,
+    )
 
 
 def build_lambda_optimizer(param, args):
@@ -38,7 +166,7 @@ def build_lambda_optimizer(param, args):
 
 
 class ExplicitMPCParams:
-    def __init__(self, args, rand_seed=1, target_type="rotation", mpc_model="explicit"):
+    def __init__(self, args, rand_seed=1, target_type="ground-rotation", mpc_model="explicit"):
         self.contact_cost_param = float(args.contact_cost_param)
         self.attract_coef = float(args.attract_coef)
         self.field_cost_weight = 0.05
@@ -60,17 +188,28 @@ class ExplicitMPCParams:
         self.object_aabb_hi = np.array([0.06, 0.04, 0.06], dtype=np.float64)
 
         self.model_path_ = "./envs/xmls/env_fingertips_" + args.obj + ".xml"
-        self.mesh_path_ = "envs/assets/objects/" + args.obj + ".stl"
+        self.source_mesh_path_ = "envs/assets/objects/" + args.obj + ".stl"
+        self.mesh_path_ = self.source_mesh_path_
+        self.visual_mesh_path_ = self.source_mesh_path_
         self.object_names_ = ["obj"]
         requested_hull = getattr(args, "collision_hull", None)
         self.collision_hull = True if requested_hull is None else bool(requested_hull)
+        # Sample the same compiled convex hull as fingertips --rollout so
+        # ranking, PhysX, and the pose metric share the MuJoCo body frame.
         self._collision_mesh_extracted = False
         if self.collision_hull:
-            source_mesh = self.mesh_path_
-            self.mesh_path_ = _mujoco_collision_mesh(source_mesh, self.model_path_)
-            self._collision_mesh_extracted = self.mesh_path_ != source_mesh
+            extracted = _mujoco_collision_mesh(self.source_mesh_path_, self.model_path_)
+            if extracted != self.source_mesh_path_:
+                self.mesh_path_ = extracted
+                self.visual_mesh_path_ = _mujoco_visual_mesh(
+                    self.source_mesh_path_, self.model_path_
+                )
+                self._collision_mesh_extracted = True
         try:
-            bounds = np.asarray(trimesh.load_mesh(self.mesh_path_, process=False).bounds, dtype=np.float64)
+            bounds = np.asarray(
+                trimesh.load_mesh(self.mesh_path_, process=False).bounds,
+                dtype=np.float64,
+            )
             self.object_aabb_lo = bounds[0].copy()
             self.object_aabb_hi = bounds[1].copy()
             self.object_circumradius = float(np.linalg.norm(0.5 * (bounds[1] - bounds[0])))
@@ -101,24 +240,77 @@ class ExplicitMPCParams:
         np.random.seed(100 + rand_seed)
 
         self.table_height = 0.35
-        init_height = 0.05 + self.table_height
+        local_bounds = np.stack([self.object_aabb_lo, self.object_aabb_hi], axis=0)
+        extracted = bool(self._collision_mesh_extracted)
+        # Extracted hull is already in the MuJoCo body frame (geom baked).
+        self.standing_q_ = (
+            np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+            if extracted
+            else _source_standing_quat_wxyz(self.model_path_)
+        )
         init_xy_rand = 0.1 * np.random.rand(2)
         init_xy_rand[0] += 0.3
 
-        yaw_angle = -np.pi * np.random.rand(1) + np.pi / 2
-        init_obj_quat_rand = rotations.rpy_to_quaternion(np.hstack([yaw_angle, 0, 0]))
+        yaw_angle = float(2.0 * np.pi * np.random.rand() - np.pi)
+        # Draw the target roll before the optional tilt so enabling
+        # --random_init_tilt only changes the initial state.
+        target_roll_sample = float(np.random.rand())
+        target_type = str(getattr(args, "target_type", target_type) or target_type)
+        if target_type == "ground-rotation":
+            # Same flip as test_0902, shifted into the Franka workspace.
+            self.target_q_ = _actor_quat_from_body(
+                _ground_rotation_target_q(target_roll_sample),
+                self.standing_q_,
+                extracted,
+            )
+            self.target_p_ = np.array(
+                [0.40, 0.10, float(self.table_height) + 0.03], dtype=np.float64
+            )
+        elif target_type == "rotation":
+            target_xy_rand = 0.1 * np.random.rand(2)
+            target_xy_rand[0] += 0.35
+            target_yaw = np.pi * np.random.rand(1) - np.pi / 2
+            target_yaw_q = rotations.rpy_to_quaternion(np.hstack([target_yaw, 0, 0]))
+            self.target_q_ = _actor_quat_from_body(
+                target_yaw_q, self.standing_q_, extracted
+            )
+            target_height = _lift_init_height_for_tilt(
+                0.0, self.target_q_, local_bounds, self.table_height
+            )
+            self.target_p_ = np.hstack([target_xy_rand, target_height])
+        else:
+            raise ValueError(f"Target type {target_type} not supported")
+
+        init_tilt_q = _tilted_init_quaternion(args, yaw_angle)
+        init_obj_quat_rand = _actor_quat_from_body(
+            init_tilt_q, self.standing_q_, extracted
+        )
+        init_height = _lift_init_height_for_tilt(
+            0.0, init_obj_quat_rand, local_bounds, self.table_height
+        )
 
         self.init_obj_qpos_ = np.hstack((init_xy_rand, init_height, init_obj_quat_rand))
         self.init_robot_qpos_ = np.array([0.0, -0.785, 0.0, -2.356, 0, 1.571, 0.785])
-
-        if target_type == "rotation":
-            target_xy_rand = 0.1 * np.random.rand(2)
-            target_xy_rand[0] += 0.35
-            self.target_p_ = np.hstack([target_xy_rand, init_height - 0.02])
-            yaw_angle = np.pi * np.random.rand(1) - np.pi / 2
-            self.target_q_ = rotations.rpy_to_quaternion(np.hstack([yaw_angle, 0, 0]))
+        # Same start as fingertips --rollout: beside the object, just above
+        # the table.  The Franka ready pose parks the sphere above the
+        # elephant, so the keep-out via hovers and never drops onto press.
+        toward_base = -np.asarray(self.init_obj_qpos_[:2], dtype=np.float64)
+        toward_norm = float(np.linalg.norm(toward_base))
+        if toward_norm < 1e-6:
+            toward_base = np.array([-1.0, 0.0], dtype=np.float64)
         else:
-            raise ValueError(f"Target type {target_type} not supported")
+            toward_base = toward_base / toward_norm
+        self.init_fingertip_pos_ = np.array(
+            [
+                float(self.init_obj_qpos_[0] + 0.10 * toward_base[0]),
+                float(self.init_obj_qpos_[1] + 0.10 * toward_base[1]),
+                float(self.table_height + 0.02),
+            ],
+            dtype=np.float64,
+        )
+        if getattr(args, "random_init_tilt", False):
+            self.init_fingertip_pos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
+            self.init_fingertip_pos_[2] += 0.03 * float(np.random.rand())
 
         self.mu_object_ = 0.5
         self.n_mj_q_ = self.n_qpos_
@@ -135,10 +327,13 @@ class ExplicitMPCParams:
         Q[6:, 6:] = self.robot_stiff_
         self.Q = Q
 
-        self.obj_mass_ = 0.1
-        # Ranking mass matches fingertips --rollout (0.01).  Isaac / DyWA
-        # may overwrite obj_mass_ for physics; lambda keeps this value.
+        self.obj_mass_ = 0.01
+        # Planner, ranking, and PhysX actor mass all match fingertips --rollout.
         self.lambda_obj_mass_ = 0.01
+        self.sim_obj_mass_ = 0.01
+        self.sim_obj_inertia_diag_ = _box_inertia_diag(
+            self.sim_obj_mass_, self.object_aabb_lo, self.object_aabb_hi
+        )
         self.gravity_ = np.array([0.00, 0.00, -9.8, 0.0, 0.0, 0.0])
         self.model_params = args.model_param
 
@@ -151,8 +346,9 @@ class ExplicitMPCParams:
 
         self.mpc_u_lb_ = -float(getattr(args, "mpc_step_limit", 0.005))
         self.mpc_u_ub_ = -self.mpc_u_lb_
-        fts_q_lb = np.array([-3, -3, self.table_height + 0.02])
-        fts_q_ub = np.array([3, 3, 3])
+        # Same fingertip box as fingertips --rollout, shifted by the table.
+        fts_q_lb = np.array([-10, -10, self.table_height - 0.01])
+        fts_q_ub = np.array([10, 10, self.table_height + 1.0])
         self.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), fts_q_lb))
         self.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), fts_q_ub))
         self.sol_guess_ = None

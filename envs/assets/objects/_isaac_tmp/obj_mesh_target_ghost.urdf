@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot name="mesh_target_ghost">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="obj_mesh_visual.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="ghost_color">
+        <color rgba="0.95 0.95 0.95 0.35"/>
+      </material>
+    </visual>
+  </link>
+</robot>

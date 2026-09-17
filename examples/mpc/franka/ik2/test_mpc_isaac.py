@@ -4,10 +4,18 @@ import re
 import sys
 
 import numpy as np
-from scipy.linalg import pinv
 from scipy.spatial.transform import Rotation
-from isaacgym import gymapi, gymtorch
-import torch
+
+if __name__ == "__main__" and "--sync-planner" not in sys.argv:
+    os.environ.setdefault("SCSP_PLANNER_ONLY", "1")
+
+if os.environ.get("SCSP_PLANNER_ONLY") == "1":
+    gymapi = None
+    gymtorch = None
+    torch = None
+else:
+    from isaacgym import gymapi, gymtorch
+    import torch
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(current_dir)
@@ -21,33 +29,42 @@ if parent_dir not in sys.path:
 from planning.acados_env import ensure_acados_env
 ensure_acados_env()
 
-from examples.mpc.franka.ik2.params import ExplicitMPCParams, build_lambda_optimizer
+from examples.mpc.franka.ik2.params import (
+    ExplicitMPCParams,
+    build_lambda_optimizer,
+    _box_inertia_diag,
+)
 from examples.mpc.franka.ik2.test_mppi_isaac import (
     IsaacFrankaSimulator,
-    _parse_bool_arg,
+    _apply_plan_result,
+    _dwell_payload,
     _extract_quat_xyzw,
     _extract_vec3,
+    _parse_bool_arg,
+    _plan_from_obs,
+    _plan_payload,
+    _pred_reduction_from_policy,
 )
-from examples.mpc.fingertips.test.test_0902 import (
-    ContactValueTracker,
-    ModelCostConfidence,
-    SmoothedApproachVia,
-    compute_rollout_contact_via,
-    _lambda_pose_cost,
-    _predicted_object_pose,
-    _protect_destination_dwell,
-    _rollout_dwell_assignment,
-    _same_contact_patch,
-    _should_observe_model_cost,
-    _verify_is_chatter,
-    _x_plus_is_usable,
+from examples.mpc.fingertips.test.test_0902 import add_rollout_via_args
+from planning.MPPIExplicit import (
+    _contact_jacobian,
+    _franka_fk_T_jax,
+    _tangent_basis_from_normal,
 )
-from planning.MPPIExplicit import _contact_jacobian, _franka_fk_T_jax, _tangent_basis_from_normal
 from planning.screenshot import create_isaacgym_svg_screenshot_recorder
+from examples.mpc.franka.ik2.contact_frames import (
+    contact_aware_task_force as _contact_aware_task_force,
+    planar_table_jacobians as _planar_table_jacobians,
+)
+from examples.mpc.franka.ik2.isaac_bus import joint_hold_target
 from utils import metrics
 
-DYWA_SIM_DT = 0.0125
+# DyWA used 12.5 ms; that only allowed ~2 OSC updates per 20 ms policy
+# step, so the arm finished a small fraction of each 5 mm increment.
+# Match the MuJoCo --rollout inner step (default 2 ms, frame_skip 10).
+DYWA_SIM_DT = 0.002
 DYWA_SIM_SUBSTEPS = 1
+POLICY_INTERVAL = 0.02
 DYWA_PHYSX_SOLVER_TYPE = 1
 DYWA_PHYSX_POSITION_ITERATIONS = 8
 DYWA_PHYSX_VELOCITY_ITERATIONS = 1
@@ -61,63 +78,43 @@ DYWA_OBJECT_FRICTION_RANGE = (0.2, 1.0)
 DYWA_OBJECT_MASS_RANGE = (0.1, 0.5)
 
 DEFAULT_CARTESIAN_STIFFNESS = np.array([2000.0, 2000.0, 2000.0, 50.0, 50.0, 50.0], dtype=np.float32)
-DEFAULT_EFFORT_JOINT_DAMPING = 10.0
+# Official Isaac OSC uses 0.  PhysX joint viscosity on top of task-space
+# damping made the tip crawl.  Contact force is set in task space, not here.
+DEFAULT_EFFORT_JOINT_DAMPING = 0.0
+# Fingertips --rollout PD: ctrl = -100 dpos - 2 dvel on an ~0.01 kg sphere.
+ROLLOUT_FINGERTIP_MASS = 0.01
+ROLLOUT_TASK_KP = 100.0
+ROLLOUT_TASK_KD = 2.0
+FREE_SPACE_FORCE_LIMIT = 400.0
+# Free-space via/OSC step.  Contact and the last 3 cm of approach stay on
+# the 5 mm MPC increment so press force is unchanged.
+AIR_VIA_STEP = 0.005
+NEAR_PRESS_SWITCH = 0.030
+ROLLOUT_TABLE_FRICTION = 0.5
+ROLLOUT_OBJECT_FRICTION = 0.9
+
+
+def policy_control_substeps(control_substeps, sim_dt, policy_interval=POLICY_INTERVAL):
+    """Frames per planner action.  0 means one --rollout interval (20 ms)."""
+    n = int(control_substeps)
+    if n <= 0:
+        return max(1, int(round(float(policy_interval) / max(float(sim_dt), 1e-6))))
+    return n
+
+
+ROLLOUT_FINGERTIP_FRICTION = 0.9
 SVG_SCREENSHOT_CAMERA_POSITION = np.array([0.7, 0.00, 0.63], dtype=np.float32)
 SVG_SCREENSHOT_CAMERA_TARGET = np.array([0.1, 0.00, 0.32], dtype=np.float32)
 
 
-# DEFAULT_ELEPHANT_TRIAL_REPLAY = {
-#     # Matches the elephant parameter-search entry whose trial 1 succeeded.
-#     "obj": "cube",
-#     "attract_coef": 0.5,
-#     "reject_coef": 0.001,
-#     "contact_coef": 0.5,
-#     "contact_cost_param": 0.0,
-#     "model_param": 6.0,
-#     "reject_dis": 0.01,
-#     "attract_point_comp": 0.1,
-#     "ground_height_threshold": 0.012,
-#     "sample_num": 70,
-#     "pos_coef": 1,
-#     "ori_coef": 0.02,
-#     "low_err_coef": 0.75,
-#     "upper_err_coef": 0.95,
-#     "sim_device": "cuda:0",
-#     "graphics_device_id": 0,
-#     "cartesian_step": 0.05,
-#     "cartesian_joint_stiffness": 100.0,
-#     "cartesian_dls_lambda": 0.0001,
-#     "osc_pos_stiffness": 2000.0,
-#     "osc_ori_stiffness": 400.0,
-#     # "headless": True,
-#     "trial_start": 5,
-#     "trial_count": 1,
-# }
-DEFAULT_ELEPHANT_TRIAL_REPLAY = {
-    "obj": "foam_brick",
-    "attract_coef": 0.5,
-    "reject_coef": 0.001,
-    "contact_coef": 0.7,
-    "contact_cost_param": 1.0,
-    "model_param": 7.0,
-    "reject_dis": 0.02,
-    "attract_point_comp": 0.1,
-    "ground_height_threshold": 0.012,
-    "sample_num": 70,
-    "pos_coef": 500,
-    "ori_coef": 20,
-    "sim_device": "cuda:0",
-    "graphics_device_id": 0,
-    "cartesian_joint_stiffness": 100.0,
-    "osc_pos_stiffness": 2000.0,
-    "osc_ori_stiffness": 400.0,
-    "trial_start": 3,
-    "trial_count": 1,
-}
 
 
 def _quat_xyzw_to_matrix(quat_xyzw):
-    return Rotation.from_quat(np.asarray(quat_xyzw, dtype=np.float64)).as_matrix().astype(np.float32)
+    quat = np.asarray(quat_xyzw, dtype=np.float64).reshape(4)
+    nrm = float(np.linalg.norm(quat))
+    if not np.isfinite(nrm) or nrm < 1e-8:
+        return np.eye(3, dtype=np.float32)
+    return Rotation.from_quat(quat / nrm).as_matrix().astype(np.float32)
 
 
 def _mjcf_quat_wxyz_to_urdf_rpy(quat_wxyz):
@@ -176,11 +173,56 @@ def _set_actor_friction(gym, env, actor_handle, friction):
     gym.set_actor_rigid_shape_properties(env, actor_handle, shape_props)
 
 
-def _set_actor_mass(gym, env, actor_handle, mass):
+def _inertia_diag_from_prop(prop):
+    inertia = getattr(prop, "inertia", None)
+    if inertia is None:
+        return None
+    row0 = getattr(inertia, "x", None)
+    if row0 is not None and hasattr(row0, "x"):
+        return np.array(
+            [float(inertia.x.x), float(inertia.y.y), float(inertia.z.z)],
+            dtype=np.float64,
+        )
+    if row0 is not None:
+        return np.array([float(inertia.x), float(inertia.y), float(inertia.z)], dtype=np.float64)
+    return None
+
+
+def _set_actor_inertia(prop, inertia_diag):
+    """Isaac Gym stores rigid-body inertia as Mat33, not a Vec3."""
+    ixx, iyy, izz = [float(v) for v in np.asarray(inertia_diag, dtype=np.float64).reshape(3)]
+    inertia = getattr(prop, "inertia", None)
+    if inertia is None:
+        return
+    row0 = getattr(inertia, "x", None)
+    if row0 is not None and hasattr(row0, "x"):
+        inertia.x = gymapi.Vec3(ixx, 0.0, 0.0)
+        inertia.y = gymapi.Vec3(0.0, iyy, 0.0)
+        inertia.z = gymapi.Vec3(0.0, 0.0, izz)
+        return
+    if row0 is not None:
+        inertia.x = ixx
+        inertia.y = iyy
+        inertia.z = izz
+        return
+    prop.inertia = gymapi.Vec3(ixx, iyy, izz)
+
+
+def _set_actor_mass(gym, env, actor_handle, mass, inertia_diag=None):
     body_props = gym.get_actor_rigid_body_properties(env, actor_handle)
+    mass = float(mass)
     for prop in body_props:
-        prop.mass = float(mass)
-    gym.set_actor_rigid_body_properties(env, actor_handle, body_props, True)
+        old_mass = float(prop.mass)
+        prop.mass = mass
+        if inertia_diag is not None:
+            _set_actor_inertia(prop, inertia_diag)
+        elif old_mass > 1e-9:
+            old_diag = _inertia_diag_from_prop(prop)
+            if old_diag is not None:
+                _set_actor_inertia(prop, old_diag * (mass / old_mass))
+    # Keep the explicit brick inertia.  recomputeInertia=True would
+    # restore the URDF 1e-4 values after the 0.05 -> 0.01 mass change.
+    gym.set_actor_rigid_body_properties(env, actor_handle, body_props, False)
 
 
 def _apply_dywa_physics_to_param(param):
@@ -194,12 +236,106 @@ def _apply_dywa_physics_to_param(param):
     param.physx_friction_offset_threshold_ = DYWA_PHYSX_FRICTION_OFFSET_THRESHOLD
     param.physx_friction_correlation_distance_ = DYWA_PHYSX_FRICTION_CORRELATION_DISTANCE
     param.physx_max_depenetration_velocity_ = DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY
-    param.table_friction_ = float(np.random.uniform(*DYWA_TABLE_FRICTION_RANGE))
-    param.object_friction_ = float(np.random.uniform(*DYWA_OBJECT_FRICTION_RANGE))
-    param.obj_mass_ = float(np.random.uniform(*DYWA_OBJECT_MASS_RANGE))
-    param.mu_object_ = float(param.object_friction_)
-    param.gravity_[2] = -9.81
+    # Same Coulomb values as env_fingertips_*.xml.  DyWA randomization
+    # (table 0.3--0.8, object 0.2--1.0) made some trials unflippable.
+    param.table_friction_ = ROLLOUT_TABLE_FRICTION
+    param.object_friction_ = ROLLOUT_OBJECT_FRICTION
+    rollout_mass = float(getattr(param, "lambda_obj_mass_", 0.01))
+    param.sim_obj_mass_ = rollout_mass
+    param.obj_mass_ = rollout_mass
+    param.sim_obj_inertia_diag_ = _box_inertia_diag(
+        rollout_mass,
+        getattr(param, "object_aabb_lo", np.array([-0.03, -0.03, -0.03])),
+        getattr(param, "object_aabb_hi", np.array([0.03, 0.03, 0.03])),
+    )
     return param
+
+
+_FRANKA_DH = np.array(
+    [
+        [0.0, 0.0, 0.333],
+        [0.0, -np.pi / 2, 0.0],
+        [0.0, np.pi / 2, 0.316],
+        [0.0825, np.pi / 2, 0.0],
+        [-0.0825, -np.pi / 2, 0.384],
+        [0.0, np.pi / 2, 0.0],
+        [0.088, np.pi / 2, 0.0],
+    ],
+    dtype=np.float64,
+)
+_ATTACH_R = Rotation.from_quat([0.0, 0.0, 0.9238795, 0.3826834]).as_matrix()
+_ATTACH_POS = np.array([0.0, 0.0, 0.107], dtype=np.float64)
+_TIP_POS = np.array([0.0, 0.0, 0.06], dtype=np.float64)
+
+
+def _mdh_np(a, alpha, d, theta):
+    ct, st = np.cos(theta), np.sin(theta)
+    ca, sa = np.cos(alpha), np.sin(alpha)
+    return np.array(
+        [
+            [ct, -st, 0.0, a],
+            [st * ca, ct * ca, -sa, -d * sa],
+            [st * sa, ct * sa, ca, d * ca],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _franka_fk_T_np(q):
+    T = np.eye(4, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64).reshape(7)
+    for i in range(7):
+        a, alpha, d = _FRANKA_DH[i]
+        T = T @ _mdh_np(a, alpha, d, q[i])
+    T_attach = np.eye(4, dtype=np.float64)
+    T_attach[:3, :3] = _ATTACH_R
+    T_attach[:3, 3] = _ATTACH_POS
+    T_tip = np.eye(4, dtype=np.float64)
+    T_tip[:3, 3] = _TIP_POS
+    return T @ T_attach @ T_tip
+
+
+def _franka_jacobian_pos_np(q, eps=1e-4):
+    q = np.asarray(q, dtype=np.float64).reshape(7)
+    jac = np.zeros((3, 7), dtype=np.float64)
+    for i in range(7):
+        dq = np.zeros(7, dtype=np.float64)
+        dq[i] = eps
+        jac[:, i] = (_franka_fk_T_np(q + dq)[:3, 3] - _franka_fk_T_np(q - dq)[:3, 3]) / (2.0 * eps)
+    return jac
+
+
+def _yoshikawa_w(q):
+    jac = _franka_jacobian_pos_np(q)
+    sign, logdet = np.linalg.slogdet(jac @ jac.T)
+    if sign <= 0 or not np.isfinite(logdet):
+        return 0.0
+    return float(np.exp(0.5 * logdet))
+
+
+def _manipulability_value_and_grad(q, eps=1e-4):
+    """Yoshikawa w = sqrt(det(J J^T)) and dw/dq.  No JAX — Isaac owns CUDA."""
+    q = np.asarray(q, dtype=np.float64).reshape(7)
+    w0 = _yoshikawa_w(q)
+    grad = np.zeros(7, dtype=np.float64)
+    for i in range(7):
+        dq = np.zeros(7, dtype=np.float64)
+        dq[i] = eps
+        grad[i] = (_yoshikawa_w(q + dq) - _yoshikawa_w(q - dq)) / (2.0 * eps)
+    grad = np.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
+    gnorm = float(np.linalg.norm(grad))
+    if gnorm > 1.0:
+        grad *= 1.0 / gnorm
+    return w0, grad.astype(np.float32)
+
+
+def _nullspace_of_jtj(jacobian, rcond=1e-6):
+    """Kinematic projector onto null(J^T J) = {v | J v = 0}."""
+    jacobian = np.asarray(jacobian, dtype=np.float64)
+    jtj = jacobian.T @ jacobian
+    projector = np.eye(jacobian.shape[1]) - np.linalg.pinv(jtj, rcond=rcond) @ jtj
+    return projector.astype(np.float32)
 
 
 class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
@@ -246,7 +382,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         sim_params.physx.max_depenetration_velocity = float(
             getattr(self.param_, "physx_max_depenetration_velocity_", DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY)
         )
-        sim_params.physx.use_gpu = (compute_id >= 0)
+        # One-env viewer + Warp MPPI share a GPU.  CPU PhysX avoids that hitch.
+        sim_params.physx.use_gpu = bool(getattr(self.param_, "physx_use_gpu_", False))
 
         self.sim = self.gym.create_sim(compute_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
         if self.sim is None:
@@ -340,7 +477,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             self.p_arm_marker_actor,
             0,
             gymapi.MESH_VISUAL,
-            gymapi.Vec3(1.0, 0.9, 0.1),
+            gymapi.Vec3(1.0, 0.0, 0.0),
         )
 
         best_marker_pose = gymapi.Transform()
@@ -354,7 +491,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             self.best_contact_marker_actor,
             0,
             gymapi.MESH_VISUAL,
-            gymapi.Vec3(1.0, 0.1, 0.1),
+            gymapi.Vec3(1.0, 1.0, 0.0),
         )
 
     @staticmethod
@@ -432,85 +569,62 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
 
         return asset_root, dst_rel
 
-    @staticmethod
-    def _prepare_mesh_urdf_assets(repo_root, mesh_path):
-        if mesh_path is None:
-            raise ValueError("param.mesh_path_ is required for Isaac object asset loading")
-
-        mesh_abs_path = mesh_path if os.path.isabs(mesh_path) else os.path.join(repo_root, mesh_path)
-        mesh_abs_path = os.path.abspath(mesh_abs_path)
-        if not os.path.isfile(mesh_abs_path):
-            raise FileNotFoundError(f"Mesh file not found: {mesh_abs_path}")
-
-        mesh_asset_root = os.path.join(repo_root, "envs", "assets", "objects", "_isaac_tmp")
-        os.makedirs(mesh_asset_root, exist_ok=True)
-        mesh_rel_to_urdf = os.path.relpath(mesh_abs_path, mesh_asset_root)
-        mesh_scale = "1 1 1"
-        obj_urdf_rel = "obj_mesh_dynamic.urdf"
-        obj_urdf_abs = os.path.join(mesh_asset_root, obj_urdf_rel)
-        target_urdf_rel = "obj_mesh_target_ghost.urdf"
-        target_urdf_abs = os.path.join(mesh_asset_root, target_urdf_rel)
-
-        obj_urdf = f"""<?xml version="1.0"?>
-<robot name="mesh_obj">
-  <link name="base">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.05"/>
-      <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="{mesh_rel_to_urdf}" scale="{mesh_scale}"/>
-      </geometry>
-      <material name="obj_color">
-        <color rgba="0.2 0.6 1.0 1.0"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="{mesh_rel_to_urdf}" scale="{mesh_scale}"/>
-      </geometry>
-    </collision>
-  </link>
-</robot>
-"""
-        ghost_urdf = f"""<?xml version="1.0"?>
-<robot name="mesh_target_ghost">
-  <link name="base">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="{mesh_rel_to_urdf}" scale="{mesh_scale}"/>
-      </geometry>
-      <material name="ghost_color">
-        <color rgba="0.95 0.95 0.95 0.35"/>
-      </material>
-    </visual>
-  </link>
-</robot>
-"""
-        with open(obj_urdf_abs, "w", encoding="ascii") as f:
-            f.write(obj_urdf)
-        with open(target_urdf_abs, "w", encoding="ascii") as f:
-            f.write(ghost_urdf)
-
-        return obj_urdf_rel, target_urdf_rel, mesh_asset_root
-
     def _apply_scene_physics_settings(self):
         self.table_friction_ = float(getattr(self.param_, "table_friction_", 0.5))
         self.object_friction_ = float(getattr(self.param_, "object_friction_", 0.5))
-        self.obj_mass_ = float(getattr(self.param_, "obj_mass_", 0.1))
+        self.obj_mass_ = float(getattr(self.param_, "sim_obj_mass_", getattr(self.param_, "obj_mass_", 0.01)))
+        inertia_diag = getattr(self.param_, "sim_obj_inertia_diag_", None)
         _set_actor_friction(self.gym, self.env, self.table_actor, self.table_friction_)
         _set_actor_friction(self.gym, self.env, self.obj_actor, self.object_friction_)
-        _set_actor_mass(self.gym, self.env, self.obj_actor, self.obj_mass_)
+        _set_actor_mass(self.gym, self.env, self.obj_actor, self.obj_mass_, inertia_diag)
+        self._apply_fingertip_only_object_collision()
+
+    def _apply_fingertip_only_object_collision(self):
+        """Only the sphere touches the object, same as the MuJoCo fingertip.
+
+        Arm-link / elephant collisions park the tip on a hover via above
+        the mesh; 0902 never has those links.
+        Isaac filter convention: shapes collide iff (filterA & filterB) == 0.
+        """
+        body_names = list(self.gym.get_actor_rigid_body_names(self.env, self.franka_actor))
+        shape_props = self.gym.get_actor_rigid_shape_properties(self.env, self.franka_actor)
+        assigned = False
+        try:
+            index_data = self.gym.get_actor_rigid_body_shape_indices(self.env, self.franka_actor)
+            for body_i, name in enumerate(body_names):
+                start = int(getattr(index_data[body_i], "start", index_data[body_i][0]))
+                count = int(getattr(index_data[body_i], "count", index_data[body_i][1]))
+                filt = 0 if name == "fingertip" else 1
+                for k in range(start, start + count):
+                    if 0 <= k < len(shape_props):
+                        shape_props[k].filter = filt
+                        if name == "fingertip":
+                            shape_props[k].friction = ROLLOUT_FINGERTIP_FRICTION
+                            shape_props[k].torsion_friction = ROLLOUT_FINGERTIP_FRICTION
+                            shape_props[k].rolling_friction = ROLLOUT_FINGERTIP_FRICTION
+                        assigned = True
+        except Exception:
+            assigned = False
+        if not assigned:
+            fingertip_idx = body_names.index("fingertip") if "fingertip" in body_names else len(shape_props) - 1
+            for i, prop in enumerate(shape_props):
+                prop.filter = 0 if i == fingertip_idx or i == len(shape_props) - 1 else 1
+        self.gym.set_actor_rigid_shape_properties(self.env, self.franka_actor, shape_props)
+
+        obj_props = self.gym.get_actor_rigid_shape_properties(self.env, self.obj_actor)
+        for prop in obj_props:
+            prop.filter = 1
+        self.gym.set_actor_rigid_shape_properties(self.env, self.obj_actor, obj_props)
+
+        table_props = self.gym.get_actor_rigid_shape_properties(self.env, self.table_actor)
+        for prop in table_props:
+            prop.filter = 0
+        self.gym.set_actor_rigid_shape_properties(self.env, self.table_actor, table_props)
 
     def _configure_franka(self):
         dof_props = self.gym.get_actor_dof_properties(self.env, self.franka_actor)
         effort_joint_damping = float(
-            getattr(self.param_, "effort_joint_damping_", DEFAULT_EFFORT_JOINT_DAMPING)
+            getattr(self.param_, "effort_joint_damping_", 1.0)
         )
         dof_props["driveMode"][:7] = gymapi.DOF_MODE_EFFORT
         dof_props["stiffness"][:7] = 0.0
@@ -530,15 +644,18 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             self._joint_targets[7] = 0.04
             self._joint_targets[8] = 0.04
         self.torque_limits = np.array(dof_props["effort"][:7], dtype=np.float32)
+        self.dof_lower_ = np.array(dof_props["lower"][:7], dtype=np.float32)
+        self.dof_upper_ = np.array(dof_props["upper"][:7], dtype=np.float32)
 
-        pos_stiffness = float(getattr(self.param_, "osc_pos_stiffness_", 150.0))
-        ori_stiffness = float(getattr(self.param_, "osc_ori_stiffness_", 400.0))
+        pos_stiffness = float(getattr(self.param_, "osc_pos_stiffness_", 12000.0))
+        ori_stiffness = float(getattr(self.param_, "osc_ori_stiffness_", 0.0))
         self.osc_task_kp = np.array(
             [pos_stiffness, pos_stiffness, pos_stiffness, ori_stiffness, ori_stiffness, ori_stiffness],
             dtype=np.float32,
         )
-        self.osc_task_kd = (2.0 * np.sqrt(self.osc_task_kp)).astype(np.float32)
-        self.nullspace_stiffness = 10.0
+        # Slightly under-damped so a 5 mm increment can finish inside 20 ms.
+        self.osc_task_kd = (1.4 * np.sqrt(self.osc_task_kp)).astype(np.float32)
+        self.nullspace_stiffness = float(getattr(self.param_, "nullspace_stiffness_", 10.0))
         self.home_q = np.array(self.param_.init_robot_qpos_, dtype=np.float32)
         self.q_d_nullspace = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
         self.low_height = float(self.param_.table_height + 0.02)
@@ -577,14 +694,72 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         return jac_idx
 
     def _refresh_osc_tensors(self):
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        # Pose / joints stay on the CPU actor APIs.  Refreshing the rigid-body
+        # state tensor here can zero those CPU reads when the GPU pipeline is off.
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_jacobian_tensors(self.sim)
         self.gym.refresh_mass_matrix_tensors(self.sim)
 
     def reset_mj_env(self):
         super().reset_mj_env()
+        self._place_fingertip_for_rollout()
         self._sync_desired_pose_with_current()
+        self._hold_q0 = np.asarray(self.get_current_joint_position(), dtype=np.float32)
+        self._hold_dq = None
+        self._hold_i = 0
+        self._hold_n = 1
+        self._contact_info_cache = None
+
+    def _rollout_fingertip_start(self):
+        custom = getattr(self.param_, "init_fingertip_pos_", None)
+        if custom is not None:
+            return np.asarray(custom, dtype=np.float32).reshape(3)
+        obj = np.asarray(self.param_.init_obj_qpos_[:3], dtype=np.float64)
+        toward = -obj[:2]
+        nrm = float(np.linalg.norm(toward))
+        if nrm < 1e-6:
+            toward = np.array([-1.0, 0.0], dtype=np.float64)
+        else:
+            toward = toward / nrm
+        return np.array(
+            [obj[0] + 0.10 * toward[0], obj[1] + 0.10 * toward[1], float(self.param_.table_height) + 0.02],
+            dtype=np.float32,
+        )
+
+    def _set_arm_qpos(self, q):
+        q = np.asarray(q, dtype=np.float32).reshape(7)
+        lower = getattr(self, "dof_lower_", None)
+        upper = getattr(self, "dof_upper_", None)
+        if lower is not None and upper is not None:
+            q = np.clip(q, lower, upper)
+        dof_states = self.gym.get_actor_dof_states(self.env, self.franka_actor, gymapi.STATE_ALL)
+        dof_states["pos"][:7] = q
+        dof_states["vel"][:7] = 0.0
+        self.gym.set_actor_dof_states(self.env, self.franka_actor, dof_states, gymapi.STATE_ALL)
+        self._joint_targets[:7] = q
+        if self.franka_dof_count >= 9:
+            self._joint_targets[7] = 0.04
+            self._joint_targets[8] = 0.04
+            self.gym.set_actor_dof_position_targets(self.env, self.franka_actor, self._joint_targets)
+
+    def _place_fingertip_for_rollout(self, steps=80):
+        target = self._rollout_fingertip_start()
+        yaw = float(np.arctan2(target[1], max(target[0], 0.05)))
+        q = np.array([yaw, 0.35, 0.0, -2.05, 0.0, 2.40, 0.785], dtype=np.float32)
+        self._set_arm_qpos(q)
+        for _ in range(int(steps)):
+            self._refresh_osc_tensors()
+            p_curr, _ = self.get_end_effector_pos()
+            err = target - p_curr
+            if float(np.linalg.norm(err)) < 0.008:
+                break
+            jac = np.asarray(self._get_task_jacobian()[:3], dtype=np.float32)
+            damp = 1e-3 * np.eye(3, dtype=np.float32)
+            dq = jac.T @ np.linalg.solve(jac @ jac.T + damp, 0.45 * err)
+            q = q + dq
+            self._set_arm_qpos(q)
+        self.p_d = target.copy()
+        self.position_d = target.copy()
 
     def _sync_desired_pose_with_current(self):
         self._refresh_osc_tensors()
@@ -597,33 +772,51 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         # self.q_d_nullspace = self.get_current_joint_position().copy()
         self.q_d_nullspace = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
 
-    def _simulate_once(self):
+    def _simulate_once(self, sync_realtime=False, draw=True):
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
-        self._sync_pose_axes()
+        if draw:
+            self._contact_info_cache = None
 
         graphics_stepped = False
-        if self.viewer_ is not None or self.svg_screenshot_recorder_ is not None:
+        if draw and (self.viewer_ is not None or self.svg_screenshot_recorder_ is not None):
+            self._sync_pose_axes()
             self.gym.step_graphics(self.sim)
             graphics_stepped = True
 
-        if self.svg_screenshot_recorder_ is not None:
+        if draw and self.svg_screenshot_recorder_ is not None:
             self.svg_screenshot_recorder_.capture_if_due(
                 sim_time=float(self.gym.get_sim_time(self.sim)),
                 step_graphics=not graphics_stepped,
             )
 
-        if self.viewer_ is not None:
+        if draw and self.viewer_ is not None:
             self.gym.draw_viewer(self.viewer_, self.sim, True)
+            if sync_realtime:
+                self.gym.sync_frame_time(self.sim)
+
+    def sync_realtime(self):
+        """Wait for wall time to catch the last simulated frame.  CPU-only."""
+        if self.viewer_ is not None:
             self.gym.sync_frame_time(self.sim)
+
+    def hold_and_sync(self):
+        """Keep the current OSC target and pump the viewer for one frame."""
+        self._track_desired_pose(
+            preserve_nullspace_target=True, sync_realtime=True, draw=True
+        )
 
     def _get_body_pose(self, local_idx):
         states = self.gym.get_actor_rigid_body_states(self.env, self.franka_actor, gymapi.STATE_POS)
         p = _extract_vec3(states["pose"]["p"][local_idx])
         # Isaac rigid-body states store world-frame orientations as quaternions in xyzw order.
         quat_xyzw = _extract_quat_xyzw(states["pose"]["r"][local_idx])
-        r = _quat_xyzw_to_matrix(quat_xyzw)
-        return p, r
+        quat_ok = np.isfinite(quat_xyzw).all() and float(np.linalg.norm(quat_xyzw)) > 1e-8
+        pos_ok = np.isfinite(p).all()
+        if not quat_ok or not pos_ok:
+            T = _franka_fk_T_np(self.get_current_joint_position())
+            return T[:3, 3].astype(np.float32), T[:3, :3].astype(np.float32)
+        return p, _quat_xyzw_to_matrix(quat_xyzw)
 
     def get_end_effector_pos(self):
         p_task, r_task = self._get_body_pose(self.task_body_local_idx)
@@ -680,11 +873,59 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         jac_task_idx = self._jacobian_body_index(self.task_body_local_idx)
         return np.array(self._jacobian[0, jac_task_idx, :, :7], dtype=np.float32)
 
+    def _get_position_jacobian(self, q=None):
+        """Analytic fingertip J.  Isaac's tensor J is for a different body
+        index on the no-hand URDF and was producing weak task torques."""
+        if q is None:
+            q = self.get_current_joint_position()
+        return _franka_jacobian_pos_np(q).astype(np.float32)
+
     def _get_arm_mass_matrix(self):
         mm = self._mm
         if mm.ndim == 3:
             mm = mm[0]
         return np.array(mm[:7, :7], dtype=np.float32)
+
+    def _task_mass_matrix(self, jac_p):
+        jac_p = np.asarray(jac_p, dtype=np.float64)
+        mm = self._get_arm_mass_matrix()
+        mm_ok = np.isfinite(mm).all() and float(np.trace(np.asarray(mm, dtype=np.float64))) > 0.5
+        if mm_ok:
+            mm_inv = self._safe_inverse(mm)
+            lambda_inv = jac_p @ np.asarray(mm_inv, dtype=np.float64) @ jac_p.T
+            if np.isfinite(lambda_inv).all() and abs(float(np.linalg.det(lambda_inv))) > 1e-10:
+                return self._safe_inverse(lambda_inv.astype(np.float32))
+        # CPU-pipeline mass tensor is often empty; a 2.5 kg task mass is
+        # enough to finish a 5 mm increment in 20 ms without saturating.
+        return (2.5 * np.eye(3, dtype=np.float32))
+
+    def _rollout_task_gains(self):
+        stiff = getattr(self.param_, "robot_stiff_", None)
+        if stiff is not None:
+            k = float(np.asarray(stiff).reshape(-1)[0])
+        else:
+            k = ROLLOUT_TASK_KP
+        return max(k, 1e-3), ROLLOUT_TASK_KD
+
+    def _fingertip_contact_info(self):
+        """Physical fingertip/object contact and the outward (object → tip) normal."""
+        cached = getattr(self, "_contact_info_cache", None)
+        if cached is not None:
+            return cached
+        in_contact, best_n, _sep = self.fingertip_object_contact()
+        self._contact_info_cache = (in_contact, best_n)
+        return in_contact, best_n
+
+    def _fingertip_in_physical_contact(self):
+        in_contact, _ = self._fingertip_contact_info()
+        return in_contact
+
+    def _clip_task_force(self, force, limit):
+        force = np.asarray(force, dtype=np.float32).reshape(3)
+        nrm = float(np.linalg.norm(force))
+        if nrm > float(limit) and nrm > 1e-9:
+            force = force * (float(limit) / nrm)
+        return force
 
     @staticmethod
     def _orientation_error(r_current, r_desired):
@@ -743,33 +984,40 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._refresh_osc_tensors()
 
         q = self.get_current_joint_position()
-        qd = self.get_current_joint_velocity()
-        p_curr, r_curr = self.get_end_effector_pos()
-        jac = self._get_task_jacobian()
-        mm = self._get_arm_mass_matrix()
-        mm_inv = self._safe_inverse(mm)
-        m_task_inv = jac @ mm_inv @ jac.T
-        m_task = self._safe_inverse(m_task_inv)
+        qd = np.clip(np.nan_to_num(self.get_current_joint_velocity(), nan=0.0), -8.0, 8.0)
+        p_curr, _ = self.get_end_effector_pos()
+        jac_p = self._get_position_jacobian(q)
+        err = np.asarray(self.position_d - p_curr, dtype=np.float32).reshape(3)
+        vel = np.clip(jac_p @ qd, -2.0, 2.0)
+        k_task, d_task = self._rollout_task_gains()
 
-        dpose = self._compute_task_space_error(p_curr, r_curr)
-        ee_velocity = jac @ qd
-        tau_task = jac.T @ (m_task @ (self.osc_task_kp * dpose - self.osc_task_kd * ee_velocity))
+        # Always track the 5 mm increment with task-space mass so a
+        # diagonal flip still has a +Z component.  In contact, cap only
+        # the inward press at the MuJoCo fingertip force (~0.5 N / 5 mm).
+        m_task = self._task_mass_matrix(jac_p)
+        acc = (k_task / ROLLOUT_FINGERTIP_MASS) * err - (d_task / ROLLOUT_FINGERTIP_MASS) * vel
+        force_track = self._clip_task_force(m_task @ acc, FREE_SPACE_FORCE_LIMIT)
+        in_contact, contact_n = self._fingertip_contact_info()
+        if in_contact:
+            force_contact = k_task * err - d_task * vel
+            force = _contact_aware_task_force(force_track, force_contact, contact_n)
+        else:
+            force = force_track
+        tau_task = jac_p.T @ force
 
-        j_task_inv = m_task @ jac @ mm_inv
-        q_error = (self.q_d_nullspace - q + np.pi) % (2.0 * np.pi) - np.pi
-        tau_nullspace = (
-            2.0 * np.sqrt(self.nullspace_stiffness) * (-qd)
-            + self.nullspace_stiffness * q_error
+        null_proj = _nullspace_of_jtj(jac_p)
+        _, grad_w = _manipulability_value_and_grad(q)
+        damp = 2.0 * np.sqrt(max(float(self.nullspace_stiffness), 1e-6))
+        tau_nullspace = null_proj @ (
+            self.nullspace_stiffness * grad_w - damp * qd
         ).astype(np.float32)
-        tau_nullspace = mm @ tau_nullspace
-        tau_nullspace = (np.eye(7, dtype=np.float32) - jac.T @ j_task_inv) @ tau_nullspace
 
         if self.activate_tool_compensation:
-            tau_tool = jac.T @ self.tool_compensation_force
+            tau_tool = jac_p.T @ self.tool_compensation_force[:3]
         else:
             tau_tool = np.zeros(7, dtype=np.float32)
 
-        tau_d = tau_task + tau_nullspace + tau_tool
+        tau_d = np.nan_to_num(tau_task + tau_nullspace + tau_tool, nan=0.0, posinf=0.0, neginf=0.0)
         return np.clip(tau_d, -self.torque_limits, self.torque_limits)
 
     def compute_cartesian_impedance_control(self):
@@ -806,11 +1054,13 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         F_ee_des = -cartesian_stiffness @ error - cartesian_damping @ velocity
         tau_task = jacobian.T @ F_ee_des
         
-        # Nullspace control
-        jacobian_pinv = pinv(jacobian.T)
-        nullspace_proj = np.eye(7) - jacobian.T @ jacobian_pinv
-        tau_nullspace = nullspace_proj @ (self.nullspace_stiffness * (self.q_d_nullspace - q) - 
-                                         2 * np.sqrt(self.nullspace_stiffness) * dq)
+        # Nullspace: maximize manipulability in null(J^T J).
+        position_only = float(np.diag(cartesian_stiffness)[3]) <= 1e-6
+        task_jac = jacobian[:3] if position_only else jacobian
+        nullspace_proj = _nullspace_of_jtj(task_jac)
+        _, grad_w = _manipulability_value_and_grad(q)
+        damp = 2.0 * np.sqrt(max(float(self.nullspace_stiffness), 1e-6))
+        tau_nullspace = nullspace_proj @ (self.nullspace_stiffness * grad_w - damp * dq)
         
         # Tool compensation
         if self.activate_tool_compensation:
@@ -818,21 +1068,24 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         else:
             tau_tool = np.zeros(7)
             
-        # Total desired torque
-        tau_d = tau_task + tau_nullspace + tau_tool
-        
-        # Saturate torque
+        tau_d = np.nan_to_num(tau_task + tau_nullspace + tau_tool, nan=0.0, posinf=0.0, neginf=0.0)
         tau_d = np.clip(tau_d, -self.torque_limits, self.torque_limits)
-        
         return tau_d
 
     def _apply_arm_torque(self, tau):
         tau = np.asarray(tau, dtype=np.float32).reshape(-1)
         if tau.size != 7:
             raise ValueError(f"Invalid torque dimension: {tau.size}. Expected 7.")
+        tau = np.nan_to_num(tau, nan=0.0, posinf=0.0, neginf=0.0)
         tau = np.clip(tau, -self.torque_limits, self.torque_limits)
+        forces = np.zeros(self.franka_dof_count, dtype=np.float32)
+        forces[:7] = tau
+        if hasattr(self.gym, "set_actor_dof_actuation_force"):
+            self.gym.set_actor_dof_actuation_force(self.env, self.franka_actor, forces)
         self._effort_control.zero_()
-        self._effort_control[:7] = torch.as_tensor(tau, dtype=torch.float32, device=self._effort_control.device)
+        self._effort_control[:7] = torch.as_tensor(
+            tau, dtype=torch.float32, device=self._effort_control.device
+        )
         if self.franka_dof_count >= 9:
             self.gym.set_actor_dof_position_targets(self.env, self.franka_actor, self._joint_targets)
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self._effort_control))
@@ -841,59 +1094,63 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
     def set_control_torque(self, control_torque):
         self._apply_arm_torque(control_torque)
 
-    def _track_desired_pose(self, preserve_nullspace_target=False):
+    def _track_desired_pose(self, preserve_nullspace_target=False, sync_realtime=False, draw=True):
         p_target = np.asarray(self.p_d, dtype=np.float32).copy()
         r_target = self._project_to_rotation_matrix(self.R_d_hold)
 
         if not preserve_nullspace_target:
-            # self.q_d_nullspace = self.get_current_joint_position().copy()
             self.q_d_nullspace = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
         self.set_desired_pose(p_target, r_target)
         tau = self._compute_osc_torques()
         self._apply_arm_torque(tau)
-        self._simulate_once()
+        self._simulate_once(sync_realtime=sync_realtime, draw=draw)
         return np.clip(tau, -self.torque_limits, self.torque_limits)
 
-    def track_via(self, via_pos, n_substeps=None):
-        """Hold OSC on the --rollout via for one 20 ms policy interval."""
+    def track_via(self, via_pos, n_substeps=None, sync_realtime=True):
+        """OSC-track the 3D fingertip via for one --rollout policy interval."""
         via_pos = np.asarray(via_pos, dtype=np.float32).reshape(3)
         self.p_d = via_pos.copy()
         self.R_d = self.R_d_hold.copy()
         if n_substeps is None:
-            n_substeps = max(int(getattr(self.param_, "control_substeps_", 0)), 0)
-            if n_substeps <= 0:
-                n_substeps = max(1, int(round(0.02 / max(self.sim_dt_, 1e-6))))
+            n_substeps = policy_control_substeps(
+                getattr(self.param_, "control_substeps_", 0), self.sim_dt_
+            )
         applied_tau = None
-        for _ in range(n_substeps):
-            applied_tau = self._track_desired_pose(preserve_nullspace_target=True)
+        for i in range(n_substeps):
+            last = (i + 1 == n_substeps)
+            applied_tau = self._track_desired_pose(
+                preserve_nullspace_target=True,
+                sync_realtime=bool(sync_realtime) and last,
+                draw=last,
+            )
         return applied_tau
 
-    def step_joint_delta(self, dq):
+    def step_joint_delta(self, dq, sync_realtime=True):
         q = self.get_current_joint_position()
         dq = np.asarray(dq, dtype=np.float32).reshape(7)
-        q_des = q + dq
 
-        T_des = np.array(_franka_fk_T_jax(q_des), dtype=np.float32)
-        p_des = T_des[:3, 3]
-        r_des = T_des[:3, :3]
-
-        self.q_d_nullspace = q_des.copy()
-        self.p_d = p_des.copy()
-        self.R_d = r_des.copy()
-        # A planner action represents one complete joint-space delta.  One
-        # PhysX frame is generally too short for the effort-controlled OSC to
-        # track that target, especially once the fingertip is loaded by a
-        # contact.  Holding the same target for a few frames reduces the
-        # rollout/execution mismatch and permits sustained contact force.  The
-        # shared MPC environment keeps its previous behavior unless a caller
-        # explicitly configures control_substeps_.
-        control_substeps = max(int(getattr(self.param_, "control_substeps_", 1)), 1)
+        # One MPPI joint action is one 20 ms --rollout interval.  Interpolate
+        # the FK target across the OSC frames so the tip does not jump.
+        n_substeps = policy_control_substeps(
+            getattr(self.param_, "control_substeps_", 0), self.sim_dt_
+        )
         applied_tau = None
-        for _ in range(control_substeps):
-            applied_tau = self._track_desired_pose(preserve_nullspace_target=True)
+        for i in range(n_substeps):
+            frac = float(i + 1) / float(n_substeps)
+            q_i = q + dq * frac
+            T_i = np.array(_franka_fk_T_jax(q_i), dtype=np.float32)
+            self.q_d_nullspace = q_i.copy()
+            self.p_d = T_i[:3, 3].copy()
+            self.R_d = T_i[:3, :3].copy()
+            last = (i + 1 == n_substeps)
+            applied_tau = self._track_desired_pose(
+                preserve_nullspace_target=True,
+                sync_realtime=bool(sync_realtime) and last,
+                draw=last,
+            )
         return applied_tau
 
-    def step(self, cmd):
+    def step(self, cmd, sync_realtime=True):
         cmd = np.asarray(cmd, dtype=np.float32).reshape(-1)
         if cmd.size == 3:
             p_curr, _ = self.get_end_effector_pos()
@@ -901,13 +1158,55 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             self.p_d = p_curr + cmd
             # self.p_d[2] = max(self.p_d[2], self.low_height)
             self.R_d = self.R_d_hold.copy()
-            return self._track_desired_pose()
+            return self._track_desired_pose(sync_realtime=sync_realtime)
 
         if cmd.size == 7:
-            self.step_joint_delta(cmd)
+            self.step_joint_delta(cmd, sync_realtime=sync_realtime)
             return
 
         raise ValueError(f"Invalid action dimension: {cmd.size}. Expected 3 or 7.")
+
+    def set_joint_action(self, dq):
+        """Start a 20 ms joint increment.  Isaac interpolates one frame at a time."""
+        self._hold_q0 = np.asarray(self.get_current_joint_position(), dtype=np.float32)
+        self._hold_dq = np.asarray(dq, dtype=np.float32).reshape(7)
+        self._hold_n = policy_control_substeps(
+            getattr(self.param_, "control_substeps_", 0), self.sim_dt_
+        )
+        self._hold_i = 0
+
+    def set_via_action(self, via_pos):
+        self._hold_dq = None
+        self._hold_i = 0
+        self.p_d = np.asarray(via_pos, dtype=np.float32).reshape(3).copy()
+        self.R_d = self.R_d_hold.copy()
+
+    def hold_current_pose(self):
+        self._hold_dq = None
+        self._hold_i = 0
+        p, r = self.get_end_effector_pos()
+        self.p_d = np.asarray(p, dtype=np.float32).reshape(3).copy()
+        self.R_d = np.asarray(r, dtype=np.float32).reshape(3, 3).copy()
+
+    def step_control_frame(self, draw=True, sync_realtime=False):
+        """One PhysX/OSC frame.  Holds the last target after the increment ends."""
+        if self._hold_dq is not None and self._hold_i < self._hold_n:
+            self._hold_i += 1
+            q_i = np.asarray(
+                joint_hold_target(self._hold_q0, self._hold_dq, self._hold_i, self._hold_n),
+                dtype=np.float32,
+            )
+            T_i = np.array(_franka_fk_T_jax(q_i), dtype=np.float32)
+            self.q_d_nullspace = q_i.copy()
+            self.p_d = T_i[:3, 3].copy()
+            self.R_d = T_i[:3, :3].copy()
+            if self._hold_i >= self._hold_n:
+                self._hold_dq = None
+        return self._track_desired_pose(
+            preserve_nullspace_target=True,
+            sync_realtime=sync_realtime,
+            draw=draw,
+        )
 
     def close(self):
         if self.svg_screenshot_recorder_ is not None:
@@ -924,6 +1223,19 @@ class ContactIsaacCartesian:
     def get_actual_fingertip_contact(self):
         return self._last_fingertip_contact
 
+    @staticmethod
+    def _contact_jacobian_body_frame(jacobian, body_mat):
+        """Match contact.fingertips_collision_detection2.Contact."""
+        jacobian = np.asarray(jacobian, dtype=np.float64).copy()
+        if jacobian.ndim != 2 or jacobian.shape[1] < 6:
+            return jacobian
+        rot = np.asarray(body_mat, dtype=np.float64).reshape(3, 3)
+        frame = np.zeros((6, 6), dtype=np.float64)
+        frame[:3, :3] = rot
+        frame[3:, 3:] = rot
+        jacobian[:, :6] = jacobian[:, :6] @ frame
+        return jacobian
+
     def detect_once(self, simulator: IsaacFrankaOSCSimulator):
         full_q = simulator.get_state()
         full_q = np.asarray(full_q, dtype=np.float32)
@@ -939,86 +1251,79 @@ class ContactIsaacCartesian:
         con_pos_list = []
         if_contact = False
 
-        contacts = simulator.get_physx_contacts()
+        contacts_raw = simulator.gym.get_env_rigid_contacts(simulator.env)
         mu = float(self.param_.mu_object_)
         contact_sep_threshold = float(getattr(self.param_, "if_contact_separation_threshold_", 0.0))
         fingertip_sim_idx = getattr(simulator, "franka_body_name_to_index", {}).get("fingertip")
+        quat_xyzw = np.array(
+            [obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]],
+            dtype=np.float32,
+        )
+        r_obj_to_world = Rotation.from_quat(quat_xyzw).as_matrix()
+        table_height = float(self.param_.table_height)
         row_idx = 0
-        row_env_idx = 0
+        table_seen = False
         best_ft_sep = float("inf")
-        for c in contacts:
-            b0 = c["body0"]
-            b1 = c["body1"]
-            sep = float(c["separation"])
-            n_raw = c["normal"]
-            cpos = c["pos"]
-
-            involves_obj = (b0 == simulator.obj_body_idx) or (b1 == simulator.obj_body_idx)
-            if not involves_obj:
-                continue
-
-            if b1 == simulator.obj_body_idx:
-                n_raw = -n_raw
-
-            if cpos is None:
-                cpos = obj_pos + 0.01 * n_raw
-            else:
-                cpos = np.asarray(cpos, dtype=np.float32)
-
-            r_obj = cpos - obj_pos
-            j_obj = np.zeros((3, nv), dtype=np.float32)
-            j_obj[:, 0:3] = np.eye(3, dtype=np.float32)
-            j_obj[:, 3:6] = -simulator._skew(r_obj)
-
-            j_other = np.zeros((3, nv), dtype=np.float32)
-            other_sim_idx = b1 if b0 == simulator.obj_body_idx else b0
-            if other_sim_idx in simulator.franka_body_indices:
-                j_other[:, 6:9] = np.eye(3, dtype=np.float32)
-
-            j_rel_point = j_obj - j_other
-            n, t1, t2 = _tangent_basis_from_normal(n_raw)
-            con_jac = np.array(_contact_jacobian(n, t1, t2, j_rel_point, mu), dtype=np.float32)
-
-            other_is_franka = (b0 in simulator.franka_body_indices) or (b1 in simulator.franka_body_indices)
-            other_is_fingertip = fingertip_sim_idx is not None and other_sim_idx == fingertip_sim_idx
-            # Isaac rigid contacts may include proximity pairs with positive separation.
-            # We only report a true robot-object contact when the pair is actually
-            # touching / penetrating according to PhysX's separation convention.
-            if other_is_franka and sep <= contact_sep_threshold:
+        pose_cache = {}
+        if contacts_raw is not None:
+            for c in contacts_raw:
+                b0, b1 = simulator._contact_bodies(c)
+                if b0 is None:
+                    continue
+                involves_obj = (b0 == simulator.obj_body_idx) or (b1 == simulator.obj_body_idx)
+                if not involves_obj:
+                    continue
+                other_sim_idx = b1 if b0 == simulator.obj_body_idx else b0
+                other_is_table = (b0 == simulator.table_body_idx) or (b1 == simulator.table_body_idx)
+                if other_is_table:
+                    table_seen = True
+                    continue
+                other_is_fingertip = fingertip_sim_idx is not None and other_sim_idx == fingertip_sim_idx
+                if not other_is_fingertip:
+                    continue
+                sep, speculative, n_raw = simulator._contact_sep_normal(c)
+                if b1 == simulator.obj_body_idx:
+                    n_raw = -n_raw
+                physical_ft = (not speculative) and sep <= contact_sep_threshold
+                if not physical_ft:
+                    continue
                 if_contact = True
-            if other_is_fingertip and sep < best_ft_sep:
-                best_ft_sep = sep
-                self._last_fingertip_contact = {"dist": float(sep), "point_world": cpos}
-            if other_is_franka and row_idx < max_ncon:
-                phi_vec[4 * row_idx : 4 * row_idx + 4] = 0.5 * sep
-                jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac
-                row_idx += 1
-
-            other_is_table = (b0 == simulator.table_body_idx) or (b1 == simulator.table_body_idx)
-            if other_is_table and row_idx < max_ncon:
-                phi_vec[4 * row_idx : 4 * row_idx + 4] = 0.5 * sep
-                jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac
-                row_idx += 1
-            if other_is_table and row_env_idx < max_ncon:
-                jac_mat_env[4 * row_env_idx : 4 * row_env_idx + 4, :6] = con_jac[:, :6]
-                row_env_idx += 1
-                quat_xyzw = np.array(
-                    [obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]],
-                    dtype=np.float32,
-                )
-                r_obj_to_world = Rotation.from_quat(quat_xyzw).as_matrix()
-                con_pos_local = r_obj_to_world.T @ (cpos - obj_pos)
-                con_pos_list.append(np.array(con_pos_local, dtype=np.float32))
-        if row_env_idx == 0:
-            dist_table = float(obj_pos[2] - float(self.param_.table_height))
-            if dist_table < 0.02:
-                n_t = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-                t1_t = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-                t2_t = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-                j_rel_table = np.concatenate([np.eye(3), np.zeros((3, 6))], axis=1)
-                con_jac_table = np.array(_contact_jacobian(n_t, t1_t, t2_t, j_rel_table, mu), dtype=np.float32)
-                jac_mat_env[0:4, :6] = con_jac_table[:, :6]
-                con_pos_list.append(np.array([0.0, 0.0, -0.025], dtype=np.float32))
+                cpos = simulator._contact_world_pos(c, b0, b1, pose_cache)
+                if cpos is None:
+                    cpos = obj_pos + 0.01 * n_raw
+                else:
+                    cpos = np.asarray(cpos, dtype=np.float32)
+                if sep < best_ft_sep:
+                    best_ft_sep = sep
+                    self._last_fingertip_contact = {"dist": float(sep), "point_world": cpos}
+                if row_idx < max_ncon:
+                    r_obj = cpos - obj_pos
+                    j_obj = np.zeros((3, nv), dtype=np.float32)
+                    j_obj[:, 0:3] = np.eye(3, dtype=np.float32)
+                    j_obj[:, 3:6] = -simulator._skew(r_obj)
+                    j_other = np.zeros((3, nv), dtype=np.float32)
+                    j_other[:, 6:9] = np.eye(3, dtype=np.float32)
+                    n, t1, t2 = _tangent_basis_from_normal(n_raw)
+                    con_jac = np.array(
+                        _contact_jacobian(n, t1, t2, j_obj - j_other, mu),
+                        dtype=np.float32,
+                    )
+                    phi_vec[4 * row_idx : 4 * row_idx + 4] = sep
+                    jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac
+                    row_idx += 1
+        dist_table = float(obj_pos[2] - table_height)
+        if table_seen or dist_table < 0.02:
+            # One world-up plane.  Dumping every PhysX manifold point into
+            # J_tilde treats each as independently supporting the object
+            # weight and kills downward-press flip candidates.
+            con_jac_table, con_jac_body, con_pos_local = _planar_table_jacobians(
+                obj_pos, r_obj_to_world, table_height, nv, mu, simulator._skew
+            )
+            if row_idx < max_ncon:
+                phi_vec[4 * row_idx : 4 * row_idx + 4] = min(max(dist_table, 0.0), 0.02)
+                jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac_table
+            jac_mat_env[0:4, :6] = con_jac_body
+            con_pos_list.append(np.asarray(con_pos_local, dtype=np.float32))
 
         return phi_vec, jac_mat, con_pos_list, jac_mat_env, if_contact
 
@@ -1036,8 +1341,9 @@ def adapt_param_for_cartesian_solver(param, args):
     param.Q = q
     param.mpc_u_lb_ = -float(getattr(args, "mpc_step_limit", 0.005))
     param.mpc_u_ub_ = -param.mpc_u_lb_
-    param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), np.array([-1.0, -1.0, table_height + 0.02])))
-    param.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), np.array([1.5, 1.0, 1.5])))
+    # Same fingertip box as test_0902 --rollout, shifted by the Isaac table.
+    param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), np.array([-10.0, -10.0, table_height - 0.01])))
+    param.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), np.array([10.0, 10.0, table_height + 1.0])))
     args.solver = "acados"
     param.torch_solver = "acados"
     param.planner_solver_ = "acados"
@@ -1058,6 +1364,36 @@ def _isaac_contact_distance(contact, env):
     return abs(float(measured.get("dist", float("inf"))))
 
 
+def _clip_toward(origin, target, max_step):
+    origin = np.asarray(origin, dtype=np.float64).reshape(3)
+    target = np.asarray(target, dtype=np.float64).reshape(3)
+    delta = target - origin
+    dist = float(np.linalg.norm(delta))
+    if dist <= float(max_step) or dist < 1e-9:
+        return target.copy()
+    return origin + delta * (float(max_step) / dist)
+
+
+def _set_via_step(approach_via, step):
+    step = max(1e-6, float(step))
+    approach_via.max_step = step
+    approach_via.max_lead = step
+
+
+def _free_space_air_mode(if_contact, tip, press, path_blocked):
+    """True when a larger via/OSC step cannot change contact force."""
+    if bool(if_contact):
+        return False
+    tip = np.asarray(tip, dtype=np.float64).reshape(3)
+    press = np.asarray(press, dtype=np.float64).reshape(3)
+    dist = float(np.linalg.norm(tip - press))
+    if dist <= 0.015:
+        return False
+    if dist <= NEAR_PRESS_SWITCH and not bool(path_blocked):
+        return False
+    return True
+
+
 def _configure_rollout_param(param, args):
     param.rollout_press_patch = True
     param.quadratic_contact_track = True
@@ -1071,59 +1407,97 @@ def _configure_rollout_param(param, args):
     return param
 
 
+def _print_rollout_step(
+    param, curr_q, policy, value_info, verify_cost, verify_chatter,
+    model_cost_conf, pred_reduction, act_reduction, if_contact, escape_on,
+):
+    """Same per-step fields as test_0902.py --rollout."""
+    min_error = policy["min_error"]
+    max_error = policy["max_error"]
+    error = policy["error"]
+    cached_cost = policy["cached_cost"]
+    choose_dt = policy["choose_dt"]
+    mpc_virtual_point = policy["mpc_virtual_point"]
+    p_arm_world = policy["p_arm_world"]
+    best_contact_world = policy["best_contact_world"]
+    selected_idx = getattr(param.lambda_optimizer, "last_selected_idx",
+                           getattr(param.lambda_optimizer, "last_best_idx", None))
+    executed_idx = getattr(param.lambda_optimizer, "last_executed_idx", None)
+    global_idx = getattr(param.lambda_optimizer, "last_global_idx", None)
+    global_cost = getattr(param.lambda_optimizer, "last_global_total_cost", None)
+    curv = getattr(param.lambda_optimizer, "point_curvature", None)
+    curv_lim = float(getattr(param.lambda_optimizer, "region_max_point_curvature", 0.25))
+
+    def _curv_of(idx):
+        if curv is None or idx is None:
+            return None
+        try:
+            return round(float(curv[int(idx)]), 4)
+        except (IndexError, TypeError, ValueError):
+            return None
+
+    print(f"花费时间: {choose_dt:.4f}")
+    raw_costs = getattr(param.lambda_optimizer, "last_candidate_raw_costs", None)
+    if raw_costs is not None:
+        raw_finite = np.asarray(raw_costs, dtype=np.float64).reshape(-1)
+        raw_finite = raw_finite[np.isfinite(raw_finite)]
+    else:
+        raw_finite = np.zeros(0, dtype=np.float64)
+    print(
+        "min error:", min_error, "max error", max_error, "actual error:", error,
+        "raw_min:", None if raw_finite.size == 0 else round(float(np.min(raw_finite)), 6),
+        "raw_max:", None if raw_finite.size == 0 else round(float(np.max(raw_finite)), 6),
+    )
+    print(
+        "verify cost:", None if verify_cost is None else round(float(verify_cost), 4),
+        "verify_chatter:", int(bool(verify_chatter)),
+        "p_arm_quality:", None if not value_info else round(float(value_info.get("quality", 0.0)), 4),
+        "accept_p_arm:", None if not value_info else int(bool(value_info.get("accept_p_arm", False))),
+        "same_patch:", None if not value_info else int(bool(value_info.get("same_patch", False))),
+        "q_dist:", None if not value_info else round(float(value_info.get("q_dist", 0.0)), 4),
+        "verify_window:", None if not value_info else round(float(value_info.get("window_mean", 0.0)), 4),
+        "verify_active:", None if not value_info else int(bool(value_info.get("contact_active", False))),
+        "pose_pos_err:", float(metrics.comp_pos_error(curr_q[0:3], param.target_p_)),
+        "pose_rot_err:", float(metrics.comp_quat_error(curr_q[3:7], param.target_q_)),
+        "ball_to_best_contact:", round(float(np.linalg.norm(curr_q[7:10] - best_contact_world)), 6),
+        "ball_to_p_arm:", round(float(np.linalg.norm(curr_q[7:10] - p_arm_world)), 6),
+        "ball_to_virtual:", round(float(np.linalg.norm(curr_q[7:10] - mpc_virtual_point)), 6),
+        "selected_idx:", selected_idx,
+        "executed_idx:", executed_idx,
+        "global_idx:", global_idx,
+        "topk:", np.asarray(getattr(param.lambda_optimizer, "last_topk_ids", []), dtype=int).tolist(),
+        "selected_cost:", None if cached_cost is None else round(float(cached_cost), 6),
+        "global_cost:", None if global_cost is None else round(float(global_cost), 6),
+        "locked:", int(bool(param.lambda_optimizer.lock_contact_patch)),
+        "confidence:", round(float(param.lambda_optimizer.contact_switch_confidence), 3),
+        "model_tightness:", round(float(model_cost_conf.tightness()), 3),
+        "model_cost_accum:", round(float(model_cost_conf.accum), 4),
+        "pred_dcost:", None if pred_reduction is None else round(float(pred_reduction), 6),
+        "act_dcost:", None if act_reduction is None else round(float(act_reduction), 6),
+        "dwell:", int(getattr(param.lambda_optimizer, "_dwell_steps", 0)),
+        "occupied_idx:", None if not value_info else value_info.get("occupied_idx"),
+        "arrived:", None if not value_info else int(bool(value_info.get("arrived_at_best", False))),
+        "via_phase:", None if not value_info else value_info.get("via_phase"),
+        "path_blocked:", None if not value_info else int(bool(value_info.get("path_blocked", False))),
+        "escape:", int(bool(escape_on)),
+        "best_curv:", _curv_of(global_idx),
+        "high_curv:", int(bool(_curv_of(global_idx) is not None and _curv_of(global_idx) > curv_lim)),
+        "if_contact:", int(if_contact),
+    )
+
+
 def _add_rollout_policy_args(parser):
-    parser.add_argument("--obj", type=str, default="stanford_bunny2")
+    add_rollout_via_args(parser)
     parser.add_argument("--use-xml-texture", action="store_true")
-    parser.add_argument("--attract_coef", type=float, default=0.5)
-    parser.add_argument("--reject_coef", type=float, default=0.001)
-    parser.add_argument("--contact_coef", type=float, default=0.7)
-    parser.add_argument("--contact_cost_param", type=float, default=1)
-    parser.add_argument("--model_param", type=float, default=7)
-    parser.add_argument("--reject_dis", type=float, default=0.02)
-    parser.add_argument("--attract_point_comp", type=float, default=0.1)
-    parser.add_argument("--ground_height_threshold", type=float, default=0.012)
-    parser.add_argument("--fingertip_clearance", type=float, default=0.011)
-    parser.add_argument("--sample_num", type=int, default=70)
-    parser.add_argument("--top_k", type=int, default=2)
-    parser.add_argument("--normal_stability_cos", type=float, default=0.95)
-    parser.add_argument("--pos_coef", type=float, default=500)
-    parser.add_argument("--ori_coef", type=float, default=20)
-    parser.add_argument("--mpc_step_limit", type=float, default=0.005)
-    parser.add_argument("--friction_reg_coef", type=float, default=1.0)
-    parser.add_argument("--force_reg_coef", type=float, default=0.01)
-    parser.add_argument("--max_contact_force", type=float, default=10.0)
-    parser.add_argument("--contact_switch_radius", type=float, default=0.03)
-    parser.add_argument("--contact_switch_margin_ratio", type=float, default=0.08)
-    parser.add_argument("--contact_switch_margin_abs", type=float, default=0.001)
-    parser.add_argument("--contact_switch_confirm_steps", type=int, default=5)
-    parser.add_argument("--contact_dwell_gamma", type=float, default=0.70)
-    parser.add_argument("--contact_dwell_steps", type=int, default=4)
-    parser.add_argument("--model_cost_error_threshold", type=float, default=6.0)
-    parser.add_argument("--model_cost_error_eps", type=float, default=1e-6)
-    parser.add_argument("--model_cost_error_min_steps", type=int, default=3)
-    parser.add_argument("--value_tau", type=float, default=1.0)
-    parser.add_argument("--value_rel_scale", type=float, default=0.08)
-    parser.add_argument("--value_rho", type=float, default=0.08)
-    parser.add_argument("--value_alpha", type=float, default=0.25)
-    parser.add_argument("--verify_beta", type=float, default=0.18)
-    parser.add_argument("--verify_window", "--verify_window_size", dest="verify_window_size", type=int, default=5)
-    parser.add_argument("--verify_enter_steps", type=int, default=5)
-    parser.add_argument("--verify_hold_steps", type=int, default=30)
-    parser.add_argument("--verify_release_steps", type=int, default=8)
-    parser.add_argument("--ideal_contact_surface_margin", type=float, default=-0.0005)
-    parser.add_argument("--spline_escape_cost", type=int, default=1)
-    parser.add_argument("--detour_attract_coef", type=float, default=80.0)
-    parser.add_argument("--detour_repel_coef", type=float, default=40.0)
-    parser.add_argument("--detour_lift_coef", type=float, default=25.0)
-    parser.add_argument("--detour_align_thresh", type=float, default=0.50)
     parser.add_argument("--headless", dest="headless", action="store_true")
     parser.add_argument("--viewer", dest="headless", action="store_false")
     parser.add_argument("--sim-device", type=str, default="cuda:0")
     parser.add_argument("--graphics-device-id", type=int, default=0)
     parser.add_argument("--show-ghost-object", type=_parse_bool_arg, default=False)
     parser.add_argument("--cartesian-joint-stiffness", type=float, default=100.0)
-    parser.add_argument("--osc-pos-stiffness", type=float, default=1000.0)
-    parser.add_argument("--osc-ori-stiffness", type=float, default=100.0)
+    parser.add_argument("--osc-pos-stiffness", type=float, default=12000.0)
+    parser.add_argument("--osc-ori-stiffness", type=float, default=0.0)
+    parser.add_argument("--nullspace-stiffness", type=float, default=10.0)
     parser.add_argument("--svg-screenshot-dir", type=str, default="")
     parser.add_argument("--svg-screenshot-interval", type=float, default=0.2)
     parser.add_argument("--svg-screenshot-width", type=int, default=1280)
@@ -1131,280 +1505,230 @@ def _add_rollout_policy_args(parser):
     parser.add_argument("--cartesian_stiffness", type=float, nargs="+", default=DEFAULT_CARTESIAN_STIFFNESS.tolist())
     parser.add_argument("--cartesian_damping", type=float, nargs="+", default=None)
     parser.add_argument("--effort-joint-damping", type=float, default=DEFAULT_EFFORT_JOINT_DAMPING)
+    parser.add_argument(
+        "--target-type",
+        dest="target_type",
+        type=str,
+        default="ground-rotation",
+        choices=("ground-rotation", "rotation"),
+        help="ground-rotation matches fingertips --rollout (90 deg pitch flip).",
+    )
     parser.add_argument("--trial-start", type=int, default=0)
-    parser.add_argument("--trial-count", type=int, default=20)
-    parser.add_argument("--max_rollout_length", type=int, default=5000)
     parser.add_argument(
         "--control-substeps",
         type=int,
         default=0,
         help="OSC frames per via update.  0 uses the 20 ms --rollout interval.",
     )
-    parser.set_defaults(headless=False, **DEFAULT_ELEPHANT_TRIAL_REPLAY)
+    parser.add_argument(
+        "--via-max-lead",
+        type=float,
+        default=0.008,
+        help="Max via/press offset from the current fingertip (m).",
+    )
+    parser.add_argument(
+        "--via-smooth-rate",
+        type=float,
+        default=0.05,
+        help="SmoothedApproachVia lerp rate.  Smaller interpolates more.",
+    )
+    parser.add_argument(
+        "--async-planner",
+        dest="async_planner",
+        action="store_true",
+        help="ROS-style latest-only state/action topics in a second process.",
+    )
+    parser.add_argument(
+        "--sync-planner",
+        dest="async_planner",
+        action="store_false",
+        help="Rank+MPC in the Isaac process (debug).",
+    )
+    parser.add_argument("--viewer-hz", type=float, default=60.0)
+    parser.add_argument(
+        "--gpu-physx",
+        action="store_true",
+        help="GPU PhysX in the viewer (fights Warp MPPI on the same device).",
+    )
+    parser.set_defaults(headless=False, async_planner=True)
     return parser
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    _add_rollout_policy_args(parser)
-    args = parser.parse_args()
-    args.solver = "acados"
-    args.rollout = True
+def run_mpc_planner(bus, args):
+    from examples.mpc.franka.ik2.isaac_bus import wait_trial_obs
+    from planning.mpc_explicit import (
+        _build_mpc_planner_runtime,
+        handle_mpc_request,
+        planner_init_payload,
+    )
 
     if args.trial_start < 0:
         raise ValueError(f"trial_start must be non-negative, got {args.trial_start}")
-    if args.trial_count <= 0:
-        raise ValueError(f"trial_count must be positive, got {args.trial_count}")
+    if int(args.trial_num) <= 0:
+        raise ValueError(f"trial_num must be positive, got {args.trial_num}")
 
     trial_start = int(args.trial_start)
-    trial_num = int(args.trial_count)
+    trial_num = max(1, int(args.trial_num))
     trial_stop = trial_start + trial_num
     success_pos_threshold = 0.02
-    success_quat_threshold = 0.04
-    consecutive_success_time_threshold = 20
+    success_quat_threshold = 0.015
+    consecutive_success_time_threshold = 0
     max_rollout_length = max(1, int(args.max_rollout_length))
-    fingertip_radius = 0.01
+    mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
     success_rate = 0
+    viewer_quit = False
 
     for trial_count in range(trial_start, trial_stop):
-        param = ExplicitMPCParams(args, rand_seed=trial_count, target_type="rotation", mpc_model="explicit")
+        param = ExplicitMPCParams(
+            args,
+            rand_seed=trial_count,
+            target_type=getattr(args, "target_type", "ground-rotation"),
+            mpc_model="explicit",
+        )
         param = _apply_dywa_physics_to_param(param)
         param.use_jax_contact_ = False
         param = adapt_param_for_cartesian_solver(param, args)
         param = _configure_rollout_param(param, args)
-        param.osc_pos_stiffness_ = float(args.osc_pos_stiffness)
-        param.osc_ori_stiffness_ = float(args.osc_ori_stiffness)
-        param.cartesian_stiffness_ = np.array(args.cartesian_stiffness, dtype=np.float32)
-        param.cartesian_damping_ = (
-            None if args.cartesian_damping is None else np.array(args.cartesian_damping, dtype=np.float32)
-        )
-        param.effort_joint_damping_ = float(args.effort_joint_damping)
-        param.show_ghost_object_ = bool(args.show_ghost_object)
-        param.svg_screenshot_dir_ = args.svg_screenshot_dir or None
-        param.svg_screenshot_interval_ = float(args.svg_screenshot_interval)
-        param.svg_screenshot_width_ = int(args.svg_screenshot_width)
-        param.svg_screenshot_height_ = int(args.svg_screenshot_height)
-        param.svg_screenshot_prefix_ = f"trial_{trial_count:03d}"
-
-        contact = ContactIsaacCartesian(param)
-        env = IsaacFrankaOSCSimulator(
-            param,
-            headless=args.headless,
-            sim_device=args.sim_device,
-            graphics_device_id=args.graphics_device_id,
-        )
-        env.show_target_object_pose(param.target_p_, param.target_q_)
-
-        table_ground = float(param.table_height) + 0.012
         param.control_substeps_ = int(args.control_substeps)
+        init = planner_init_payload(args, param, trial_count)
+        _, plan_param, mpc, trackers = _build_mpc_planner_runtime(init)
 
+        obs = wait_trial_obs(bus, trial_count)
+        if obs is None:
+            viewer_quit = True
+            break
+
+        policy = None
+        c_now_cost = None
+        pred_reduction = None
+        last_accept_p_arm = False
+        escape_on = False
+        verify_chatter = False
+        last_result = None
         rollout_step = 0
         consecutive_success_time = 0
-        verify_cost = 0.0
-        value_tracker = ContactValueTracker(
-            tau=float(args.value_tau),
-            rel_scale=float(args.value_rel_scale),
-            rho=float(args.value_rho),
-            alpha=float(args.value_alpha),
-            beta=float(args.verify_beta),
-            window_size=int(args.verify_window_size),
-            confirm_steps=int(args.verify_enter_steps),
-            min_hold_steps=int(args.verify_hold_steps),
-            release_steps=int(args.verify_release_steps),
-            accept_margin_ratio=0.05,
-            accept_margin_abs=0.02,
-        )
-        value_info = {}
-        arrived_hold = False
-        arrived_dest_idx = None
-        mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
-        approach_via = SmoothedApproachVia(rate=0.10, max_step=mpc_step, max_lead=mpc_step)
-        last_verify_cost = None
-        last_accept_p_arm = None
-        verify_chatter = False
-        model_cost_conf = ModelCostConfidence(
-            threshold=float(args.model_cost_error_threshold),
-            eps=float(args.model_cost_error_eps),
-            min_steps=int(args.model_cost_error_min_steps),
-        )
-        pred_reduction = None
-        act_reduction = None
-        c_now_cost = None
+        min_pos_err = float("inf")
+        min_quat_err = float("inf")
+        pose_apply_count = 0
         choose_times = []
+        pos_err_now = None
+        quat_err_now = None
 
         while rollout_step < max_rollout_length:
-            if env.dyn_paused_:
-                env._simulate_once()
-                continue
-
-            curr_q = env.get_policy_state()
-            _phi_vec, _jac_mat, _con_point, jac_mat_env, if_contact = contact.detect_once(env)
-            r_obj_to_world = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
-            gravity = np.hstack([
-                r_obj_to_world.T @ param.gravity_[:3] * float(param.lambda_optimizer.m),
-                np.zeros(3),
-            ])
-            policy = compute_rollout_contact_via(
-                param, args, curr_q, r_obj_to_world, gravity, jac_mat_env,
-                fingertip_radius, value_tracker, model_cost_conf, approach_via,
-                arrived_hold, arrived_dest_idx, floor_ground=table_ground,
-            )
-            verify_cost = policy["verify_cost"]
-            mpc_virtual_point = policy["mpc_virtual_point"]
-            p_arm_world = policy["p_arm_world"]
-            best_contact_world = policy["best_contact_world"]
-            x_plus_opt = policy["x_plus_opt"]
-            info = policy["info"]
-            value_info = policy["value_info"]
-            arrived_hold = policy["arrived_hold"]
-            arrived_dest_idx = policy["arrived_dest_idx"]
-            escape_on = policy["escape_on"]
-            arrived_at_best = policy["arrived_at_best"]
-            choose_dt = policy["choose_dt"]
-            choose_times.append(choose_dt)
-            accept_now = bool(value_info.get("accept_p_arm", False))
-            verify_chatter = _verify_is_chatter(last_verify_cost, verify_cost)
-            last_verify_cost = float(verify_cost)
-            last_accept_p_arm = accept_now
-
-            print(
-                f"choose_dt={choose_dt:.4f} verify={float(verify_cost):.3f} "
-                f"tight={model_cost_conf.tightness():.3f} conf={param.lambda_optimizer.contact_switch_confidence:.3f} "
-                f"accept={int(accept_now)} arrived={int(arrived_at_best)} "
-                f"via={value_info.get('via_phase')} contact={int(if_contact)}"
-            )
-            env.show_target(mpc_virtual_point)
-            env.show_best_contact(best_contact_world)
-
-            c_now_cost = _lambda_pose_cost(
-                curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
-                param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
-            )
-            pred_reduction = None
-            if x_plus_opt is not None and _x_plus_is_usable(x_plus_opt, info):
-                pred_pos, pred_quat = _predicted_object_pose(curr_q[:7], x_plus_opt)
-                c_pred = _lambda_pose_cost(
-                    pred_pos, pred_quat, param.target_p_, param.target_q_,
-                    param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
-                )
-                pred_reduction = c_now_cost - c_pred
-
-            env.track_via(mpc_virtual_point)
-            contact_distance = _isaac_contact_distance(contact, env)
-            rollout_step += 1
-
-            curr_q = env.get_policy_state()
+            if obs.get("break_out") or obs.get("viewer_closed") or obs.get("cmd") == "stop":
+                viewer_quit = True
+                break
+            curr_q = np.asarray(obs["policy_q"], dtype=np.float32)
             pos_err_now = float(metrics.comp_pos_error(curr_q[0:3], param.target_p_))
             quat_err_now = float(metrics.comp_quat_error(curr_q[3:7], param.target_q_))
-            if c_now_cost is not None:
-                c_after = _lambda_pose_cost(
-                    curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
-                    param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
-                )
-                act_reduction = c_now_cost - c_after
-                opt = param.lambda_optimizer
-                if _should_observe_model_cost(opt.has_delta_span(), getattr(opt, "last_pose_cost_now", None)):
-                    pred_delta = pred_reduction
-                    if pred_delta is None or not np.isfinite(float(pred_delta)):
-                        pred_delta = getattr(opt, "last_best_delta", None)
-                    if pred_delta is None or not np.isfinite(float(pred_delta)):
-                        finite = np.asarray(getattr(opt, "last_candidate_deltas", []), dtype=np.float64).reshape(-1)
-                        finite = finite[np.isfinite(finite)]
-                        pred_delta = float(np.max(finite)) if finite.size else None
-                    if pred_delta is None:
-                        model_cost_conf.observe_unusable_prediction()
-                    else:
-                        pred_n = opt.normalize_cost_delta(pred_delta)
-                        act_n = opt.normalize_cost_delta(act_reduction)
-                        if pred_n is None or act_n is None:
-                            model_cost_conf.observe_unusable_prediction()
-                        else:
-                            model_cost_conf.observe(pred_n, act_n)
-
+            min_pos_err = min(min_pos_err, pos_err_now)
+            min_quat_err = min(min_quat_err, quat_err_now)
             if pos_err_now < success_pos_threshold and quat_err_now < success_quat_threshold:
                 consecutive_success_time += 1
             else:
                 consecutive_success_time = 0
-
-            tip_now = np.asarray(curr_q[7:10], dtype=float)
-            r_now = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
-            tip_local_now = r_now.T @ (tip_now - curr_q[:3])
-            post_physical = bool(np.isfinite(contact_distance) and contact_distance <= 0.003)
-            (progress_idx, dwell_active, dwell_dead, occupied_for_log,
-             on_exec_patch, _dist_exec_now) = _rollout_dwell_assignment(
-                param.lambda_optimizer, tip_local_now, tip_now,
-                curr_q[:3], r_now,
-                getattr(param.lambda_optimizer, "last_executed_idx", None),
-                p_arm_world, post_physical,
-                prev_dwell=getattr(param.lambda_optimizer, "_dwell_idx", None),
-            )
-            if dwell_active and not on_exec_patch:
-                dwell_dead = True
-            elif dwell_active and on_exec_patch:
-                dwell_dead = False
-                dwell_active = False
-            if (not last_accept_p_arm) and not on_exec_patch and escape_on:
-                dwell_dead = False
-                dwell_active = False
-            if progress_idx is None:
-                progress_idx = (
-                    getattr(param.lambda_optimizer, "last_global_idx", None)
-                    or getattr(param.lambda_optimizer, "last_executed_idx", None)
-                )
-            if verify_chatter:
-                progress_idx = occupied_for_log or progress_idx
-                dwell_active = True
-                dwell_dead = True
-            dest_idx = getattr(param.lambda_optimizer, "last_global_idx", None)
-            dest_protected = bool(
-                dest_idx is not None and progress_idx is not None
-                and _same_contact_patch(param.lambda_optimizer, progress_idx, dest_idx, radius=0.03)
-            )
-            dwell_active, dwell_dead = _protect_destination_dwell(
-                param.lambda_optimizer, progress_idx, dest_idx, dwell_active, dwell_dead
-            )
-            param.lambda_optimizer.note_contact_progress(
-                progress_idx,
-                pos_err_now,
-                active=dwell_active,
-                gamma=float(args.contact_dwell_gamma),
-                min_dwell_steps=int(args.contact_dwell_steps),
-                improve_eps=0.002,
-                dead_increment=dwell_dead,
-                merge_radius=0.03,
-                block_radius=0.03,
-                block_cycles=80,
-                time_decay=bool(last_accept_p_arm and not dest_protected),
-            )
             if consecutive_success_time > consecutive_success_time_threshold:
                 break
 
-        lambda_failures = int(getattr(param.lambda_optimizer, "acados_failure_count", 0))
-        if lambda_failures:
-            print("acados diagnostics:", {
-                "lambda_solves": int(getattr(param.lambda_optimizer, "acados_solve_count", 0)),
-                "lambda_failures": lambda_failures,
-                "lambda_qp_failures_projected": int(getattr(param.lambda_optimizer, "acados_qp_failure_count", 0)),
-                "lambda_ipopt_fallbacks": int(getattr(param.lambda_optimizer, "acados_fallback_count", 0)),
-                "lambda_failure_reasons": dict(getattr(param.lambda_optimizer, "acados_failure_reasons", {})),
+            contact_distance = float(obs.get("contact_distance", float("inf")))
+            dwell = None
+            if policy is not None:
+                dwell = _dwell_payload(
+                    None, args, None, policy, last_accept_p_arm, escape_on,
+                    verify_chatter, c_now_cost, pred_reduction, contact_distance,
+                    pos_err_now, curr_q=curr_q, param=param,
+                )
+            payload, curr_q = _plan_from_obs(obs, dwell)
+            result = handle_mpc_request(args, plan_param, mpc, trackers, payload)
+            last_result = result
+            policy = _apply_plan_result(param, None, result, curr_q, _print_rollout_step)
+            choose_times.append(float(result["rank_dt"]))
+            c_now_cost, pred_reduction = _pred_reduction_from_policy(param, curr_q, policy)
+            last_accept_p_arm = bool(policy["value_info"].get("accept_p_arm", False))
+            escape_on = bool(policy["escape_on"])
+            verify_chatter = bool(result["verify_chatter"])
+            action = np.asarray(result["action"], dtype=np.float64).reshape(3)
+            tip_now = np.asarray(curr_q[7:10], dtype=np.float64)
+            exec_via = tip_now + action
+            dist = float(np.linalg.norm(exec_via - tip_now))
+            if dist > mpc_step and dist > 1e-9:
+                exec_via = tip_now + (exec_via - tip_now) * (mpc_step / dist)
+
+            on_exec_contact = False
+            if np.isfinite(contact_distance) and contact_distance <= 0.003:
+                on_exec_contact = float(np.linalg.norm(tip_now - np.asarray(policy["p_arm_world"], dtype=float))) <= 0.03
+                if on_exec_contact:
+                    pose_apply_count += 1
+            print(
+                "contact_distance:",
+                None if not np.isfinite(contact_distance) else round(contact_distance, 6),
+                "physics_contact:", int(on_exec_contact),
+            )
+            bus.publish_cmd({
+                "kind": "via",
+                "via": exec_via,
+                "markers": {
+                    "target": policy["mpc_virtual_point"],
+                    "best_contact": policy["best_contact_world"],
+                },
             })
+            rollout_step += 1
+            obs = bus.wait_obs(timeout=180.0)
+            if obs is None:
+                viewer_quit = True
+                break
+
+        bus.publish_cmd({"cmd": "end_trial"})
+        if last_result is not None:
+            lambda_failures = int(last_result.get("lambda_failures", 0))
+            mpc_failures = int(last_result.get("mpc_failures", 0))
+            if lambda_failures or mpc_failures or last_result.get("mpc_init_error"):
+                print("acados diagnostics:", {
+                    "lambda_solves": int(last_result.get("lambda_solves", 0)),
+                    "lambda_failures": lambda_failures,
+                    "mpc_solves": int(last_result.get("mpc_solves", 0)),
+                    "mpc_failures": mpc_failures,
+                    "mpc_init_error": last_result.get("mpc_init_error") or None,
+                })
+        choose_arr = np.asarray(choose_times, dtype=np.float64) if choose_times else np.array([0.0])
         print("trial_summary:", {
             "trial": trial_count,
-            "mode": "rollout",
+            "mode": "mpc_planner",
             "success": int(rollout_step < max_rollout_length),
             "steps": rollout_step,
-            "final_pos_err": round(pos_err_now, 5) if rollout_step else None,
-            "final_quat_err": round(quat_err_now, 5) if rollout_step else None,
-            "choose_dt_mean": round(float(np.mean(choose_times)), 5) if choose_times else None,
+            "pose_applies": pose_apply_count,
+            "final_pos_err": None if pos_err_now is None else round(float(pos_err_now), 5),
+            "final_quat_err": None if quat_err_now is None else round(float(quat_err_now), 5),
+            "min_pos_err": None if not np.isfinite(min_pos_err) else round(float(min_pos_err), 5),
+            "min_quat_err": None if not np.isfinite(min_quat_err) else round(float(min_quat_err), 5),
+            "choose_dt_mean": round(float(np.mean(choose_arr)), 5),
+            "choose_dt_max": round(float(np.max(choose_arr)), 5),
+            "choose_dt_p95": round(float(np.percentile(choose_arr, 95)), 5),
         })
         success_rate += 1 if rollout_step < max_rollout_length else 0
-        env.close()
+        if viewer_quit:
+            break
 
     print(
         f"Success rate over {trial_num} trials "
         f"(trial ids {trial_start} to {trial_stop - 1}): "
         f"{success_rate}/{trial_num} = {success_rate / trial_num:.2%}"
     )
+    return viewer_quit
+
+
+def planner_worker(cmd_q, obs_q, ready_q, init):
+    from examples.mpc.franka.ik2.isaac_bus import IsaacBus, args_from_init
+
+    if ready_q is not None:
+        ready_q.put({"ok": True, "pid": os.getpid()})
+    run_mpc_planner(IsaacBus(cmd_q, obs_q), args_from_init(init))
+
+
+def main():
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.py")
+    os.environ.pop("SCSP_PLANNER_ONLY", None)
+    os.execv(sys.executable, [sys.executable, script, "--planner", "mpc", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

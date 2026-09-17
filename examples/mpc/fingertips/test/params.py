@@ -6,6 +6,47 @@ import hashlib
 import trimesh
 
 
+def _compiled_object_surface(mesh_path, model_path):
+    """Compiled object mesh in the body frame: (vertices, faces or None)."""
+    import mujoco
+
+    model_path = os.path.abspath(model_path)
+    mesh_path = os.path.abspath(mesh_path)
+    model = mujoco.MjModel.from_xml_path(model_path)
+    # MuJoCo does not expose the original asset file name through
+    # MjModel.  The fingertip XML contains one object mesh (index zero);
+    # selecting that compiled mesh also avoids accidentally using the
+    # visual duplicate geoms.
+    mesh_idx = 0 if model.nmesh == 1 else None
+    if mesh_idx is None:
+        return None
+    v0 = int(model.mesh_vertadr[mesh_idx])
+    nv = int(model.mesh_vertnum[mesh_idx])
+    vertices = np.asarray(model.mesh_vert[v0:v0 + nv], dtype=np.float64)
+    # The compiled geom pose already incorporates mesh centering and
+    # principal-axis alignment.  ``mesh_vert`` therefore needs only
+    # geom_quat/geom_pos to reach the body frame.  Applying mesh_pos/quat
+    # as well repeats that transform and shifts/rotates the contact hull.
+    geom_id = model.geom('obj').id
+    rot_flat = np.empty(9, dtype=np.float64)
+    mujoco.mju_quat2Mat(rot_flat, np.asarray(model.geom_quat[geom_id], dtype=np.float64))
+    geom_rot = rot_flat.reshape(3, 3)
+    vertices = np.asarray(model.geom_pos[geom_id], dtype=np.float64) + vertices @ geom_rot.T
+
+    faces = None
+    if hasattr(model, 'mesh_facenum') and hasattr(model, 'mesh_face'):
+        nf = int(np.asarray(model.mesh_facenum).reshape(-1)[mesh_idx])
+        if nf > 0:
+            face = np.asarray(model.mesh_face)
+            if hasattr(model, 'mesh_faceadr'):
+                f0 = int(np.asarray(model.mesh_faceadr).reshape(-1)[mesh_idx])
+                face = face[f0:f0 + nf]
+            else:
+                face = face[:nf]
+            faces = np.asarray(face, dtype=np.int32).reshape(-1, 3)
+    return vertices, faces
+
+
 def _mujoco_collision_mesh(mesh_path, model_path):
     """Extract MuJoCo's compiled convex mesh into a cached STL.
 
@@ -17,36 +58,21 @@ def _mujoco_collision_mesh(mesh_path, model_path):
     unavailable.
     """
     try:
-        import mujoco
-        model_path = os.path.abspath(model_path)
-        mesh_path = os.path.abspath(mesh_path)
-        model = mujoco.MjModel.from_xml_path(model_path)
-        # MuJoCo does not expose the original asset file name through
-        # MjModel.  The fingertip XML contains one object mesh (index zero);
-        # selecting that compiled mesh also avoids accidentally using the
-        # visual duplicate geoms.
-        mesh_idx = 0 if model.nmesh == 1 else None
-        if mesh_idx is None:
+        compiled = _compiled_object_surface(mesh_path, model_path)
+        if compiled is None:
             return mesh_path
-        v0 = int(model.mesh_vertadr[mesh_idx]); nv = int(model.mesh_vertnum[mesh_idx])
-        vertices = np.asarray(model.mesh_vert[v0:v0 + nv], dtype=np.float64)
-        # The compiled geom pose already incorporates mesh centering and
-        # principal-axis alignment.  ``mesh_vert`` therefore needs only
-        # geom_quat/geom_pos to reach the body frame.  Applying mesh_pos/quat
-        # as well repeats that transform and shifts/rotates the contact hull.
-        geom_id = model.geom('obj').id
-        rot_flat = np.empty(9, dtype=np.float64)
-        mujoco.mju_quat2Mat(rot_flat, np.asarray(model.geom_quat[geom_id], dtype=np.float64))
-        geom_rot = rot_flat.reshape(3, 3)
-        vertices = np.asarray(model.geom_pos[geom_id], dtype=np.float64) + vertices @ geom_rot.T
+        vertices, _faces = compiled
         # Fan triangulation of mesh_poly* can create inward-facing or
         # non-supporting triangles on nearly coplanar polygon groups.
         # Rebuilding the convex hull gives closed, outward-facing facets;
         # each facet's radius-offset sphere then touches MuJoCo's geom.
         hull = trimesh.convex.convex_hull(vertices)
-        stat = os.stat(mesh_path)
-        model_stat = os.stat(model_path)
-        key = hashlib.sha1(f'bodyframe-v8-single-transform:{os.path.abspath(mesh_path)}:{stat.st_mtime_ns}:{os.path.abspath(model_path)}:{model_stat.st_mtime_ns}:{len(hull.faces)}'.encode()).hexdigest()[:16]
+        stat = os.stat(os.path.abspath(mesh_path))
+        model_stat = os.stat(os.path.abspath(model_path))
+        key = hashlib.sha1(
+            f'bodyframe-v8-single-transform:{os.path.abspath(mesh_path)}:{stat.st_mtime_ns}:'
+            f'{os.path.abspath(model_path)}:{model_stat.st_mtime_ns}:{len(hull.faces)}'.encode()
+        ).hexdigest()[:16]
         cached = os.path.join(tempfile.gettempdir(), f'mujoco_collision_{key}.stl')
         if not os.path.exists(cached):
             hull.export(cached)
@@ -54,6 +80,30 @@ def _mujoco_collision_mesh(mesh_path, model_path):
     except Exception:
         # Keep the experiment usable in environments without mujoco's Python
         # bindings; ProjectionPoint will then use its normal source mesh.
+        return mesh_path
+
+
+def _mujoco_visual_mesh(mesh_path, model_path):
+    """Cached body-frame visual mesh (original faces, not the collision hull)."""
+    try:
+        compiled = _compiled_object_surface(mesh_path, model_path)
+        if compiled is None:
+            return mesh_path
+        vertices, faces = compiled
+        if faces is None or len(faces) == 0:
+            return mesh_path
+        visual = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+        stat = os.stat(os.path.abspath(mesh_path))
+        model_stat = os.stat(os.path.abspath(model_path))
+        key = hashlib.sha1(
+            f'bodyframe-visual-v1:{os.path.abspath(mesh_path)}:{stat.st_mtime_ns}:'
+            f'{os.path.abspath(model_path)}:{model_stat.st_mtime_ns}:{len(visual.faces)}'.encode()
+        ).hexdigest()[:16]
+        cached = os.path.join(tempfile.gettempdir(), f'mujoco_visual_{key}.stl')
+        if not os.path.exists(cached):
+            visual.export(cached)
+        return cached
+    except Exception:
         return mesh_path
 
 from utils import rotations

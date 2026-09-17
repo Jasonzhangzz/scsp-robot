@@ -28,8 +28,12 @@ import argparse
 import mujoco
 
 
-def build_parser():
-    parser = argparse.ArgumentParser()
+def add_rollout_via_args(parser):
+    """Shared --rollout policy / ranking / verify arguments.
+
+    Used by this script and ``examples/mpc/franka/ik2/test_mpc_isaac.py``.
+    Viewer / mode flags stay on ``build_parser`` so Isaac can override them.
+    """
     parser.add_argument('--obj', type=str, default='foam_brick')
     parser.add_argument('--attract_coef', type=float, default=0.5)
     parser.add_argument('--reject_coef', type=float, default=0.001)
@@ -102,12 +106,18 @@ def build_parser():
     parser.add_argument('--detour_repel_coef', type=float, default=40.0)
     parser.add_argument('--detour_lift_coef', type=float, default=25.0)
     parser.add_argument('--detour_align_thresh', type=float, default=0.50)
-    parser.add_argument('--viewer', action='store_true')
-    parser.add_argument('--headless', action='store_true')
     parser.add_argument('--diagnose_rollout_model', action='store_true',
                         help='Print lambda x_plus versus MuJoCo object/contact displacement each rollout step.')
     parser.add_argument('--trial_num', type=int, default=100)
     parser.add_argument('--max_rollout_length', type=int, default=5000)
+    return parser
+
+
+def build_parser():
+    parser = argparse.ArgumentParser()
+    add_rollout_via_args(parser)
+    parser.add_argument('--viewer', action='store_true')
+    parser.add_argument('--headless', action='store_true')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--ideal_object_pose', action='store_true',
                       help='Set object pose from lambda_optimizer x_plus_opt every cycle.')
@@ -1254,13 +1264,15 @@ def compute_rollout_contact_via(
     arrived_hold,
     arrived_dest_idx,
     floor_ground=0.012,
+    floor_z=0.0,
 ):
     """--rollout contact ranking, verify/confidence, and MPC via.
 
     Shared by the Franka Isaac script so lambda / verify / confidence / via
     stay one policy with ``test_0902.py --rollout``.  ``floor_ground`` is
     the table-plane z used by the floor-slide gate (0.012 in MuJoCo,
-    table height plus that margin in Isaac).
+    table height plus that margin in Isaac).  ``floor_z`` is the ranking
+    table plane (0 in MuJoCo, ``param.table_height`` in Isaac).
     """
     current_tip_local = r_obj_to_world.T @ (curr_q[7:10] - curr_q[:3])
     target_quat_local = rotations.quaternion_multiply(
@@ -1272,7 +1284,7 @@ def compute_rollout_contact_via(
     param.lambda_optimizer.update_Jacobian(jac_mat_env)
     visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
         curr_q[0:3], r_obj_to_world, param.target_p_, args.ground_height_threshold,
-        viewpoint_local=None, heading_filter=False)
+        viewpoint_local=None, heading_filter=False, floor_z=floor_z)
     visible_point_idx = param.lambda_optimizer.filter_rankable_indices(
         visible_point_idx)
 
