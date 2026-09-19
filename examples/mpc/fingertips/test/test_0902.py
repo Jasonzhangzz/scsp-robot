@@ -752,6 +752,35 @@ def _on_opposite_sides(tip, obj, best):
     return float(np.dot(tip_h, goal_h)) <= 0.0
 
 
+def _should_hold_occupied_contact(optimizer, tip, obj, best_world, occupied_idx,
+                                  best_idx=None, quality_frac=0.015):
+    """Stay on an improving graze only when the far best is a near-tie.
+
+    Table-J 1e-2 ΔC ties must not trigger an opposite-side orbit.
+    A clearly better far contact must be allowed to switch: holding
+    every improving occupied patch is what glued the via after touch.
+    """
+    if occupied_idx is None or best_world is None:
+        return False
+    if not _on_opposite_sides(tip, obj, best_world):
+        return False
+    occ = optimizer.pose_delta_for_sample(int(occupied_idx))
+    if occ is None or float(occ) <= 1e-9:
+        return False
+    if getattr(optimizer, 'point_curvature', None) is not None:
+        if bool(optimizer._destination_crease_mask([int(occupied_idx)])[0]):
+            return False
+    if best_idx is None:
+        best_idx = getattr(optimizer, 'last_global_idx', None)
+    if best_idx is not None:
+        best = optimizer.pose_delta_for_sample(int(best_idx))
+        if best is not None and np.isfinite(float(best)):
+            margin = max(float(quality_frac) * max(abs(float(best)), 1e-3), 1e-3)
+            if float(occ) < float(best) - margin:
+                return False
+    return True
+
+
 def _floor_slide_away_from_patch(tip, best, ground=0.012, patch_clearance=0.004):
     """True when the ball is on the table *beside* a raised patch.
 
@@ -802,6 +831,18 @@ def _rollout_verify_cost(tracker_verify):
     if not np.isfinite(value):
         return 0.0
     return float(np.clip(value, 0.0, 1.0))
+
+
+def _travel_verify_cost(tracker_verify, path_blocked):
+    """Lift / orbit must not keep a contact verify.
+
+    ``verify=1`` turns off the via attract and pulls the fingertip onto
+    ``||p_obj - p_ee||``, so a jammed far-side graze keeps driving into
+    the table instead of climbing away to best_contact.
+    """
+    if bool(path_blocked):
+        return 0.0
+    return _rollout_verify_cost(tracker_verify)
 
 
 def _arrived_at_best_contact(tip_world, best_surface_world, best_track_world,
@@ -1320,6 +1361,7 @@ def compute_rollout_contact_via(
         contact_anchor_local=rank_anchor_local,
         v_last=None,
         force_required=True,
+        query_local=current_tip_local,
     )
     cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
     cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
@@ -1437,7 +1479,10 @@ def compute_rollout_contact_via(
         confidence=param.lambda_optimizer.contact_switch_confidence,
         stagnant_steps=getattr(param.lambda_optimizer, '_dwell_steps', 0),
         min_error=min_error, max_error=max_error, tightness=model_tightness)
-    if not value_info['accept_p_arm']:
+    hold_occupied = _should_hold_occupied_contact(
+        param.lambda_optimizer, curr_q[7:10], curr_q[:3],
+        best_contact_world, occupied_idx, best_idx=best_idx)
+    if (not value_info['accept_p_arm']) and not hold_occupied:
         p_arm_world = best_contact_track_world
         p_arm_track_world = best_contact_track_world
         p_arm_surface_world = best_contact_world
@@ -1489,7 +1534,7 @@ def compute_rollout_contact_via(
     exec_press = _patch_press_point(p_arm_track_world, p_arm_surface_world)
     mpc_virtual_point = exec_press
     mpc_contact_point = p_arm_surface_world
-    opposite = _on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world)
+    opposite = _on_opposite_sides(curr_q[7:10], curr_q[:3], p_arm_surface_world)
     floor_slide = _floor_slide_away_from_patch(
         curr_q[7:10], best_contact_world, ground=floor_ground)
     top_z = _object_top_z_world(
@@ -1509,6 +1554,7 @@ def compute_rollout_contact_via(
     mpc_virtual_point = travel
     path_blocked = bool(getattr(approach_via, 'blocked', opposite))
     mpc_contact_point = travel if path_blocked else exec_press
+    verify_cost = _travel_verify_cost(verify_cost, path_blocked)
     holding = (not path_blocked and not floor_slide and
                bool(value_info.get('accept_p_arm', False)))
     value_info['via_phase'] = 'hold' if holding else via_phase
@@ -1753,6 +1799,7 @@ def main(args=None):
                 # important for the nearest p_arm branch, which reuses the
                 # candidate buffers produced here.
                 force_required=bool(use_gated_contact_policy),
+                query_local=current_tip_local,
             )
             cached_x_plus = getattr(param.lambda_optimizer, 'last_best_x_plus', None)
             cached_force = getattr(param.lambda_optimizer, 'last_best_force', None)
@@ -1919,7 +1966,10 @@ def main(args=None):
                 # Default execution is the ranked best.  Keep p_arm only as
                 # a lazy hold of that same patch so the MPC target does not
                 # chatter among neighbouring mesh samples.
-                if not value_info['accept_p_arm']:
+                hold_occupied = _should_hold_occupied_contact(
+                    param.lambda_optimizer, curr_q[7:10], curr_q[:3],
+                    best_contact_world, occupied_idx, best_idx=best_idx)
+                if (not value_info['accept_p_arm']) and not hold_occupied:
                     # Do not slam verify here.  A one-frame p_arm reject
                     # used to reset the window and make verify_cost chatter.
                     p_arm_world = best_contact_track_world
@@ -2014,7 +2064,7 @@ def main(args=None):
                     # may flip 0↔1; resetting via or snapping travel onto
                     # press is what made the fingertip jump.
                     opposite = _on_opposite_sides(
-                        curr_q[7:10], curr_q[:3], best_contact_world)
+                        curr_q[7:10], curr_q[:3], p_arm_surface_world)
                     floor_slide = _floor_slide_away_from_patch(
                         curr_q[7:10], best_contact_world)
                     top_z = _object_top_z_world(
@@ -2040,6 +2090,7 @@ def main(args=None):
                     # still hits the object, both terms stay on the via
                     # so verify cannot pull through the mesh.
                     path_blocked = bool(getattr(approach_via, 'blocked', opposite))
+                    verify_cost = _travel_verify_cost(verify_cost, path_blocked)
                     if path_blocked:
                         mpc_contact_point = travel
                     else:
@@ -2398,7 +2449,7 @@ def main(args=None):
                     dwell_active = False
                 dwell_active = bool(use_dwell and dwell_active)
                 dwell_dead = bool(use_dwell and dwell_dead)
-                if (not last_accept_p_arm) and not on_exec_patch and escape_on:
+                if (not last_accept_p_arm) and not on_exec_patch and escape_on and not post_physical:
                     # Over-the-top travel toward best_contact.  Do not
                     # charge the destination; a stuck wrong-patch contact
                     # still keeps its dead increment above.

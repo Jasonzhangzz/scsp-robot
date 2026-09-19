@@ -51,7 +51,11 @@ from examples.mpc.fingertips.test.test_0902 import (
     _predicted_object_pose,
     _x_plus_is_usable,
 )
-from planning.MPPIExplicit import _contact_jacobian, _franka_fk_T_jax, _tangent_basis_from_normal
+from planning.MPPIExplicit import _franka_fk_T_jax
+from examples.mpc.franka.ik2.contact_frames import (
+    _contact_jacobian_np as _contact_jacobian,
+    tangent_basis_from_normal as _tangent_basis_from_normal,
+)
 from utils import metrics
 
 
@@ -64,7 +68,7 @@ DYWA_PHYSX_CONTACT_OFFSET = 0.001
 DYWA_PHYSX_REST_OFFSET = 0.0
 DYWA_PHYSX_FRICTION_OFFSET_THRESHOLD = 0.001
 DYWA_PHYSX_FRICTION_CORRELATION_DISTANCE = 0.0005
-DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY = 10.0
+DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY = 0.25
 DYWA_TABLE_FRICTION_RANGE = (0.3, 0.8)
 DYWA_OBJECT_FRICTION_RANGE = (0.2, 1.0)
 DYWA_OBJECT_MASS_RANGE = (0.1, 0.5)
@@ -698,10 +702,11 @@ class IsaacFrankaSimulator:
 
     def _contact_sep_normal(self, c):
         # Isaac Gym's RigidContact has no ``separation`` field.
-        # ``initial_overlap`` is positive for penetration, while the
-        # explicit model expects MuJoCo's negative-distance convention.
+        # ``initial_overlap`` is positive for penetration.  overlap=0 is
+        # either a made touch or the 1 mm contact_offset pair; callers
+        # replace this placeholder with the fingertip-sphere signed gap.
         contact_offset = float(getattr(self.param_, "physx_contact_offset_", 0.001))
-        separation_raw = self._contact_field(c, "separation", "distance", default=None)
+        separation_raw = self._contact_field(c, "separation", "distance", "minDist", default=None)
         speculative = False
         if separation_raw is None:
             initial_overlap = self._contact_field(c, "initial_overlap", default=0.0)
@@ -713,7 +718,7 @@ class IsaacFrankaSimulator:
                 speculative = True
         else:
             separation = float(separation_raw)
-            speculative = separation > 1e-8
+            speculative = separation > contact_offset + 1e-8
         normal_raw = self._contact_field(c, "normal", default=np.array([0.0, 0.0, 1.0], dtype=np.float32))
         normal = _extract_vec3(normal_raw)
         nrm = float(np.linalg.norm(normal))
@@ -727,8 +732,8 @@ class IsaacFrankaSimulator:
         pos_field = self._contact_field(c, "pos", "position", default=None)
         if pos_field is not None:
             return _extract_vec3(pos_field)
-        local_pos0 = self._contact_field(c, "local_pos0", default=None)
-        local_pos1 = self._contact_field(c, "local_pos1", default=None)
+        local_pos0 = self._contact_field(c, "localPos0", "local_pos0", default=None)
+        local_pos1 = self._contact_field(c, "localPos1", "local_pos1", default=None)
         world_points = []
         for body_idx, local_pos in ((body0, local_pos0), (body1, local_pos1)):
             if local_pos is None:
@@ -771,33 +776,44 @@ class IsaacFrankaSimulator:
         return contacts
 
     def fingertip_object_contact(self):
-        """Fingertip/object pair only.  No world-pose fetches."""
-        fingertip_sim_idx = getattr(self, "franka_body_name_to_index", {}).get("fingertip")
+        """Fingertip/object pair with a MuJoCo-style signed sphere gap."""
+        from examples.mpc.franka.ik2.physx_contact import (
+            contact_overlap,
+            end_effector_position,
+            fingertip_body_index,
+            fingertip_radius,
+            physx_signed_gap,
+        )
+
+        fingertip_sim_idx = fingertip_body_index(self)
         obj_idx = getattr(self, "obj_body_idx", None)
         if fingertip_sim_idx is None or obj_idx is None:
             return False, None, float("inf")
-        thresh = float(getattr(self.param_, "if_contact_separation_threshold_", 0.0))
         contacts_raw = self.gym.get_env_rigid_contacts(self.env)
         if contacts_raw is None:
             return False, None, float("inf")
+        tip_pos = end_effector_position(self, fallback=None)
+        radius = fingertip_radius(self)
         in_contact = False
         best_n = None
         best_sep = float("inf")
+        pose_cache = {}
         for c in contacts_raw:
             body0, body1 = self._contact_bodies(c)
             if body0 is None:
                 continue
             if fingertip_sim_idx not in (body0, body1) or obj_idx not in (body0, body1):
                 continue
-            sep, speculative, normal = self._contact_sep_normal(c)
-            if speculative or sep > thresh:
-                continue
-            in_contact = True
+            _sep, _speculative, normal = self._contact_sep_normal(c)
             if body1 == obj_idx:
                 normal = -normal
-            if sep < best_sep:
-                best_sep = sep
+            cpos = self._contact_world_pos(c, body0, body1, pose_cache)
+            dist = physx_signed_gap(contact_overlap(c), cpos, tip_pos, normal, radius)
+            if dist < best_sep:
+                best_sep = dist
                 best_n = np.asarray(normal, dtype=np.float32)
+            if dist <= 0.0:
+                in_contact = True
         return in_contact, best_n, best_sep
 
     def _get_actor_body_pose(self, actor_handle, local_body_idx):
@@ -1367,7 +1383,7 @@ def _plan_payload(env, contact, table_ground, dwell=None):
     if measured is None:
         contact_distance = float("inf")
     else:
-        contact_distance = abs(float(measured.get("dist", float("inf"))))
+        contact_distance = float(measured.get("dist", float("inf")))
     return payload, curr_q, if_contact, contact_distance
 
 

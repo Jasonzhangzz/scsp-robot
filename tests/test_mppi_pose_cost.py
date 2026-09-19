@@ -67,6 +67,8 @@ def test_zero_control_substeps_is_one_policy_interval():
 def test_opt_snapshot_roundtrip():
     class _Opt:
         last_global_idx = 3
+        last_candidate_ids = np.array([3, 7], dtype=np.int32)
+        last_candidate_deltas = np.array([0.2, -0.01])
         _dwell_steps = 5
 
     snap = _opt_snapshot(_Opt())
@@ -74,6 +76,8 @@ def test_opt_snapshot_roundtrip():
     _apply_opt_snapshot(dst, snap)
     assert dst.last_global_idx == 3
     assert dst._dwell_steps == 5
+    assert list(dst.last_candidate_ids) == [3, 7]
+    assert dst.last_candidate_deltas[1] == pytest.approx(-0.01)
 
 
 def test_pickle_safe_keeps_policy_fields():

@@ -778,6 +778,8 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
 
     tip = np.asarray(curr_q[7:10], dtype=np.float64)
     max_lead = max(1e-4, float(getattr(args, "via_max_lead", getattr(args, "mpc_step_limit", 0.005))))
+    if bool((policy.get("value_info") or {}).get("path_blocked", False)):
+        trackers["sol_guess"] = None
     policy["mpc_virtual_point"] = clamp_via_to_tip(tip, policy["mpc_virtual_point"], max_lead)
     policy["mpc_contact_point"] = clamp_via_to_tip(tip, policy["mpc_contact_point"], max_lead)
 

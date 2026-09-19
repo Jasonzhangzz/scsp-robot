@@ -18,6 +18,7 @@ def _stub_optimizer(ema_rate=1.0):
     opt.pos_coef = 500.0
     opt.ori_coef = 20.0
     opt.last_candidate_deltas = None
+    opt.last_candidate_ids = None
     opt.last_delta_lo = 0.0
     opt.last_delta_hi = 0.0
     opt.last_delta_center = 0.0
@@ -345,6 +346,105 @@ def test_ranking_drops_the_same_high_curvature_tips_as_execution():
     assert set(int(i) for i in exec_kept) == set(int(i) for i in kept)
 
 
+def test_last_global_prefers_stable_face_over_foot_crease():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.point_curvature = np.array([0.18, 0.45, 0.12], dtype=np.float64)
+    opt.point_curvature_mean = np.array([0.04, 0.08, 0.03], dtype=np.float64)
+    opt.region_max_point_curvature = 0.25
+    opt.region_max_mean_curvature = 0.10
+    ids = np.array([0, 1, 2], dtype=np.int32)
+    costs = np.array([0.02, 0.00, 0.10], dtype=np.float64)
+    finite = np.array([True, True, True])
+    # Sample 1 is cheaper but a crease/foot tip; keep it rankable
+    # (low mean) while last_global must stay on the flank.
+    assert not opt._high_curvature_mask(ids)[1]
+    assert opt._destination_crease_mask(ids)[1]
+    chosen = opt._prefer_stable_ranking_local(ids, costs, finite, 1)
+    assert int(ids[chosen]) == 0
+
+
+def test_nearby_topk_does_not_replace_stable_best_with_a_foot():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.top_k = 2
+    opt.point_curvature = np.array([0.18, 0.45], dtype=np.float64)
+    opt.region_max_point_curvature = 0.25
+    opt.sample_point = np.array([[0.05, 0.00, 0.04], [0.02, 0.00, 0.00]], dtype=np.float64)
+    opt.last_topk_ids = np.array([1, 0], dtype=np.int32)
+    opt.last_topk_costs = np.array([0.00, 0.02], dtype=np.float64)
+    opt.last_candidate_ids = np.array([0, 1], dtype=np.int32)
+    opt.last_candidate_deltas = np.array([3.10, 3.12], dtype=np.float64)
+    opt.last_global_idx = 0
+    # Unit-range put the foot first and the query sits on it.  The
+    # destination must stay on the stable flank.
+    got = opt.choose_nearby_topk_idx(np.array([0.02, 0.00, 0.00]))
+    assert int(got) == 0
+
+
+def test_last_global_prefers_same_side_face_over_far_com_winner():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.point_curvature = np.array([0.18, 0.04], dtype=np.float64)
+    opt.region_max_point_curvature = 0.25
+    opt.sample_point = np.array(
+        [[0.05, 0.03, 0.03], [-0.05, -0.02, 0.01]], dtype=np.float64)
+    opt.rank_query_local = np.array([0.04, 0.03, 0.03], dtype=np.float64)
+    ids = np.array([0, 1], dtype=np.int32)
+    costs = np.array([0.02, 0.00], dtype=np.float64)
+    finite = np.array([True, True])
+    opt.last_candidate_ids = ids
+    opt.last_candidate_deltas = np.array([3.06, 3.08], dtype=np.float64)
+    # Sample 1 is cheaper but only a table-J near-tie on the far face.
+    chosen = opt._prefer_stable_ranking_local(ids, costs, finite, 1)
+    assert int(ids[chosen]) == 0
+
+
+def test_last_global_switches_when_far_face_is_clearly_better():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.point_curvature = np.array([0.18, 0.04], dtype=np.float64)
+    opt.region_max_point_curvature = 0.25
+    opt.sample_point = np.array(
+        [[0.05, 0.03, 0.03], [-0.05, -0.02, 0.01]], dtype=np.float64)
+    opt.rank_query_local = np.array([0.04, 0.03, 0.03], dtype=np.float64)
+    opt.last_candidate_ids = np.array([0, 1], dtype=np.int32)
+    opt.last_candidate_deltas = np.array([2.40, 4.20], dtype=np.float64)
+    ids = np.array([0, 1], dtype=np.int32)
+    costs = np.array([0.40, 0.00], dtype=np.float64)
+    finite = np.array([True, True])
+    chosen = opt._prefer_stable_ranking_local(ids, costs, finite, 1)
+    assert int(ids[chosen]) == 1
+
+
+def test_nearby_topk_does_not_replace_same_side_best_with_far_face():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.top_k = 2
+    opt.point_curvature = np.array([0.18, 0.04], dtype=np.float64)
+    opt.region_max_point_curvature = 0.25
+    opt.sample_point = np.array(
+        [[0.05, 0.03, 0.03], [-0.05, -0.02, 0.01]], dtype=np.float64)
+    opt.last_topk_ids = np.array([1, 0], dtype=np.int32)
+    opt.last_topk_costs = np.array([0.00, 0.02], dtype=np.float64)
+    opt.last_candidate_ids = np.array([0, 1], dtype=np.int32)
+    opt.last_candidate_deltas = np.array([3.06, 3.08], dtype=np.float64)
+    opt.last_global_idx = 0
+    got = opt.choose_nearby_topk_idx(np.array([0.04, 0.03, 0.03]))
+    assert int(got) == 0
+
+
+def test_nearby_topk_keeps_a_clearly_better_far_face():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.top_k = 2
+    opt.point_curvature = np.array([0.18, 0.04], dtype=np.float64)
+    opt.region_max_point_curvature = 0.25
+    opt.sample_point = np.array(
+        [[0.05, 0.03, 0.03], [-0.05, -0.02, 0.01]], dtype=np.float64)
+    opt.last_topk_ids = np.array([1, 0], dtype=np.int32)
+    opt.last_topk_costs = np.array([0.00, 0.40], dtype=np.float64)
+    opt.last_candidate_ids = np.array([0, 1], dtype=np.int32)
+    opt.last_candidate_deltas = np.array([2.40, 4.20], dtype=np.float64)
+    opt.last_global_idx = 1
+    got = opt.choose_nearby_topk_idx(np.array([0.04, 0.03, 0.03]))
+    assert int(got) == 1
+
+
 def test_point_curvature_uses_worst_neighbor_on_a_crease():
     opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
     opt.curvature_neighbor_k = 4
@@ -447,3 +547,15 @@ def test_available_points_use_floor_z_for_a_raised_table():
         pos, np.eye(3), target, 0.012, heading_filter=False, floor_z=0.35))
     assert 0 not in idx
     assert 1 in idx
+
+
+def test_pose_delta_for_sample_uses_candidate_ids():
+    opt = _stub_optimizer()
+    opt.last_candidate_ids = np.array([4, 9, 1], dtype=np.int32)
+    opt.last_candidate_deltas = np.array([0.02, -0.01, 0.08])
+    opt.last_global_idx = 1
+    opt.last_best_delta = 0.08
+    assert opt.pose_delta_for_sample(9) == pytest.approx(-0.01)
+    assert opt.pose_delta_for_sample(1) == pytest.approx(0.08)
+    assert opt.pose_delta_for_sample(7) is None
+    assert opt.pose_delta_for_sample(None) is None

@@ -828,8 +828,10 @@ _OPT_SNAPSHOT_KEYS = (
     "last_global_idx",
     "last_global_total_cost",
     "last_topk_ids",
+    "last_candidate_ids",
     "last_candidate_raw_costs",
     "last_candidate_deltas",
+    "last_candidate_pose_costs",
     "last_best_delta",
     "last_pose_cost_now",
     "lock_contact_patch",
@@ -888,7 +890,7 @@ def _apply_dwell_payload(param, args, dwell):
     c_now_cost = dwell.get("c_now_cost")
     pred_reduction = dwell.get("pred_reduction")
     c_after = dwell.get("c_after")
-    if model_cost_conf is not None and c_now_cost is not None:
+    if model_cost_conf is not None and c_now_cost is not None and dwell.get("post_physical"):
         if _should_observe_model_cost(opt.has_delta_span(), getattr(opt, "last_pose_cost_now", None)):
             pred_delta = pred_reduction
             if pred_delta is None or not np.isfinite(float(pred_delta)):
@@ -931,7 +933,7 @@ def _apply_dwell_payload(param, args, dwell):
     elif dwell_active and on_exec_patch:
         dwell_dead = False
         dwell_active = False
-    if (not last_accept_p_arm) and not on_exec_patch and escape_on:
+    if (not last_accept_p_arm) and not on_exec_patch and escape_on and not post_physical:
         dwell_dead = False
         dwell_active = False
     if progress_idx is None:

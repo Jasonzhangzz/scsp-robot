@@ -53,6 +53,8 @@ def viewer_closed(env):
 
 
 def pack_state(env, seq, trial, contact_fields):
+    force = getattr(env, "_last_osc_force", None)
+    p_d = getattr(env, "_last_osc_pd", None)
     return {
         "seq": int(seq),
         "trial": int(trial),
@@ -61,6 +63,9 @@ def pack_state(env, seq, trial, contact_fields):
         "break_out": bool(getattr(env, "break_out_signal_", False)),
         "paused": bool(getattr(env, "dyn_paused_", False)),
         "viewer_closed": viewer_closed(env),
+        "osc_force": None if force is None else np.asarray(force, dtype=np.float32),
+        "osc_pd": None if p_d is None else np.asarray(p_d, dtype=np.float32),
+        "osc_near_press": bool(getattr(env, "_last_osc_near_press", False)),
         **contact_fields,
     }
 
@@ -95,10 +100,18 @@ def apply_incoming(env, cmd, default_kind):
     kind = cmd.get("kind", default_kind)
     if kind == "via":
         via = cmd.get("via")
+        action = cmd.get("action")
         if via is None:
             tip = np.asarray(env.get_policy_state()[7:10], dtype=np.float64)
-            via = tip + np.asarray(cmd.get("action", np.zeros(3)), dtype=np.float64).reshape(3)
-        env.set_via_action(np.asarray(via, dtype=np.float64))
+            via = tip + np.asarray(action if action is not None else np.zeros(3), dtype=np.float64).reshape(3)
+        env.set_via_action(
+            np.asarray(via, dtype=np.float64),
+            action=None if action is None else np.asarray(action, dtype=np.float64),
+            policy_dt=cmd.get("policy_dt"),
+            press=None if cmd.get("press") is None else np.asarray(
+                cmd.get("press"), dtype=np.float64),
+            path_blocked=cmd.get("path_blocked"),
+        )
     else:
         action = np.asarray(cmd.get("action", np.zeros(7)), dtype=np.float32).reshape(7)
         if float(np.linalg.norm(action)) < 1e-9:
