@@ -281,7 +281,8 @@ class LambdaContactControlOptimizer:
                               gamma=0.85, min_dwell_steps=6, improve_eps=1e-3,
                               unlock_confidence=0.05, block_cycles=20,
                               dead_increment=False, merge_radius=None,
-                              block_radius=None, time_decay=False):
+                              block_radius=None, time_decay=False,
+                              recover=0.12):
         """Decay switch-confidence if one patch stops improving the task cost.
 
         ``progress_cost`` must decrease when the incumbent is useful (pose
@@ -381,7 +382,9 @@ class LambdaContactControlOptimizer:
             # rotation gets worse) must not wipe the failure streak.
             if not dead_increment:
                 self._dwell_steps = 0
-                self.set_contact_switch_confidence(1.0)
+                gain = float(np.clip(recover, 0.0, 1.0))
+                self.set_contact_switch_confidence(
+                    self.contact_switch_confidence + gain)
                 return self.contact_switch_confidence
 
         self._dwell_steps += 1
@@ -1233,7 +1236,9 @@ class LambdaContactControlOptimizer:
         solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur)
         solver.set(0,'u',np.array([.01,0,0])); solver.set(0,'p',p)
         solver.set(1,'x',xcur); solver.set(1,'p',p)
-        status=int(solver.solve())
+        from planning.acados_env import quiet_acados_stderr
+        with quiet_acados_stderr():
+            status=int(solver.solve())
         if status != 0:
             self.acados_qp_failure_count += 1
             raise RuntimeError(f'acados status {status}')
@@ -2109,14 +2114,19 @@ class LambdaContactControlOptimizer:
     
     def get_availble_point_idx(self, pos, R, target_pos, threshold=0.025,
                                viewpoint_local=None, viewpoint_cos=-0.50,
-                               heading_filter=True, floor_z=0.0):
-        """Return sampled contacts whose fingertip target clears the floor.
+                               heading_filter=True, floor_z=0.0,
+                               support_point=None, support_normal=None):
+        """Return sampled contacts whose fingertip target clears the support.
 
         ``self.normal`` points into the object.  The fingertip centre is
         therefore approached as ``surface - clearance * normal``.  Checking
         that target, instead of only the surface height, removes underside
         points that would put the fingertip sphere below the table while
         allowing the same mesh points again after an object is flipped.
+
+        ``support_normal`` / ``support_point`` replace the world-up table
+        when the object sits on a ramp.  With the default ``+Z`` plane
+        this is the original ``floor_z`` test.
         """
         centers_world = (R @ self.sample_point.T).T + pos
         # Filter by the height of the *reachable fingertip centre*, rather
@@ -2127,6 +2137,22 @@ class LambdaContactControlOptimizer:
         # upward/side-facing point at a similarly low height remains usable
         # during a flip.
         floor_z = float(floor_z)
+        if support_normal is None:
+            support_normal = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+            support_point = np.array([0.0, 0.0, floor_z], dtype=np.float64)
+        else:
+            support_normal = np.asarray(support_normal, dtype=np.float64).reshape(3)
+            nrm = float(np.linalg.norm(support_normal))
+            support_normal = (
+                support_normal / nrm
+                if nrm > 1e-8
+                else np.array([0.0, 0.0, 1.0], dtype=np.float64)
+            )
+            support_point = (
+                np.array([0.0, 0.0, floor_z], dtype=np.float64)
+                if support_point is None
+                else np.asarray(support_point, dtype=np.float64).reshape(3)
+            )
         # Even with a zero CLI threshold, the sphere centre must remain at
         # least one clearance above the plane.  The default threshold adds a
         # small extra safety margin without imposing a large global height
@@ -2134,22 +2160,29 @@ class LambdaContactControlOptimizer:
         floor_margin = max(float(threshold), self.fingertip_clearance)
         inward_world = (R @ self.normal.T).T
         outward_world = -inward_world
-        fingertip_center_z = centers_world[:, 2] - self.fingertip_clearance * inward_world[:, 2]
+        signed = (centers_world - support_point[None, :]) @ support_normal
+        inward_along = inward_world @ support_normal
+        fingertip_center_signed = signed - self.fingertip_clearance * inward_along
         # The sphere occupies ``clearance`` below its centre even when the
         # contact normal is sideways.  A downward-facing sole that has
         # rotated just enough to clear the old fingertip-z test still cannot
         # be pressed from above and must not win ranking.
-        sphere_low_z = fingertip_center_z - self.fingertip_clearance
+        sphere_low_signed = fingertip_center_signed - self.fingertip_clearance
         underside = (
-            (outward_world[:, 2] < -0.35)
-            & (centers_world[:, 2] < floor_z + 0.045)
+            ((outward_world @ support_normal) < -0.35)
+            & (signed < 0.045)
         )
         common_mask = (
-            (centers_world[:, 2] > floor_z)
-            & (fingertip_center_z > floor_z + floor_margin)
-            & (sphere_low_z > floor_z)
+            (signed > 0.0)
+            & (fingertip_center_signed > floor_margin)
+            & (sphere_low_signed > 0.0)
             & ~underside
         )
+        # A brick sitting on a ramp has a large +normal face.  Those top
+        # samples score as a cheap hold once gravity is cancelled, so
+        # ranking parks p_arm / via in the air and the arm climbs to them.
+        if abs(float(support_normal[2])) < 0.999:
+            common_mask = common_mask & ((outward_world @ support_normal) < 0.45)
 
         # A global lambda optimum may lie on the far side of a concave
         # silhouette (the elephant's ear/foot are typical samples).  The
@@ -2185,16 +2218,22 @@ class LambdaContactControlOptimizer:
             return available_idx
 
         # Keep the optimizer well-defined if a transient pose leaves every
-        # sampled point below the gate.  Select the point whose predicted
-        # fingertip centre has the greatest clearance; this avoids falling
-        # back to an arbitrary (often underside) sample.
-        above_floor = np.flatnonzero(centers_world[:, 2] > floor_z)
+        # sampled point below the gate.  Prefer the greatest clearance that
+        # is still not a top face on a ramp; otherwise the fallback undoes
+        # the filter and parks p_arm in the air again.
+        above_floor = np.flatnonzero(signed > 0.0)
+        if abs(float(support_normal[2])) < 0.999:
+            side_ok = above_floor[
+                (outward_world[above_floor] @ support_normal) < 0.45
+            ] if above_floor.size else above_floor
+            if side_ok.size:
+                above_floor = side_ok
         if above_floor.size:
-            best_idx = int(above_floor[np.argmax(fingertip_center_z[above_floor])])
+            best_idx = int(above_floor[np.argmax(fingertip_center_signed[above_floor])])
         else:
             # This can only happen after severe simulation penetration; keep
             # a deterministic least-penetrating point for recovery.
-            best_idx = int(np.argmax(fingertip_center_z))
+            best_idx = int(np.argmax(fingertip_center_signed))
         return np.asarray([best_idx], dtype=np.int64)
     
 # 使用示例

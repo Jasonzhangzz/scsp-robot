@@ -148,3 +148,19 @@ def ensure_acados_env():
     if os.path.isdir(interface_root) and interface_root not in sys.path:
         sys.path.insert(0, interface_root)
     return chosen
+
+
+class quiet_acados_stderr:
+    """Hide HPIPM/SQP_RTI MINSTEP spam; the Python caller still sees the status."""
+
+    def __enter__(self):
+        self._fd = os.dup(2)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 2)
+        os.close(devnull)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        os.dup2(self._fd, 2)
+        os.close(self._fd)
+        return False

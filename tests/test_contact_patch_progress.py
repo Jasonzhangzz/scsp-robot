@@ -51,8 +51,8 @@ def test_passive_progress_does_not_erase_failed_approaches(optimizer):
     assert optimizer._dwell_steps == 1
     assert observe(8.0) == pytest.approx(0.25)
     assert optimizer._dwell_steps == 2
-    # Progress during a new active attempt still restores trust.
-    assert observe(7.9) == pytest.approx(1.0)
+    # Progress during a new active attempt restores trust gradually.
+    assert observe(7.9) == pytest.approx(0.37)
     assert optimizer._dwell_steps == 0
 
 
@@ -132,6 +132,15 @@ def test_position_noise_does_not_reset_foot_failures(optimizer):
     assert optimizer.note_contact_progress(
         0, 0.037, active=True, improve_eps=0.002) == 1.0
     assert optimizer._dwell_steps == 0
+
+
+def test_pose_improve_recovers_confidence_gradually(optimizer):
+    optimizer.note_contact_progress(0, 10.0, active=True, gamma=0.5, min_dwell_steps=1)
+    assert optimizer.note_contact_progress(
+        0, 10.0, active=True, gamma=0.5, min_dwell_steps=1) == pytest.approx(0.5)
+    assert optimizer.note_contact_progress(
+        0, 9.0, active=True, gamma=0.5, min_dwell_steps=1) == pytest.approx(0.62)
+    assert optimizer.contact_switch_confidence < 1.0
 
 
 def test_wrong_patch_dead_visits_are_blocked(optimizer):

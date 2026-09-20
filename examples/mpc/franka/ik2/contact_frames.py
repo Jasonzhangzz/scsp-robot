@@ -41,6 +41,44 @@ def clip_via_target(origin, via, action=None, max_step=0.005):
     return target.astype(np.float32), increment.astype(np.float32)
 
 
+def slew_mpc_action(prev, desired, max_step, max_slew=None):
+    """Clip the increment and limit how fast it may turn from ``prev``.
+
+    A 5 mm MuJoCo ball step is fine.  The Franka task mass cannot reverse
+    that increment in 20 ms without a jerk, so Isaac slews ``u``.
+    """
+    desired = clip_mpc_action(desired, max_step)
+    if prev is None or max_slew is None:
+        return desired
+    prev = np.asarray(prev, dtype=np.float64).reshape(3)
+    delta = np.asarray(desired, dtype=np.float64).reshape(3) - prev
+    nrm = float(np.linalg.norm(delta))
+    limit = abs(float(max_slew))
+    if nrm > limit and nrm > 1e-9:
+        desired = prev + delta * (limit / nrm)
+    return clip_mpc_action(desired, max_step)
+
+
+def isaac_task_force(remain, vel, v_ref=None, k_task=600.0, d_task=40.0, limit=12.0):
+    """Force-level PD for the arm.  Not the 0.01 kg ball accel law.
+
+    ``rollout_task_accel`` divides by the fingertip mass and then
+    multiplies by the ~2.5 kg task inertia, which is what slammed OSC.
+    """
+    remain = np.asarray(remain, dtype=np.float64).reshape(3)
+    vel = np.asarray(vel, dtype=np.float64).reshape(3)
+    if v_ref is None:
+        v_ref = np.zeros(3, dtype=np.float64)
+    else:
+        v_ref = np.asarray(v_ref, dtype=np.float64).reshape(3)
+    force = float(k_task) * remain - float(d_task) * (vel - v_ref)
+    nrm = float(np.linalg.norm(force))
+    cap = abs(float(limit))
+    if nrm > cap and nrm > 1e-9:
+        force = force * (cap / nrm)
+    return force.astype(np.float32)
+
+
 def rollout_task_accel(err, vel, v_ref=None, k_task=100.0, d_task=2.0, mass=0.01):
     """Same PD as the floating ball, with velocity feedforward.
 
@@ -154,6 +192,72 @@ def mpc_ball_contact_force(action, vel, k_task=100.0, d_task=2.0):
     action = np.asarray(action, dtype=np.float64).reshape(3)
     vel = np.asarray(vel, dtype=np.float64).reshape(3)
     return (float(k_task) * action - float(d_task) * vel).astype(np.float32)
+
+
+def project_along_action(vec, action, eps=1e-9):
+    """Keep the component parallel to the MPC increment."""
+    vec = np.asarray(vec, dtype=np.float64).reshape(3)
+    action = np.asarray(action, dtype=np.float64).reshape(3)
+    nrm = float(np.linalg.norm(action))
+    if nrm <= float(eps):
+        return np.zeros(3, dtype=np.float32)
+    axis = action / nrm
+    return (float(np.dot(vec, axis)) * axis).astype(np.float32)
+
+
+def remaining_along_action(p_curr, p0, action, eps=1e-9, keep_lateral=False):
+    """Unfinished increment along ``action``.
+
+    Pose PD toward ``p0 + u`` pulls the fingertip sideways into the
+    object when OSC has drifted off the increment line.  A press
+    therefore drops that lateral residual.  A blocked orbit must keep
+    it: otherwise an inward graze is never corrected back to the rim.
+    """
+    action = np.asarray(action, dtype=np.float64).reshape(3)
+    nrm = float(np.linalg.norm(action))
+    leftover = (
+        np.asarray(p0, dtype=np.float64).reshape(3) + action
+        - np.asarray(p_curr, dtype=np.float64).reshape(3)
+    )
+    if nrm <= float(eps):
+        if keep_lateral:
+            return leftover.astype(np.float32)
+        return np.zeros(3, dtype=np.float32)
+    if keep_lateral:
+        return leftover.astype(np.float32)
+    axis = action / nrm
+    along = float(np.clip(np.dot(leftover, axis), 0.0, nrm))
+    return (along * axis).astype(np.float32)
+
+
+def osc_action_task_force(
+    force_along_action,
+    force_contact,
+    near_press,
+    path_blocked,
+    contact_n_outward=None,
+    contact_limit=2.0,
+):
+    """Pick the OSC wrench from the MPC increment, not a via-pose PD.
+
+    Free space finishes the increment along ``u``.  A made or nearby
+    press uses the ball law ``F = K u − D v``.  A blocked orbit still
+    follows that increment; it does not strip inward to break contact.
+    """
+    force_along = np.asarray(force_along_action, dtype=np.float32).reshape(3)
+    force_contact = np.asarray(force_contact, dtype=np.float32).reshape(3)
+    limit = abs(float(contact_limit))
+    if bool(path_blocked):
+        # Follow the increment.  Stripping the inward part was an
+        # explicit "leave this graze" rule and made contacts one-frame.
+        return force_along.copy()
+    if not bool(near_press):
+        return force_along.copy()
+    force = force_contact
+    nrm = float(np.linalg.norm(force))
+    if nrm > limit and nrm > 1e-9:
+        force = force * np.float32(limit / nrm)
+    return np.asarray(force, dtype=np.float32).reshape(3)
 
 
 def mpc_action_track_accel(e_p, e_v, policy_dt=0.02):
@@ -326,21 +430,69 @@ def _contact_jacobian_np(n, t1, t2, j_rel, mu):
     return con_jacp[0] + float(mu) * con_jacp[1:]
 
 
-def planar_table_jacobians(obj_pos, r_obj_to_world, table_height, nv, mu, skew_fn=None):
-    """One world-up table plane at the COM projection, plus its body-frame J."""
+def planar_support_jacobians(obj_pos, r_obj_to_world, support_point, support_normal, nv, mu, skew_fn=None):
+    """One support plane at the COM projection, plus its body-frame J."""
     if skew_fn is None:
         skew_fn = _skew
-    obj_pos = np.asarray(obj_pos, dtype=np.float32).reshape(3)
-    support_world = np.array([obj_pos[0], obj_pos[1], float(table_height)], dtype=np.float32)
+    obj_pos = np.asarray(obj_pos, dtype=np.float64).reshape(3)
+    point = np.asarray(support_point, dtype=np.float64).reshape(3)
+    normal = np.asarray(support_normal, dtype=np.float64).reshape(3)
+    nrm = float(np.linalg.norm(normal))
+    normal = normal / nrm if nrm > 1e-8 else np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    dist = float(np.dot(obj_pos - point, normal))
+    support_world = obj_pos - dist * normal
     r_obj = support_world - obj_pos
     j_rel = np.zeros((3, int(nv)), dtype=np.float32)
     j_rel[:, 0:3] = np.eye(3, dtype=np.float32)
     j_rel[:, 3:6] = -np.asarray(skew_fn(r_obj), dtype=np.float32)
-    n_t = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-    t1_t = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    t2_t = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+    n_t, t1_t, t2_t = tangent_basis_from_normal(normal)
     con_jac = np.asarray(_contact_jacobian_np(n_t, t1_t, t2_t, j_rel, mu), dtype=np.float32)
     con_jac_body = contact_jacobian_body_frame(con_jac[:, :6], r_obj_to_world)
+    con_pos_local = (np.asarray(r_obj_to_world, dtype=np.float64).T @ r_obj).astype(np.float32)
+    return con_jac, con_jac_body, con_pos_local, dist
+
+
+def gravity_accel_with_support(gravity_world3, support_normal=None):
+    """World gravity, with the plane's normal hold removed on a tilt.
+
+    Table ranking / MPC keep raw ``+Z`` gravity and let the support
+    Jacobian generate the reaction.  A ramp must cancel ``g`` along
+    the plane normal so neither lambda nor MPC treats the fingertip
+    as a jack.
+    """
+    accel = np.asarray(gravity_world3, dtype=np.float64).reshape(3).copy()
+    if support_normal is None:
+        return accel
+    normal = np.asarray(support_normal, dtype=np.float64).reshape(3)
+    nrm = float(np.linalg.norm(normal))
+    if nrm < 1e-8:
+        return accel
+    normal = normal / nrm
+    if abs(float(normal[2])) < 0.999:
+        accel = accel + max(0.0, -float(np.dot(normal, accel))) * normal
+    return accel
+
+
+def gravity_wrench_object_frame(gravity_world3, mass, r_obj_to_world, support_normal=None):
+    """Body-frame external wrench: gravity, plus the plane's normal hold."""
+    force = gravity_accel_with_support(gravity_world3, support_normal) * float(mass)
+    rot = np.asarray(r_obj_to_world, dtype=np.float64).reshape(3, 3)
+    return np.hstack([rot.T @ force, np.zeros(3, dtype=np.float64)])
+
+
+def planar_table_jacobians(obj_pos, r_obj_to_world, table_height, nv, mu, skew_fn=None):
+    """One world-up table plane at the COM projection, plus its body-frame J."""
+    table_height = float(table_height)
+    obj_pos = np.asarray(obj_pos, dtype=np.float64).reshape(3)
+    con_jac, con_jac_body, _, _ = planar_support_jacobians(
+        obj_pos,
+        r_obj_to_world,
+        np.array([obj_pos[0], obj_pos[1], table_height], dtype=np.float64),
+        np.array([0.0, 0.0, 1.0], dtype=np.float64),
+        nv,
+        mu,
+        skew_fn=skew_fn,
+    )
     return con_jac, con_jac_body, planar_table_support_local(obj_pos, r_obj_to_world, table_height)
 
 

@@ -228,6 +228,13 @@ class MPCExplicit:
 
         if requested == "acados":
             result = self._plan_once_acados(curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub)
+            if result is None and sol_guess is not None:
+                # Status 4 is almost always a stale RTI iterate, not a
+                # missing solver.  Cold-start acados before paying IPOPT.
+                self._reset_acados_solver()
+                result = self._plan_once_acados(
+                    curr_x, phi_vec, jac_mat, cost_params, None, u_lb, u_ub
+                )
             if result is not None:
                 return self._finalize_result(result, curr_x, u_lb, u_ub)
             self.acados_fallback_count += 1
@@ -236,6 +243,7 @@ class MPCExplicit:
                 requested_solver="acados",
                 fallback_reason="acados_unavailable_or_failed",
             )
+            _warn_acados_ipopt_fallback(result.get("fallback_reason", "acados_unavailable_or_failed"))
             return self._finalize_result(result, curr_x, u_lb, u_ub)
 
         result = self._plan_once_ipopt(
@@ -246,12 +254,26 @@ class MPCExplicit:
 
     def _finalize_result(self, result, curr_x, u_lb, u_ub):
         action = np.asarray(result["action"], dtype=np.float64).reshape(self.param_.n_cmd_)
-        if self.cost_kind == "tilted_push":
+        if self.cost_kind == "tilted_push" or bool(
+            getattr(self.param_, "project_mpc_action_to_support_tangent_", False)
+        ):
             action = postprocess_tilted_push_action(self.param_, action, u_lb, u_ub)
         else:
             action = np.clip(action, u_lb, u_ub)
         result["action"] = action
         return result
+
+    def _reset_acados_solver(self):
+        solver = getattr(self, "acados_solver_", None)
+        if solver is None:
+            return
+        reset = getattr(solver, "reset", None)
+        if not callable(reset):
+            return
+        try:
+            reset()
+        except Exception:
+            pass
 
     def _prepare_sol_guess(self, sol_guess):
         if sol_guess is None:
@@ -351,7 +373,9 @@ class MPCExplicit:
             for k in range(n):
                 self.acados_solver_.constraints_set(k, "lbu", u_lb)
                 self.acados_solver_.constraints_set(k, "ubu", u_ub)
-            status = int(self.acados_solver_.solve())
+            from planning.acados_env import quiet_acados_stderr
+            with quiet_acados_stderr():
+                status = int(self.acados_solver_.solve())
             if status != 0:
                 raise RuntimeError(f"acados status {status}")
             u_traj = np.asarray([self.acados_solver_.get(k, "u") for k in range(n)], dtype=np.float64)
@@ -362,9 +386,8 @@ class MPCExplicit:
                 sqp_iter = int(self.acados_solver_.get_stats("sqp_iter"))
             except Exception:
                 sqp_iter = None
-        except Exception as exc:
+        except Exception:
             self.acados_failure_count += 1
-            _warn_acados_ipopt_fallback(str(exc))
             return None
 
         solve_status = _format_acados_status(0, sqp_iter=sqp_iter)
@@ -681,6 +704,9 @@ def _build_mpc_planner_runtime(init):
             setattr(param, key, init[key])
     mpc = MPCExplicit(param)
     mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
+    via_step = getattr(args, "via_max_step", None)
+    via_step = mpc_step if via_step is None else max(1e-4, float(via_step))
+    via_lead = max(1e-4, float(getattr(args, "via_max_lead", via_step)))
     trackers = {
         "value_tracker": ContactValueTracker(
             tau=float(args.value_tau),
@@ -688,7 +714,7 @@ def _build_mpc_planner_runtime(init):
             rho=float(args.value_rho),
             alpha=float(args.value_alpha),
             beta=float(args.verify_beta),
-            window_size=int(getattr(args, "verify_window_size", 5)),
+            window_size=int(getattr(args, "verify_window_size", 20)),
             confirm_steps=int(getattr(args, "verify_enter_steps", 5)),
             min_hold_steps=int(getattr(args, "verify_hold_steps", 30)),
             release_steps=int(getattr(args, "verify_release_steps", 8)),
@@ -702,8 +728,8 @@ def _build_mpc_planner_runtime(init):
         ),
         "approach_via": SmoothedApproachVia(
             rate=float(getattr(args, "via_smooth_rate", 0.05)),
-            max_step=mpc_step,
-            max_lead=max(1e-4, float(getattr(args, "via_max_lead", mpc_step))),
+            max_step=via_step,
+            max_lead=via_lead,
         ),
         "arrived_hold": False,
         "arrived_dest_idx": None,
@@ -719,6 +745,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         compute_rollout_contact_via,
         _verify_is_chatter,
     )
+    from examples.mpc.franka.ik2.contact_frames import gravity_wrench_object_frame
     from planning.MPPIWarp import (
         _apply_dwell_payload,
         _opt_snapshot,
@@ -755,19 +782,27 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
             nv=nv, mu=float(getattr(param, "mu_object_", 0.5)), max_ncon=max_ncon,
         )
     table_ground = float(msg["table_ground"])
+    floor_z = float(msg["floor_z"]) if msg.get("floor_z") is not None else float(param.table_height)
+    support_point = msg.get("support_point")
+    support_normal = msg.get("support_normal")
+    if support_point is not None:
+        support_point = np.asarray(support_point, dtype=np.float64).reshape(3)
+    if support_normal is not None:
+        support_normal = np.asarray(support_normal, dtype=np.float64).reshape(3)
     r_obj_to_world = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
     ranking_mass = float(getattr(param, "lambda_obj_mass_", param.lambda_optimizer.m))
-    gravity = np.hstack([
-        r_obj_to_world.T @ param.gravity_[:3] * ranking_mass,
-        np.zeros(3),
-    ])
+    gravity = gravity_wrench_object_frame(
+        param.gravity_[:3], ranking_mass, r_obj_to_world, support_normal,
+    )
     t0 = time.perf_counter()
     policy = compute_rollout_contact_via(
         param, args, curr_q, r_obj_to_world, gravity, jac_mat_env,
         0.01, trackers["value_tracker"], trackers["model_cost_conf"],
         trackers["approach_via"], trackers["arrived_hold"], trackers["arrived_dest_idx"],
         floor_ground=table_ground,
-        floor_z=float(param.table_height),
+        floor_z=floor_z,
+        support_point=support_point,
+        support_normal=support_normal,
     )
     rank_dt = time.perf_counter() - t0
     trackers["arrived_hold"] = policy["arrived_hold"]
@@ -777,11 +812,16 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     trackers["last_verify_cost"] = float(verify_cost)
 
     tip = np.asarray(curr_q[7:10], dtype=np.float64)
-    max_lead = max(1e-4, float(getattr(args, "via_max_lead", getattr(args, "mpc_step_limit", 0.005))))
-    if bool((policy.get("value_info") or {}).get("path_blocked", False)):
+    max_lead = max(1e-4, float(getattr(args, "via_max_lead", getattr(args, "via_max_step", getattr(args, "mpc_step_limit", 0.005)))))
+    value_info = policy.get("value_info") or {}
+    if bool(value_info.get("path_blocked", False)):
         trackers["sol_guess"] = None
-    policy["mpc_virtual_point"] = clamp_via_to_tip(tip, policy["mpc_virtual_point"], max_lead)
-    policy["mpc_contact_point"] = clamp_via_to_tip(tip, policy["mpc_contact_point"], max_lead)
+    # A blocked orbit already walks via at max_step.  Clamping it back
+    # to a 3 mm tip lead whenever the tip crosses the keep-out is what
+    # made the rim hop.
+    if not bool(value_info.get("path_blocked", False)):
+        policy["mpc_virtual_point"] = clamp_via_to_tip(tip, policy["mpc_virtual_point"], max_lead)
+        policy["mpc_contact_point"] = clamp_via_to_tip(tip, policy["mpc_contact_point"], max_lead)
 
     t1 = time.perf_counter()
     sol = mpc.plan_once(

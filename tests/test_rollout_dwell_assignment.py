@@ -164,7 +164,7 @@ def test_rank_switch_still_charges_the_occupied_foot():
 
 
 def test_verify_follows_tightness_even_off_target():
-    tracker = ContactValueTracker(beta=1.0, exit_threshold=0.2)
+    tracker = ContactValueTracker(beta=1.0, exit_threshold=0.2, window_size=1)
     value, _ = tracker.update_verify(
         1.0, 0.08, physical_contact=True, on_target=False, tightness=0.0)
     assert value == 0.0

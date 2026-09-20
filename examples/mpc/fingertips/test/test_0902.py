@@ -484,6 +484,21 @@ def _keepout_radius(aabb_lo, aabb_hi, circumradius=None):
     return max(0.055, r_xy)
 
 
+def _press_orbit_radius(obj, press, keepout):
+    """XY circle used only to walk around, not to decide press vs orbit.
+
+    ``_keepout_radius`` is the AABB hypot plus margin.  On elephant that
+    is ~8.6 cm, so an opposite-side via sat far from the body.  Walk the
+    press ring (or the COM core already used by ``_press_path_blocked``).
+    Keep-out itself still decides blocked vs drop.
+    """
+    obj = np.asarray(obj, dtype=float).reshape(3)
+    press = np.asarray(press, dtype=float).reshape(3)
+    press_r = float(np.linalg.norm(press[:2] - obj[:2]))
+    core = max(0.028, 0.45 * float(keepout))
+    return max(press_r, core)
+
+
 def _goal_rim_xy(obj, best, radius):
     obj = np.asarray(obj, dtype=float).reshape(3)
     best = np.asarray(best, dtype=float).reshape(3)
@@ -627,8 +642,7 @@ def _press_approach_desired(tip, obj, press, keepout, top_z):
 
     ``desired`` always contains a component toward press.  Height is
     ``(1-open)*top + open*press_z`` so via.z falls as the heading
-    lines up.  XY stays on the keep-out rim only while the chord
-    intersects the object.
+    lines up.  XY walks the press ring, not the AABB keep-out.
     """
     tip = np.asarray(tip, dtype=float).reshape(3)
     obj = np.asarray(obj, dtype=float).reshape(3)
@@ -638,9 +652,10 @@ def _press_approach_desired(tip, obj, press, keepout, top_z):
     blocked = _press_path_blocked(tip, obj, press, keepout)
     if not blocked:
         return press.copy(), False
-    rim_xy = _goal_rim_xy(obj, press, keepout)
+    rim = _press_orbit_radius(obj, press, keepout)
+    rim_xy = _goal_rim_xy(obj, press, rim)
     desired = np.zeros(3, dtype=float)
-    desired[:2] = _orbit_xy(tip[:2], obj[:2], rim_xy, keepout)
+    desired[:2] = _orbit_xy(tip[:2], obj[:2], rim_xy, rim)
     desired[2] = (1.0 - open_w) * top + open_w * float(press[2])
     return desired, True
 

@@ -45,23 +45,31 @@ from examples.mpc.franka.ik2.test_mppi_isaac import (
     _plan_payload,
     _pred_reduction_from_policy,
 )
-from examples.mpc.fingertips.test.test_0902 import add_rollout_via_args
+from examples.mpc.fingertips.test.test_0902 import (
+    add_rollout_via_args,
+    _keepout_radius,
+    _on_opposite_sides,
+    _press_path_blocked,
+    _segment_hits_core,
+    _travel_orbit_radius,
+)
 from planning.screenshot import create_isaacgym_svg_screenshot_recorder
 from examples.mpc.franka.ik2.contact_frames import (
     FRANKA_QD_NULLSPACE,
     clip_mpc_action as _clip_mpc_action,
     clip_via_target as _clip_via_target,
-    contact_aware_task_force as _contact_aware_task_force,
     diagnose_contact_pose_source as _diagnose_contact_pose_source,
     franka_nullspace_posture_torque as _franka_nullspace_posture_torque,
-    mpc_ball_contact_force as _mpc_ball_contact_force,
+    isaac_task_force as _isaac_task_force,
     mpc_ball_trajectory as _mpc_ball_trajectory,
     near_press_force_mode as _near_press_force_mode,
     NEAR_PRESS_SWITCH as CONTACT_NEAR_PRESS,
+    osc_action_task_force as _osc_action_task_force,
+    slew_mpc_action as _slew_mpc_action,
     planar_table_jacobians as _planar_table_jacobians,
     press_normal_outward as _press_normal_outward,
-    strip_inward_press as _strip_inward_press,
-    rollout_task_accel as _rollout_task_accel,
+    project_along_action as _project_along_action,
+    remaining_along_action as _remaining_along_action,
     tangent_basis_from_normal as _tangent_basis_from_normal,
     _contact_jacobian_np as _contact_jacobian,
 )
@@ -100,17 +108,27 @@ DEFAULT_CARTESIAN_STIFFNESS = np.array([2000.0, 2000.0, 2000.0, 50.0, 50.0, 50.0
 # damping made the tip crawl.  Contact force is set in task space, not here.
 DEFAULT_EFFORT_JOINT_DAMPING = 0.0
 # Fingertips --rollout PD: ctrl = -100 dpos - 2 dvel on an ~0.01 kg sphere.
+# Isaac / Franka cannot use that law: the task mass is ~2.5 kg and PhysX
+# contact is softer than MuJoCo, so the same 5 mm / 20 ms carrot slams.
 ROLLOUT_FINGERTIP_MASS = 0.01
 ROLLOUT_TASK_KP = 100.0
 ROLLOUT_TASK_KD = 2.0
-# 5 mm in 20 ms needs ~30 N at the 2.5 kg fallback task mass.
-# The 125--400 N caps were the 0.01 kg ball accel law applied to the arm.
-FREE_SPACE_FORCE_LIMIT = 40.0
-# Floating-ball URDF effort cap.  Used only after a made contact.
-CONTACT_FORCE_LIMIT = 2.0
-# Free-space via/OSC step.  Contact and the last 3 cm of approach stay on
-# the 5 mm MPC increment so press force is unchanged.
-AIR_VIA_STEP = 0.005
+ISAAC_TASK_KP = 600.0
+ISAAC_TASK_KD = 40.0
+# Enough to walk a 2.5 mm via without saturating, far below the 40 N
+# punch that finished a 5 mm ball increment in 20 ms.
+FREE_SPACE_FORCE_LIMIT = 12.0
+# PhysX needs a lighter press than the MuJoCo 2 N ball cap.
+CONTACT_FORCE_LIMIT = 0.8
+# Shorter carrot than --rollout.  MPC may still emit 5 mm; OSC slews it.
+AIR_VIA_STEP = 0.0025
+ISAAC_VIA_MAX_STEP = 0.0025
+ISAAC_VIA_MAX_LEAD = 0.003
+ISAAC_VIA_SMOOTH_RATE = 0.03
+ISAAC_ACTION_SLEW = 0.0015
+# Same keep-out as path_blocked / verify.  An extra 8 cm circle
+# sent the Franka tip 15 cm from the COM before it could drop.
+ISAAC_ORBIT_EXTRA = 0.0
 NEAR_PRESS_SWITCH = CONTACT_NEAR_PRESS
 ROLLOUT_TABLE_FRICTION = 0.5
 ROLLOUT_OBJECT_FRICTION = 0.9
@@ -982,59 +1000,55 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         p_curr, _ = self.get_end_effector_pos()
         jac_p = self._get_position_jacobian(q)
         vel = np.clip(jac_p @ qd, -2.0, 2.0)
-        k_task, d_task = self._rollout_task_gains()
-        m_task = self._task_mass_matrix(jac_p)
         err = np.asarray(self.position_d - p_curr, dtype=np.float32).reshape(3)
-        v_ref = getattr(self, "_mpc_v_ref", None)
-        acc = _rollout_task_accel(
-            err, vel, v_ref=v_ref, k_task=k_task, d_task=d_task,
-            mass=ROLLOUT_FINGERTIP_MASS,
-        )
-        force_track = self._clip_task_force(m_task @ acc, FREE_SPACE_FORCE_LIMIT)
         action = getattr(self, "_mpc_action", None)
         if action is None:
             action = getattr(self, "_last_mpc_action", None)
-        if action is not None:
-            # Same F = K u − D v as the 3-DoF ball.  Position error shrinks
-            # once OSC arrives, which zeros the press and stalls a flip.
-            force_contact = self._clip_task_force(
-                _mpc_ball_contact_force(action, vel, k_task, d_task),
-                CONTACT_FORCE_LIMIT,
+        p0 = getattr(self, "_mpc_p0", None)
+        blocked = bool(getattr(self, "_path_blocked", False))
+        if action is not None and p0 is not None:
+            remain = _remaining_along_action(
+                p_curr, p0, action, keep_lateral=blocked)
+            horizon = float(getattr(self, "_mpc_T", None) or POLICY_INTERVAL)
+            v_ref = _project_along_action(
+                np.asarray(action, dtype=np.float64) / max(horizon, 1e-6), action)
+        else:
+            remain = err
+            v_ref = None
+        force_track = _isaac_task_force(
+            remain, vel, v_ref=v_ref,
+            k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
+            limit=FREE_SPACE_FORCE_LIMIT,
+        )
+        if action is not None and not blocked:
+            force_track = _project_along_action(force_track, action)
+            # Damp raw velocity on contact so PhysX is not driven at v_ref.
+            force_contact = _isaac_task_force(
+                action, vel, v_ref=None,
+                k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
+                limit=CONTACT_FORCE_LIMIT,
             )
         else:
-            v_rel = vel if v_ref is None else vel - np.asarray(v_ref, dtype=np.float32).reshape(3)
-            force_contact = self._clip_task_force(
-                k_task * err - d_task * v_rel, CONTACT_FORCE_LIMIT
+            force_contact = _isaac_task_force(
+                err, vel, v_ref=None,
+                k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
+                limit=CONTACT_FORCE_LIMIT,
             )
         in_contact, contact_n = self._fingertip_contact_info()
         press = getattr(self, "_mpc_press", None)
         state_fn = getattr(self, "get_state", None)
         obj = None if state_fn is None else np.asarray(state_fn()[:3], dtype=np.float64)
-        if _near_press_force_mode(in_contact, p_curr, press=press, obj=obj):
-            if bool(getattr(self, "_path_blocked", False)):
-                # Orbit / lift must not keep an inward graze.  Ku−Dv in
-                # the via direction still punches the body and shoves
-                # the object away while the tip is trying to hook around.
-                force = self._clip_task_force(
-                    _strip_inward_press(
-                        force_track,
-                        _press_normal_outward(
-                            p_curr, press, fallback=contact_n),
-                    ),
-                    CONTACT_FORCE_LIMIT,
-                )
-            else:
-                force = _contact_aware_task_force(
-                    force_track, force_contact,
-                    _press_normal_outward(p_curr, press, fallback=contact_n),
-                    min_press=0.5, max_press=CONTACT_FORCE_LIMIT,
-                )
-        else:
-            force = force_track
+        near_press = _near_press_force_mode(in_contact, p_curr, press=press, obj=obj)
+        force = _osc_action_task_force(
+            force_track, force_contact, near_press,
+            bool(getattr(self, "_path_blocked", False)),
+            contact_n_outward=_press_normal_outward(
+                p_curr, press, fallback=contact_n),
+            contact_limit=CONTACT_FORCE_LIMIT,
+        )
         self._last_osc_force = np.asarray(force, dtype=np.float32).reshape(3)
         self._last_osc_pd = np.asarray(self.position_d, dtype=np.float32).reshape(3)
-        self._last_osc_near_press = bool(
-            _near_press_force_mode(in_contact, p_curr, press=press, obj=obj))
+        self._last_osc_near_press = bool(near_press)
         tau_task = jac_p.T @ force
 
         # Position-only J: orientation lives in the nullspace and is held
@@ -1144,6 +1158,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._mpc_v_ref = None
         self._mpc_p0 = None
         self._mpc_press = None
+        self._mpc_via = None
         self._path_blocked = False
         self._mpc_t = 0.0
         self._mpc_T = POLICY_INTERVAL
@@ -1231,20 +1246,22 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         p_curr, _ = self.get_end_effector_pos()
         p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
         via = np.asarray(via_pos, dtype=np.float64).reshape(3)
-        table = float(getattr(self.param_, "table_height", 0.0))
-        # Keep the table floor on approach / lift.  A made press near the
-        # table must not be jacked up 12 mm — that lifts the tip off.
-        if bool(path_blocked) or press is None:
-            via[2] = max(float(via[2]), table + 0.012)
-        max_step = abs(float(getattr(self.param_, "mpc_u_ub_", 0.005)))
+        max_step = min(
+            abs(float(getattr(self.param_, "mpc_u_ub_", 0.005))),
+            abs(float(getattr(self.param_, "isaac_via_max_step_", AIR_VIA_STEP))),
+        )
+        max_slew = abs(float(getattr(
+            self.param_, "isaac_action_slew_", ISAAC_ACTION_SLEW)))
+        if bool(path_blocked):
+            max_step = abs(float(getattr(self.param_, "mpc_u_ub_", 0.005)))
+            max_slew = max(max_slew, max_step)
         target, increment = _clip_via_target(
             p_curr, via, action=action, max_step=max_step)
-        if bool(path_blocked) or press is None:
-            floor = table + 0.012
-            if float(target[2]) < floor:
-                target = np.asarray(target, dtype=np.float64).reshape(3).copy()
-                target[2] = floor
-                increment = _clip_mpc_action(target - p_curr, max_step)
+        increment = _slew_mpc_action(
+            getattr(self, "_last_mpc_action", None), increment, max_step,
+            max_slew=max_slew,
+        )
+        target = (p_curr + np.asarray(increment, dtype=np.float64).reshape(3)).astype(np.float32)
         horizon = float(policy_dt if policy_dt is not None else POLICY_INTERVAL)
         self._hold_dq = None
         self._hold_i = 0
@@ -1255,6 +1272,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._mpc_t = 0.0
         self._mpc_press = None if press is None else np.asarray(
             press, dtype=np.float64).reshape(3)
+        self._mpc_via = via.copy()
         self._path_blocked = bool(path_blocked)
         self.p_d, self._mpc_v_ref = _mpc_ball_trajectory(
             self._mpc_p0, self._mpc_action, 0.0, self._mpc_T
@@ -1502,6 +1520,16 @@ def _configure_rollout_param(param, args):
     param.lambda_optimizer.contact_switch_confirm_steps = max(
         1, int(args.contact_switch_confirm_steps)
     )
+    via_step = getattr(args, "via_max_step", None)
+    param.isaac_via_max_step_ = (
+        ISAAC_VIA_MAX_STEP if via_step is None else max(1e-4, float(via_step))
+    )
+    param.isaac_action_slew_ = max(
+        1e-4, float(getattr(args, "action_slew", ISAAC_ACTION_SLEW))
+    )
+    param.isaac_orbit_extra_ = max(
+        0.0, float(getattr(args, "orbit_extra", ISAAC_ORBIT_EXTRA))
+    )
     return param
 
 
@@ -1637,6 +1665,217 @@ def _print_contact_pose_diag(diag):
     )
 
 
+# Isaac table is a 2 x 2 x 0.35 box at (1.2, 0, 0.175).
+_TABLE_XY_MIN = np.array([0.20, -1.00], dtype=np.float64)
+_TABLE_XY_MAX = np.array([2.20, 1.00], dtype=np.float64)
+
+
+def _table_edge_dist_xy(obj_xy):
+    xy = np.asarray(obj_xy, dtype=np.float64).reshape(2)
+    return float(np.min(np.concatenate([xy - _TABLE_XY_MIN, _TABLE_XY_MAX - xy])))
+
+
+def _finite_or_none(value):
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+def _sample_cost(opt, sample_idx):
+    if sample_idx is None:
+        return None
+    ids = getattr(opt, "last_candidate_ids", None)
+    costs = getattr(opt, "last_candidate_costs", None)
+    if ids is None or costs is None:
+        return None
+    hits = np.flatnonzero(np.asarray(ids, dtype=np.int32).reshape(-1) == int(sample_idx))
+    if not hits.size:
+        return None
+    return _finite_or_none(np.asarray(costs, dtype=np.float64).reshape(-1)[int(hits[0])])
+
+
+def _analyze_edge_pose_source(
+    param, curr_q, policy, result, osc_force, if_contact, pos_err, quat_err,
+    prev_pos_err, prev_quat_err,
+):
+    """Say whether a worsening desk-edge contact is lambda, verify, or OSC."""
+    opt = param.lambda_optimizer
+    value_info = policy.get("value_info") or {}
+    p_arm = np.asarray(policy["p_arm_world"], dtype=np.float64).reshape(3)
+    best = np.asarray(policy["best_contact_world"], dtype=np.float64).reshape(3)
+    via = np.asarray(policy["mpc_virtual_point"], dtype=np.float64).reshape(3)
+    tip = np.asarray(curr_q[7:10], dtype=np.float64).reshape(3)
+    obj = np.asarray(curr_q[:3], dtype=np.float64).reshape(3)
+    target = np.asarray(param.target_p_, dtype=np.float64).reshape(3)
+    to_target = target - obj
+    to_target_n = float(np.linalg.norm(to_target))
+    to_target_u = to_target / max(to_target_n, 1e-9)
+    edge = _table_edge_dist_xy(obj[:2])
+    verify = _finite_or_none(result.get("verify_cost"))
+    accept = bool(value_info.get("accept_p_arm", False))
+    occupied_idx = value_info.get("occupied_idx")
+    best_idx = getattr(opt, "last_global_idx", None)
+    executed_idx = getattr(opt, "last_executed_idx", None)
+    occ_dC = _sample_pose_delta(opt, occupied_idx)
+    best_dC = _sample_pose_delta(opt, best_idx)
+    exec_dC = _sample_pose_delta(opt, executed_idx)
+    occ_cost = _sample_cost(opt, occupied_idx)
+    best_cost = _sample_cost(opt, best_idx)
+    exec_cost = _sample_cost(opt, executed_idx)
+    if exec_cost is None:
+        exec_cost = _finite_or_none(getattr(opt, "last_executed_cost", None))
+    p_arm_dC = exec_dC if exec_dC is not None else occ_dC
+    p_arm_cost = exec_cost if exec_cost is not None else occ_cost
+    lambda_now = _finite_or_none(getattr(opt, "last_pose_cost_now", None))
+    force = None if osc_force is None else np.asarray(osc_force, dtype=np.float64).reshape(3)
+    force_n = 0.0 if force is None else float(np.linalg.norm(force))
+    force_align = None
+    if force is not None and force_n > 1e-6 and to_target_n > 1e-6:
+        # Task force is the EE push into the world.  On contact the object
+        # is shoved along +F.  Negative alignment increases position error.
+        force_align = float(np.dot(force, to_target_u) / force_n)
+    contact_align = float(np.dot(p_arm - obj, to_target_u))
+    best_align = float(np.dot(best - obj, to_target_u))
+    d_pos = None if prev_pos_err is None else float(pos_err - prev_pos_err)
+    d_quat = None if prev_quat_err is None else float(quat_err - prev_quat_err)
+    actual_worse = (d_pos is not None and d_pos > 5e-4) or (
+        d_quat is not None and d_quat > 5e-4)
+    lambda_improves = p_arm_dC is not None and float(p_arm_dC) > 1e-9
+    best_improves = best_dC is not None and float(best_dC) > 1e-9
+    near_p_arm = float(np.linalg.norm(tip - p_arm)) <= 0.03
+    via_to_best = float(np.linalg.norm(via - best))
+    via_to_parm = float(np.linalg.norm(via - p_arm))
+    osc_away = bool(if_contact) and force_align is not None and force_align < -0.15
+    verify_hold = accept or (verify is not None and float(verify) >= 0.25 and near_p_arm)
+    planner_wants_best = (not accept) and via_to_best + 1e-6 < via_to_parm
+    keepout = _keepout_radius(
+        getattr(param, "object_aabb_lo", (-0.06, -0.04, -0.04)),
+        getattr(param, "object_aabb_hi", (0.06, 0.04, 0.06)),
+        getattr(param, "object_circumradius", None),
+    )
+    lo = np.asarray(getattr(param, "object_aabb_lo", (-0.06, -0.04, -0.04)), dtype=np.float64)
+    hi = np.asarray(getattr(param, "object_aabb_hi", (0.06, 0.04, 0.06)), dtype=np.float64)
+    half = 0.5 * (hi - lo)
+    obj_r_xy = float(np.hypot(half[0], half[1]))
+    tip_xy_r = float(np.linalg.norm(tip[:2] - obj[:2]))
+    via_xy_r = float(np.linalg.norm(via[:2] - obj[:2]))
+    opposite = bool(_on_opposite_sides(tip, obj, best))
+    blocked_geom = bool(_press_path_blocked(tip, obj, best, keepout))
+    core_r = max(0.028, 0.45 * float(keepout))
+    chord_hits = bool(_segment_hits_core(tip, best, obj, radius=core_r))
+    orbit_extra = float(getattr(param, "isaac_orbit_extra_", ISAAC_ORBIT_EXTRA))
+    isaac_keepout = _travel_orbit_radius(keepout, orbit_extra)
+    planner_wants_orbit = (
+        (not accept)
+        and (bool(value_info.get("path_blocked", False)) or opposite)
+        and (verify is None or float(verify) < 0.25)
+    )
+    orbit_clips = planner_wants_orbit and (
+        bool(if_contact) or tip_xy_r <= isaac_keepout
+    ) and tip_xy_r < isaac_keepout + 0.01
+    if lambda_improves and actual_worse:
+        verdict = "lambda_false_improve"
+    elif (not lambda_improves) and verify_hold and actual_worse:
+        verdict = "verify_holds_bad_parm"
+    elif orbit_clips and actual_worse:
+        verdict = "osc_orbit_radius_clips"
+    elif planner_wants_best and osc_away:
+        verdict = "osc_presses_despite_planner"
+    elif (not lambda_improves) and osc_away and not planner_wants_best:
+        verdict = "osc_and_planner_push_away"
+    elif lambda_improves and not actual_worse:
+        verdict = "lambda_ok"
+    else:
+        verdict = "ambiguous"
+    return {
+        "verdict": verdict,
+        "edge": edge,
+        "pos_err": float(pos_err),
+        "quat_err": float(quat_err),
+        "d_pos": d_pos,
+        "d_quat": d_quat,
+        "verify": verify,
+        "accept": int(accept),
+        "phase": value_info.get("via_phase"),
+        "blocked": int(bool(value_info.get("path_blocked", False))),
+        "p_arm_cost": p_arm_cost,
+        "p_arm_dC": None if p_arm_dC is None else float(p_arm_dC),
+        "occ_cost": occ_cost,
+        "occ_dC": None if occ_dC is None else float(occ_dC),
+        "best_cost": best_cost,
+        "best_dC": None if best_dC is None else float(best_dC),
+        "lambda_now": lambda_now,
+        "lambda_improves": int(lambda_improves),
+        "best_improves": int(best_improves),
+        "contact_align": contact_align,
+        "best_align": best_align,
+        "force_align": force_align,
+        "force_n": force_n,
+        "tip_to_p_arm": float(np.linalg.norm(tip - p_arm)),
+        "tip_to_best": float(np.linalg.norm(tip - best)),
+        "p_arm_to_best": float(np.linalg.norm(p_arm - best)),
+        "via_to_best": via_to_best,
+        "via_to_parm": via_to_parm,
+        "keepout": float(keepout),
+        "isaac_keepout": float(isaac_keepout),
+        "obj_r_xy": float(obj_r_xy),
+        "tip_xy_r": float(tip_xy_r),
+        "via_xy_r": float(via_xy_r),
+        "opposite": int(opposite),
+        "blocked_geom": int(blocked_geom),
+        "chord_hits": int(chord_hits),
+        "orbit_clips": int(orbit_clips),
+        "near_edge": int(edge <= 0.18),
+        "if_contact": int(bool(if_contact)),
+    }
+
+
+def _print_edge_pose_source(info):
+    print(
+        "edge_source:",
+        "verdict:", info["verdict"],
+        "edge:", round(float(info["edge"]), 4),
+        "pos_err:", round(float(info["pos_err"]), 5),
+        "d_pos:", None if info["d_pos"] is None else round(float(info["d_pos"]), 5),
+        "quat_err:", round(float(info["quat_err"]), 5),
+        "d_quat:", None if info["d_quat"] is None else round(float(info["d_quat"]), 5),
+        "verify:", None if info["verify"] is None else round(float(info["verify"]), 4),
+        "accept:", info["accept"],
+        "phase:", info["phase"],
+        "blocked:", info["blocked"],
+        "p_arm_cost:", None if info["p_arm_cost"] is None else round(float(info["p_arm_cost"]), 6),
+        "p_arm_dC:", None if info["p_arm_dC"] is None else round(float(info["p_arm_dC"]), 6),
+        "occ_dC:", None if info["occ_dC"] is None else round(float(info["occ_dC"]), 6),
+        "best_dC:", None if info["best_dC"] is None else round(float(info["best_dC"]), 6),
+        "best_cost:", None if info["best_cost"] is None else round(float(info["best_cost"]), 6),
+        "lambda_now:", None if info["lambda_now"] is None else round(float(info["lambda_now"]), 6),
+        "lambda_improves:", info["lambda_improves"],
+        "best_improves:", info["best_improves"],
+        "contact_align:", round(float(info["contact_align"]), 3),
+        "best_align:", round(float(info["best_align"]), 3),
+        "osc_align:", None if info["force_align"] is None else round(float(info["force_align"]), 3),
+        "osc_fn:", round(float(info["force_n"]), 3),
+        "tip_p_arm:", round(float(info["tip_to_p_arm"]), 4),
+        "tip_best:", round(float(info["tip_to_best"]), 4),
+        "p_arm_best:", round(float(info["p_arm_to_best"]), 4),
+        "via_best:", round(float(info["via_to_best"]), 4),
+        "via_parm:", round(float(info["via_to_parm"]), 4),
+        "keepout:", round(float(info["keepout"]), 4),
+        "isaac_ko:", round(float(info["isaac_keepout"]), 4),
+        "obj_r:", round(float(info["obj_r_xy"]), 4),
+        "tip_r:", round(float(info["tip_xy_r"]), 4),
+        "via_r:", round(float(info["via_xy_r"]), 4),
+        "opposite:", info["opposite"],
+        "chord:", info["chord_hits"],
+        "orbit_clips:", info["orbit_clips"],
+        "contact:", info["if_contact"],
+    )
+
+
 def _print_rollout_step(
     param, curr_q, policy, value_info, verify_cost, verify_chatter,
     model_cost_conf, pred_reduction, act_reduction, if_contact, escape_on,
@@ -1687,6 +1926,7 @@ def _print_rollout_step(
         "verify_chatter:", int(bool(verify_chatter)),
         "p_arm_quality:", None if not value_info else round(float(value_info.get("quality", 0.0)), 4),
         "accept_p_arm:", None if not value_info else int(bool(value_info.get("accept_p_arm", False))),
+        "pose_near_tie:", None if not value_info else int(bool(value_info.get("pose_near_tie", True))),
         "same_patch:", None if not value_info else int(bool(value_info.get("same_patch", False))),
         "q_dist:", None if not value_info else round(float(value_info.get("q_dist", 0.0)), 4),
         "verify_window:", None if not value_info else round(float(value_info.get("window_mean", 0.0)), 4),
@@ -1760,14 +2000,34 @@ def _add_rollout_policy_args(parser):
     parser.add_argument(
         "--via-max-lead",
         type=float,
-        default=0.008,
-        help="Max via/press offset from the current fingertip (m).",
+        default=ISAAC_VIA_MAX_LEAD,
+        help="Max via/press offset from the current fingertip (m).  "
+             "Shorter than the MuJoCo 5 mm carrot so Franka actions stay small.",
+    )
+    parser.add_argument(
+        "--via-max-step",
+        type=float,
+        default=ISAAC_VIA_MAX_STEP,
+        help="SmoothedApproachVia and OSC increment cap (m).",
     )
     parser.add_argument(
         "--via-smooth-rate",
         type=float,
-        default=0.05,
+        default=ISAAC_VIA_SMOOTH_RATE,
         help="SmoothedApproachVia lerp rate.  Smaller interpolates more.",
+    )
+    parser.add_argument(
+        "--action-slew",
+        type=float,
+        default=ISAAC_ACTION_SLEW,
+        help="Max change of the executed increment between policy steps (m).",
+    )
+    parser.add_argument(
+        "--orbit-extra",
+        type=float,
+        default=ISAAC_ORBIT_EXTRA,
+        help="Added only to the via orbit radius (m).  "
+             "Default 0: same keep-out as path_blocked / verify_cost.",
     )
     parser.add_argument(
         "--async-planner",
@@ -1817,6 +2077,8 @@ def run_mpc_planner(bus, args):
     consecutive_success_time_threshold = 0
     max_rollout_length = max(1, int(args.max_rollout_length))
     mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
+    via_step = getattr(args, "via_max_step", None)
+    exec_step = mpc_step if via_step is None else min(mpc_step, max(1e-4, float(via_step)))
     success_rate = 0
     viewer_quit = False
 
@@ -1855,6 +2117,9 @@ def run_mpc_planner(bus, args):
         choose_times = []
         pos_err_now = None
         quat_err_now = None
+        prev_pos_err = None
+        prev_quat_err = None
+        edge_verdicts = []
 
         while rollout_step < max_rollout_length:
             if obs.get("break_out") or obs.get("viewer_closed") or obs.get("cmd") == "stop":
@@ -1891,11 +2156,8 @@ def run_mpc_planner(bus, args):
             verify_chatter = bool(result["verify_chatter"])
             action = np.asarray(result["action"], dtype=np.float64).reshape(3)
             tip_now = np.asarray(curr_q[7:10], dtype=np.float64)
-            action = np.asarray(_clip_mpc_action(action, mpc_step), dtype=np.float64)
+            action = np.asarray(_clip_mpc_action(action, exec_step), dtype=np.float64)
             exec_via = np.asarray(policy["mpc_virtual_point"], dtype=np.float64).reshape(3)
-            # Do not jack a made press up to table+12 mm.  That lifts the
-            # tip off a foot / flip patch.  Approach / blocked leave still
-            # floor inside set_via_action.
 
             on_exec_contact = False
             physical_contact = bool(np.isfinite(contact_distance) and contact_distance <= 0.003)
@@ -1917,6 +2179,15 @@ def run_mpc_planner(bus, args):
             _print_rank_cost_diag(param, curr_q, policy["best_contact_world"])
             osc_force = obs.get("osc_force")
             osc_pd = obs.get("osc_pd")
+            edge_info = _analyze_edge_pose_source(
+                param, curr_q, policy, result, osc_force, physical_contact,
+                pos_err_now, quat_err_now, prev_pos_err, prev_quat_err,
+            )
+            if edge_info["near_edge"] or edge_info["if_contact"] or float(pos_err_now) > 0.05:
+                _print_edge_pose_source(edge_info)
+                edge_verdicts.append((rollout_step, edge_info["verdict"], edge_info))
+            prev_pos_err = float(pos_err_now)
+            prev_quat_err = float(quat_err_now)
             print(
                 "diag_push:",
                 "step:", rollout_step,
@@ -1938,8 +2209,14 @@ def run_mpc_planner(bus, args):
                 "conf:", round(float(param.lambda_optimizer.contact_switch_confidence), 3),
                 "tight:", round(float(result.get("model_tightness", 0.0)), 3),
                 "accept:", int(bool(policy["value_info"].get("accept_p_arm", False))),
+                "pose_tie:", int(bool(policy["value_info"].get("pose_near_tie", True))),
                 "blocked:", int(bool((policy.get("value_info") or {}).get("path_blocked", False))),
                 "phase:", (policy.get("value_info") or {}).get("via_phase"),
+                "opposite:", edge_info["opposite"],
+                "keepout:", round(float(edge_info["keepout"]), 4),
+                "tip_r:", round(float(edge_info["tip_xy_r"]), 4),
+                "via_r:", round(float(edge_info["via_xy_r"]), 4),
+                "orbit_clips:", edge_info["orbit_clips"],
                 "dwell:", int(getattr(param.lambda_optimizer, "_dwell_steps", 0)),
                 "blacklisted:", len(getattr(param.lambda_optimizer, "_blocked_contact_indices", {})),
             )
@@ -1974,6 +2251,20 @@ def run_mpc_planner(bus, args):
                     "mpc_failures": mpc_failures,
                     "mpc_init_error": last_result.get("mpc_init_error") or None,
                 })
+        if edge_verdicts:
+            counts = {}
+            worse = [item for item in edge_verdicts if item[2].get("d_pos") is not None and item[2]["d_pos"] > 5e-4]
+            for _, verdict, _ in edge_verdicts:
+                counts[verdict] = counts.get(verdict, 0) + 1
+            worse_counts = {}
+            for _, verdict, _ in worse:
+                worse_counts[verdict] = worse_counts.get(verdict, 0) + 1
+            print("edge_verdict_summary:", {
+                "n": len(edge_verdicts),
+                "n_pos_worse": len(worse),
+                "all": counts,
+                "pos_worse": worse_counts,
+            })
         choose_arr = np.asarray(choose_times, dtype=np.float64) if choose_times else np.array([0.0])
         print("trial_summary:", {
             "trial": trial_count,

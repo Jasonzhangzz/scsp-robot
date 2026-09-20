@@ -184,6 +184,7 @@ def _pack_fingertip_cost_params(
     verify_cost_param=0,
     virtual_point=None,
     contact_point=None,
+    curr_ori_coef=None,
     **_unused,
 ):
     n_phi = int(param.max_ncon_ * 4)
@@ -197,6 +198,10 @@ def _pack_fingertip_cost_params(
             np.asarray([float(verify_cost_param)], dtype=np.float64),
             _as_vec(virtual_point, 3),
             _as_vec(contact_point, 3),
+            np.asarray(
+                [1.0 if curr_ori_coef is None else float(curr_ori_coef)],
+                dtype=np.float64,
+            ),
         ]
     )
 

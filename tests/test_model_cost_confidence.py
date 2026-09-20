@@ -17,8 +17,10 @@ from examples.mpc.fingertips.test.test_0902 import (
     _protect_destination_dwell,
     _rollout_verify_cost,
     _should_observe_model_cost,
+    _heading_open_weight,
     _orbit_xy,
     _press_approach_desired,
+    _press_orbit_radius,
     _press_path_blocked,
     _travel_press_weight,
     _verify_cost_threshold,
@@ -498,7 +500,9 @@ def test_keepout_local_through_body_still_orbits():
         0.08, keepout, False, press)
     assert via.blocked
     assert phase in ('lift', 'cross')
-    assert float(np.linalg.norm(target[:2] - obj[:2])) >= 0.09
+    rim = _press_orbit_radius(obj, press, keepout)
+    assert float(np.linalg.norm(target[:2] - obj[:2])) == pytest.approx(rim)
+    assert rim < keepout - 0.01
 
 
 def test_wide_com_azimuth_inside_keepout_may_drop():
@@ -610,7 +614,32 @@ def test_opposite_face_still_orbits():
     desired, blocked = _press_approach_desired(
         tip, obj, press, keepout, 0.098)
     assert blocked
-    assert float(np.linalg.norm(desired[:2] - obj[:2])) == pytest.approx(keepout)
+    rim = _press_orbit_radius(obj, press, keepout)
+    assert float(np.linalg.norm(desired[:2] - obj[:2])) == pytest.approx(rim)
+    assert rim < keepout
+
+
+def test_elephant_far_opposite_orbits_on_the_press_ring():
+    """Scene 2: a 12 cm tip walks in to the patch, not the AABB hypot.
+
+    Drop / verify / via height stay the HEAD contact rules.
+    """
+    obj = np.array([0.35, 0.06, 0.42])
+    tip = np.array([0.23, 0.09, 0.40])
+    press = np.array([0.39, 0.03, 0.38])
+    keepout = 0.0862
+    assert _on_opposite_sides(tip, obj, press)
+    desired, blocked = _press_approach_desired(
+        tip, obj, press, keepout, 0.48)
+    assert blocked
+    rim = _press_orbit_radius(obj, press, keepout)
+    assert rim < keepout - 0.01
+    assert float(np.linalg.norm(desired[:2] - obj[:2])) == pytest.approx(rim)
+    assert float(np.linalg.norm(desired[:2] - obj[:2])) < float(
+        np.linalg.norm(tip[:2] - obj[:2]))
+    # Contact height is still heading-open, not pinned to the fingertip.
+    open_w = _heading_open_weight(tip, obj, press)
+    assert desired[2] == pytest.approx((1.0 - open_w) * 0.48 + open_w * press[2])
 
 
 def test_mpc_terminal_pose_matches_lambda_weights():
