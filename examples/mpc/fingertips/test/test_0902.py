@@ -484,6 +484,15 @@ def _keepout_radius(aabb_lo, aabb_hi, circumradius=None):
     return max(0.055, r_xy)
 
 
+def _travel_orbit_radius(keepout, extra=0.0):
+    """Isaac travel keep-out: path_blocked radius plus ``--orbit-extra``.
+
+    ``test_mpc_isaac.py`` imports this for OSC orbit-clip diagnostics.
+    Default extra is 0, so the circle matches ``_press_path_blocked``.
+    """
+    return float(keepout) + max(0.0, float(extra))
+
+
 def _press_orbit_radius(obj, press, keepout):
     """XY circle used only to walk around, not to decide press vs orbit.
 

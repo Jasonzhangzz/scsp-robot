@@ -286,3 +286,71 @@ def test_handle_mpc_request_survives_old_via(monkeypatch):
     assert captured["floor_ground"] == 0.412
     assert np.allclose(result["action"], [0.01, 0.0, 0.0])
     assert result["verify_cost"] == pytest.approx(1.25)
+
+
+def _defined_names(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+
+
+def _imported_from(path, module_parts):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        if tuple(node.module.split(".")) != tuple(module_parts):
+            continue
+        names.extend(alias.name for alias in node.names)
+    return names
+
+
+def test_isaac_local_imports_exist():
+    # 20260920 imported _travel_orbit_radius without defining it, so
+    # test_mpc_isaac.py died at import before the planner even spawned.
+    isaac = ROOT / "examples/mpc/franka/ik2/test_mpc_isaac.py"
+    modules = {
+        ("examples", "mpc", "fingertips", "test", "test_0902"):
+            ROOT / "examples/mpc/fingertips/test/test_0902.py",
+        ("examples", "mpc", "franka", "ik2", "contact_frames"):
+            ROOT / "examples/mpc/franka/ik2/contact_frames.py",
+        ("examples", "mpc", "franka", "ik2", "isaac_bus"):
+            ROOT / "examples/mpc/franka/ik2/isaac_bus.py",
+        ("examples", "mpc", "franka", "ik2", "physx_contact"):
+            ROOT / "examples/mpc/franka/ik2/physx_contact.py",
+        ("examples", "mpc", "franka", "ik2", "params"):
+            ROOT / "examples/mpc/franka/ik2/params.py",
+    }
+    missing = []
+    for module_parts, path in modules.items():
+        defined = _defined_names(path)
+        # constants assigned at module level also count
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        defined.add(target.id)
+        for name in _imported_from(isaac, module_parts):
+            if name not in defined:
+                missing.append("%s.%s" % (".".join(module_parts), name))
+    assert not missing, "test_mpc_isaac.py imports missing names: %s" % missing
+
+
+def test_travel_orbit_radius_adds_nonnegative_extra():
+    node = _function_node(
+        ROOT / "examples/mpc/fingertips/test/test_0902.py",
+        "_travel_orbit_radius",
+    )
+    module = ast.Module(body=[node], type_ignores=[])
+    ast.fix_missing_locations(module)
+    ns = {}
+    exec(compile(module, "<_travel_orbit_radius>", "exec"), ns)
+    fn = ns["_travel_orbit_radius"]
+    assert fn(0.086, 0.0) == pytest.approx(0.086)
+    assert fn(0.086, 0.02) == pytest.approx(0.106)
+    assert fn(0.086, -0.05) == pytest.approx(0.086)
