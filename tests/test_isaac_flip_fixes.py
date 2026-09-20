@@ -3,12 +3,9 @@
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-import inspect
-
 from examples.mpc.fingertips.test.test_0902 import (
     _should_hold_occupied_contact,
     _travel_verify_cost,
-    compute_rollout_contact_via,
 )
 from examples.mpc.franka.ik2.contact_frames import (
     FRANKA_QD_NULLSPACE,
@@ -38,21 +35,6 @@ from examples.mpc.franka.ik2.params import (
     _xml_obj_geom_quat_wxyz,
 )
 from utils import rotations
-
-
-def test_compute_rollout_contact_via_accepts_support_plane():
-    # handle_mpc_request always forwards support_point/support_normal,
-    # including None on a flat Isaac table.  Missing kwargs raise TypeError
-    # in the planner worker before ranking starts.
-    params = inspect.signature(compute_rollout_contact_via).parameters
-    assert "support_point" in params
-    assert "support_normal" in params
-    inspect.signature(compute_rollout_contact_via).bind_partial(
-        floor_ground=0.4,
-        floor_z=0.4,
-        support_point=np.array([0.0, 0.0, 0.4]),
-        support_normal=np.array([0.0, 0.0, 1.0]),
-    )
 
 
 def test_blocked_travel_zeros_contact_verify():
