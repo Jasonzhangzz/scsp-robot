@@ -1068,8 +1068,11 @@ def handle_planner_request(args, param, mpc, trackers, msg):
         r_obj_to_world.T @ param.gravity_[:3] * ranking_mass,
         np.zeros(3),
     ])
+    from planning.mpc_explicit import _call_rollout_contact_via
+
     t0 = time.perf_counter()
-    policy = compute_rollout_contact_via(
+    policy = _call_rollout_contact_via(
+        compute_rollout_contact_via,
         param, args, curr_q, r_obj_to_world, gravity, jac_mat_env,
         fingertip_radius, trackers["value_tracker"], trackers["model_cost_conf"],
         trackers["approach_via"], trackers["arrived_hold"], trackers["arrived_dest_idx"],

@@ -739,6 +739,24 @@ def _build_mpc_planner_runtime(init):
     return args, param, mpc, trackers
 
 
+def _supported_call_kwargs(fn, kwargs):
+    """Drop kwargs the live callee does not accept.
+
+    Isaac / tilted-push payloads always carry support_point.  An older
+    ``compute_rollout_contact_via`` on disk raises TypeError on that name
+    before ranking starts.  New signatures still receive the plane.
+    """
+    import inspect
+    params = inspect.signature(fn).parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return dict(kwargs)
+    return {key: value for key, value in kwargs.items() if key in params}
+
+
+def _call_rollout_contact_via(fn, *args, **kwargs):
+    return fn(*args, **_supported_call_kwargs(fn, kwargs))
+
+
 def handle_mpc_request(args, param, mpc, trackers, msg):
     import time
     from examples.mpc.fingertips.test.test_0902 import (
@@ -795,7 +813,8 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         param.gravity_[:3], ranking_mass, r_obj_to_world, support_normal,
     )
     t0 = time.perf_counter()
-    policy = compute_rollout_contact_via(
+    policy = _call_rollout_contact_via(
+        compute_rollout_contact_via,
         param, args, curr_q, r_obj_to_world, gravity, jac_mat_env,
         0.01, trackers["value_tracker"], trackers["model_cost_conf"],
         trackers["approach_via"], trackers["arrived_hold"], trackers["arrived_dest_idx"],
