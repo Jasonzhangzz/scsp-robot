@@ -1055,19 +1055,31 @@ def handle_planner_request(args, param, mpc, trackers, msg):
         )
     fingertip_radius = 0.01
     table_ground = float(msg["table_ground"])
+    floor_z = float(msg["floor_z"]) if msg.get("floor_z") is not None else float(param.table_height)
+    support_point = msg.get("support_point")
+    support_normal = msg.get("support_normal")
+    if support_point is not None:
+        support_point = np.asarray(support_point, dtype=np.float64).reshape(3)
+    if support_normal is not None:
+        support_normal = np.asarray(support_normal, dtype=np.float64).reshape(3)
     r_obj_to_world = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
     ranking_mass = float(getattr(param, "lambda_obj_mass_", param.lambda_optimizer.m))
     gravity = np.hstack([
         r_obj_to_world.T @ param.gravity_[:3] * ranking_mass,
         np.zeros(3),
     ])
+    from planning.mpc_explicit import _call_rollout_contact_via
+
     t0 = time.perf_counter()
-    policy = compute_rollout_contact_via(
+    policy = _call_rollout_contact_via(
+        compute_rollout_contact_via,
         param, args, curr_q, r_obj_to_world, gravity, jac_mat_env,
         fingertip_radius, trackers["value_tracker"], trackers["model_cost_conf"],
         trackers["approach_via"], trackers["arrived_hold"], trackers["arrived_dest_idx"],
         floor_ground=table_ground,
-        floor_z=float(param.table_height),
+        floor_z=floor_z,
+        support_point=support_point,
+        support_normal=support_normal,
     )
     rank_dt = time.perf_counter() - t0
     trackers["arrived_hold"] = policy["arrived_hold"]
