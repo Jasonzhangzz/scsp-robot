@@ -1321,6 +1321,8 @@ def compute_rollout_contact_via(
     arrived_dest_idx,
     floor_ground=0.012,
     floor_z=0.0,
+    support_point=None,
+    support_normal=None,
 ):
     """--rollout contact ranking, verify/confidence, and MPC via.
 
@@ -1329,6 +1331,8 @@ def compute_rollout_contact_via(
     the table-plane z used by the floor-slide gate (0.012 in MuJoCo,
     table height plus that margin in Isaac).  ``floor_z`` is the ranking
     table plane (0 in MuJoCo, ``param.table_height`` in Isaac).
+    ``support_point`` / ``support_normal`` replace that +Z plane when the
+    object sits on a ramp; omit them for a flat table.
     """
     current_tip_local = r_obj_to_world.T @ (curr_q[7:10] - curr_q[:3])
     target_quat_local = rotations.quaternion_multiply(
@@ -1340,7 +1344,8 @@ def compute_rollout_contact_via(
     param.lambda_optimizer.update_Jacobian(jac_mat_env)
     visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
         curr_q[0:3], r_obj_to_world, param.target_p_, args.ground_height_threshold,
-        viewpoint_local=None, heading_filter=False, floor_z=floor_z)
+        viewpoint_local=None, heading_filter=False, floor_z=floor_z,
+        support_point=support_point, support_normal=support_normal)
     visible_point_idx = param.lambda_optimizer.filter_rankable_indices(
         visible_point_idx)
 
