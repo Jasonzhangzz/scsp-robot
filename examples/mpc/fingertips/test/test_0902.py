@@ -484,6 +484,15 @@ def _keepout_radius(aabb_lo, aabb_hi, circumradius=None):
     return max(0.055, r_xy)
 
 
+def _travel_orbit_radius(keepout, extra=0.0):
+    """Keep-out plus optional extra, used by Isaac orbit diagnostics.
+
+    Travel via itself walks ``_press_orbit_radius``.  Isaac still reports
+    whether OSC is clipped inside keep-out + ``--orbit-extra``.
+    """
+    return float(keepout) + max(0.0, float(extra))
+
+
 def _press_orbit_radius(obj, press, keepout):
     """XY circle used only to walk around, not to decide press vs orbit.
 

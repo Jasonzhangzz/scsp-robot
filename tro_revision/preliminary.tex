@@ -1,0 +1,419 @@
+\section{Preliminaries}
+\label{sec:preliminaries}
+
+\textcolor{blue}{
+We begin with a brief overview of the contact-dynamics and contact-planning formulations used throughout this work.
+Section~\ref{preliminaries:contact_dynamics} introduces time-stepping contact dynamics and the associated complementarity formulation.
+Section~\ref{preliminaries:contact_planning} introduces model-based contact planning and reviews CIMPC as a representative online formulation.
+Section~\ref{preliminaries:complementarity_free} reviews the complementarity-free contact model that motivates the lightweight contact-model approximation used later in CSO.
+}
+
+
+\subsection{Contact Dynamics}
+\label{preliminaries:contact_dynamics}
+
+Contact dynamics provides a physical description of interactions among the robot, object, and environment.
+Here, we consider the commonly used Anitescu model~\cite{anitescu2006optimization}, which is formulated as the following time-stepping equation:
+\begin{subequations}
+\label{equ.quasi_dyn}
+\begin{align}
+    \epsilon\boldsymbol{M}_o\boldsymbol{v}_o
+    &=
+    h\boldsymbol{\tau}_o
+    +
+    \sum_{i=1}^{n_c}
+    \boldsymbol{J}_{o,i}^{\top}\boldsymbol{\beta}_i,
+    \label{equ.quasi_dyn_1}
+    \\
+    h\boldsymbol{K}_r
+    \left(
+    h\boldsymbol{v}_r-\boldsymbol{u}
+    \right)
+    &=
+    h\boldsymbol{\tau}_r
+    +
+    \sum_{i=1}^{n_c}
+    \boldsymbol{J}_{r,i}^{\top}\boldsymbol{\beta}_i.
+    \label{equ.quasi_dyn_2}
+\end{align}
+\end{subequations}
+
+\textcolor{blue}{
+Here, $\boldsymbol{\beta}_i$ denotes the contact impulse over the time interval $h$.
+In the contact-force formulation below, we use $\boldsymbol{\lambda}_i$ to denote the corresponding contact force.
+Assuming that the contact force is approximately constant within one time step, they are related by
+$\boldsymbol{\beta}_i \approx h\boldsymbol{\lambda}_i$.
+}
+$\epsilon\boldsymbol{M}_o$, $\boldsymbol{v}_o$, $\boldsymbol{\tau}_o$, and $\boldsymbol{J}_{o,i}$ are the regularized mass matrix, velocity change, non-contact force, and contact Jacobian of the object, respectively.
+$\boldsymbol{K}_r$, $\boldsymbol{v}_r$, $\boldsymbol{\tau}_r$, and $\boldsymbol{J}_{r,i}$ are the robot stiffness matrix, velocity, non-contact torque, and contact Jacobian, respectively.
+\textcolor{blue}{
+The control input is defined as $\boldsymbol{u}=\Delta\boldsymbol{q}$.
+}
+
+The above equations describe, from the perspective of momentum balance, how the robot influences the object's state through contact, as well as how the object interacts with the environment.
+Here, we follow~\cite{pang2021convex,jin2024complementarity} and consider the robot to be under impedance control~\cite{hogan1984impedance}, modeling the robot--object interaction as a spring system.
+\textcolor{blue}{
+The contact constraints between contact forces and system motion are typically formulated as the following cone complementarity problem~\cite{anitescu2010iterative}:
+}
+\begin{equation}
+    \mathcal{K}_i
+    \ni
+    \boldsymbol{\lambda}_i
+    \perp
+    \boldsymbol{J}_i\boldsymbol{v}
+    +
+    \frac{1}{h}
+    \begin{bmatrix}
+        \phi_i \\
+        0 \\
+        0
+    \end{bmatrix}
+    \in
+    \mathcal{K}_i^{*},
+    \qquad
+    \forall i\in\{1,\ldots,n_c\},
+    \label{equ.complementarity_constraint}
+\end{equation}
+where
+    $\mathcal{K}_i
+    =
+    \left\{
+    \boldsymbol{\lambda}_i\in\mathbb{R}^{3}
+    \,\middle|\,
+    \mu_i\lambda_i^{n}
+    \geq
+    \left\|\boldsymbol{\lambda}_i^{d}\right\|
+    \right\}$
+is the Coulomb friction cone, and $\mathcal{K}_i^{*}$ is the dual cone as
+    $\mathcal{K}_i^{*}=\left\{
+    \boldsymbol{v}
+    \,\middle|\,
+    \boldsymbol{J}_i^{n}\boldsymbol{v}
+    +
+    \frac{\phi_i}{h}
+    \geq
+    \mu_i
+    \left\|
+    \boldsymbol{J}_i^{d}\boldsymbol{v}
+    \right\|
+    \right\}$.
+
+Equations~\eqref{equ.quasi_dyn} and~\eqref{equ.complementarity_constraint} are the Karush--Kuhn--Tucker (KKT)~\cite{avriel2003nonlinear} optimality conditions of the following primal optimization~\cite{anitescu2006optimization}:
+\begin{subequations}
+\label{equ.contact_model}
+\begin{align}
+    \min_{\boldsymbol{v}}\quad
+    &
+    \frac{1}{2}h^{2}
+    \boldsymbol{v}^{\top}
+    \boldsymbol{Q}
+    \boldsymbol{v}
+    -
+    h
+    \boldsymbol{v}^{\top}
+    \boldsymbol{b}(\boldsymbol{u}),
+    \label{equ.qs_model_obj}
+    \\
+    \mathrm{s.t.}\quad
+    &
+    \boldsymbol{J}_i\boldsymbol{v}
+    +
+    \frac{1}{h}
+    \begin{bmatrix}
+        \phi_i\\
+        0\\
+        0
+    \end{bmatrix}
+    \in
+    \mathcal{K}_i^{*},
+    \qquad
+    i\in\{1,\ldots,n_c\}.
+    \label{equ.contact_model_con}
+\end{align}
+\end{subequations}
+where
+$\boldsymbol{Q} \in
+\mathbb{R}^{(n_o+n_{\text{DoF}})\times(n_o+n_{\text{DoF}})}$
+and
+$\boldsymbol{b}(\boldsymbol{u}) \in
+\mathbb{R}^{\textcolor{blue}{n_o+n_{\text{DoF}}}}$
+are
+\begin{equation}
+    \boldsymbol{Q}
+    :=
+    \begin{bmatrix}
+        \epsilon\boldsymbol{M}_o/h^{2} & \boldsymbol{0}\\
+        \boldsymbol{0} & \boldsymbol{K}_r
+    \end{bmatrix},
+    \qquad
+    \boldsymbol{b}(\boldsymbol{u})
+    :=
+    \begin{bmatrix}
+        \boldsymbol{\tau}_o\\
+        \boldsymbol{K}_r\boldsymbol{u}+\boldsymbol{\tau}_r
+    \end{bmatrix}.
+    \label{equ.q_matrix}
+\end{equation}
+Here, $n_o$ and $n_{\mathrm{DoF}}$ are the dimensions of the object and robot states, respectively, and $n_c$ is the number of contacts.
+
+Problem~\eqref{equ.contact_model} is a second-order cone program (SOCP) and is often approximated by a QP through a polyhedral approximation of the friction cone:
+\begin{equation}
+    \left(
+    \boldsymbol{J}_i^{n}
+    -
+    \mu_i\boldsymbol{J}_{i,j}^{d}
+    \right)
+    \boldsymbol{v}
+    +
+    \frac{\phi_i}{h}
+    \geq 0,
+    \quad
+    i\in\{1,\ldots,n_c\},
+    \quad
+    j\in\{1,\ldots,n_d\},
+\end{equation}
+where $n_d$ is the number of friction-cone facets.
+Solving~\eqref{equ.contact_model} corresponds to one step of physically consistent contact simulation.
+The resulting velocity $\boldsymbol{v}$ can then be used to integrate the current state as
+$\boldsymbol{q}_{t+1}
+=
+\boldsymbol{q}_{t}
+\oplus
+h\boldsymbol{v}$.
+Problem~\eqref{equ.contact_model} and its variants are widely used in physics simulators.
+
+
+\subsection{Model-based Contact Planning}
+\label{preliminaries:contact_planning}
+
+Contact planning refers to generating trajectories for approaching, making contact, and breaking contact with the object to manipulate it to a target state.
+Model-based contact planning methods integrate contact dynamics and solve trajectory optimization problems.
+As a representative contact planning method, CIMPC is formulated as the following optimization problem:
+\begin{equation}
+\begin{aligned}
+    \min_{\boldsymbol{u}_{0:N-1}}\quad
+    &
+    \sum_{k=0}^{N-1}
+    \ell(\boldsymbol{x}_k,\boldsymbol{u}_k)
+    +
+    V_f(\boldsymbol{x}_N)
+    \\
+    \mathrm{s.t.}\quad
+    &
+    \boldsymbol{x}_{k+1}
+    =
+    f(\boldsymbol{x}_k,\boldsymbol{u}_k),
+    \quad
+    k=0,\ldots,N-1,
+    \\
+    &
+    \boldsymbol{x}_k\in\mathcal{X},
+    \quad
+    k=0,\ldots,N,
+    \\
+    &
+    \boldsymbol{u}_k\in\mathcal{U},
+    \quad
+    k=0,\ldots,N-1.
+\end{aligned}
+\label{eq:CIMPC_opt}
+\end{equation}
+in which $\boldsymbol{x}_k$ is the system state, including the object pose $q_k$ and robot configuration,  and $f$ denotes the contact dynamics.
+The stage cost $\ell$ can take various forms and is typically used to guide the process of approaching the contact location.
+The terminal cost $V_f$ is usually defined as the error between the object pose and the desired pose:
+\begin{equation}
+\label{equ:obj_pose_cost}
+\ell_{\mathrm{pose}}
+=
+w_{\mathrm{pos}}
+\left\|
+\boldsymbol{p}_{\mathrm{obj}}
+-
+\boldsymbol{p}_{\mathrm{goal}}
+\right\|_2^2
++
+w_{\mathrm{quat}}
+\left(
+1-
+\left(
+\boldsymbol{\psi}_{\mathrm{obj}}^{\top}
+\boldsymbol{\psi}_{\mathrm{goal}}
+\right)^2
+\right).
+\end{equation}
+
+\textcolor{blue}{
+The hybrid nature of contact dynamics renders~\eqref{eq:CIMPC_opt} a piecewise-smooth nonlinear complementarity problem (NCP).
+Directly using the full contact model in~\eqref{equ.contact_model} within receding-horizon trajectory optimization remains computationally demanding, motivating the efficient contact-model approximations introduced below.
+}
+
+
+\subsection{Complementarity-free Model}
+\label{preliminaries:complementarity_free}
+
+\textcolor{blue}{
+We next introduce the complementarity-free contact model proposed in~\cite{jin2024complementarity}, which motivates the surrogate contact-model approximation used later in CSO.
+}
+Problem~\eqref{equ.contact_model} has the dual form:
+\begin{multline}
+\label{equ.dual_prob_relax}
+    \max_{\boldsymbol{\beta}\geq\boldsymbol{0}}
+    \quad
+    -\frac{1}{2h^{2}}
+    \boldsymbol{\beta}^{\top}
+    \left(
+    \boldsymbol{\widetilde{J}}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{\widetilde{J}}^{\top}
+    +
+    \boldsymbol{R}
+    \right)
+    \boldsymbol{\beta}
+    \\
+    -
+    \frac{1}{h}
+    \left(
+    \boldsymbol{\widetilde{J}}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{b}
+    +
+    \boldsymbol{\widetilde{\phi}}
+    \right)^{\top}
+    \boldsymbol{\beta}
+    -
+    \frac{1}{2}
+    \boldsymbol{b}^{\top}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{b}.
+\end{multline}
+in which $\boldsymbol{R}$ is a small regularization term commonly used to enhance numerical stability, and
+\begin{equation}
+\boldsymbol{\widetilde{J}}
+=
+\begin{bmatrix}
+    \boldsymbol{J}_1^n-\mu_1\boldsymbol{J}_{1,1}^t\\
+    \vdots\\
+    \boldsymbol{J}_1^n-\mu_1\boldsymbol{J}_{1,n_t}^t\\
+    \vdots\\
+    \boldsymbol{J}_{n_c}^n-\mu_{n_c}\boldsymbol{J}_{n_c,1}^t\\
+    \vdots\\
+    \boldsymbol{J}_{n_c}^n-\mu_{n_c}\boldsymbol{J}_{n_c,n_t}^t
+\end{bmatrix},
+\boldsymbol{\widetilde{\phi}}
+=
+\begin{bmatrix}
+    \phi_1\\
+    \vdots\\
+    \phi_1\\
+    \vdots\\
+    \phi_{n_c}\\
+    \vdots\\
+    \phi_{n_c}
+\end{bmatrix},
+\boldsymbol{\beta}
+=
+\begin{bmatrix}
+    \beta_{1,1}\\
+    \vdots\\
+    \beta_{1,n_d}\\
+    \vdots\\
+    \beta_{n_c,1}\\
+    \vdots\\
+    \beta_{n_c,n_d}
+\end{bmatrix}.
+\end{equation}
+
+Here, $\boldsymbol{\beta}$ is not only a dual variable but also has a physical interpretation as the contact impulse.
+Specifically, the solution of~\eqref{equ.dual_prob_relax} satisfies the following complementarity constraints:
+\begin{equation}
+\label{equ.dual_prob_relax_sol}
+    \boldsymbol{0}
+    \leq
+    \boldsymbol{\beta}
+    \perp
+    \frac{1}{h}
+    \left(
+    \boldsymbol{\widetilde{J}}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{\widetilde{J}}^{\top}
+    +
+    \boldsymbol{R}
+    \right)
+    \boldsymbol{\beta}
+    +
+    \left(
+    \boldsymbol{\widetilde{J}}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{b}
+    +
+    \boldsymbol{\widetilde{\phi}}
+    \right)
+    \geq
+    \boldsymbol{0}.
+\end{equation}
+
+Assuming there exists a positive-definite diagonal matrix that satisfies
+$
+\boldsymbol{K}(\boldsymbol{q})
+=
+(
+\boldsymbol{\widetilde{J}}
+\boldsymbol{Q}^{-1}
+\boldsymbol{\widetilde{J}}^{\top}
++
+\boldsymbol{R}
+)^{-1},
+$
+we get the closed-form solution of~\eqref{equ.dual_prob_relax} as:
+\begin{equation}
+    \boldsymbol{\beta}^{+}
+    =
+    \max
+    \left(
+    -h
+    \boldsymbol{K}(\boldsymbol{q})
+    \left(
+    \boldsymbol{\widetilde{J}}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{b}
+    +
+    \boldsymbol{\widetilde{\phi}}
+    \right),
+    \boldsymbol{0}
+    \right).
+    \label{eq:cf_impulse}
+\end{equation}
+
+\textcolor{blue}{The complementarity-free model is then written as:}
+\begin{equation}
+\label{equ:cf_model}
+f_{\mathrm{cf}}:
+\begin{cases}
+    \boldsymbol{v}^{+}
+    =
+    \dfrac{1}{h}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{b}
+    +
+    \dfrac{1}{h}
+    \boldsymbol{Q}^{-1}
+    \boldsymbol{\widetilde{J}}^{\top}
+    \boldsymbol{\beta}^{+},
+    \\[2mm]
+    \boldsymbol{x}_{k+1}
+    =
+    \boldsymbol{x}_{k}
+    +
+    h
+    \left(
+    \boldsymbol{v}_{k}
+    +
+    \boldsymbol{v}^{+}
+    \right).
+\end{cases}
+\end{equation}
+where $\boldsymbol{\beta}$ denotes the contact impulses of all contact points and $\boldsymbol{v}^{+}$ combines the object velocity $\boldsymbol{v}_o$ and robot velocity $\boldsymbol{v}_r$.
+
+\textcolor{blue}{
+As discussed in~\cite{jin2024complementarity}, this assumption provides a computationally efficient approximation of the original contact model and enables the closed-form update in~\eqref{eq:cf_impulse}.
+}

@@ -115,17 +115,18 @@ ROLLOUT_TASK_KP = 100.0
 ROLLOUT_TASK_KD = 2.0
 ISAAC_TASK_KP = 600.0
 ISAAC_TASK_KD = 40.0
-# Enough to walk a 2.5 mm via without saturating, far below the 40 N
-# punch that finished a 5 mm ball increment in 20 ms.
+# Enough to finish a 5 mm increment in 20 ms without saturating.
 FREE_SPACE_FORCE_LIMIT = 12.0
-# PhysX needs a lighter press than the MuJoCo 2 N ball cap.
+# PhysX needs a lighter press than the MuJoCo 2 N ball cap.  Only
+# after the tip is on (or within 1 cm of) the patch.
 CONTACT_FORCE_LIMIT = 0.8
-# Shorter carrot than --rollout.  MPC may still emit 5 mm; OSC slews it.
-AIR_VIA_STEP = 0.0025
-ISAAC_VIA_MAX_STEP = 0.0025
-ISAAC_VIA_MAX_LEAD = 0.003
-ISAAC_VIA_SMOOTH_RATE = 0.03
-ISAAC_ACTION_SLEW = 0.0015
+# Same 5 mm carrot as fingertips --rollout.  A 2.5 mm / 1.5 mm slew
+# made every approach increment crawl even in free space.
+AIR_VIA_STEP = 0.005
+ISAAC_VIA_MAX_STEP = 0.005
+ISAAC_VIA_MAX_LEAD = 0.005
+ISAAC_VIA_SMOOTH_RATE = 0.10
+ISAAC_ACTION_SLEW = 0.0025
 # Same keep-out as path_blocked / verify.  An extra 8 cm circle
 # sent the Franka tip 15 cm from the COM before it could drop.
 ISAAC_ORBIT_EXTRA = 0.0
@@ -1015,6 +1016,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         else:
             remain = err
             v_ref = None
+        in_contact, contact_n = self._fingertip_contact_info()
         force_track = _isaac_task_force(
             remain, vel, v_ref=v_ref,
             k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
@@ -1022,19 +1024,21 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         )
         if action is not None and not blocked:
             force_track = _project_along_action(force_track, action)
-            # Damp raw velocity on contact so PhysX is not driven at v_ref.
+            # Damp raw velocity only after PhysX contact.  Doing this in
+            # the old 3 cm near-press window opposed a 0.125 m/s approach
+            # (40 * 0.125 = 5 N vs K*u = 1.5 N) and the 0.8 N cap left
+            # the tip crawling toward best_contact.
             force_contact = _isaac_task_force(
-                action, vel, v_ref=None,
+                action, vel, v_ref=None if in_contact else v_ref,
                 k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
                 limit=CONTACT_FORCE_LIMIT,
             )
         else:
             force_contact = _isaac_task_force(
-                err, vel, v_ref=None,
+                err, vel, v_ref=None if in_contact else v_ref,
                 k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
                 limit=CONTACT_FORCE_LIMIT,
             )
-        in_contact, contact_n = self._fingertip_contact_info()
         press = getattr(self, "_mpc_press", None)
         state_fn = getattr(self, "get_state", None)
         obj = None if state_fn is None else np.asarray(state_fn()[:3], dtype=np.float64)
@@ -1246,14 +1250,20 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         p_curr, _ = self.get_end_effector_pos()
         p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
         via = np.asarray(via_pos, dtype=np.float64).reshape(3)
+        mpc_step = abs(float(getattr(self.param_, "mpc_u_ub_", 0.005)))
         max_step = min(
-            abs(float(getattr(self.param_, "mpc_u_ub_", 0.005))),
+            mpc_step,
             abs(float(getattr(self.param_, "isaac_via_max_step_", AIR_VIA_STEP))),
         )
         max_slew = abs(float(getattr(
             self.param_, "isaac_action_slew_", ISAAC_ACTION_SLEW)))
-        if bool(path_blocked):
-            max_step = abs(float(getattr(self.param_, "mpc_u_ub_", 0.005)))
+        press_arr = None if press is None else np.asarray(
+            press, dtype=np.float64).reshape(3)
+        in_contact = bool(self._fingertip_in_physical_contact())
+        air = press_arr is None or _free_space_air_mode(
+            in_contact, p_curr, press_arr, path_blocked)
+        if air or bool(path_blocked):
+            max_step = mpc_step
             max_slew = max(max_slew, max_step)
         target, increment = _clip_via_target(
             p_curr, via, action=action, max_step=max_step)
@@ -1500,12 +1510,12 @@ def _free_space_air_mode(if_contact, tip, press, path_blocked):
     """True when a larger via/OSC step cannot change contact force."""
     if bool(if_contact):
         return False
+    if press is None:
+        return True
     tip = np.asarray(tip, dtype=np.float64).reshape(3)
     press = np.asarray(press, dtype=np.float64).reshape(3)
     dist = float(np.linalg.norm(tip - press))
-    if dist <= 0.015:
-        return False
-    if dist <= NEAR_PRESS_SWITCH and not bool(path_blocked):
+    if dist <= max(0.015, float(NEAR_PRESS_SWITCH)):
         return False
     return True
 
@@ -2002,7 +2012,7 @@ def _add_rollout_policy_args(parser):
         type=float,
         default=ISAAC_VIA_MAX_LEAD,
         help="Max via/press offset from the current fingertip (m).  "
-             "Shorter than the MuJoCo 5 mm carrot so Franka actions stay small.",
+             "Matches the MuJoCo 5 mm carrot in free space.",
     )
     parser.add_argument(
         "--via-max-step",
@@ -2077,8 +2087,9 @@ def run_mpc_planner(bus, args):
     consecutive_success_time_threshold = 0
     max_rollout_length = max(1, int(args.max_rollout_length))
     mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
-    via_step = getattr(args, "via_max_step", None)
-    exec_step = mpc_step if via_step is None else min(mpc_step, max(1e-4, float(via_step)))
+    # OSC clips the executed increment near the patch.  Clipping the
+    # published action to via_max_step made every approach 2.5 mm.
+    exec_step = mpc_step
     success_rate = 0
     viewer_quit = False
 

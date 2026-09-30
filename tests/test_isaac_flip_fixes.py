@@ -14,6 +14,7 @@ from examples.mpc.franka.ik2.contact_frames import (
     contact_aware_task_force,
     diagnose_contact_pose_source,
     franka_nullspace_posture_torque,
+    isaac_task_force,
     mpc_action_track_accel,
     mpc_ball_contact_force,
     mpc_ball_trajectory,
@@ -89,13 +90,20 @@ def test_numpy_contact_jacobian_is_4x_nv_and_avoids_jax():
 
 def test_near_press_uses_contact_scale_before_physx_touch():
     tip = np.array([0.50, 0.10, 0.37])
-    press = np.array([0.48, 0.10, 0.37])
+    press = np.array([0.494, 0.10, 0.37])
+    # 6 mm: still inside the slam buffer, before PhysX reports contact.
     assert near_press_force_mode(False, tip, press=press)
+    # 2 cm: must stay on the air budget so the tip does not crawl in.
+    assert not near_press_force_mode(
+        False, tip, press=np.array([0.48, 0.10, 0.37]))
     assert not near_press_force_mode(
         False, tip, press=np.array([0.40, 0.10, 0.37]))
     # Orbiting far from press must keep the air-force budget.
     assert not near_press_force_mode(
         False, np.array([0.30, 0.10, 0.42]), press=press)
+    # A graze centimetres from the patch must keep walking, not crawl.
+    assert not near_press_force_mode(
+        True, tip, press=np.array([0.48, 0.10, 0.37]))
     n_out = press_normal_outward(tip, press)
     punched = contact_aware_task_force(
         np.array([-40.0, 0.0, 0.0], dtype=np.float32),
@@ -104,6 +112,24 @@ def test_near_press_uses_contact_scale_before_physx_touch():
     )
     assert punched[0] >= -2.0 - 1e-5
     assert abs(float(punched[0]) + 0.5) < 1e-4
+
+
+def test_approach_keeps_velocity_feedforward_before_contact():
+    """A 2.5 mm / 20 ms increment at matching speed must not reverse.
+
+    Damping raw velocity (no v_ref) at 0.125 m/s produces 5 N against
+    K*u = 1.5 N.  The 0.8 N cap then crawls the last centimetres to
+    best_contact.  Keep v_ref until PhysX contact.
+    """
+    action = np.array([0.0025, 0.0, 0.0], dtype=np.float64)
+    vel = np.array([0.125, 0.0, 0.0], dtype=np.float64)
+    v_ref = action / 0.02
+    brake = isaac_task_force(
+        action, vel, v_ref=None, k_task=600.0, d_task=40.0, limit=0.8)
+    track = isaac_task_force(
+        action, vel, v_ref=v_ref, k_task=600.0, d_task=40.0, limit=0.8)
+    assert brake[0] < 0.0
+    assert track[0] > 0.0
 
 
 def test_contact_force_caps_inward_press_not_lift_or_tangent():

@@ -1,0 +1,175 @@
+\section{Introduction}
+\label{sec:intro}
+
+\IEEEPARstart{C}{ontact}-Rich manipulation requires robots to intentionally make and break contact with objects to drive them toward desired states. Specifically, the robot needs to plan the contact sequence consisting of approaching trajectory, contact locations, contact forces, and transitions between different contact modes (i.e., contact, separation, sliding, and sticking). Such contact planning is challenging due to the combinatorial complexity of contact modes and the inherent nonsmoothness arising from the hybrid nature of contact dynamics. Early works adopted hierarchical frameworks by separating continuous-state planning and discrete contact mode searching \cite{zito2012two, wu2020r3t, haustein2015kinodynamic, chen2021trajectotree, cheng2022contact}, or utilizing mixed-integer programs to handle the hybrid nature of contact \cite{aceituno2020global, marcucci2017approximate, hogan2020feedback}. However, this separation often suffers from poor scalability caused by the explosion of contact trajectories. Therefore, these methods offer limited manipulation strategies and poor robustness.
+
+\textcolor{blue}{
+Recent advances in contact-rich manipulation have been achieved through both learning-based and model-based methods. Learning-based methods \cite{kim2023pre, lianglearning, zhou2023learning, zhang2023learning, zhou2023hacman, cho2024corn, jiang2024hacman++, le2025enhancing, lyu2025dywa} can learn complex contact-rich behaviors that are difficult to represent explicitly with model-based approaches. However, these methods typically rely on offline training, and their generalization is often demonstrated within specific task families, such as across unseen object geometries or variations of a predefined task. For example, DyWA \cite{lyu2025dywa} demonstrates impressive 6D non-prehensile manipulation across diverse object geometries, but its generalization is still evaluated within a specific manipulation setting. Consequently, achieving broadly applicable contact-rich manipulation across substantially different task settings remains challenging.
+}
+
+\begin{figure}[!t]
+\centerline{\includegraphics[width=\columnwidth]{figures/scsp_generalization.pdf}}
+\caption{\textcolor{blue}{
+SCSP enables online contact selection and closed-loop generation of diverse manipulation trajectories, allowing it to address a wide range of challenging contact-rich manipulation tasks.
+}}
+\label{fig:scsp_fig1}
+\end{figure}
+
+\begin{table*}[t]
+\centering
+\caption{Comparison of Contact Planning Methods.}
+\label{tab:comparison}
+\small
+\begin{tabularx}{\textwidth}{l c c c c c}
+\toprule
+\textbf{Methods}
+& \textbf{Perception}
+& \textcolor{blue}{\textbf{Active Contact Selection}}
+& \textbf{6D Manip. Exp.}
+& \textbf{Real-Time}
+& \textcolor{blue}{\textbf{No Obj.-Specific Analytic Geom.}} \\
+\midrule
+
+C3~\cite{aydinoglu2024consensus}
+& \textcolor{blue}{Exact State}
+& \ding{55}
+& \ding{55}
+& \ding{51}
+& \ding{55} \\
+
+CRISP~\cite{li2025surprising}
+& \textcolor{blue}{Exact State}
+& \textcolor{blue}{\ding{55}}
+& \ding{55}
+& \ding{51}
+& \ding{55} \\
+
+IDTO~\cite{kurtz2026inverse}
+& \textcolor{blue}{Exact State}
+& \ding{55}
+& \ding{51}
+& \ding{51}
+& \ding{55} \\
+
+CQDCs~\cite{pang2023global}
+& \textcolor{blue}{Exact State}
+& \ding{55}
+& \ding{51}
+& \ding{51}
+& \ding{55} \\
+
+CF-MPC~\cite{jin2024complementarity}
+& \textcolor{blue}{Exact State}
+& \ding{55}
+& \ding{51}
+& \ding{51}
+& \ding{51} \\
+
+STOCS-3D~\cite{zhang2025simultaneous}
+& \textcolor{blue}{Exact State}
+& \textcolor{blue}{\ding{55}}
+& \ding{51}
+& \ding{55}
+& \ding{51} \\
+
+\textcolor{blue}{ContactSDF~\cite{yang2024contactsdf}}
+& \textcolor{blue}{Vision}
+& \textcolor{blue}{\ding{55}}
+& \textcolor{blue}{\ding{51}}
+& \textcolor{blue}{\ding{51}}
+& \textcolor{blue}{\ding{51}} \\
+
+DyWA~\cite{lyu2025dywa}
+& Vision
+& \textcolor{blue}{\ding{55}}
+& \ding{51}
+& \ding{51}
+& \ding{51} \\
+
+Sampling~\cite{venkatesh2025approximating}
+& Vision
+& \ding{51}
+& \ding{51}
+& \ding{51}
+& \ding{51} \\
+
+\midrule
+
+\textbf{SCSP}
+& Vision
+& \ding{51}
+& \ding{51}
+& \ding{51}
+& \ding{51} \\
+
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+The representative model-based method is contact-implicit trajectory optimization (CITO), which was first applied to locomotion \cite{posa2014direct, wensing2023optimization} and later extended to manipulation.
+\textcolor{blue}{
+STOCS-3D \cite{zhang2025simultaneous} extends CITO to high-fidelity geometries, but assumes a predefined manipulator contact state and is primarily designed for offline planning.
+}
+We mainly focus on Contact-Implicit Model Predictive Control (CIMPC),
+\textcolor{blue}{
+as its receding-horizon formulation continuously replans from the current state and is therefore particularly suitable for real-time closed-loop contact-rich manipulation.
+}
+CIMPC incorporates approximated time-stepping contact dynamics \cite{stewart2000implicit, anitescu2006optimization} into trajectory optimization, enabling online hybrid contact planning.
+\textcolor{blue}{
+Representative methods improve the efficiency and scalability of this process through different contact-model approximations and optimization strategies \cite{aydinoglu2024consensus, pang2023global, bui2025push}. In particular, CF-MPC \cite{jin2024complementarity} introduces a complementarity-free contact model to improve the efficiency of online contact-implicit MPC, substantially accelerating contact-rich optimization.
+}
+
+\textcolor{blue}{
+Despite these advances, existing contact-implicit planners mainly optimize how to execute locally available contact interactions, while robot--object contact locations are typically induced implicitly by robot controls and collision geometry or specified through contact priors. This limits their ability to actively explore spatially surface contacts from unfavorable contact-free configurations and makes them susceptible to poor local solutions \cite{suh2025dexterous, jiang2025robust}.
+ContactSDF \cite{yang2024contactsdf} develops differentiable multi-contact models for dexterous manipulation, but focuses on contact modeling rather than explicit robot--object contact-location selection.
+CRISP \cite{li2025surprising} can discover contact sequences within contact-implicit trajectory optimization, but is mainly demonstrated on relatively simple planar settings.
+}
+
+\textcolor{blue}{
+Only a few recent methods explicitly address robot--object contact-location exploration. Venkatesh et al. \cite{venkatesh2025approximating} sample candidate contact locations and evaluate the corresponding local CIMPC solutions, providing broader contact exploration at the cost of repeatedly solving the lower-level planner. Xie et al. \cite{xie2026touch} introduce a hierarchical RL--MPC framework in which a learned high-level policy selects contact locations for a low-level CIMPC controller, but the selector requires task-specific policy training.
+}
+
+Designing a unified planning framework for simultaneous contact selection and contact planning is challenging. The complementarity inherent in contact dynamics introduces nonsmoothness into contact selection. Moreover, since the choice of contact locations depends on the object state evolution at the time of contact, hybrid planning across contact-free and contact-rich stages renders contact selection a sparse-gradient optimization problem.
+\textcolor{blue}{
+A further challenge arises when connecting high-level contact selection with low-level execution: a contact location preferred according to the high-level manipulation objective is not necessarily the most executable contact at the current robot configuration. Strictly tracking such a contact prior can induce unnecessary contact breaking and switching, and can amplify errors caused by approximate dynamics, perception, or robot kinematic constraints. Therefore, contact selection should provide guidance to the planner rather than a hard contact command.
+}
+
+\textcolor{blue}{
+In this work, we propose Simultaneous Contact Selection and Planning (SCSP), a cascaded optimization framework for complex contact-rich manipulation. SCSP separates contact selection from trajectory generation to improve the diversity of manipulation strategies while preserving closed-loop adaptability during execution. The framework comprises two modules: Contact Selection Optimization (CSO) for generating task-directed contact priors and Contact Planning Optimization (CPO) for generating approaching, contact, and contact-switching trajectories.
+}
+
+\textcolor{blue}{
+The key design of SCSP lies in the coupling between contact selection and executable contact planning. CSO efficiently evaluates a finite set of sampled surface candidates using a lightweight surrogate contact model and selects a promising contact as the task-directed prior. Rather than treating this prior as a hard command, a ranking strategy compares it with the nearest contact candidate and determines the reference contact used by CPO. CPO then performs prior-guided closed-loop planning, providing a flexible interface between high-level contact selection and low-level trajectory generation.
+}
+
+\rev{Table \ref{tab:comparison} summarizes the scope of SCSP relative to representative contact-planning methods. The contributions are:}
+
+\begin{itemize}
+
+    \item
+    \textcolor{blue}{
+    A cascaded optimization framework, SCSP, is presented for contact-rich manipulation, comprising Contact Selection Optimization (CSO) and Contact Planning Optimization (CPO). The framework explicitly separates task-directed contact-prior generation from executable trajectory planning, enabling active contact selection while preserving closed-loop adaptability during execution.
+    }
+
+     \item
+    \textcolor{blue}{
+    A ranking-guided interface is introduced to couple high-level contact selection with low-level contact planning. Rather than treating the contact prior as a hard command, the ranking strategy compares it with the nearest contact candidate and selects the reference contact online, allowing CPO to exploit acceptable suboptimal contacts while avoiding unnecessary contact switching. A unified formulation further supports approaching, contacting, breaking contact, and switching between contacts.
+    }
+
+    \item
+    \textcolor{blue}{
+    An efficient CSO method is developed for online contact-prior generation over sampled object-surface candidates. A lightweight surrogate contact model enables fast candidate evaluation without requiring object-specific analytical geometric parameterizations.
+    }
+
+    \item
+    \textcolor{blue}{
+    Extensive simulation and real-world experiments validate the effectiveness and robustness of SCSP across diverse contact-rich tasks and irregular object geometries, including structured multi-contact and long-horizon case studies. Real-world experiments further demonstrate vision-based 6D nonprehensile manipulation without markers or motion capture, with one-time calibration of the contact-estimation model.
+    }
+
+\end{itemize}
+
+The rest of the paper is organized as follows. Section \ref{sec:preliminaries} reviews the preliminaries. The CSO and CPO are introduced in Sections \ref{sec:cso} and \ref{sec:cpo}, respectively. Section \ref{sec:experiment} presents the experimental results, and
+\textcolor{blue}{
+Section \ref{sec:generalize} evaluates structured extensions of the SCSP architecture to additional contact-rich manipulation settings.
+}
+Finally, discussion and limitations are presented in Section \ref{sec:discussion}, and conclusions are drawn in Section \ref{sec:conclusion}.

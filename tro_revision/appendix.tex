@@ -1,0 +1,184 @@
+
+
+
+
+%========================================================
+% Lemma 3: Non-conflict between l_place and l_pose
+%========================================================
+\subsection{Proof of Closest Approximation}\label{proof:closest_approximation}
+Let $\boldsymbol{W}_{ii} \in \mathbb{R}^{n \times n}$ be the original Delassus matrix. We seek a diagonal matrix $D = \operatorname{diag}(d_1, \dots, d_n)$ 
+that minimizes the Frobenius norm of the approximation error:
+\begin{equation}
+    \boldsymbol{D}^* = \arg \min_{\substack{\boldsymbol{D}}} 
+    \left\| \boldsymbol{W}_{ii} - \boldsymbol{D} \right\|_{\mathrm{F}}^2.
+\end{equation}
+Expanding the Frobenius norm, we have
+\begin{equation}
+    \| \boldsymbol{W}_{ii} - \boldsymbol{D} \|_\text{F}^2 = \sum_{j \neq k} |(\boldsymbol{W}_{ii})_{jk}|^2 + \sum_{j=1}^{n} |(\boldsymbol{W}_{ii})_{jj} - d_j|^2.
+\end{equation}
+The off-diagonal terms are not affected by choosing $D$, and so the minimization reduces to independent scalar problems for each diagonal entry:
+\begin{equation}
+d_j^* = \arg \min_{d_j} |(\boldsymbol{W}_{ii})_{jj} - d_j|^2, \quad j = 1, \dots, n.
+\end{equation}
+It is immediate that the minimizer is $d_j^* = (\boldsymbol{W}_{ii})_{jj}$. 
+Hence \eqref{equ:max_decomposition} is the closest diagonal approximation in the Frobenius norm with a small regularization term for numerical stability.
+
+\subsection{Local Motion-Prediction Accuracy of SCM}
+\label{app:scm_motion_accuracy}
+
+We compare (29) and (31) using identical current states,
+robot contact inputs, contact geometry, and model parameters.
+Let $\boldsymbol{\lambda}_{\mathrm{env}}$ and
+$\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ denote the nonnegative
+multipliers in (21) and their SCM predictions, respectively.
+Let $D\succ0$ collect the diagonal approximations in (27),
+$E:=W_{\mathrm{env}}-D$, and $M_o\succ0$, $R\succ0$.
+We use $\|\boldsymbol{z}\|_A
+=(\boldsymbol{z}^\top A\boldsymbol{z})^{1/2}$ and define the
+geometry-dependent motion gain
+\begin{equation}
+    \Gamma_{\mathrm{env}}
+    :=\|M_o^{-1/2}\tilde J_{\mathrm{env}}^\top D^{-1/2}\|_2.
+    \label{eq:appB_geometry_gain}
+\end{equation}
+
+\subsubsection{Directional accuracy}
+
+In the zero-gap setting of (28), reference complementarity
+and (29)--(31) give
+\begin{equation}
+\begin{aligned}
+    &h^2(\boldsymbol{v}^+)^\top M_o
+      (\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+)\\
+    &\quad=(\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
+             -\boldsymbol{\lambda}_{\mathrm{env}})^\top
+             h\tilde J_{\mathrm{env}}\boldsymbol{v}^+\\
+    &\quad\geq(\boldsymbol{\lambda}_{\mathrm{env}}
+             -\hat{\boldsymbol{\lambda}}_{\mathrm{env}})^\top
+             R\boldsymbol{\lambda}_{\mathrm{env}}\\
+    &\quad\geq-\frac14
+             \hat{\boldsymbol{\lambda}}_{\mathrm{env}}^\top
+             R\hat{\boldsymbol{\lambda}}_{\mathrm{env}},
+\end{aligned}
+\label{eq:appB_direction_proof}
+\end{equation}
+where the inequalities follow from nonnegative multipliers
+and slack, followed by completing the square. For nonzero
+velocity changes, their inertia-weighted angle satisfies
+\begin{equation}
+\begin{aligned}
+    \cos\theta_{M_o}
+    &:=\frac{(\boldsymbol{v}^+)^\top M_o\hat{\boldsymbol{v}}^+}
+    {\|\boldsymbol{v}^+\|_{M_o}
+     \|\hat{\boldsymbol{v}}^+\|_{M_o}}\\
+    &\geq\frac{\|\boldsymbol{v}^+\|_{M_o}}
+    {\|\hat{\boldsymbol{v}}^+\|_{M_o}}
+    -\frac{\hat{\boldsymbol{\lambda}}_{\mathrm{env}}^\top
+    R\hat{\boldsymbol{\lambda}}_{\mathrm{env}}}
+    {4h^2\|\boldsymbol{v}^+\|_{M_o}
+     \|\hat{\boldsymbol{v}}^+\|_{M_o}}.
+\end{aligned}
+\label{eq:appB_direction_consistency}
+\end{equation}
+
+For the stationary-environment tasks, the force limits in (32)
+constrain robot-induced loading. With bounded non-contact loads,
+fixed contact geometry, and retained diagonal responses bounded
+away from zero, (26) also bounds the predicted environment
+reactions. Small $R$ then limits the quadratic regularization
+contribution. Its normalized contribution in
+\eqref{eq:appB_direction_consistency} is small during
+motion-producing steps for which the velocity changes are not
+negligible relative to the contact loading.
+
+When the normalized correction is negligible, a large angular error requires substantial overestimation of the motion magnitude. Conversely, closely matched magnitudes imply small angular errors. The weak-coupling analysis below supports such magnitude agreement away from near-static force balance
+
+Most tasks considered here emphasize pose regulation rather
+than highly dynamic motion. Accordingly, the stable-pose
+objective in (34) uses the predicted motion to identify contacts
+that promote goal-directed pose changes, rather than to track
+an exact velocity. Preserving these motion trends is therefore
+particularly important for CSO contact selection.
+
+\subsubsection{Magnitude accuracy}
+
+Since $W_{\mathrm{env}}=D+E$, the reference complementarity
+conditions and SCM prediction can be written as
+\begin{equation}
+\begin{aligned}
+    \boldsymbol{\lambda}_{\mathrm{env}}
+    &=\max\!\left[-D^{-1}
+      (\boldsymbol{g}_{\mathrm{env}}
+      +E\boldsymbol{\lambda}_{\mathrm{env}}),0\right],\\
+    \hat{\boldsymbol{\lambda}}_{\mathrm{env}}
+    &=\max(-D^{-1}\boldsymbol{g}_{\mathrm{env}},0).
+\end{aligned}
+\label{eq:appB_force_fixed_point}
+\end{equation}
+The scalar map $\max(\cdot,0)$ does not amplify differences.
+Applying this property componentwise and summing with weights
+$D_{ii}$ gives
+\begin{equation}
+    \|\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
+      -\boldsymbol{\lambda}_{\mathrm{env}}\|_D
+    \leq\|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2.
+    \label{eq:appB_force_accuracy}
+\end{equation}
+Together with (29) and (31), this implies
+\begin{equation}
+    h\|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{M_o}
+    \leq\Gamma_{\mathrm{env}}
+    \|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2.
+    \label{eq:appB_motion_accuracy}
+\end{equation}
+The discarded coupling and diagonal-perturbation effects are
+therefore weighted by the current contact loading. Small
+$\|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2$
+yields small force errors and, with a moderate
+$\Gamma_{\mathrm{env}}$, small motion errors. This characterizes
+the weak-coupling regime targeted by Assumption~2 and (25).
+
+Contact orientations, moment arms, and object inertia determine
+$E$, $D$, and $\Gamma_{\mathrm{env}}$, affecting both coupling
+strength and the conversion of force errors into motion errors.
+Robot-force magnitude affects
+$\boldsymbol{\lambda}_{\mathrm{env}}$ through
+$\tilde{\boldsymbol{b}}_o$ in (19), with the robot-induced load
+limited by (32). Prediction accuracy therefore depends jointly
+on contact geometry and current loading, including gravity,
+rather than on coupling strength alone.
+
+\subsubsection{Contact transitions}
+
+A newly established object--environment contact introduces a
+reaction absent from the SCM rollout. Its effect is not included
+in $E\boldsymbol{\lambda}_{\mathrm{env}}$ for the previous contact
+set, and the fixed-set estimates do not control the full
+transition error. SCSP incorporates updated object states and
+contact estimates through high-frequency replanning, while the
+ranking strategy in (40) temporally filters contact-switching
+decisions. Together with CPO using
+$\hat{\boldsymbol{p}}_r^*$ as guidance rather than a prescribed
+contact, these mechanisms limit the persistence of inaccurate
+priors and reduce unnecessary switching. When contact estimates
+are refreshed promptly relative to object motion, they help
+prevent transient SCM errors from persistently biasing contact
+selection.
+
+\subsection{Proof of Lemma 4}
+\label{proof:lemma4}
+Consider the lift-and-place cost 
+$\ell_{\text{lp}} = (1-\gamma) \, \ell_{\text{lift}} + \gamma\, \ell_{\text{place}}$. 
+We analyze the different cases of the switching parameter $\gamma$.
+
+\textbf{Case 1:} When $\gamma = 1$,
+$\ell_{\text{lp}} = \ell_{\text{place}}$. 
+The placing objective only guides the robot to reference points 
+$\boldsymbol{p}_{\text{ref}} \in \{\boldsymbol{\hat{p}}^*_{\text{r}}, \boldsymbol{p}_{\text{near}}\}$ 
+on the object, it does not obstruct the first-order improvement of the objective since $\boldsymbol{\hat{p}}^*_{\text{r}}$ and $\boldsymbol{p}_{\text{near}}$ is the optimal or an acceptable suboptimal solution returned by CSO for improving $\ell_{\text{obj}}$.
+
+\textbf{Case 2:} When $\gamma = 0$, $\ell_{\text{lp}} = \ell_{\text{lift}}$ and the lifting phase moves the end-effector away from the object to an intermediate pose 
+above the reference contact. Since CPO uses a short horizon, it is usually unable to reach $\mathcal{S}_{\text{contact}}$ while moving away from the object, and thus unable to obtain the gradient of $\ell_{\text{obj}}$. Therefore, $\ell_{\text{obj}}$ does not affect $\ell_{\text{lp}}$.
+
+Since $\ell_{\text{lp}}$ is a convex combination of lift and place costs, $\ell_{\text{lp}}$ and $\ell_{\text{obj}}$ are non-conflicting objectives.
+

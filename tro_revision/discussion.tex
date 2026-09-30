@@ -1,0 +1,10 @@
+\section{Discussion \& Limitations}
+\label{sec:discussion}
+
+\rev{The theoretical and experimental results support the usefulness of explicit contact selection, while also exposing several limitations of the current implementation.}
+
+\rev{CSO provides contact-location priors through mesh discretization and a lightweight surrogate contact model. This design is computationally efficient, but its accuracy decreases in complex contact configurations because it assumes a fixed object--environment contact set, neglects inter-contact coupling, and represents contacts as points. CSO therefore does not provide sequential, high-fidelity state prediction and is not directly suited to complex end-effectors or deformable objects. A higher-fidelity contact model, such as the model in \cite{huang2026pointworld}, could be used when these capabilities are required.}
+
+\rev{CPO generates trajectories for contact-free and contact-rich stages using model-predictive control. Its current implementation may be less suitable for tasks such as loco-manipulation and may not maintain continuous surface contact during contact switching. Future work can replace the rule-based ranking strategy with a learned representation and can combine CPO with a more expressive motion planner such as \cite{xu2026interprior}.}
+
+\rev{The experiments also suggest that the interface between contact selection and trajectory optimization is important: CPO can use a feasible nearby contact point when the lowest-cost sampled point is difficult to execute. This observation does not establish that the surrogate model is accurate outside the evaluated tasks, and the conclusions about robustness should therefore be interpreted within the tested range of geometries, disturbances, and model mismatch.}

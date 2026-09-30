@@ -268,7 +268,10 @@ def mpc_action_track_accel(e_p, e_v, policy_dt=0.02):
     return (wn * wn * e_p + 2.0 * wn * e_v).astype(np.float32)
 
 
-NEAR_PRESS_SWITCH = 0.030
+# Only the last centimetre uses the 0.8 N press scale.  The old 3 cm
+# window braked a 0.125 m/s approach: D*v = 5 N against K*u = 1.5 N,
+# then the contact cap left the tip crawling toward best_contact.
+NEAR_PRESS_SWITCH = 0.010
 
 
 def near_press_force_mode(in_contact, tip, press=None, obj=None, obj_radius=0.06,
@@ -277,16 +280,17 @@ def near_press_force_mode(in_contact, tip, press=None, obj=None, obj_radius=0.06
 
     The Isaac table's near edge is at x=0.2 and the object starts at
     x=0.30--0.40.  A free-space punch into the far face shoves the
-    object back off the table before PhysX reports contact.
+    object back off the table before PhysX reports contact.  Keep this
+    window tight, and do not trip it on a far graze: 0.8 N while the
+    tip is still centimetres from best_contact is a visible crawl.
     """
-    if bool(in_contact):
-        return True
     tip = np.asarray(tip, dtype=np.float64).reshape(3)
     if press is not None:
         press = np.asarray(press, dtype=np.float64).reshape(3)
-        if float(np.linalg.norm(tip - press)) <= float(near):
-            return True
-    if obj is not None and press is None:
+        return float(np.linalg.norm(tip - press)) <= float(near)
+    if bool(in_contact):
+        return True
+    if obj is not None:
         obj = np.asarray(obj, dtype=np.float64).reshape(3)
         gap = float(np.linalg.norm(tip - obj)) - max(float(obj_radius), 1e-6)
         if gap <= 0.015:
