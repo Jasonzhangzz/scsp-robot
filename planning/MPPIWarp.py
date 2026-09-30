@@ -1068,7 +1068,7 @@ def handle_planner_request(args, param, mpc, trackers, msg):
         r_obj_to_world.T @ param.gravity_[:3] * ranking_mass,
         np.zeros(3),
     ])
-    from planning.mpc_explicit import _call_rollout_contact_via
+    from planning.mpc_explicit_worker import _call_rollout_contact_via
 
     t0 = time.perf_counter()
     policy = _call_rollout_contact_via(

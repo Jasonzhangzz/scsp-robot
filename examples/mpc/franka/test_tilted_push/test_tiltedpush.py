@@ -78,7 +78,9 @@ from examples.mpc.franka.ik2.test_mppi_isaac import (
     _pred_reduction_from_policy,
 )
 from examples.mpc.franka.test_tilted_push.params import ExplicitMPCParams
-from planning.mpc_explicit import MPCExplicitIsaac, handle_mpc_request
+from planning.mpc_explicit import MPCExplicitIsaac
+from planning.mpc_explicit_worker import handle_mpc_request
+from planning.mlqp_point_scm import promote as promote_scm_optimizer
 from planning.screenshot import create_isaacgym_mp4_recorder, create_isaacgym_svg_screenshot_recorder
 from utils import metrics, rotations
 
@@ -2528,7 +2530,7 @@ class ContactIsaacRamp(ContactIsaacCartesian):
 def adapt_param_for_cartesian_solver(param, args):
     args.solver = "acados"
     if getattr(param, "lambda_optimizer", None) is None:
-        param.lambda_optimizer = build_lambda_optimizer(param, args)
+        param.lambda_optimizer = promote_scm_optimizer(build_lambda_optimizer(param, args))
     param = _adapt_ik2_cartesian_solver(param, args)
     z_lo = float(getattr(param, "support_surface_min_height_", param.table_height)) - 0.01
     param.mpc_q_lb_ = np.hstack((

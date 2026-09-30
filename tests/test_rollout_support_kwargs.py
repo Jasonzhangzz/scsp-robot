@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from planning.mpc_explicit import _call_rollout_contact_via, _supported_call_kwargs
+from planning.mpc_explicit_worker import _call_rollout_contact_via, _supported_call_kwargs
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -147,12 +147,12 @@ def test_compute_rollout_contact_via_accepts_support_plane():
 
 
 def test_handle_mpc_request_filters_support_plane_through_helper():
-    src = (ROOT / "planning/mpc_explicit.py").read_text(encoding="utf-8")
+    src = (ROOT / "planning/mpc_explicit_worker.py").read_text(encoding="utf-8")
     assert "def _supported_call_kwargs" in src
     assert "def _call_rollout_contact_via" in src
     assert "_call_rollout_contact_via(" in src
     names = set(_call_keyword_names(
-        ROOT / "planning/mpc_explicit.py",
+        ROOT / "planning/mpc_explicit_worker.py",
         "handle_mpc_request",
         "_call_rollout_contact_via",
     ))
@@ -183,7 +183,7 @@ def test_rollout_via_forwards_support_plane_to_ranking():
 
 def test_handle_mpc_request_survives_old_via(monkeypatch):
     """Execute the planner entry that Isaac spawns, with the old helper."""
-    import planning.mpc_explicit as mpc_explicit
+    import planning.mpc_explicit_worker as mpc_explicit
     from examples.mpc.franka.ik2 import contact_frames
 
     captured = {}
