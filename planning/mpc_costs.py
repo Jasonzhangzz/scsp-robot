@@ -7,10 +7,8 @@ vector.  Variant-specific objectives live here.
 import casadi as cs
 import numpy as np
 
-from envs.panda_fkin import franka_fingertip_fk
 
-
-COST_KINDS = ("param", "fingertip", "bigrasp", "bigrasp_joint", "isaac", "tilted_push")
+COST_KINDS = ("param", "fingertip", "bigrasp", "isaac", "tilted_push")
 
 
 def log_barrier(point, target, epsilon=1e-3):
@@ -73,8 +71,6 @@ def infer_cost_kind(param, explicit=None):
         return "tilted_push"
     if hasattr(param, "planner_force_tracking_weight_") or hasattr(param, "planner_solver_"):
         n_qpos = int(getattr(param, "n_qpos_", 0))
-        if n_qpos >= 21:
-            return "bigrasp_joint"
         if n_qpos >= 13:
             return "bigrasp"
     if hasattr(param, "init_cost_fns"):
@@ -92,15 +88,13 @@ def build_cost_fns(param, kind=None):
         return param.init_cost_fns()
     if kind == "bigrasp":
         return build_bigrasp_cost_fns(param)
-    if kind == "bigrasp_joint":
-        return build_bigrasp_joint_cost_fns(param)
     if kind == "isaac":
         return build_isaac_cost_fns(param)
     return build_tilted_push_cost_fns(param)
 
 
 def stage_cost_on_next_state(kind):
-    return kind in {"bigrasp_joint", "isaac", "tilted_push"}
+    return kind in {"isaac", "tilted_push"}
 
 
 def uses_isaac_model(kind):
@@ -108,7 +102,7 @@ def uses_isaac_model(kind):
 
 
 def acados_solver_profile(kind):
-    if kind in {"bigrasp", "bigrasp_joint"}:
+    if kind == "bigrasp":
         return {
             "qp_solver": "FULL_CONDENSING_HPIPM",
             "nlp_solver_type": "SQP",
@@ -156,8 +150,6 @@ def pack_cost_params(kind, param, path_cost_fn, **kwargs):
 
     if kind == "bigrasp":
         packed = _pack_bigrasp_cost_params(param, **kwargs)
-    elif kind == "bigrasp_joint":
-        packed = _pack_bigrasp_joint_cost_params(param, **kwargs)
     elif kind == "isaac":
         packed = _pack_isaac_cost_params(param, **kwargs)
     elif kind == "tilted_push":
@@ -321,149 +313,6 @@ def build_bigrasp_cost_fns(param):
     )
 
 
-def _dual_arm_tip_positions_casadi(param, x):
-    """Return both MuJoCo-frame fingertip positions from the 14 joint state."""
-    left_q = x[7:14]
-    right_q = x[14:21]
-    left_local = franka_fingertip_fk(left_q)
-    right_local = franka_fingertip_fk(right_q)
-    left_tip = cs.DM(param.left_base_pos_) + cs.DM(param.left_base_rot_) @ left_local
-    right_tip = cs.DM(param.right_base_pos_) + cs.DM(param.right_base_rot_) @ right_local
-    return left_tip, right_tip
-
-
-def build_bigrasp_joint_cost_fns(param):
-    """Bimanual grasp cost for object pose plus 14 Panda joint coordinates."""
-    x = cs.SX.sym("x", param.n_qpos_)
-    u = cs.SX.sym("u", param.n_cmd_)
-
-    target_position = cs.SX.sym("target_position", 3)
-    target_quaternion = cs.SX.sym("target_quaternion", 4)
-    phi_vec = cs.SX.sym("phi_vec", param.max_ncon_ * 4)
-    jac_mat = cs.SX.sym("jac_mat", param.max_ncon_ * 4, param.n_qvel_)
-    verify_cost_param_1 = cs.SX.sym("verify_cost_1", 1)
-    verify_cost_param_2 = cs.SX.sym("verify_cost_2", 1)
-    virtual_point_1 = cs.SX.sym("virtual_point_1", 3)
-    virtual_point_2 = cs.SX.sym("virtual_point_2", 3)
-    contact_point_1 = cs.SX.sym("contact_point_1", 3)
-    contact_point_2 = cs.SX.sym("contact_point_2", 3)
-    curr_ori_coef_1 = cs.SX.sym("curr_ori_coef_1", 1)
-    curr_ori_coef_2 = cs.SX.sym("curr_ori_coef_2", 1)
-    desired_force_world = cs.SX.sym("desired_force_world", 3)
-    desired_torque_world = cs.SX.sym("desired_torque_world", 3)
-    robot_contact_force_map_flat = cs.SX.sym("robot_contact_force_map_flat", 3 * param.max_ncon_ * 4)
-    robot_contact_torque_map_flat = cs.SX.sym("robot_contact_torque_map_flat", 3 * param.max_ncon_ * 4)
-    execute_desired_wrench = cs.SX.sym("execute_desired_wrench", 1)
-    joint_reference = cs.SX.sym("joint_reference", param.n_robot_qpos_)
-
-    cost_params = cs.vvcat(
-        [
-            target_position,
-            target_quaternion,
-            phi_vec,
-            jac_mat,
-            verify_cost_param_1,
-            verify_cost_param_2,
-            virtual_point_1,
-            virtual_point_2,
-            contact_point_1,
-            contact_point_2,
-            curr_ori_coef_1,
-            curr_ori_coef_2,
-            desired_force_world,
-            desired_torque_world,
-            robot_contact_force_map_flat,
-            robot_contact_torque_map_flat,
-            execute_desired_wrench,
-            joint_reference,
-        ]
-    )
-
-    obj_pos = x[0:3]
-    obj_quat = x[3:7]
-    robot_q = x[7:21]
-    left_tip, right_tip = _dual_arm_tip_positions_casadi(param, x)
-
-    contact_cost_1 = cs.sumsqr(obj_pos - left_tip)
-    contact_cost_2 = cs.sumsqr(obj_pos - right_tip)
-    contact_point_cost_1 = log_barrier(left_tip, contact_point_1)
-    contact_point_cost_2 = log_barrier(right_tip, contact_point_2)
-    virtual_point_cost_1 = log_barrier(left_tip, virtual_point_1)
-    virtual_point_cost_2 = log_barrier(right_tip, virtual_point_2)
-
-    reject_cost_1 = cs.if_else(
-        cs.sumsqr(left_tip - contact_point_1) < param.reject_dis,
-        -contact_point_cost_1,
-        0.0,
-    )
-    reject_cost_2 = cs.if_else(
-        cs.sumsqr(right_tip - contact_point_2) < param.reject_dis,
-        -contact_point_cost_2,
-        0.0,
-    )
-    attract_cost_1 = param.attract_coef * virtual_point_cost_1 + param.reject_coef * reject_cost_1
-    attract_cost_2 = param.attract_coef * virtual_point_cost_2 + param.reject_coef * reject_cost_2
-    base_cost_1 = (1.0 - verify_cost_param_1) * attract_cost_1 + param.contact_coef * verify_cost_param_1 * (
-        param.contact_cost_param * contact_cost_1 + (1.0 - param.contact_cost_param) * contact_point_cost_1
-    )
-    base_cost_2 = (1.0 - verify_cost_param_2) * attract_cost_2 + param.contact_coef * verify_cost_param_2 * (
-        param.contact_cost_param * contact_cost_2 + (1.0 - param.contact_cost_param) * contact_point_cost_2
-    )
-
-    object_position_cost = cs.sumsqr(obj_pos - target_position)
-    object_orientation_cost = _quaternion_alignment_cost(obj_quat, target_quaternion)
-    joint_reference_cost = cs.sumsqr(robot_q - joint_reference)
-    control_cost = cs.sumsqr(u)
-
-    q_inv = np.linalg.inv(param.Q)
-    b = cs.vertcat(cs.DM(param.obj_mass_ * param.gravity_), cs.DM(param.robot_stiff_) @ u)
-    contact_force = cs.fmax(-param.model_params * (jac_mat @ q_inv @ b + phi_vec), 0)
-    robot_contact_force_map = cs.reshape(robot_contact_force_map_flat, 3, param.max_ncon_ * 4)
-    robot_contact_torque_map = cs.reshape(robot_contact_torque_map_flat, 3, param.max_ncon_ * 4)
-    desired_wrench_gate = execute_desired_wrench * verify_cost_param_1 * verify_cost_param_2
-    force_tracking_cost = (
-        float(getattr(param, "planner_force_tracking_weight_", 1.0))
-        * desired_wrench_gate
-        * cs.sumsqr(robot_contact_force_map @ contact_force - desired_force_world)
-    )
-    torque_tracking_cost = (
-        float(getattr(param, "planner_torque_tracking_weight_", 1.0))
-        * desired_wrench_gate
-        * cs.sumsqr(robot_contact_torque_map @ contact_force - desired_torque_world)
-    )
-
-    pose_cost = (
-        float(param.object_position_cost_weight_) * object_position_cost
-        + float(param.object_orientation_cost_weight_) * object_orientation_cost
-    )
-    path_cost = (
-        base_cost_1
-        + base_cost_2
-        + pose_cost
-        + float(param.joint_reference_cost_weight_) * joint_reference_cost
-        + 50.0 * control_cost
-        + force_tracking_cost
-        + torque_tracking_cost
-    )
-
-    final_tip_cost = (
-        (1.0 - verify_cost_param_1) * cs.sumsqr(left_tip - virtual_point_1)
-        + verify_cost_param_1 * cs.sumsqr(left_tip - contact_point_1)
-        + (1.0 - verify_cost_param_2) * cs.sumsqr(right_tip - virtual_point_2)
-        + verify_cost_param_2 * cs.sumsqr(right_tip - contact_point_2)
-    )
-    final_pose_cost = (
-        float(param.object_position_cost_weight_) * object_position_cost
-        + float(param.object_orientation_cost_weight_) * object_orientation_cost
-    )
-    final_cost = 10.0 * (final_pose_cost + 500.0 * final_tip_cost)
-    _ = (curr_ori_coef_1, curr_ori_coef_2)
-    return (
-        cs.Function("path_cost_fn_bigrasp_joint", [x, u, cost_params], [path_cost]),
-        cs.Function("final_cost_fn_bigrasp_joint", [x, cost_params], [final_cost]),
-    )
-
-
 def _pack_bigrasp_cost_params(
     param,
     target_p=None,
@@ -529,75 +378,6 @@ def _pack_bigrasp_cost_params(
             _as_map(robot_contact_force_map, 3, n_phi).reshape(-1, order="F"),
             _as_map(robot_contact_torque_map, 3, n_phi).reshape(-1, order="F"),
             np.asarray([float(bool(execute_desired_wrench))], dtype=np.float64),
-        ]
-    )
-
-
-def _pack_bigrasp_joint_cost_params(
-    param,
-    target_p=None,
-    target_q=None,
-    phi_vec=None,
-    jac_mat=None,
-    verify_cost_param_1=None,
-    verify_cost_param_2=None,
-    virtual_point_1=None,
-    virtual_point_2=None,
-    contact_point_1=None,
-    contact_point_2=None,
-    curr_ori_coef_1=None,
-    curr_ori_coef_2=None,
-    desired_force_world=None,
-    desired_torque_world=None,
-    robot_contact_force_map=None,
-    robot_contact_torque_map=None,
-    execute_desired_wrench=False,
-    joint_reference=None,
-    verify_cost_param=None,
-    virtual_point=None,
-    contact_point=None,
-    curr_ori_coef=None,
-    **_unused,
-):
-    if verify_cost_param_1 is None:
-        verify_cost_param_1 = 0.0 if verify_cost_param is None else verify_cost_param
-    if verify_cost_param_2 is None:
-        verify_cost_param_2 = 0.0 if verify_cost_param is None else verify_cost_param
-    if virtual_point_1 is None:
-        virtual_point_1 = virtual_point
-    if virtual_point_2 is None:
-        virtual_point_2 = virtual_point
-    if contact_point_1 is None:
-        contact_point_1 = contact_point
-    if contact_point_2 is None:
-        contact_point_2 = contact_point
-    if curr_ori_coef_1 is None:
-        curr_ori_coef_1 = 0.0 if curr_ori_coef is None else curr_ori_coef
-    if curr_ori_coef_2 is None:
-        curr_ori_coef_2 = 0.0 if curr_ori_coef is None else curr_ori_coef
-
-    n_phi = int(param.max_ncon_ * 4)
-    n_qvel = int(param.n_qvel_)
-    return np.concatenate(
-        [
-            _as_vec(target_p, 3),
-            _as_vec(target_q, 4),
-            _as_vec(phi_vec, n_phi),
-            _as_map(jac_mat, n_phi, n_qvel).reshape(-1, order="F"),
-            np.asarray([float(verify_cost_param_1)], dtype=np.float64),
-            np.asarray([float(verify_cost_param_2)], dtype=np.float64),
-            _as_vec(virtual_point_1, 3),
-            _as_vec(virtual_point_2, 3),
-            _as_vec(contact_point_1, 3),
-            _as_vec(contact_point_2, 3),
-            np.asarray([float(curr_ori_coef_1)], dtype=np.float64),
-            np.asarray([float(curr_ori_coef_2)], dtype=np.float64),
-            _as_vec(desired_force_world, 3),
-            _as_vec(desired_torque_world, 3),
-            _as_map(robot_contact_force_map, 3, n_phi).reshape(-1, order="F"),
-            _as_map(robot_contact_torque_map, 3, n_phi).reshape(-1, order="F"),
-            np.asarray([float(bool(execute_desired_wrench))], dtype=np.float64),
-            _as_vec(joint_reference, int(param.n_robot_qpos_)),
         ]
     )
 

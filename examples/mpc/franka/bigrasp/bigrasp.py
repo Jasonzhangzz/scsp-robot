@@ -54,7 +54,6 @@ GENERATED_SCENE_PATH = REPO_ROOT / "envs" / "xmls" / "_generated_bigrasp_scene.x
 OBJECT_ASSET_DIR = REPO_ROOT / "envs" / "assets" / "objects"
 
 PANDA_HOME_Q = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785], dtype=np.float64)
-PANDA_JOINT_KP = np.array([4500.0, 4500.0, 3500.0, 3500.0, 2000.0, 2000.0, 2000.0], dtype=np.float64)
 TIP_RADIUS = 0.01
 TIP_CENTER_OFFSET = 0.06
 WORLD_UP = np.array([0.0, 0.0, 1.0], dtype=np.float64)
@@ -627,16 +626,15 @@ def build_bimanual_scene_xml(
 
     actuator = ET.SubElement(root, "actuator")
     for prefix in ("left_", "right_"):
-        for joint_idx, (kp, torque_limit) in enumerate(zip(PANDA_JOINT_KP, PANDA_TORQUE_LIMITS), start=1):
+        for joint_idx, torque_limit in enumerate(PANDA_TORQUE_LIMITS, start=1):
             ET.SubElement(
                 actuator,
-                "position",
+                "motor",
                 {
                     "name": f"{prefix}actuator{joint_idx}",
                     "joint": f"{prefix}joint{joint_idx}",
-                    "kp": f"{float(kp):.8f}",
-                    "forcelimited": "true",
-                    "forcerange": f"{-float(torque_limit):.8f} {float(torque_limit):.8f}",
+                    "ctrllimited": "true",
+                    "ctrlrange": f"{-float(torque_limit):.8f} {float(torque_limit):.8f}",
                 },
             )
 
@@ -707,17 +705,7 @@ class ArmIkResult:
 
 
 class DualArmPlanOnceParams:
-    def __init__(
-        self,
-        args,
-        obj_mass,
-        left_base_pos,
-        left_base_rot,
-        right_base_pos,
-        right_base_rot,
-        joint_q_lb,
-        joint_q_ub,
-    ):
+    def __init__(self, args, obj_mass):
         self.contact_cost_param = float(args.planner_contact_cost_param)
         self.attract_coef = float(args.planner_attract_coef)
         self.reject_coef = float(args.planner_reject_coef)
@@ -725,22 +713,13 @@ class DualArmPlanOnceParams:
         self.reject_dis = float(args.planner_reject_distance)
 
         self.h_ = float(args.planner_dt)
-        self.n_robot_qpos_ = 14
-        self.n_qpos_ = 21
-        self.n_qvel_ = 20
-        self.n_cmd_ = 14
+        self.n_robot_qpos_ = 6
+        self.n_qpos_ = 13
+        self.n_qvel_ = 12
+        self.n_cmd_ = 6
         self.n_mj_q_ = self.n_qpos_
         self.n_mj_v_ = self.n_qvel_
         self.max_ncon_ = int(args.planner_max_contacts)
-
-        self.left_base_pos_ = np.asarray(left_base_pos, dtype=np.float64).reshape(3)
-        self.left_base_rot_ = np.asarray(left_base_rot, dtype=np.float64).reshape(3, 3)
-        self.right_base_pos_ = np.asarray(right_base_pos, dtype=np.float64).reshape(3)
-        self.right_base_rot_ = np.asarray(right_base_rot, dtype=np.float64).reshape(3, 3)
-        self.joint_q_lb_ = np.asarray(joint_q_lb, dtype=np.float64).reshape(self.n_robot_qpos_)
-        self.joint_q_ub_ = np.asarray(joint_q_ub, dtype=np.float64).reshape(self.n_robot_qpos_)
-        if np.any(self.joint_q_lb_ >= self.joint_q_ub_):
-            raise ValueError("Invalid dual-arm joint limits supplied to the explicit MPC.")
 
         self.obj_inertia_ = np.identity(6, dtype=np.float32)
         self.obj_inertia_[0:3, 0:3] = float(args.planner_object_inertia_pos) * np.eye(3, dtype=np.float32)
@@ -758,14 +737,9 @@ class DualArmPlanOnceParams:
         self.mpc_horizon_ = int(args.planner_horizon)
         self.mpc_model = "explicit"
         self.planner_solver_ = str(args.planner_solver).strip().lower()
-        self.mpc_cost_kind = "bigrasp_joint"
-        self.mpc_u_lb_ = np.full(self.n_cmd_, -float(args.planner_cmd_limit), dtype=np.float64)
-        self.mpc_u_ub_ = np.full(self.n_cmd_, float(args.planner_cmd_limit), dtype=np.float64)
-        self.mpc_q_lb_ = np.hstack([-1e7 * np.ones(7, dtype=np.float64), self.joint_q_lb_])
-        self.mpc_q_ub_ = np.hstack([1e7 * np.ones(7, dtype=np.float64), self.joint_q_ub_])
-        self.object_position_cost_weight_ = float(getattr(args, "planner_object_position_weight", 500.0))
-        self.object_orientation_cost_weight_ = float(getattr(args, "planner_object_orientation_weight", 5.0))
-        self.joint_reference_cost_weight_ = float(getattr(args, "planner_joint_reference_weight", 0.05))
+        self.mpc_cost_kind = "bigrasp"
+        self.mpc_u_lb_ = -float(args.planner_cmd_limit)
+        self.mpc_u_ub_ = float(args.planner_cmd_limit)
 
         self.sol_guess_ = None
         self.mppi_samples_ = int(args.mppi_samples)
@@ -906,28 +880,7 @@ class BimanualPandaGrasper:
             * max(int(self.args.mj_steps_per_command), 1)
             * max(int(self.args.command_substeps), 1)
         )
-        joint_q_lb = np.hstack(
-            [
-                np.asarray(self.model.jnt_range[self.left_arm.joint_ids, 0], dtype=np.float64),
-                np.asarray(self.model.jnt_range[self.right_arm.joint_ids, 0], dtype=np.float64),
-            ]
-        )
-        joint_q_ub = np.hstack(
-            [
-                np.asarray(self.model.jnt_range[self.left_arm.joint_ids, 1], dtype=np.float64),
-                np.asarray(self.model.jnt_range[self.right_arm.joint_ids, 1], dtype=np.float64),
-            ]
-        )
-        self.plan_params = DualArmPlanOnceParams(
-            self.args,
-            args.obj_mass,
-            self.left_base_pos,
-            self.left_base_rot,
-            self.right_base_pos,
-            self.right_base_rot,
-            joint_q_lb,
-            joint_q_ub,
-        )
+        self.plan_params = DualArmPlanOnceParams(self.args, args.obj_mass)
         self.planner = MPCExplicit(self.plan_params)
         self._setup_curobo()
 
@@ -1158,16 +1111,11 @@ class BimanualPandaGrasper:
     def reset(self, object_pos, object_quat):
         self.data.qpos[self.left_arm.qpos_adr] = PANDA_HOME_Q
         self.data.qpos[self.right_arm.qpos_adr] = PANDA_HOME_Q
-        self.data.ctrl[self.left_arm.actuator_ids] = PANDA_HOME_Q
-        self.data.ctrl[self.right_arm.actuator_ids] = PANDA_HOME_Q
+        self.data.ctrl[self.left_arm.actuator_ids] = 0.0
+        self.data.ctrl[self.right_arm.actuator_ids] = 0.0
         self.data.qpos[self.obj_qpos_adr : self.obj_qpos_adr + 7] = np.hstack([object_pos, object_quat])
         self.data.qvel[:] = 0.0
         self.data.act[:] = 0.0
-        self.plan_object_target_pos = np.asarray(object_pos, dtype=np.float64).reshape(3).copy()
-        self.plan_object_target_pos[2] += float(self.args.lift_height)
-        self.plan_object_target_quat = np.asarray(object_quat, dtype=np.float64).reshape(4).copy()
-        self.joint_target = np.hstack([PANDA_HOME_Q, PANDA_HOME_Q]).astype(np.float64)
-        self.set_marker("goal", self.plan_object_target_pos, self.plan_object_target_quat)
         mujoco.mj_forward(self.model, self.data)
         self.set_ghost_pose(self.left_arm, *self.get_hand_pose(self.left_arm))
         self.set_ghost_pose(self.right_arm, *self.get_hand_pose(self.right_arm))
@@ -2425,12 +2373,7 @@ class BimanualPandaGrasper:
         current_quat = np.asarray(current_quat, dtype=np.float64).reshape(4)
         current_rot = _project_to_rotation_matrix(current_rot)
         if object_target_fn is None:
-            target_pos = getattr(self, "plan_object_target_pos", current_pos)
-            target_quat = getattr(self, "plan_object_target_quat", current_quat)
-            return np.asarray(target_pos, dtype=np.float64).reshape(3).copy(), np.asarray(
-                target_quat,
-                dtype=np.float64,
-            ).reshape(4).copy()
+            return current_pos.copy(), current_quat.copy()
 
         target = object_target_fn(step, current_pos.copy(), current_quat.copy(), current_rot.copy())
         if isinstance(target, dict):
@@ -2501,7 +2444,7 @@ class BimanualPandaGrasper:
             "pre_plan_setup": 0.0,
             "planner_contacts": 0.0,
             "planner_solve": 0.0,
-            "joint_position_step": 0.0,
+            "cartesian_step": 0.0,
             "post_update": 0.0,
             "wall_total": 0.0,
         }
@@ -2586,7 +2529,6 @@ class BimanualPandaGrasper:
                 virtual_point_2=planner_virtual_points_world[1],
                 contact_point_1=planner_contact_points_world[0],
                 contact_point_2=planner_contact_points_world[1],
-                joint_reference=getattr(self, "planner_joint_reference", curr_x[7:21]),
             )
             step_t3 = time.perf_counter()
             planner_sol_guess = planner_result["sol_guess"]
@@ -2594,10 +2536,8 @@ class BimanualPandaGrasper:
             planner_backend = str(planner_result.get("solver_backend", self.plan_params.planner_solver_))
             planner_status = str(planner_result.get("solve_status", ""))
             action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
-            if action.shape[0] != self.plan_params.n_cmd_:
-                raise RuntimeError(
-                    f"Expected a {self.plan_params.n_cmd_}D dual-arm plan_once action, got shape {action.shape}."
-                )
+            if action.shape[0] != 6:
+                raise RuntimeError(f"Expected a 6D dual-arm plan_once action, got shape {action.shape}.")
 
             applied_object_torque_world = None
             if bool(self.args.test_force):
@@ -2605,7 +2545,13 @@ class BimanualPandaGrasper:
                     live_targets,
                     object_rot,
                 )
-            self.step_joint_action(action, object_torque_world=applied_object_torque_world)
+            self.step_cartesian_action(
+                action[:3],
+                action[3:6],
+                left_step_rot,
+                right_step_rot,
+                object_torque_world=applied_object_torque_world,
+            )
             step_t4 = time.perf_counter()
 
             self.set_marker("contact_point1", live_targets["contact_points_world"][0])
@@ -2629,7 +2575,7 @@ class BimanualPandaGrasper:
                 "pre_plan_setup": step_t1a - step_t1,
                 "planner_contacts": step_t2 - step_t1a,
                 "planner_solve": step_t3 - step_t2,
-                "joint_position_step": step_t4 - step_t3,
+                "cartesian_step": step_t4 - step_t3,
                 "post_update": step_t5 - step_t4,
                 "wall_total": loop_t1 - loop_t0,
             }
@@ -2662,8 +2608,8 @@ class BimanualPandaGrasper:
                 "right_goal_pos": goal_points_world[1].copy(),
                 "left_goal_rot": left_step_rot.copy(),
                 "right_goal_rot": right_step_rot.copy(),
-                "left_planner_dq": action[:7].copy(),
-                "right_planner_dq": action[7:14].copy(),
+                "left_planner_cmd": action[:3].copy(),
+                "right_planner_cmd": action[3:6].copy(),
                 "planner_backend": planner_backend,
                 "planner_status": planner_status,
                 "object_pos": self.get_object_pose()[0].copy(),
@@ -2720,7 +2666,7 @@ class BimanualPandaGrasper:
                 f"pre_plan_setup={timing['pre_plan_setup']:.4f}s "
                 f"planner_contacts={timing['planner_contacts']:.4f}s "
                 f"planner_solve={timing['planner_solve']:.4f}s "
-                f"joint_position_step={timing['joint_position_step']:.4f}s "
+                f"cartesian_step={timing['cartesian_step']:.4f}s "
                 f"post_update={timing['post_update']:.4f}s "
                 f"wall_total={timing['wall_total']:.4f}s "
                 f"hz={loop_hz:.2f} "
@@ -2752,7 +2698,7 @@ class BimanualPandaGrasper:
                     f"setup={timing['pre_plan_setup']:.4f}s "
                     f"contacts={timing['planner_contacts']:.4f}s "
                     f"plan={timing['planner_solve']:.4f}s "
-                    f"ctrl={timing['joint_position_step']:.4f}s "
+                    f"ctrl={timing['cartesian_step']:.4f}s "
                     f"post={timing['post_update']:.4f}s "
                     f"wall={timing['wall_total']:.4f}s)"
                 )
@@ -2913,17 +2859,19 @@ class BimanualPandaGrasper:
                 virtual_point_2=right_virtual_point,
                 contact_point_1=left_contact_ik.solved_tip_pos_world,
                 contact_point_2=right_contact_ik.solved_tip_pos_world,
-                joint_reference=np.hstack([left_contact_ik.q_mj, right_contact_ik.q_mj]),
             )
             planner_sol_guess = planner_result["sol_guess"]
             self.plan_params.sol_guess_ = planner_sol_guess
             action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
-            if action.shape[0] != self.plan_params.n_cmd_:
-                raise RuntimeError(
-                    f"Expected a {self.plan_params.n_cmd_}D dual-arm plan_once action, got shape {action.shape}."
-                )
+            if action.shape[0] != 6:
+                raise RuntimeError(f"Expected a 6D dual-arm plan_once action, got shape {action.shape}.")
 
-            self.step_joint_action(action)
+            self.step_cartesian_action(
+                action[:3],
+                action[3:6],
+                left_step_rot,
+                right_step_rot,
+            )
 
             self.set_marker("left_goal", left_goal_pos)
             self.set_marker("right_goal", right_goal_pos)
@@ -2961,8 +2909,8 @@ class BimanualPandaGrasper:
                 "left_ik_failure_reason": str(left_contact_ik.failure_reason),
                 "right_ik_failure_reason": str(right_contact_ik.failure_reason),
                 "object_pos": self.get_object_pose()[0].copy(),
-                "left_planner_dq": action[:7].copy(),
-                "right_planner_dq": action[7:14].copy(),
+                "left_planner_cmd": action[:3].copy(),
+                "right_planner_cmd": action[3:6].copy(),
             }
 
             if step == 0 or step == max_steps - 1 or step - last_report_step >= 40:
@@ -2976,7 +2924,7 @@ class BimanualPandaGrasper:
                 if step == 0:
                     print(
                         f"  stage_cfg: world_mode={world_mode} "
-                        f"verify=({float(verify_cost_1):.1f},{float(verify_cost_2):.1f}) planner=plan_once+joint-position"
+                        f"verify=({float(verify_cost_1):.1f},{float(verify_cost_2):.1f}) planner=plan_once+impedance"
                     )
                 last_report_step = step
 
@@ -3192,25 +3140,27 @@ class BimanualPandaGrasper:
 
     def get_planner_state(self):
         obj_pos, obj_quat, _ = self.get_object_pose()
-        left_q = self.get_current_joint_position(self.left_arm)
-        right_q = self.get_current_joint_position(self.right_arm)
-        return np.hstack([obj_pos, obj_quat, left_q, right_q]).astype(np.float64)
+        left_tip_pos = self.get_tip_pos(self.left_arm)
+        right_tip_pos = self.get_tip_pos(self.right_arm)
+        return np.hstack([obj_pos, obj_quat, left_tip_pos, right_tip_pos]).astype(np.float32)
 
-    def _build_contact_point_jacobian(self, body_id, point_world, dof_adr):
-        """Return the world-frame linear Jacobian in the planner's 20D velocity order."""
-        jacp = np.zeros((3, self.model.nv), dtype=np.float64)
-        mujoco.mj_jac(
-            self.model,
-            self.data,
-            jacp=jacp,
-            jacr=None,
-            point=np.asarray(point_world, dtype=np.float64).reshape(3),
-            body=int(body_id),
-        )
+    def _build_object_jacobian(self, point_local):
         jacobian = np.zeros((3, self.plan_params.n_qvel_), dtype=np.float64)
-        dof_adr = np.asarray(dof_adr, dtype=np.int32).reshape(-1)
-        if dof_adr.size:
-            jacobian[:, dof_adr] = jacp[:, dof_adr]
+        jacobian[:, :3] = np.eye(3, dtype=np.float64)
+        jacobian[0, 4] = point_local[2]
+        jacobian[0, 5] = -point_local[1]
+        jacobian[1, 3] = -point_local[2]
+        jacobian[1, 5] = point_local[0]
+        jacobian[2, 3] = point_local[1]
+        jacobian[2, 4] = -point_local[0]
+        return jacobian
+
+    def _build_tip_jacobian_block(self, arm):
+        jacobian = np.zeros((3, self.plan_params.n_qvel_), dtype=np.float64)
+        if arm.prefix == "left_":
+            jacobian[:, 6:9] = np.eye(3, dtype=np.float64)
+        else:
+            jacobian[:, 9:12] = np.eye(3, dtype=np.float64)
         return jacobian
 
     def _reformat_planner_contacts(self, con_phi_list=None, con_jac_list=None):
@@ -3226,6 +3176,10 @@ class BimanualPandaGrasper:
     def _detect_planner_contacts(self):
         mujoco.mj_forward(self.model, self.data)
         mujoco.mj_collision(self.model, self.data)
+
+        obj_pos, _, obj_rot = self.get_object_pose()
+        left_robot_jacobian = self._build_tip_jacobian_block(self.left_arm)
+        right_robot_jacobian = self._build_tip_jacobian_block(self.right_arm)
 
         con_phi_list = []
         con_jac_list = []
@@ -3243,9 +3197,9 @@ class BimanualPandaGrasper:
             body1_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body1_id) or ""
             body2_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body2_id) or ""
 
-            object_is_first = geom1 == self.obj_geom_id
-            other_body_id = body2_id if object_is_first else body1_id
+            object_is_first = body1_name == "obj"
             other_body_name = body2_name if object_is_first else body1_name
+            other_geom_name = geom2_name if object_is_first else geom1_name
 
             con_pos = np.asarray(contact_i.pos, dtype=np.float64).copy()
             con_dist = float(contact_i.dist) * 0.5
@@ -3253,27 +3207,14 @@ class BimanualPandaGrasper:
             con_frame = np.asarray(contact_i.frame, dtype=np.float64).reshape((-1, 3)).T
             con_frame_pmd = np.hstack((con_frame, -con_frame[:, -2:]))
 
-            object_jacobian = self._build_contact_point_jacobian(
-                self.obj_body_id,
-                con_pos,
-                np.arange(self.obj_dof_adr, self.obj_dof_adr + 6, dtype=np.int32),
-            )
+            con_pos_local = obj_rot.T @ (con_pos - obj_pos)
+            object_jacobian = self._build_object_jacobian(con_pos_local)
             con_jacp_obj = con_frame_pmd.T @ object_jacobian
 
             if other_body_name.startswith("left_"):
-                other_jacobian = self._build_contact_point_jacobian(
-                    other_body_id,
-                    con_pos,
-                    self.left_arm.dof_adr,
-                )
-                con_jacp_other = con_frame_pmd.T @ other_jacobian
+                con_jacp_other = con_frame_pmd.T @ left_robot_jacobian
             elif other_body_name.startswith("right_"):
-                other_jacobian = self._build_contact_point_jacobian(
-                    other_body_id,
-                    con_pos,
-                    self.right_arm.dof_adr,
-                )
-                con_jacp_other = con_frame_pmd.T @ other_jacobian
+                con_jacp_other = con_frame_pmd.T @ right_robot_jacobian
             else:
                 con_jacp_other = np.zeros((5, self.plan_params.n_qvel_), dtype=np.float64)
 
@@ -3317,16 +3258,6 @@ class BimanualPandaGrasper:
             -arm.torque_limits,
             arm.torque_limits,
         )
-
-    def set_control_position(self, arm, q_target):
-        q_target = np.asarray(q_target, dtype=np.float64).reshape(7)
-        offset = 0 if arm.prefix == "left_" else 7
-        q_target = np.clip(
-            q_target,
-            self.plan_params.joint_q_lb_[offset : offset + 7],
-            self.plan_params.joint_q_ub_[offset : offset + 7],
-        )
-        self.data.ctrl[arm.actuator_ids] = q_target
 
     def set_desired_tip_pose(self, arm, position, orientation):
         arm.position_d = np.asarray(position, dtype=np.float64).copy()
@@ -3444,55 +3375,15 @@ class BimanualPandaGrasper:
             if self.args.real_time and self.viewer is not None:
                 time.sleep(self.model.opt.timestep)
 
-    def step_joint_action(
-        self,
-        joint_delta,
-        object_force_world=None,
-        object_torque_world=None,
-    ):
-        joint_delta = np.asarray(joint_delta, dtype=np.float64).reshape(self.plan_params.n_cmd_)
-        joint_delta = np.clip(joint_delta, self.plan_params.mpc_u_lb_, self.plan_params.mpc_u_ub_)
-        current_q = np.hstack(
-            [
-                self.get_current_joint_position(self.left_arm),
-                self.get_current_joint_position(self.right_arm),
-            ]
-        )
-        q_target = np.clip(
-            current_q + joint_delta,
-            self.plan_params.joint_q_lb_,
-            self.plan_params.joint_q_ub_,
-        )
-        self.joint_target = q_target.copy()
-
-        num_steps = self._planner_tracking_steps()
-        for step_idx in range(num_steps):
-            alpha = float(step_idx + 1) / float(num_steps)
-            q_cmd = current_q + alpha * (q_target - current_q)
-            self.set_control_position(self.left_arm, q_cmd[:7])
-            self.set_control_position(self.right_arm, q_cmd[7:])
-            self.apply_object_wrench_world(
-                force_world=object_force_world,
-                torque_world=object_torque_world,
-            )
-            mujoco.mj_step(self.model, self.data)
-            mujoco.mj_forward(self.model, self.data)
-            if self.viewer is not None:
-                self.sync_viewer()
-            if self.args.real_time and self.viewer is not None:
-                time.sleep(self.model.opt.timestep)
-
     def hold_current_pose(self, num_steps=1, object_force_world=None, object_torque_world=None):
-        q_target = np.hstack(
-            [
-                self.get_current_joint_position(self.left_arm),
-                self.get_current_joint_position(self.right_arm),
-            ]
-        )
-        self.joint_target = q_target.copy()
+        for arm in (self.left_arm, self.right_arm):
+            tip_pos, tip_rot = self.get_tip_pose(arm)
+            self.set_desired_tip_pose(arm, tip_pos, tip_rot)
+
         for _ in range(max(int(num_steps), 1)):
-            self.set_control_position(self.left_arm, q_target[:7])
-            self.set_control_position(self.right_arm, q_target[7:])
+            left_tau, right_tau = self._compute_dual_arm_cartesian_impedance_control()
+            self.set_control_torque(self.left_arm, left_tau)
+            self.set_control_torque(self.right_arm, right_tau)
             self.apply_object_wrench_world(
                 force_world=object_force_world,
                 torque_world=object_torque_world,
@@ -3660,8 +3551,8 @@ class BimanualPandaGrasper:
 
             curr_x = self.get_planner_state()
             phi_vec, jac_mat = self._detect_planner_contacts()
-            object_target_pos = np.asarray(self.plan_object_target_pos, dtype=np.float64).copy()
-            object_target_quat = np.asarray(self.plan_object_target_quat, dtype=np.float64).copy()
+            object_target_pos = np.asarray(stage_targets.get("object_target_pos", curr_x[:3]), dtype=np.float64)
+            object_target_quat = np.asarray(stage_targets.get("object_target_quat", curr_x[3:7]), dtype=np.float64)
             planner_result = self.planner.plan_once(
                 object_target_pos,
                 object_target_quat,
@@ -3675,16 +3566,18 @@ class BimanualPandaGrasper:
                 virtual_point_2=right_attract,
                 contact_point_1=left_ik.solved_tip_pos_world,
                 contact_point_2=right_ik.solved_tip_pos_world,
-                joint_reference=np.hstack([left_ik.q_mj, right_ik.q_mj]),
             )
             planner_sol_guess = planner_result["sol_guess"]
             self.plan_params.sol_guess_ = planner_sol_guess
             action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
-            if action.shape[0] != self.plan_params.n_cmd_:
-                raise RuntimeError(
-                    f"Expected a {self.plan_params.n_cmd_}D dual-arm plan_once action, got shape {action.shape}."
-                )
-            self.step_joint_action(action)
+            if action.shape[0] != 6:
+                raise RuntimeError(f"Expected a 6D dual-arm plan_once action, got shape {action.shape}.")
+            self.step_cartesian_action(
+                action[:3],
+                action[3:6],
+                left_step_rot,
+                right_step_rot,
+            )
 
             self.set_marker("left_goal", left_step_target)
             self.set_marker("right_goal", right_step_target)
@@ -3749,8 +3642,8 @@ class BimanualPandaGrasper:
                 "left_goal_q_mj": left_ik.q_mj.copy(),
                 "right_goal_q_mj": right_ik.q_mj.copy(),
                 "object_pos": self.get_object_pose()[0].copy(),
-                "left_planner_dq": action[:7].copy(),
-                "right_planner_dq": action[7:14].copy(),
+                "left_planner_cmd": action[:3].copy(),
+                "right_planner_cmd": action[3:6].copy(),
             }
             if step == 0 or step == max_steps - 1 or step - last_report_step >= 40:
                 print(
@@ -3813,6 +3706,7 @@ class BimanualPandaGrasper:
     def run(self):
         obj_pos, obj_quat, obj_rot = self.get_object_pose()
         gravity_local = self._gravity_wrench_local(obj_rot)
+        lift_delta = np.array([0.0, 0.0, self.args.lift_height], dtype=np.float64)
         touch_offset = TIP_RADIUS + self.args.touch_offset
         squeeze_offset = max(TIP_RADIUS - self.args.squeeze_depth, 0.001)
 
@@ -3981,7 +3875,6 @@ class BimanualPandaGrasper:
             initial_touch_targets["right_tip_pos"],
             initial_touch_targets["right_tip_rot"],
         )
-        self.planner_joint_reference = np.hstack([left_touch_ik.q_mj, right_touch_ik.q_mj]).astype(np.float64)
         left_fixed_rot = _project_to_rotation_matrix(left_touch_ik.solved_tip_rot_world)
         right_fixed_rot = _project_to_rotation_matrix(right_touch_ik.solved_tip_rot_world)
         print(
@@ -4161,7 +4054,8 @@ class BimanualPandaGrasper:
                 )
 
         print("Stage 5: lift while keeping force-driven contact tracking and the initial IK rotations")
-        target_lift_height = float(self.plan_object_target_pos[2]) - self.args.lift_success_margin
+        lift_start_pos, lift_start_quat, _ = self.get_object_pose()
+        target_lift_height = obj_pos[2] + self.args.lift_height - self.args.lift_success_margin
 
         def lift_success(info):
             contact_force_ok = (
@@ -4169,6 +4063,11 @@ class BimanualPandaGrasper:
                 and info["right_force"] > 0.1 * required_normal_force
             )
             return info["object_pos"][2] >= target_lift_height and contact_force_ok
+
+        def lift_target(step, _curr_pos, _curr_quat, _curr_rot):
+            alpha = min(1.0, float(step + 1) / max(1, self.args.lift_steps))
+            desired_pos = lift_start_pos + alpha * lift_delta
+            return desired_pos, lift_start_quat.copy()
 
         lift_ok, _ = self._run_live_contact_plan_stage(
             "lift",
@@ -4183,6 +4082,7 @@ class BimanualPandaGrasper:
             rot_tol=self.args.ik_rot_tol * 1.5,
             success_fn=lift_success,
             world_mode="floor_only",
+            object_target_fn=lift_target,
             initial_contact_targets=cached_contact_targets,
             contact_candidate_cache=contact_candidate_cache,
             contact_selection_state=contact_selection_state,
@@ -4318,7 +4218,7 @@ def build_argparser():
     parser.add_argument("--curobo-collision-activation-distance", type=float, default=0.06, help="Collision activation distance passed to cuRobo.")
     parser.add_argument("--disable-curobo-self-collision", action="store_true", help="Disable cuRobo self-collision checking.")
     parser.add_argument("--disable-curobo-cuda-graph", action="store_true", help="Disable cuRobo CUDA graph capture.")
-    parser.add_argument("--pose-only-mpc", action="store_true", help="Legacy option kept for CLI compatibility; joint-space plan_once is always used.")
+    parser.add_argument("--pose-only-mpc", action="store_true", help="Legacy option kept for CLI compatibility; plan_once tracking is pose-based by default.")
     parser.add_argument("--planner-dt", type=float, default=0.01, help="Time step used by the plan_once object-motion model.")
     parser.add_argument("--planner-horizon", type=int, default=20, help="plan_once horizon length.")
     parser.add_argument(
@@ -4329,7 +4229,7 @@ def build_argparser():
         help="Solver backend used by self.planner.plan_once.",
     )
     parser.add_argument("--planner-max-contacts", type=int, default=15, help="Maximum object contacts modeled by plan_once.")
-    parser.add_argument("--planner-cmd-limit", type=float, default=0.05, help="Per-step joint-angle increment limit in radians for each arm joint.")
+    parser.add_argument("--planner-cmd-limit", type=float, default=0.05, help="Per-step Cartesian delta limit in meters for each arm.")
     parser.add_argument("--planner-attract-offset", type=float, default=0.025, help="Outward offset from the IK fingertip pose used as the first attract waypoint.")
     parser.add_argument("--planner-attract-tol", type=float, default=0.03, help="Distance threshold for switching from attract points to the IK contact pose.")
     parser.add_argument("--planner-attract-coef", type=float, default=0.5, help="Attract cost coefficient for plan_once.")
@@ -4339,10 +4239,7 @@ def build_argparser():
     parser.add_argument("--planner-reject-distance", type=float, default=0.005, help="Reject distance threshold used by plan_once.")
     parser.add_argument("--planner-object-inertia-pos", type=float, default=40.0, help="Translational object inertia weight used by plan_once.")
     parser.add_argument("--planner-object-inertia-rot", type=float, default=0.05, help="Rotational object inertia weight used by plan_once.")
-    parser.add_argument("--planner-robot-stiffness", type=float, default=300.0, help="Joint-space stiffness used by the plan_once robot model.")
-    parser.add_argument("--planner-object-position-weight", type=float, default=500.0, help="Running and terminal object position tracking weight.")
-    parser.add_argument("--planner-object-orientation-weight", type=float, default=5.0, help="Running and terminal object orientation tracking weight.")
-    parser.add_argument("--planner-joint-reference-weight", type=float, default=0.05, help="Joint-space weight on the cuRobo pre-contact reference.")
+    parser.add_argument("--planner-robot-stiffness", type=float, default=300.0, help="Cartesian point stiffness used by the plan_once robot model.")
     parser.add_argument("--mppi-samples", type=int, default=256, help="Number of sampled trajectories used by plan_once.")
     parser.add_argument("--mppi-iterations", type=int, default=4, help="Number of MPPI update iterations after warm start.")
     parser.add_argument("--mppi-init-iterations", type=int, default=8, help="Number of MPPI iterations used before a warm start exists.")

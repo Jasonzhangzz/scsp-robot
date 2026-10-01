@@ -207,6 +207,7 @@ class LambdaContactControlOptimizer:
         self.last_candidate_x_plus = None
         self.last_candidate_forces = None
         self.last_topk_ids = np.zeros(0, dtype=np.int32)
+        self.rank_query_local = None
         self.last_topk_costs = np.zeros(0, dtype=np.float64)
         # Cycle-normalized ranking scores, keyed by sample id.  The NLP
         # still minimizes the physical pos/ori/force mix; verify and
@@ -280,7 +281,8 @@ class LambdaContactControlOptimizer:
                               gamma=0.85, min_dwell_steps=6, improve_eps=1e-3,
                               unlock_confidence=0.05, block_cycles=20,
                               dead_increment=False, merge_radius=None,
-                              block_radius=None, time_decay=False):
+                              block_radius=None, time_decay=False,
+                              recover=0.12):
         """Decay switch-confidence if one patch stops improving the task cost.
 
         ``progress_cost`` must decrease when the incumbent is useful (pose
@@ -380,7 +382,9 @@ class LambdaContactControlOptimizer:
             # rotation gets worse) must not wipe the failure streak.
             if not dead_increment:
                 self._dwell_steps = 0
-                self.set_contact_switch_confidence(1.0)
+                gain = float(np.clip(recover, 0.0, 1.0))
+                self.set_contact_switch_confidence(
+                    self.contact_switch_confidence + gain)
                 return self.contact_switch_confidence
 
         self._dwell_steps += 1
@@ -503,6 +507,96 @@ class LambdaContactControlOptimizer:
         mean = np.asarray(mean, dtype=np.float64).reshape(-1)
         mean_thr = float(getattr(self, 'region_max_mean_curvature', 0.10))
         return high_max & (mean[ids] > mean_thr)
+
+    def _destination_crease_mask(self, ids=None):
+        """True on a sharp tip/foot that must not own ``best_contact``.
+
+        Ranking keeps high-max / low-mean faces in the pool so a useful
+        flank next to a crease can still be pressed.  The yellow
+        destination cannot sit on the crease itself: table-J at the COM
+        overstates the lever arm of a foot tip, and nearby-topk then
+        sticks ``best_contact`` there for the whole trial.
+        """
+        n = int(len(np.asarray(self.point_curvature).reshape(-1)))
+        if ids is None:
+            ids = np.arange(n, dtype=np.int32)
+        else:
+            ids = np.asarray(ids, dtype=np.int32).reshape(-1)
+        if ids.size == 0 or n == 0:
+            return np.zeros(ids.shape, dtype=bool)
+        curv = np.asarray(self.point_curvature, dtype=np.float64).reshape(-1)
+        return curv[ids] > float(self.region_max_point_curvature)
+
+    def _same_side_mask(self, ids, tip_local=None):
+        """True when a sample sits on the fingertip's XY side of the COM.
+
+        Object-frame samples have the COM at the origin.  ``dot(tip_xy,
+        sample_xy) <= 0`` is the same test as ``_on_opposite_sides``.
+        A near-COM sample (``||xy|| < 1.5 cm``) is treated as same-side
+        so a belly patch can still win after a flip.
+        """
+        ids = np.asarray(ids, dtype=np.int32).reshape(-1)
+        if ids.size == 0:
+            return np.zeros((0,), dtype=bool)
+        tip = tip_local
+        if tip is None:
+            tip = getattr(self, 'rank_query_local', None)
+        if tip is None:
+            return np.ones(ids.shape, dtype=bool)
+        tip = np.asarray(tip, dtype=np.float64).reshape(3)
+        tip_h = tip[:2]
+        if float(np.linalg.norm(tip_h)) < 1e-6:
+            return np.ones(ids.shape, dtype=bool)
+        pts = np.asarray(self.sample_point, dtype=np.float64)[ids]
+        goal_h = pts[:, :2]
+        gn = np.linalg.norm(goal_h, axis=1)
+        return (gn < 0.015) | (goal_h @ tip_h > 0.0)
+
+    def _stable_finite_pool(self, ids, finite_mask):
+        """Finite candidates that are allowed to own ``best_contact``."""
+        pool = np.asarray(finite_mask, dtype=bool).reshape(-1).copy()
+        if getattr(self, 'point_curvature', None) is not None:
+            pool &= ~self._destination_crease_mask(ids)
+        return pool
+
+    def _delta_near_tie(self, winner_delta, alt_delta, quality_frac=0.015):
+        """True when ``alt`` is close enough that table-J noise can flip them."""
+        if not np.isfinite(winner_delta) or not np.isfinite(alt_delta):
+            return True
+        margin = max(float(quality_frac) * max(abs(float(winner_delta)), 1e-3), 1e-3)
+        return float(alt_delta) >= float(winner_delta) - margin
+
+    def _prefer_stable_ranking_local(self, ids, costs, finite_mask, local_idx):
+        """Keep last_global off a crease; same-side only wins a near-tie.
+
+        A hard same-side gate pinned ``best_contact`` to the occupied
+        flank after first touch.  Opposite faces must still be allowed
+        when they clearly reduce pose cost; the via then leaves and
+        orbits instead of grazing.  Table-J 1e-2 ΔC ties stay on the
+        fingertip's side so we do not hook-then-push.
+        """
+        ids = np.asarray(ids, dtype=np.int32).reshape(-1)
+        costs = np.asarray(costs, dtype=np.float64).reshape(-1)
+        finite_mask = np.asarray(finite_mask, dtype=bool).reshape(-1)
+        local_idx = int(local_idx)
+        if local_idx < 0 or local_idx >= ids.size or not finite_mask[local_idx]:
+            return local_idx
+        stable = self._stable_finite_pool(ids, finite_mask)
+        if not stable[local_idx] and np.any(stable):
+            local_idx = int(np.flatnonzero(stable)[int(np.argmin(costs[stable]))])
+        same = self._same_side_mask(ids)
+        if same[local_idx] or not np.any(stable & same):
+            return local_idx
+        alt = int(np.flatnonzero(stable & same)[int(np.argmin(costs[stable & same]))])
+        winner_d = self.pose_delta_for_sample(int(ids[local_idx]))
+        alt_d = self.pose_delta_for_sample(int(ids[alt]))
+        if winner_d is None or alt_d is None:
+            if float(costs[alt]) <= float(costs[local_idx]) + 0.05:
+                return alt
+            return local_idx
+        if self._delta_near_tie(winner_d, alt_d):
+            return alt
+        return local_idx
 
     def _drop_crease_samples(self):
         """Remove true corners / junctions from the contact set.
@@ -875,6 +969,8 @@ class LambdaContactControlOptimizer:
         # filtered costs is not an index into ids/force_buffer when failed or
         # zero-force candidates have been removed.
         global_local = int(finite_local_indices[int(np.argmin(finite_costs))])
+        global_local = self._prefer_stable_ranking_local(
+            ids, costs, finite_mask, global_local)
         global_idx = int(ids[global_local])
         self.last_global_idx = global_idx
         self.last_global_total_cost = float(costs[global_local])
@@ -1140,7 +1236,9 @@ class LambdaContactControlOptimizer:
         solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur)
         solver.set(0,'u',np.array([.01,0,0])); solver.set(0,'p',p)
         solver.set(1,'x',xcur); solver.set(1,'p',p)
-        status=int(solver.solve())
+        from planning.acados_env import quiet_acados_stderr
+        with quiet_acados_stderr():
+            status=int(solver.solve())
         if status != 0:
             self.acados_qp_failure_count += 1
             raise RuntimeError(f'acados status {status}')
@@ -1451,8 +1549,10 @@ class LambdaContactControlOptimizer:
 
     def choose_contact_points(self, x_d, current_x, tau_o, visible_face_idx, v_last=None,
                               contact_anchor_local=None, contact_anchor_idx=None,
-                              force_required=False):
+                              force_required=False, query_local=None):
         # Reset the IPOPT fallback budget for this contact-selection cycle.
+        if query_local is not None:
+            self.rank_query_local = np.asarray(query_local, dtype=np.float64).reshape(3)
         self._acados_fallbacks_this_cycle = 0
         if self._blocked_contact_indices:
             expired = []
@@ -1662,6 +1762,29 @@ class LambdaContactControlOptimizer:
         hits = np.flatnonzero(np.asarray(ids, dtype=np.int32).reshape(-1) == int(gidx))
         if hits.size:
             self._record_best_delta(int(hits[0]))
+
+    def pose_delta_for_sample(self, sample_idx):
+        """Predicted pose-cost reduction ``C(now)-C(x_plus)`` of one sample."""
+        if sample_idx is None:
+            return None
+        ids = getattr(self, 'last_candidate_ids', None)
+        deltas = getattr(self, 'last_candidate_deltas', None)
+        if ids is None or deltas is None:
+            gidx = getattr(self, 'last_global_idx', None)
+            if (gidx is not None and int(sample_idx) == int(gidx)
+                    and getattr(self, 'last_best_delta', None) is not None):
+                value = float(self.last_best_delta)
+                return value if np.isfinite(value) else None
+            return None
+        hits = np.flatnonzero(
+            np.asarray(ids, dtype=np.int32).reshape(-1) == int(sample_idx))
+        if not hits.size:
+            return None
+        try:
+            value = float(np.asarray(deltas, dtype=np.float64).reshape(-1)[int(hits[0])])
+        except (TypeError, ValueError, IndexError):
+            return None
+        return value if np.isfinite(value) else None
 
     def has_improving_delta(self, eps=1e-9):
         """True if any solved sample's ``x_plus`` reduces pose cost."""
@@ -1932,42 +2055,78 @@ class LambdaContactControlOptimizer:
         self.last_topk_costs = self.last_candidate_costs[order[:k]] if k else np.zeros(0, dtype=np.float64)
 
     def choose_nearby_topk_idx(self, query_local, k=None, quality_frac=0.015):
-        """Prefer a nearer runner-up only if its cost is almost the best."""
+        """Prefer a nearer runner-up only if it is almost as improving.
+
+        Unit-range scores collapse the top-k onto ``~0``, so a nearby
+        foot/crease used to beat the true λ optimum by proximity.  Rank
+        runner-ups by pose-cost reduction ``ΔC`` instead, and never
+        replace a stable destination with a crease tip.
+        """
         ids = np.asarray(getattr(self, 'last_topk_ids', []), dtype=np.int32).reshape(-1)
-        costs = np.asarray(getattr(self, 'last_topk_costs', []), dtype=np.float64).reshape(-1)
         if ids.size == 0:
             return None
         k_keep = int(self.top_k if k is None else k)
         take = min(max(1, k_keep), int(ids.size))
         ids = ids[:take]
-        costs = costs[:take]
-        best = float(costs[0])
+        deltas = np.full(take, np.nan, dtype=np.float64)
+        for i, idx in enumerate(ids):
+            value = self.pose_delta_for_sample(int(idx))
+            if value is not None:
+                deltas[i] = float(value)
+        crease = (
+            self._destination_crease_mask(ids)
+            if getattr(self, 'point_curvature', None) is not None
+            else np.zeros(take, dtype=bool)
+        )
+        same = self._same_side_mask(ids, query_local)
+        # A crease never owns the yellow marker.  An opposite face only
+        # yields when a same-side member is a ΔC near-tie (table-J).
+        if crease[0] and np.any(~crease):
+            stable = np.flatnonzero(~crease)
+            if not np.any(np.isfinite(deltas[stable])):
+                return int(ids[int(stable[0])])
+            return int(ids[int(stable[int(np.nanargmax(deltas[stable]))])])
+        same_stable = same & ~crease
+        if (not same[0]) and np.any(same_stable):
+            alt = np.flatnonzero(same_stable)
+            pick = int(alt[int(np.nanargmax(deltas[alt]))]) if np.any(
+                np.isfinite(deltas[alt])) else int(alt[0])
+            if self._delta_near_tie(deltas[0], deltas[pick], quality_frac):
+                return int(ids[pick])
+            return int(ids[0])
+        if not np.isfinite(deltas[0]):
+            gidx = getattr(self, 'last_global_idx', None)
+            return int(gidx) if gidx is not None else int(ids[0])
+        best = float(deltas[0])
         ok = np.zeros(take, dtype=bool)
         ok[0] = True
         if take > 1:
-            # Runner-ups must sit on the best-cost plateau, not merely
-            # inside a wide top-k spread (that pulled in weak nearby faces).
-            # After cycle-normalization the winner is ~0, so scale the
-            # margin by the remaining top-k span rather than |best|.
-            span = float(np.max(costs) - np.min(costs))
-            margin = max(float(quality_frac) * max(abs(best), span, 1e-3), 1e-3)
-            ok[1:] = costs[1:] <= best + margin
+            margin = max(float(quality_frac) * max(abs(best), 1e-3), 1e-3)
+            ok[1:] = np.isfinite(deltas[1:]) & (deltas[1:] >= best - margin) & ~crease[1:]
         query = np.asarray(query_local, dtype=np.float64).reshape(3)
         pts = np.asarray(self.sample_point[ids], dtype=np.float64)
         dist = np.linalg.norm(pts - query[None, :], axis=1)
         dist = np.where(ok, dist, np.inf)
+        if not np.any(np.isfinite(dist)):
+            gidx = getattr(self, 'last_global_idx', None)
+            return int(gidx) if gidx is not None else int(ids[0])
         return int(ids[int(np.argmin(dist))])
     
     def get_availble_point_idx(self, pos, R, target_pos, threshold=0.025,
                                viewpoint_local=None, viewpoint_cos=-0.50,
-                               heading_filter=True):
-        """Return sampled contacts whose fingertip target clears the floor.
+                               heading_filter=True, floor_z=0.0,
+                               support_point=None, support_normal=None):
+        """Return sampled contacts whose fingertip target clears the support.
 
         ``self.normal`` points into the object.  The fingertip centre is
         therefore approached as ``surface - clearance * normal``.  Checking
         that target, instead of only the surface height, removes underside
         points that would put the fingertip sphere below the table while
         allowing the same mesh points again after an object is flipped.
+
+        ``support_normal`` / ``support_point`` replace the world-up table
+        when the object sits on a ramp.  With the default ``+Z`` plane
+        this is the original ``floor_z`` test.
         """
         centers_world = (R @ self.sample_point.T).T + pos
         # Filter by the height of the *reachable fingertip centre*, rather
@@ -1977,7 +2136,23 @@ class LambdaContactControlOptimizer:
         # facing underside therefore gets rejected near the floor, while an
         # upward/side-facing point at a similarly low height remains usable
         # during a flip.
-        floor_z = 0.0
+        floor_z = float(floor_z)
+        if support_normal is None:
+            support_normal = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+            support_point = np.array([0.0, 0.0, floor_z], dtype=np.float64)
+        else:
+            support_normal = np.asarray(support_normal, dtype=np.float64).reshape(3)
+            nrm = float(np.linalg.norm(support_normal))
+            support_normal = (
+                support_normal / nrm
+                if nrm > 1e-8
+                else np.array([0.0, 0.0, 1.0], dtype=np.float64)
+            )
+            support_point = (
+                np.array([0.0, 0.0, floor_z], dtype=np.float64)
+                if support_point is None
+                else np.asarray(support_point, dtype=np.float64).reshape(3)
+            )
         # Even with a zero CLI threshold, the sphere centre must remain at
         # least one clearance above the plane.  The default threshold adds a
         # small extra safety margin without imposing a large global height
@@ -1985,22 +2160,29 @@ class LambdaContactControlOptimizer:
         floor_margin = max(float(threshold), self.fingertip_clearance)
         inward_world = (R @ self.normal.T).T
         outward_world = -inward_world
-        fingertip_center_z = centers_world[:, 2] - self.fingertip_clearance * inward_world[:, 2]
+        signed = (centers_world - support_point[None, :]) @ support_normal
+        inward_along = inward_world @ support_normal
+        fingertip_center_signed = signed - self.fingertip_clearance * inward_along
         # The sphere occupies ``clearance`` below its centre even when the
         # contact normal is sideways.  A downward-facing sole that has
         # rotated just enough to clear the old fingertip-z test still cannot
         # be pressed from above and must not win ranking.
-        sphere_low_z = fingertip_center_z - self.fingertip_clearance
+        sphere_low_signed = fingertip_center_signed - self.fingertip_clearance
         underside = (
-            (outward_world[:, 2] < -0.35)
-            & (centers_world[:, 2] < floor_z + 0.045)
+            ((outward_world @ support_normal) < -0.35)
+            & (signed < 0.045)
         )
         common_mask = (
-            (centers_world[:, 2] > floor_z)
-            & (fingertip_center_z > floor_z + floor_margin)
-            & (sphere_low_z > floor_z)
+            (signed > 0.0)
+            & (fingertip_center_signed > floor_margin)
+            & (sphere_low_signed > 0.0)
             & ~underside
         )
+        # A brick sitting on a ramp has a large +normal face.  Those top
+        # samples score as a cheap hold once gravity is cancelled, so
+        # ranking parks p_arm / via in the air and the arm climbs to them.
+        if abs(float(support_normal[2])) < 0.999:
+            common_mask = common_mask & ((outward_world @ support_normal) < 0.45)
 
         # A global lambda optimum may lie on the far side of a concave
         # silhouette (the elephant's ear/foot are typical samples).  The
@@ -2036,16 +2218,22 @@ class LambdaContactControlOptimizer:
             return available_idx
 
         # Keep the optimizer well-defined if a transient pose leaves every
-        # sampled point below the gate.  Select the point whose predicted
-        # fingertip centre has the greatest clearance; this avoids falling
-        # back to an arbitrary (often underside) sample.
-        above_floor = np.flatnonzero(centers_world[:, 2] > floor_z)
+        # sampled point below the gate.  Prefer the greatest clearance that
+        # is still not a top face on a ramp; otherwise the fallback undoes
+        # the filter and parks p_arm in the air again.
+        above_floor = np.flatnonzero(signed > 0.0)
+        if abs(float(support_normal[2])) < 0.999:
+            side_ok = above_floor[
+                (outward_world[above_floor] @ support_normal) < 0.45
+            ] if above_floor.size else above_floor
+            if side_ok.size:
+                above_floor = side_ok
         if above_floor.size:
-            best_idx = int(above_floor[np.argmax(fingertip_center_z[above_floor])])
+            best_idx = int(above_floor[np.argmax(fingertip_center_signed[above_floor])])
         else:
             # This can only happen after severe simulation penetration; keep
             # a deterministic least-penetrating point for recovery.
-            best_idx = int(np.argmax(fingertip_center_z))
+            best_idx = int(np.argmax(fingertip_center_signed))
         return np.asarray([best_idx], dtype=np.int64)
     
 # 使用示例

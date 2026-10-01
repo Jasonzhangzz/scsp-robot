@@ -3,7 +3,6 @@ import numpy as np
 import trimesh
 
 from examples.mpc.franka.ik2.params import build_lambda_optimizer
-from planning.mlqp_point_scm import promote as promote_scm_optimizer
 from planning.attract_function import compute_scalar_potential_and_gradient
 from utils import rotations
 
@@ -144,7 +143,7 @@ class ExplicitMPCParams:
         self.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), fts_q_ub))
         self.sol_guess_ = None
         self.max_env_contacts_ = 4
-        self.lambda_optimizer = promote_scm_optimizer(build_lambda_optimizer(self, args))
+        self.lambda_optimizer = build_lambda_optimizer(self, args)
 
     @staticmethod
     def calculate_rotation_quaternion(x, target_position):

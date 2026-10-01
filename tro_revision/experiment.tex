@@ -1,3 +1,27 @@
+\section{Evaluation of Surrogate Contact Model}
+\label{sec:scm_evaluation}
+
+\rev{This section validates the fidelity of SCM before system-level experiments.} SCM replaces the dense Delassus matrix $\boldsymbol{W}_{\text{env}}$ by its block-diagonal approximation and evaluates $\boldsymbol{\hat{\lambda}}_{\text{env}}$ in closed form under Assumptions~\ref{assumption:mode}--\ref{assumption:decoupling}. We verify that the resulting one-step prediction error against higher-fidelity models is small, and that occasional large single-step gaps do not prevent task success when the CSO-optimal force is applied directly.
+
+We use the fingertip ground-rotation setup with the same $h=0.02$\,s, $\boldsymbol{M}_o$, and success condition~\eqref{eq:pose_success} as below. At each step, CSO selects the optimal candidate $\boldsymbol{\hat{p}}^*_{\text{r}}\in\mathcal{I}_{\text{avail}}$ and its best force $\boldsymbol{\hat{\lambda}}^*_{\text{r}}$, and SCM predicts $\boldsymbol{\hat{v}}^+$ and $\boldsymbol{\hat{\lambda}}_{\text{env}}$. Under identical free velocity $\boldsymbol{v}_{\text{free}}$, environment Jacobian $\boldsymbol{\tilde{J}}_{\text{env}}$, and $\boldsymbol{M}_o^{-1}$, we compute the rigid-pyramid LCP reference via Lemke's algorithm and a MuJoCo QP reference via a single \texttt{mj\_forward}. Following Lemma~\ref{lem:scm_accuracy} and Appendix~\ref{app:scm_motion_accuracy}, we report the inertia-weighted direction error $\theta$ with $\cos\theta_{M_o}$, the magnitude gap $\big|\|\boldsymbol{v}^+\|_{\boldsymbol{M}_o}-\|\boldsymbol{\hat{v}}^+\|_{\boldsymbol{M}_o}\big|$, and the multiplier gap $\|\boldsymbol{\hat{\lambda}}_{\text{env}}-\boldsymbol{\lambda}_{\text{env}}\|_{\boldsymbol{D}}$. Each rollout then directly applies the CSO-optimal contact by tracking the predicted orientation and the goal-directed component of the predicted translation, without CPO or OSC.
+
+Table~\ref{tab:scm_eval} summarizes the results over repeated ContactDB objects. Against LCP, the median direction error is around $0.19$\,rad with magnitude and multiplier gaps at the $10^{-3}$--$10^{-2}$ scale; larger gaps concentrate on a few contact-set transition steps. The MuJoCo single-step gap is occasionally larger due to its full-body contact resolution, but the goal-directed motion trend is preserved. Every direct-apply trajectory satisfies~\eqref{eq:pose_success} within $160$ steps, indicating that SCM preserves the contact-selection signal needed by CSO.
+
+\begin{table}[t]
+\centering
+\caption{Fidelity of SCM against the rigid LCP and success of direct-apply rollouts.}
+\label{tab:scm_eval}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Metric} & \textbf{Success} & \textbf{dir $\theta$} (rad) & \textbf{mag.\ gap} & \textbf{$\|d\boldsymbol{\lambda}\|_{\boldsymbol{D}}$} \\
+\midrule
+SCM vs.\ LCP (median) & --- & $0.19$ & $0.005$ & $0.05$ \\
+SCM vs.\ LCP (mean) & --- & $0.33$ & $0.029$ & $0.069$ \\
+Direct-apply rollout & $100\%$ & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{Experiment: Nonprehensile Manipulation}
 \label{sec:experiment}
 

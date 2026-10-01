@@ -108,7 +108,7 @@ def _mujoco_visual_mesh(mesh_path, model_path):
 
 from utils import rotations
 from planning.attract_function import compute_scalar_potential_and_gradient
-from planning.mlqp_point_scm import LambdaContactControlOptimizerSCM as LambdaContactControlOptimizer
+from planning.mlqp_point import LambdaContactControlOptimizer
 
 class ExplicitMPCParams:
     def __init__(self, args, rand_seed=1, target_type='ground-rotation', model='explicit'):
