@@ -46,8 +46,8 @@ except Exception as exc:  # pragma: no cover - runtime dependency
     _CUROBO_IMPORT_ERROR = exc
 
 from planning.mlqp_point_v2 import LambdaContactControlOptimizer
-# from planning.mpppi_explicit import MPPIExplicit
-from planning.mpc_explicit import MPCExplicit
+from planning.mppi_bigrasp_ee import BimanualEEMPPI
+from planning.bigrasp_ee_cost import numpy_pose_state
 
 PANDA_XML_PATH = REPO_ROOT / "envs" / "xmls" / "panda_nohand.xml"
 GENERATED_SCENE_PATH = REPO_ROOT / "envs" / "xmls" / "_generated_bigrasp_scene.xml"
@@ -713,10 +713,13 @@ class DualArmPlanOnceParams:
         self.reject_dis = float(args.planner_reject_distance)
 
         self.h_ = float(args.planner_dt)
-        self.n_robot_qpos_ = 6
-        self.n_qpos_ = 13
-        self.n_qvel_ = 12
-        self.n_cmd_ = 6
+        self.n_robot_qpos_ = 14
+        self.n_qpos_ = 21
+        self.n_qvel_ = 18
+        self.n_cmd_ = 12
+        self.n_ee_pose_ = 14
+        self.n_state_ = 21
+        self.n_action_ = 12
         self.n_mj_q_ = self.n_qpos_
         self.n_mj_v_ = self.n_qvel_
         self.max_ncon_ = int(args.planner_max_contacts)
@@ -735,11 +738,37 @@ class DualArmPlanOnceParams:
         self.model_params = float(args.contact_stiffness)
 
         self.mpc_horizon_ = int(args.planner_horizon)
-        self.mpc_model = "explicit"
+        self.mpc_model = "mppi"
         self.planner_solver_ = str(args.planner_solver).strip().lower()
-        self.mpc_cost_kind = "bigrasp"
-        self.mpc_u_lb_ = -float(args.planner_cmd_limit)
-        self.mpc_u_ub_ = float(args.planner_cmd_limit)
+        self.mpc_cost_kind = "bigrasp_ee"
+        rotation_limit = float(getattr(args, "planner_rotation_delta_limit", 0.12))
+        self.mpc_u_lb_ = np.asarray(
+            [-float(args.planner_cmd_limit)] * 3
+            + [-rotation_limit] * 3
+            + [-float(args.planner_cmd_limit)] * 3
+            + [-rotation_limit] * 3,
+            dtype=np.float32,
+        )
+        self.mpc_u_ub_ = -self.mpc_u_lb_.copy()
+
+        self.contact_stiffness = float(args.contact_stiffness)
+        self.arm_friction = float(args.arm_friction)
+        self.planner_object_inertia_pos = float(args.planner_object_inertia_pos)
+        self.planner_object_inertia_rot = float(args.planner_object_inertia_rot)
+        self.planner_ee_position_weight_ = float(getattr(args, "planner_ee_position_weight", 80.0))
+        self.planner_ee_orientation_weight_ = float(getattr(args, "planner_ee_orientation_weight", 2.0))
+        self.planner_force_tracking_weight_ = float(getattr(args, "planner_force_tracking_weight", 12.0))
+        self.planner_object_target_weight_ = float(getattr(args, "planner_object_target_weight", 300.0))
+        self.planner_object_orientation_weight_ = float(getattr(args, "planner_object_orientation_weight", 15.0))
+        self.planner_synchronization_weight_ = float(getattr(args, "planner_synchronization_weight", 25.0))
+        self.planner_action_weight_ = float(getattr(args, "planner_action_weight", 2.0))
+        self.planner_smooth_action_weight_ = float(getattr(args, "planner_smooth_action_weight", 3.0))
+        self.planner_workspace_weight_ = float(getattr(args, "planner_workspace_weight", 50.0))
+        self.planner_contact_gate_scale_ = float(getattr(args, "planner_contact_gate_scale", 0.004))
+        self.planner_rotation_delta_limit_ = rotation_limit
+        self.planner_cmd_limit = float(args.planner_cmd_limit)
+        self.planner_workspace_lower_ = (-1.0, -1.0, 0.0)
+        self.planner_workspace_upper_ = (2.0, 1.0, 2.0)
 
         self.sol_guess_ = None
         self.mppi_samples_ = int(args.mppi_samples)
@@ -756,15 +785,25 @@ class DualArmPlanOnceParams:
 
 class BimanualPandaGrasper:
     def __init__(self, args):
-        if not _HAS_CUROBO:
+        requested_ik_backend = str(getattr(args, "ik_backend", "auto")).strip().lower()
+        if requested_ik_backend not in {"auto", "curobo", "mujoco"}:
+            raise ValueError(f"Unsupported IK backend: {requested_ik_backend}")
+        if requested_ik_backend == "curobo" and not _HAS_CUROBO:
             raise ImportError(
                 "Failed to import cuRobo. Make sure cuRobo is installed or "
                 f"{CUROBO_SRC_ROOT} is available on PYTHONPATH. "
                 f"Original error: {_CUROBO_IMPORT_ERROR!r}"
             )
+        self._use_curobo = requested_ik_backend != "mujoco" and _HAS_CUROBO
+        if not self._use_curobo:
+            print(
+                "cuRobo is unavailable or disabled; using the built-in "
+                "MuJoCo Jacobian damped-least-squares EE IK fallback."
+            )
 
         self.args = args
-        logging.getLogger("curobo").setLevel(logging.WARNING)
+        if self._use_curobo:
+            logging.getLogger("curobo").setLevel(logging.WARNING)
         self.mesh_path = resolve_mesh_path(args.obj, args.mesh)
         self.mesh_scale = self._resolve_mesh_scale(args)
         self.mesh_bounds = load_mesh_bounds(self.mesh_path, self.mesh_scale)
@@ -788,6 +827,13 @@ class BimanualPandaGrasper:
             dtype=np.float64,
         )
         object_quat = quat_from_yaw(args.object_yaw)
+        self.object_target_pos = object_pos.copy()
+        self.object_target_pos[2] += float(args.lift_height)
+        self.object_target_quat = object_quat.copy()
+        self.contact_points_local = None
+        self.normals_local = None
+        self.desired_contact_forces_local = None
+        self.desired_force_vectors_local = None
 
         self.left_base_pos = np.array(
             [args.scene_center_x - 0.5 * args.robot_span, 0.0, 0.0],
@@ -819,7 +865,11 @@ class BimanualPandaGrasper:
         self.model.opt.timestep = float(args.mujoco_dt)
         self.data = mujoco.MjData(self.model)
         
-        self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+        self.viewer = (
+            mujoco.viewer.launch_passive(self.model, self.data)
+            if bool(getattr(args, "visualize", False))
+            else None
+        )
         if self.viewer is not None:
             self.viewer.cam.distance = 1.8
             self.viewer.cam.azimuth = 135
@@ -881,7 +931,7 @@ class BimanualPandaGrasper:
             * max(int(self.args.command_substeps), 1)
         )
         self.plan_params = DualArmPlanOnceParams(self.args, args.obj_mass)
-        self.planner = MPCExplicit(self.plan_params)
+        self.planner = BimanualEEMPPI(self.plan_params)
         self._setup_curobo()
 
     def _resolve_mesh_scale(self, args):
@@ -980,6 +1030,11 @@ class BimanualPandaGrasper:
         if world_mode not in ("with_pedestal", "floor_only"):
             raise ValueError(f"Unsupported cuRobo world mode: {world_mode}")
 
+        if not self._use_curobo:
+            for arm in (self.left_arm, self.right_arm):
+                arm.current_world_mode = world_mode
+            return
+
         for arm in (self.left_arm, self.right_arm):
             if world_mode == "floor_only":
                 static_world = arm.static_world_floor_only
@@ -1057,6 +1112,8 @@ class BimanualPandaGrasper:
         return np.asarray(visible_idx, dtype=int)
 
     def _update_inter_arm_worlds(self):
+        if not self._use_curobo:
+            return
         for target_arm, obstacle_arm in (
             (self.left_arm, self.right_arm),
             (self.right_arm, self.left_arm),
@@ -1104,9 +1161,36 @@ class BimanualPandaGrasper:
         self.set_ghost_pose(arm, *self.get_hand_pose(arm))
 
     def _setup_curobo(self):
+        if not self._use_curobo:
+            self._setup_mujoco_ik()
+            return
         self._setup_curobo_arm(self.left_arm)
         self._setup_curobo_arm(self.right_arm)
         self._update_inter_arm_worlds()
+
+    def _setup_mujoco_ik(self):
+        """Initialize the dependency-free EE IK fallback.
+
+        The MPPI controller already operates in EE pose space.  This small
+        Jacobian solver is only used once per arm to obtain a fixed contact
+        orientation; execution remains Cartesian impedance controlled.
+        """
+        for arm in (self.left_arm, self.right_arm):
+            arm.ik_solver = None
+            arm.curobo_joint_names = tuple()
+            arm.retract_cfg = self.data.qpos[arm.qpos_adr].copy()
+            arm.static_world_with_pedestal = None
+            arm.static_world_floor_only = None
+            arm.static_world = None
+            arm.current_world = None
+            arm.current_world_mode = "with_pedestal"
+            arm.cartesian_damping = 2.0 * np.sqrt(arm.cartesian_stiffness)
+            tip_pos, tip_rot = self.get_tip_pose(arm)
+            arm.position_d = tip_pos.copy()
+            arm.orientation_d = tip_rot.copy()
+            arm.p_d = tip_pos.copy()
+            arm.R_d = tip_rot.copy()
+            self.set_ghost_pose(arm, *self.get_hand_pose(arm))
 
     def reset(self, object_pos, object_quat):
         self.data.qpos[self.left_arm.qpos_adr] = PANDA_HOME_Q
@@ -3026,7 +3110,73 @@ class BimanualPandaGrasper:
             arm.retract_cfg,
         )
 
+    def _solve_arm_ik_mujoco(self, arm, target_tip_pos_world, target_tip_rot_world):
+        """Solve one EE pose with MuJoCo's analytic geom Jacobian.
+
+        This is deliberately a small local IK solve rather than a second
+        planner.  It supplies the fixed contact orientation that MPPI needs;
+        Cartesian impedance remains responsible for execution.  It avoids a
+        hard dependency on cuRobo, Mink, Pinocchio, or DAQP.
+        """
+        target_tip_pos_world = np.asarray(target_tip_pos_world, dtype=np.float64).reshape(3)
+        target_tip_rot_world = _project_to_rotation_matrix(target_tip_rot_world)
+        target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
+            target_tip_pos_world,
+            target_tip_rot_world,
+        )
+        q_initial = np.asarray(self.data.qpos[arm.qpos_adr], dtype=np.float64).copy()
+        q = q_initial.copy()
+        damping = 2.0e-3
+        max_iters = max(int(getattr(self.args, "ik_max_iters", 80)), 1)
+        position_error = float("inf")
+        rotation_error = float("inf")
+        for _ in range(max_iters):
+            self.data.qpos[arm.qpos_adr] = q
+            mujoco.mj_forward(self.model, self.data)
+            current_pos, current_rot = self.get_tip_pose(arm)
+            pos_delta = target_tip_pos_world - current_pos
+            rot_delta = _rotation_error(current_rot, target_tip_rot_world)
+            position_error = float(np.linalg.norm(pos_delta))
+            rotation_error = float(np.linalg.norm(rot_delta))
+            if position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol):
+                break
+
+            jac_pos = np.zeros((3, self.model.nv), dtype=np.float64)
+            jac_rot = np.zeros((3, self.model.nv), dtype=np.float64)
+            mujoco.mj_jacGeom(self.model, self.data, jac_pos, jac_rot, int(arm.tip_geom_id))
+            jacobian = np.vstack((jac_pos[:, arm.dof_adr], jac_rot[:, arm.dof_adr]))
+            error = np.concatenate((pos_delta, rot_delta))
+            jjt = jacobian @ jacobian.T + damping * np.eye(6, dtype=np.float64)
+            dq = jacobian.T @ np.linalg.solve(jjt, error)
+            dq = np.clip(dq, -0.15, 0.15)
+            q += 0.75 * dq
+            for idx, joint_id in enumerate(arm.joint_ids):
+                if bool(self.model.jnt_limited[int(joint_id)]):
+                    q[idx] = np.clip(q[idx], *self.model.jnt_range[int(joint_id)])
+
+        solved_tip_pos, solved_tip_rot = self.get_tip_pose(arm)
+        solved_hand_pos, solved_hand_rot = self.tip_target_to_hand_pose(solved_tip_pos, solved_tip_rot)
+        success = position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol)
+        self.data.qpos[arm.qpos_adr] = q_initial
+        mujoco.mj_forward(self.model, self.data)
+        self.set_ghost_pose(arm, solved_hand_pos, solved_hand_rot)
+        return ArmIkResult(
+            q_mj=q.copy(),
+            success=bool(success),
+            position_error=position_error,
+            rotation_error=rotation_error,
+            target_hand_pos_world=target_hand_pos_world,
+            target_hand_rot_world=target_hand_rot_world,
+            solved_hand_pos_world=solved_hand_pos,
+            solved_hand_rot_world=solved_hand_rot,
+            solved_tip_pos_world=solved_tip_pos,
+            solved_tip_rot_world=solved_tip_rot,
+            failure_reason="mujoco Jacobian IK did not reach tolerance" if not success else "",
+        )
+
     def solve_arm_ik(self, arm, target_tip_pos_world, target_tip_rot_world):
+        if not self._use_curobo:
+            return self._solve_arm_ik_mujoco(arm, target_tip_pos_world, target_tip_rot_world)
         target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
             target_tip_pos_world,
             target_tip_rot_world,
@@ -3140,9 +3290,14 @@ class BimanualPandaGrasper:
 
     def get_planner_state(self):
         obj_pos, obj_quat, _ = self.get_object_pose()
-        left_tip_pos = self.get_tip_pos(self.left_arm)
-        right_tip_pos = self.get_tip_pos(self.right_arm)
-        return np.hstack([obj_pos, obj_quat, left_tip_pos, right_tip_pos]).astype(np.float32)
+        left_tip_pos, left_tip_rot = self.get_tip_pose(self.left_arm)
+        right_tip_pos, right_tip_rot = self.get_tip_pose(self.right_arm)
+        return numpy_pose_state(
+            obj_pos,
+            obj_quat,
+            (left_tip_pos, mat_to_quat_wxyz(left_tip_rot)),
+            (right_tip_pos, mat_to_quat_wxyz(right_tip_rot)),
+        )
 
     def _build_object_jacobian(self, point_local):
         jacobian = np.zeros((3, self.plan_params.n_qvel_), dtype=np.float64)
@@ -3374,6 +3529,56 @@ class BimanualPandaGrasper:
                 self.sync_viewer()
             if self.args.real_time and self.viewer is not None:
                 time.sleep(self.model.opt.timestep)
+
+    def step_ee_pose_delta(
+        self,
+        action,
+        right_delta=None,
+        hold_mask=(False, False),
+        object_force_world=None,
+        object_torque_world=None,
+    ):
+        """Execute one 12D dual-EE SE(3) increment through impedance control.
+
+        ``hold_mask`` freezes an arm at its measured pose while the other arm
+        catches up.  This is the execution-side synchronization guard used by
+        the unified MPPI loop; the planner itself still evaluates one shared
+        object target and cost.
+        """
+        action = np.asarray(action, dtype=np.float64).reshape(-1)
+        if right_delta is not None:
+            right_array = np.asarray(right_delta)
+            if action.size == 12 and right_array.size == 2:
+                hold_mask = right_array.astype(bool)
+                right_delta = None
+            else:
+                right_delta = right_array.astype(np.float64).reshape(6)
+        if right_delta is not None:
+            if action.size != 6:
+                raise ValueError("left EE delta must contain six SE(3) values")
+            action = np.concatenate([action, right_delta])
+        if action.size != 12:
+            raise ValueError("EE pose action must contain 12 SE(3) values")
+        action = action.reshape(12)
+        hold = np.asarray(hold_mask, dtype=bool).reshape(2)
+        left_pos, left_rot = self.get_tip_pose(self.left_arm)
+        right_pos, right_rot = self.get_tip_pose(self.right_arm)
+        left_delta = np.zeros(6, dtype=np.float64) if hold[0] else action[:6]
+        right_delta = np.zeros(6, dtype=np.float64) if hold[1] else action[6:12]
+        left_target_rot = _project_to_rotation_matrix(
+            Rotation.from_rotvec(left_delta[3:6]).as_matrix() @ left_rot
+        )
+        right_target_rot = _project_to_rotation_matrix(
+            Rotation.from_rotvec(right_delta[3:6]).as_matrix() @ right_rot
+        )
+        self.step_cartesian_action(
+            left_delta[:3],
+            right_delta[:3],
+            left_target_rot,
+            right_target_rot,
+            object_force_world=object_force_world,
+            object_torque_world=object_torque_world,
+        )
 
     def hold_current_pose(self, num_steps=1, object_force_world=None, object_torque_world=None):
         for arm in (self.left_arm, self.right_arm):
@@ -3704,165 +3909,86 @@ class BimanualPandaGrasper:
         return False, info
 
     def run(self):
-        obj_pos, obj_quat, obj_rot = self.get_object_pose()
-        gravity_local = self._gravity_wrench_local(obj_rot)
-        lift_delta = np.array([0.0, 0.0, self.args.lift_height], dtype=np.float64)
-        touch_offset = TIP_RADIUS + self.args.touch_offset
-        squeeze_offset = max(TIP_RADIUS - self.args.squeeze_depth, 0.001)
+        """Run one receding-horizon MPPI loop for the complete grasp.
 
-        contact_candidate_cache = self._precompute_contact_candidate_cache(
-            obj_pos,
-            obj_rot,
-            gravity_local,
-        )
-        contact_selection_state = {
-            "mode": "best",
-            "pending_mode": None,
-            "pending_steps": 0,
-        }
-        initial_contact_targets, initial_selection_debug = self._select_live_contact_targets(
-            obj_pos,
-            obj_rot,
-            candidate_cache=contact_candidate_cache,
+        Contact geometry is solved once in the object frame.  Every following
+        cycle only reprojects those fixed points through the measured object
+        pose and runs the same target/cost; synchronization is represented by
+        the per-arm hold mask rather than by stage transitions.
+        """
+        self.planner.reset()
+        object_pos, object_quat, object_rot = self.get_object_pose()
+        touch_offset = TIP_RADIUS + float(self.args.touch_offset)
+
+        # LambdaContactControlOptimizer is intentionally called exactly once.
+        contact_targets = self._get_live_contact_targets(
+            object_pos,
+            object_rot,
             previous_targets=None,
             virtual_offset=float(self.args.planner_attract_offset),
-            selection_state=contact_selection_state,
         )
-        contact_selection_state["pending_mode"] = None
-        contact_selection_state["pending_steps"] = 0
-        contact_points_local = initial_contact_targets["contact_points_local"]
-        normals_local = initial_contact_targets["normals_local"]
-        contact_points_world = initial_contact_targets["contact_points_world"]
-        inward_normals_world = initial_contact_targets["inward_normals_world"]
-        static_result = self._copy_nested_value(initial_contact_targets.get("static_equilibrium", None))
-
-        self.set_marker("contact_point1", contact_points_world[0])
-        self.set_marker("contact_point2", contact_points_world[1])
-        self.set_marker("goal", obj_pos, obj_quat)
-        mujoco.mj_forward(self.model, self.data)
-        if self.viewer is not None:
-            self.sync_viewer()
-
+        contact_points_local = np.asarray(contact_targets["contact_points_local"], dtype=np.float64).reshape(2, 3)
+        normals_local = np.asarray(contact_targets["normals_local"], dtype=np.float64).reshape(2, 3)
+        self.contact_points_local = contact_points_local.copy()
+        self.normals_local = normals_local.copy()
+        contact_points_world = (object_rot @ contact_points_local.T).T + object_pos[None, :]
+        self.contact_points_world = contact_points_world.copy()
+        grasp_result = self._copy_nested_value(getattr(self.optimizer, "last_grasp_result", None)) or {}
+        static_result = grasp_result.get("static_equilibrium", None)
+        desired_contact_forces_local = np.zeros((0, 3), dtype=np.float64)
+        desired_force_vectors_local = np.zeros((0, 3), dtype=np.float64)
+        if isinstance(static_result, dict) and bool(static_result.get("valid", True)):
+            desired_contact_forces_local = np.asarray(
+                static_result.get("contact_forces_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+            desired_force_vectors_local = np.asarray(
+                static_result.get("force_vectors_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+        contact_order = np.asarray(contact_targets.get("contact_order", [0, 1]), dtype=int).reshape(-1)
+        if contact_order.size == 2:
+            if desired_contact_forces_local.shape[0] == 2:
+                desired_contact_forces_local = desired_contact_forces_local[contact_order]
+            if desired_force_vectors_local.shape[0] == 2:
+                desired_force_vectors_local = desired_force_vectors_local[contact_order]
+        if desired_contact_forces_local.shape[0] != 2:
+            desired_contact_forces_local = np.asarray(
+                grasp_result.get("witness_contact_forces_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+            if desired_contact_forces_local.shape[0] == 2 and contact_order.size == 2:
+                desired_contact_forces_local = desired_contact_forces_local[contact_order]
+        if desired_force_vectors_local.shape[0] != 2:
+            desired_force_vectors_local = np.asarray(
+                grasp_result.get("witness_force_vectors_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+            if desired_force_vectors_local.shape[0] == 2 and contact_order.size == 2:
+                desired_force_vectors_local = desired_force_vectors_local[contact_order]
         required_normal_force = (
-            0.35 * self.args.obj_mass * 9.81
+            0.35 * float(self.args.obj_mass) * 9.81
             if self.args.min_normal_force is None
             else float(self.args.min_normal_force)
         )
-        if static_result is not None and static_result["valid"]:
-            modeled_normal = float(np.max(np.asarray(static_result["contact_forces_local"], dtype=np.float64)[:, 0]))
-            required_normal_force = max(required_normal_force, 0.5 * modeled_normal)
-
-        cached_contact_targets = self._copy_contact_targets(initial_contact_targets)
-        contact_order = np.asarray(cached_contact_targets.get("contact_order", np.array([0, 1], dtype=int)), dtype=int).reshape(-1)
-
-        desired_contact_forces_local = np.zeros((0, 3), dtype=np.float64)
-        desired_force_vectors_local = np.zeros((0, 3), dtype=np.float64)
-        if static_result is not None and static_result["valid"]:
-            desired_contact_forces_local = np.asarray(static_result["contact_forces_local"], dtype=np.float64).reshape(-1, 3)
-            desired_force_vectors_local = np.asarray(static_result["force_vectors_local"], dtype=np.float64).reshape(-1, 3)
-            if desired_contact_forces_local.shape[0] == contact_order.shape[0] and contact_order.shape[0] == 2:
-                desired_contact_forces_local = desired_contact_forces_local[contact_order]
-            if desired_force_vectors_local.shape[0] == contact_order.shape[0] and contact_order.shape[0] == 2:
-                desired_force_vectors_local = desired_force_vectors_local[contact_order]
-        else:
-            desired_contact_forces_local = np.asarray(
-                cached_contact_targets.get("witness_contact_forces_local", np.zeros((0, 3), dtype=np.float64)),
-                dtype=np.float64,
-            ).reshape(-1, 3)
-            desired_force_vectors_local = np.asarray(
-                cached_contact_targets.get("witness_force_vectors_local", np.zeros((0, 3), dtype=np.float64)),
-                dtype=np.float64,
-            ).reshape(-1, 3)
-
+        desired_normal_thresholds = np.full(2, required_normal_force, dtype=np.float64)
         if desired_contact_forces_local.shape[0] == 2:
-            cached_contact_targets["desired_contact_forces_local"] = desired_contact_forces_local.copy()
-        if desired_force_vectors_local.shape[0] == 2:
-            cached_contact_targets["desired_force_vectors_local"] = desired_force_vectors_local.copy()
-        cached_contact_targets = self._project_cached_contact_targets(
-            cached_contact_targets,
-            obj_pos,
-            obj_rot,
-            virtual_offset=float(self.args.planner_attract_offset),
-        )
-
-        desired_normal_forces = np.full(2, required_normal_force, dtype=np.float64)
-        if desired_contact_forces_local.shape[0] == 2:
-            desired_normal_forces = np.maximum(
-                desired_normal_forces,
+            desired_normal_thresholds = np.maximum(
+                desired_normal_thresholds,
                 np.maximum(desired_contact_forces_local[:, 0], 0.0),
             )
-        force_control_stiffness = (
-            float(self.args.force_control_stiffness)
-            if self.args.force_control_stiffness is not None
-            else float(np.max(desired_normal_forces)) / max(float(self.args.squeeze_depth), 1e-4)
-        )
-        force_control_stiffness = max(force_control_stiffness, 1e-6)
-
-        print("Generated scene:", self.scene_path)
-        print("Mesh:", self.mesh_path)
-        print("Scale:", self.mesh_scale)
-        print("Object pose:", obj_pos, obj_quat)
-        print(
-            "Requested solvers:",
-            f"optimizer={self.args.solver} planner={self.plan_params.planner_solver_}",
-        )
-        print(
-            "Offline candidate cache:",
-            f"regions={len(contact_candidate_cache.get('region_groups', []))} "
-            f"raw_candidates={int(contact_candidate_cache.get('candidate_entry_count_before_limit', 0))} "
-            f"cached_candidates={int(contact_candidate_cache.get('candidate_entry_count', 0))} "
-            f"limit={contact_candidate_cache.get('candidate_entry_limit', None)} "
-            f"region_precompute={float(contact_candidate_cache.get('timing', {}).get('wall_time', 0.0)):.4f}s "
-            f"lift_precompute={float(contact_candidate_cache.get('offline_lift_precompute_time', 0.0)):.4f}s",
-        )
-        raw_contact_points_local = np.asarray(
-            initial_contact_targets.get("raw_contact_points_local", contact_points_local),
-            dtype=np.float64,
-        ).reshape(-1, 3)
-        print("Raw optimizer contact points local:\n", raw_contact_points_local)
-        print("Arm-assigned contact points local:\n", contact_points_local)
-        print("Contact points world:\n", contact_points_world)
-        print("Inward normals world:\n", inward_normals_world)
-        if desired_contact_forces_local.shape[0] == 2:
-            print("Desired contact forces local:\n", desired_contact_forces_local)
+        desired_normal_forces_local = np.zeros((2, 3), dtype=np.float64)
         if desired_force_vectors_local.shape[0] == 2:
-            print("Desired contact force vectors in object frame:\n", desired_force_vectors_local)
-        print(
-            f"Grasp score: total_cost={float(initial_contact_targets['total_cost']):.6f}, "
-            f"force_closure_cost={float(initial_contact_targets.get('force_closure_cost', float('inf'))):.6f}, "
-            f"lift_cost={float(initial_contact_targets.get('lift_cost', 0.0)):.6f}, "
-            f"region_score={float(initial_contact_targets['region_score']):.6f}, "
-            f"antipodal_margin={float(initial_contact_targets['antipodal_margin']):.6f}"
-        )
-        print(
-            "Initial contact selection:",
-            f"source={initial_selection_debug.get('selected_contact_source', 'best')} "
-            f"best_cost={float(initial_selection_debug.get('best_contact_cost', float('inf'))):.6f} "
-            f"nearest_cost={float(initial_selection_debug.get('nearest_contact_cost', float('inf'))):.6f} "
-            f"nearest_improvement={float(initial_selection_debug.get('nearest_contact_improvement', 0.0)):.4f}",
-        )
-        print(f"Required normal force per fingertip: {required_normal_force:.3f} N")
-        print(
-            f"Force-control model: k={force_control_stiffness:.3f} "
-            f"dissipation_velocity={float(self.args.force_control_dissipation_velocity):.4f} "
-            f"stiction_velocity={float(self.args.force_control_stiction_velocity):.4f} "
-            f"smoothing={float(self.args.force_control_smoothing):.6f}"
-        )
-        if static_result is not None:
-            print(
-                f"Static equilibrium: valid={static_result['valid']} "
-                f"residual_norm={static_result['residual_norm']:.6f} "
-                f"solve_time={static_result['solve_time']:.4f}s"
-            )
+            desired_normal_forces_local[:] = desired_force_vectors_local
+        else:
+            normals_unit = normals_local / np.maximum(np.linalg.norm(normals_local, axis=1, keepdims=True), 1.0e-9)
+            desired_normal_forces_local[:] = normals_unit * required_normal_force
 
-        print("Stage 1: solve IK once for the initial contact fingertip poses and keep the solved rotations fixed")
+        # Solve the fixed contact orientation once.  The IK solution is used
+        # only as the common EE orientation reference for all MPPI cycles.
         self._set_curobo_world_mode("floor_only")
         self._update_inter_arm_worlds()
         initial_touch_targets = self._stage_targets_from_object_pose(
             contact_points_local,
             normals_local,
-            obj_pos,
-            obj_rot,
+            object_pos,
+            object_rot,
             center_offset=touch_offset,
         )
         left_touch_ik = self.solve_arm_ik(
@@ -3875,240 +4001,175 @@ class BimanualPandaGrasper:
             initial_touch_targets["right_tip_pos"],
             initial_touch_targets["right_tip_rot"],
         )
-        left_fixed_rot = _project_to_rotation_matrix(left_touch_ik.solved_tip_rot_world)
-        right_fixed_rot = _project_to_rotation_matrix(right_touch_ik.solved_tip_rot_world)
-        print(
-            f"  left(success={left_touch_ik.success}, pos={left_touch_ik.position_error:.4f}, rot={left_touch_ik.rotation_error:.4f}) "
-            f"right(success={right_touch_ik.success}, pos={right_touch_ik.position_error:.4f}, rot={right_touch_ik.rotation_error:.4f})"
+        left_fixed_rot = _project_to_rotation_matrix(
+            left_touch_ik.solved_tip_rot_world if left_touch_ik.success else initial_touch_targets["left_tip_rot"]
         )
-        if not left_touch_ik.success and left_touch_ik.failure_reason:
-            print(
-                f"  left diag: reason={left_touch_ik.failure_reason} "
-                f"constraint={left_touch_ik.constraint_total:.4f}"
-            )
-        if not right_touch_ik.success and right_touch_ik.failure_reason:
-            print(
-                f"  right diag: reason={right_touch_ik.failure_reason} "
-                f"constraint={right_touch_ik.constraint_total:.4f}"
-            )
-
-        print("Stage 2: reuse the offline candidate cache, evaluate force-closure online, and switch between cached best contacts and current nearest projections")
-
-        stage2_ok, _stage2_info = self._run_live_contact_plan_stage(
-            "attract",
-            self.args.approach_steps,
-            left_fixed_rot,
-            right_fixed_rot,
-            verify_cost_1=0.0,
-            verify_cost_2=0.0,
-            virtual_offset=float(self.args.planner_attract_offset),
-            goal_offset=float(self.args.planner_attract_offset),
-            pos_tol=float(self.args.planner_attract_tol),
-            rot_tol=max(float(self.args.ik_rot_tol), 0.25),
-            world_mode="with_pedestal",
-            initial_contact_targets=cached_contact_targets,
-            contact_candidate_cache=contact_candidate_cache,
-            contact_selection_state=contact_selection_state,
+        right_fixed_rot = _project_to_rotation_matrix(
+            right_touch_ik.solved_tip_rot_world if right_touch_ik.success else initial_touch_targets["right_tip_rot"]
         )
-        if not stage2_ok:
-            print("Attract stage reached its step limit; proceeding directly to the squeeze stage with the current pose.")
-        if _stage2_info.get("contact_targets") is not None:
-            cached_contact_targets = self._copy_contact_targets(_stage2_info["contact_targets"])
-
-        print("Stage 4: skip the old verify-contact stage and directly squeeze until both fingertips apply the desired contact force")
-        stable_contact_steps = 0
-        force_stage_state = {"state": None}
-
-        def force_stage_targets(step, live_targets):
-            del step
-            goal_points_world, force_debug, next_force_state = self._build_force_control_targets(
-                live_targets["contact_points_world"],
-                live_targets["outward_normals_world"],
-                desired_normal_forces,
-                previous_state=force_stage_state["state"],
-                contact_stiffness=force_control_stiffness,
-                dissipation_velocity=float(self.args.force_control_dissipation_velocity),
-                stiction_velocity=float(self.args.force_control_stiction_velocity),
-                smoothing_factor=float(self.args.force_control_smoothing),
-            )
-            if "desired_contact_force_world" in live_targets:
-                force_debug["desired_contact_force_world"] = np.asarray(
-                    live_targets["desired_contact_force_world"],
-                    dtype=np.float64,
-                ).reshape(2, 3)
-            force_stage_state["state"] = next_force_state
-
-            def post_step_debug():
-                _, post_force_debug, post_force_state = self._build_force_control_targets(
-                    live_targets["contact_points_world"],
-                    live_targets["outward_normals_world"],
-                    desired_normal_forces,
-                    previous_state=next_force_state,
-                    contact_stiffness=force_control_stiffness,
-                    dissipation_velocity=float(self.args.force_control_dissipation_velocity),
-                    stiction_velocity=float(self.args.force_control_stiction_velocity),
-                    smoothing_factor=float(self.args.force_control_smoothing),
-                )
-                if "desired_contact_force_world" in live_targets:
-                    post_force_debug["desired_contact_force_world"] = np.asarray(
-                        live_targets["desired_contact_force_world"],
-                        dtype=np.float64,
-                    ).reshape(2, 3)
-                force_stage_state["state"] = post_force_state
-                return post_force_debug
-
-            return {
-                "goal_points_world": goal_points_world.copy(),
-                "planner_contact_points_world": goal_points_world.copy(),
-                "planner_virtual_points_world": goal_points_world.copy(),
-                "debug": force_debug,
-                "post_step_debug_fn": post_step_debug,
-            }
-
-        def squeeze_success(info):
-            nonlocal stable_contact_steps
-            modeled_normal_forces = np.asarray(
-                info.get("modeled_normal_forces", np.zeros(2, dtype=np.float64)),
-                dtype=np.float64,
-            ).reshape(-1)
-            force_ready = modeled_normal_forces.size == 2 and bool(
-                np.all(modeled_normal_forces >= desired_normal_forces)
-            )
-            stable_contact_steps = stable_contact_steps + 1 if force_ready else 0
-            return stable_contact_steps >= self.args.contact_stable_steps
-
-        squeeze_ok, squeeze_info = self._run_live_contact_plan_stage(
-            "squeeze",
-            self.args.squeeze_steps,
-            left_fixed_rot,
-            right_fixed_rot,
-            verify_cost_1=1.0,
-            verify_cost_2=1.0,
-            virtual_offset=float(self.args.planner_attract_offset),
-            goal_offset=squeeze_offset,
-            pos_tol=self.args.target_tol * 1.5,
-            rot_tol=self.args.ik_rot_tol * 1.5,
-            success_fn=squeeze_success,
-            world_mode="floor_only",
-            initial_contact_targets=cached_contact_targets,
-            contact_candidate_cache=contact_candidate_cache,
-            contact_selection_state=contact_selection_state,
-            planner_target_fn=force_stage_targets,
+        ee_target_quat = np.asarray(
+            [mat_to_quat_wxyz(left_fixed_rot), mat_to_quat_wxyz(right_fixed_rot)],
+            dtype=np.float64,
         )
-        if not squeeze_ok and self.args.squeeze_extra_steps > 0:
-            print(
-                f"Squeeze stage did not reach the required force within {self.args.squeeze_steps} steps; "
-                f"extending by {self.args.squeeze_extra_steps} more steps."
-            )
-            squeeze_ok, squeeze_info = self._run_live_contact_plan_stage(
-                "squeeze-extend",
-                self.args.squeeze_extra_steps,
-                left_fixed_rot,
-                right_fixed_rot,
-                verify_cost_1=1.0,
-                verify_cost_2=1.0,
-                virtual_offset=float(self.args.planner_attract_offset),
-                goal_offset=squeeze_offset,
-                pos_tol=self.args.target_tol * 1.5,
-                rot_tol=self.args.ik_rot_tol * 1.5,
-                success_fn=squeeze_success,
-                world_mode="floor_only",
-                initial_contact_targets=cached_contact_targets,
-                contact_candidate_cache=contact_candidate_cache,
-                contact_selection_state=contact_selection_state,
-                planner_target_fn=force_stage_targets,
-            )
-        if squeeze_info.get("contact_targets") is not None:
-            cached_contact_targets = self._copy_contact_targets(squeeze_info["contact_targets"])
-        if not squeeze_ok:
-            print("Squeeze stage did not reach the required bilateral contact force.")
-            return
 
-        contacts = squeeze_info["contacts"]
-        for key, marker_name in (("left", "contact_point1"), ("right", "contact_point2")):
-            if contacts[key]:
-                best_contact = max(contacts[key], key=lambda item: item.get("normal_force", 0.0))
-                self.set_marker(marker_name, best_contact["world_pos"])
+        object_target_pos = self.object_target_pos.copy()
+        object_target_quat = self.object_target_quat.copy()
+        self.desired_contact_forces_local = desired_contact_forces_local.copy()
+        self.desired_force_vectors_local = desired_normal_forces_local.copy()
+        self.set_marker("contact_point1", contact_points_world[0])
+        self.set_marker("contact_point2", contact_points_world[1])
+        self.set_marker("goal", object_target_pos, object_target_quat)
         mujoco.mj_forward(self.model, self.data)
         if self.viewer is not None:
             self.sync_viewer()
 
+        print("Generated scene:", self.scene_path)
+        print("Mesh:", self.mesh_path)
+        print("Object pose:", object_pos, object_quat)
         print(
-            "Measured contacts after squeeze:",
-            {key: len(value) for key, value in contacts.items()},
+            "Unified MPPI:",
+            f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
+            f"horizon={self.plan_params.mpc_horizon_} samples={self.plan_params.mppi_samples_}",
         )
-        if "modeled_normal_forces" in squeeze_info:
-            modeled_normal_forces = np.asarray(squeeze_info["modeled_normal_forces"], dtype=np.float64).reshape(2)
-            print(
-                "Modeled squeeze forces:",
-                f"left={modeled_normal_forces[0]:.4f}N right={modeled_normal_forces[1]:.4f}N",
+        print("Fixed contact points local:\n", contact_points_local)
+        print("Fixed desired contact forces local:\n", desired_normal_forces_local)
+        print(
+            f"Initial contact projection world:\n{contact_points_world}\n"
+            f"target object pose: {object_target_pos} {object_target_quat}"
+        )
+        print(
+            f"IK orientation references: left_success={left_touch_ik.success} "
+            f"right_success={right_touch_ik.success}"
+        )
+
+        stable_steps = 0
+        last_info = {}
+        telemetry = []
+        control_steps = max(int(getattr(self.args, "control_steps", 1600)), 1)
+        sync_pos_tol = float(getattr(self.args, "planner_sync_pos_tol", self.args.planner_attract_tol))
+        sync_rot_tol = float(getattr(self.args, "planner_sync_rot_tol", self.args.ik_rot_tol))
+        report_stride = max(1, control_steps // 20)
+
+        for step_idx in range(control_steps):
+            current_pos, current_quat, current_rot = self.get_object_pose()
+            contact_points_world = (current_rot @ contact_points_local.T).T + current_pos[None, :]
+            self.contact_points_world = contact_points_world.copy()
+            inward_normals_world = (current_rot @ normals_local.T).T
+            outward_normals_world = -inward_normals_world
+            self.set_marker("contact_point1", contact_points_world[0])
+            self.set_marker("contact_point2", contact_points_world[1])
+            self.set_marker("goal", object_target_pos, object_target_quat)
+
+            approach_targets = self._stage_targets_from_object_pose(
+                contact_points_local,
+                normals_local,
+                current_pos,
+                current_rot,
+                center_offset=touch_offset,
             )
-        for side in ("left", "right"):
-            if contacts[side]:
-                best_contact = max(contacts[side], key=lambda item: item.get("normal_force", 0.0))
+            left_pos, left_rot = self.get_tip_pose(self.left_arm)
+            right_pos, right_rot = self.get_tip_pose(self.right_arm)
+            left_pos_err = float(np.linalg.norm(left_pos - approach_targets["left_tip_pos"]))
+            right_pos_err = float(np.linalg.norm(right_pos - approach_targets["right_tip_pos"]))
+            left_rot_err = float(np.linalg.norm(_rotation_error(left_rot, left_fixed_rot)))
+            right_rot_err = float(np.linalg.norm(_rotation_error(right_rot, right_fixed_rot)))
+            ready_mask = np.asarray(
+                [
+                    left_pos_err <= sync_pos_tol and left_rot_err <= sync_rot_tol,
+                    right_pos_err <= sync_pos_tol and right_rot_err <= sync_rot_tol,
+                ],
+                dtype=bool,
+            )
+            hold_mask = np.asarray(
+                [ready_mask[0] and not ready_mask[1], ready_mask[1] and not ready_mask[0]],
+                dtype=bool,
+            )
+            planner_state = self.get_planner_state()
+            planner_result = self.planner.plan_once(
+                planner_state,
+                contact_points_local,
+                normals_local,
+                desired_normal_forces_local,
+                object_target_pos,
+                object_target_quat,
+                ee_target_quat,
+                support_z=float(self.support_height_threshold),
+                hold_mask=hold_mask,
+                approach_offset=touch_offset,
+            )
+            action = np.asarray(planner_result["action"], dtype=np.float64).reshape(12)
+            # The mask is applied again at the execution boundary so a ready
+            # arm is exactly stationary even if a backend returns stale noise.
+            action[:6] = 0.0 if hold_mask[0] else action[:6]
+            action[6:12] = 0.0 if hold_mask[1] else action[6:12]
+            self.step_ee_pose_delta(action, hold_mask=hold_mask)
+
+            if self.viewer is not None:
+                self.sync_viewer()
+            contacts = self.extract_object_contacts()
+            measured_force = np.asarray(
+                [
+                    max((float(item.get("normal_force", 0.0)) for item in contacts["left"]), default=0.0),
+                    max((float(item.get("normal_force", 0.0)) for item in contacts["right"]), default=0.0),
+                ],
+                dtype=np.float64,
+            )
+            post_pos, post_quat, _ = self.get_object_pose()
+            object_pos_error = float(np.linalg.norm(post_pos - object_target_pos))
+            object_rot_error = float(np.linalg.norm(_rotation_error(quat_wxyz_to_mat(post_quat), quat_wxyz_to_mat(object_target_quat))))
+            force_ok = bool(np.all(measured_force >= desired_normal_thresholds))
+            object_ok = object_pos_error <= float(self.args.target_tol) and object_rot_error <= float(self.args.ik_rot_tol)
+            if bool(np.all(ready_mask)) and force_ok and object_ok:
+                stable_steps += 1
+            else:
+                stable_steps = 0
+
+            last_info = {
+                "step": step_idx,
+                "best_contact_point_world": contact_points_world.copy(),
+                "desired_force_vectors_local": desired_normal_forces_local.copy(),
+                "desired_force_world": (current_rot @ desired_normal_forces_local.T).T,
+                "measured_normal_force": measured_force.copy(),
+                "ready_mask": ready_mask.copy(),
+                "hold_mask": hold_mask.copy(),
+                "mppi_cost": planner_result.get("cost"),
+                "planner_backend": planner_result.get("solver_backend", "mppi_ee"),
+                "object_pose": (post_pos.copy(), post_quat.copy()),
+                "object_target_pose": (object_target_pos.copy(), object_target_quat.copy()),
+                "object_position_error": object_pos_error,
+                "object_orientation_error": object_rot_error,
+            }
+            telemetry.append(last_info)
+            if step_idx % report_stride == 0 or stable_steps == int(self.args.contact_stable_steps):
                 print(
-                    f"  {side}: world={np.array2string(best_contact['world_pos'], precision=4)} "
-                    f"local={np.array2string(best_contact['local_pos'], precision=4)} "
-                    f"dist={best_contact['dist']:.6f} "
-                    f"normal_force={best_contact['normal_force']:.4f}"
+                    f"[{step_idx:04d}] cost={planner_result.get('cost', float('nan')):.4f} "
+                    f"ready={ready_mask.astype(int).tolist()} hold={hold_mask.astype(int).tolist()} "
+                    f"force={np.array2string(measured_force, precision=3)} "
+                    f"obj_err={object_pos_error:.4f} target_z={object_target_pos[2]:.4f}"
                 )
+            if stable_steps >= max(int(self.args.contact_stable_steps), 1):
+                print(f"Unified MPPI grasp reached a stable target at step {step_idx}.")
+                break
 
-        print("Stage 5: lift while keeping force-driven contact tracking and the initial IK rotations")
-        lift_start_pos, lift_start_quat, _ = self.get_object_pose()
-        target_lift_height = obj_pos[2] + self.args.lift_height - self.args.lift_success_margin
-
-        def lift_success(info):
-            contact_force_ok = (
-                info["left_force"] > 0.1 * required_normal_force
-                and info["right_force"] > 0.1 * required_normal_force
-            )
-            return info["object_pos"][2] >= target_lift_height and contact_force_ok
-
-        def lift_target(step, _curr_pos, _curr_quat, _curr_rot):
-            alpha = min(1.0, float(step + 1) / max(1, self.args.lift_steps))
-            desired_pos = lift_start_pos + alpha * lift_delta
-            return desired_pos, lift_start_quat.copy()
-
-        lift_ok, _ = self._run_live_contact_plan_stage(
-            "lift",
-            self.args.lift_steps,
-            left_fixed_rot,
-            right_fixed_rot,
-            verify_cost_1=1.0,
-            verify_cost_2=1.0,
-            virtual_offset=float(self.args.planner_attract_offset),
-            goal_offset=squeeze_offset,
-            pos_tol=self.args.target_tol * 2.0,
-            rot_tol=self.args.ik_rot_tol * 1.5,
-            success_fn=lift_success,
-            world_mode="floor_only",
-            object_target_fn=lift_target,
-            initial_contact_targets=cached_contact_targets,
-            contact_candidate_cache=contact_candidate_cache,
-            contact_selection_state=contact_selection_state,
-            planner_target_fn=force_stage_targets,
+        final_pos, final_quat, _ = self.get_object_pose()
+        final_height = float(final_pos[2] - object_pos[2])
+        success = (
+            stable_steps >= max(int(self.args.contact_stable_steps), 1)
+            and final_height >= float(self.args.lift_height) - float(self.args.lift_success_margin)
         )
-
-        final_obj_pos, final_obj_quat, _ = self.get_object_pose()
-        lifted_height = final_obj_pos[2] - obj_pos[2]
         print(
-            f"Lift result: success={lift_ok} final_height_gain={lifted_height:.4f} "
-            f"target={self.args.lift_height:.4f}"
+            f"Unified MPPI result: success={success} height_gain={final_height:.4f} "
+            f"target_gain={float(self.args.lift_height):.4f}"
         )
-        print("Final object pose:", final_obj_pos, final_obj_quat)
-
-        if lift_ok and self.args.hold_steps > 0:
-            hold_torque_world = None
-            if bool(self.args.test_force):
-                _, _, hold_rot = self.get_object_pose()
-                _, hold_torque_world = self._best_object_wrench_world(
-                    cached_contact_targets,
-                    hold_rot,
-                )
-            self.hold_current_pose(
-                self.args.hold_steps,
-                object_torque_world=hold_torque_world,
-            )
+        print("Final object pose:", final_pos, final_quat)
+        if int(self.args.hold_steps) > 0:
+            self.hold_current_pose(int(self.args.hold_steps))
+        return {
+            "success": bool(success),
+            "stable_steps": stable_steps,
+            "last": last_info,
+            "telemetry": telemetry,
+        }
 
 
 def build_argparser():
@@ -4121,7 +4182,7 @@ def build_argparser():
         "--arm-friction",
         type=float,
         default=5.0,
-        help="Friction coefficient used by the MuJoCo/planner contact model and the Stage 4/5 tangential force estimate.",
+        help="Friction coefficient used by the MuJoCo and unified EE contact model.",
     )
     parser.add_argument(
         "--optimizer-arm-friction",
@@ -4162,7 +4223,7 @@ def build_argparser():
         "--cached-contact-candidate-limit",
         type=int,
         default=10,
-        help="Number of offline contact-pair candidates kept in the Stage 2 cache. Set <= 0 to keep all candidates.",
+        help="Legacy compatibility option; the unified path solves one contact pair at startup.",
     )
     parser.add_argument("--pos-coef", type=float, default=1.0, help="Position coefficient for mlqp_point_v2.")
     parser.add_argument("--ori-coef", type=float, default=0.0005, help="Orientation coefficient for mlqp_point_v2.")
@@ -4189,23 +4250,36 @@ def build_argparser():
         default=0.35,
         help="Maximum inward pitch, in radians, allowed away from the vertical-down fingertip pose.",
     )
-    parser.add_argument("--lift-height", type=float, default=0.06, help="Lift distance after the squeeze stage.")
-    parser.add_argument("--approach-steps", type=int, default=1000, help="Simulation steps for the pregrasp stage.")
+    parser.add_argument("--lift-height", type=float, default=0.06, help="Height offset used to construct the fixed airborne object target.")
+    parser.add_argument(
+        "--control-steps",
+        type=int,
+        default=1600,
+        help="Maximum number of unified receding-horizon EE-MPPI control cycles.",
+    )
+    parser.add_argument("--approach-steps", type=int, default=1000, help="Legacy alias retained for command-line compatibility.")
     parser.add_argument(
         "--touch-steps",
         type=int,
         default=320,
         help="Legacy option kept for CLI compatibility; the explicit touch/verify stage is no longer used.",
     )
-    parser.add_argument("--squeeze-steps", type=int, default=480, help="Simulation steps for the squeeze stage.")
-    parser.add_argument("--squeeze-extra-steps", type=int, default=360, help="Extra squeeze steps automatically used if the first squeeze window is not enough.")
-    parser.add_argument("--lift-steps", type=int, default=320, help="Simulation steps for the lift stage.")
+    parser.add_argument("--squeeze-steps", type=int, default=480, help="Legacy alias retained for command-line compatibility.")
+    parser.add_argument("--squeeze-extra-steps", type=int, default=360, help="Legacy alias retained for command-line compatibility.")
+    parser.add_argument("--lift-steps", type=int, default=320, help="Legacy alias retained for command-line compatibility.")
     parser.add_argument("--hold-steps", type=int, default=0, help="Extra simulation steps after lifting.")
-    parser.add_argument("--target-tol", type=float, default=0.006, help="Tip target tolerance in meters.")
-    parser.add_argument("--ik-pos-tol", type=float, default=0.0015, help="cuRobo IK position threshold in meters.")
-    parser.add_argument("--ik-rot-tol", type=float, default=0.10, help="cuRobo IK rotation threshold in radians.")
-    parser.add_argument("--ik-max-iters", type=int, default=120, help="Maximum cuRobo gradient iterations used by each IK solve.")
-    parser.add_argument("--ik-num-seeds", type=int, default=32, help="Number of cuRobo IK seeds.")
+    parser.add_argument("--target-tol", type=float, default=0.006, help="Combined object target position tolerance in meters.")
+    parser.add_argument("--ik-pos-tol", type=float, default=0.0015, help="EE IK position threshold in meters.")
+    parser.add_argument("--ik-rot-tol", type=float, default=0.10, help="EE IK rotation threshold in radians.")
+    parser.add_argument(
+        "--ik-backend",
+        type=str,
+        choices=("auto", "curobo", "mujoco"),
+        default="auto",
+        help="EE-pose IK backend. auto uses cuRobo when installed, otherwise MuJoCo Jacobian IK.",
+    )
+    parser.add_argument("--ik-max-iters", type=int, default=120, help="Maximum iterations used by the selected EE IK backend.")
+    parser.add_argument("--ik-num-seeds", type=int, default=32, help="Number of cuRobo IK seeds when cuRobo is selected.")
     parser.add_argument("--ik-damping", type=float, default=0.05, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
     parser.add_argument("--ik-step-scale", type=float, default=0.7, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
     parser.add_argument("--ik-home-weight", type=float, default=0.01, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
@@ -4224,14 +4298,27 @@ def build_argparser():
     parser.add_argument(
         "--planner-solver",
         type=str,
-        choices=("ipopt", "acados"),
-        default="acados",
-        help="Solver backend used by self.planner.plan_once.",
+        choices=("mppi", "ipopt", "acados"),
+        default="mppi",
+        help="Planner backend label; BigRasp uses the Torch MPPI implementation.",
     )
     parser.add_argument("--planner-max-contacts", type=int, default=15, help="Maximum object contacts modeled by plan_once.")
     parser.add_argument("--planner-cmd-limit", type=float, default=0.05, help="Per-step Cartesian delta limit in meters for each arm.")
+    parser.add_argument("--planner-rotation-delta-limit", type=float, default=0.12, help="Per-step EE rotation-vector increment limit in radians.")
     parser.add_argument("--planner-attract-offset", type=float, default=0.025, help="Outward offset from the IK fingertip pose used as the first attract waypoint.")
-    parser.add_argument("--planner-attract-tol", type=float, default=0.03, help="Distance threshold for switching from attract points to the IK contact pose.")
+    parser.add_argument("--planner-attract-tol", type=float, default=0.03, help="Legacy alias for the bimanual ready position tolerance.")
+    parser.add_argument("--planner-sync-pos-tol", type=float, default=0.03, help="Position tolerance used by the bimanual ready/hold mask.")
+    parser.add_argument("--planner-sync-rot-tol", type=float, default=0.10, help="Orientation tolerance used by the bimanual ready/hold mask.")
+    parser.add_argument("--planner-ee-position-weight", type=float, default=80.0, help="EE contact/approach position cost weight.")
+    parser.add_argument("--planner-ee-orientation-weight", type=float, default=2.0, help="EE contact orientation cost weight.")
+    parser.add_argument("--planner-force-tracking-weight", type=float, default=12.0, help="Contact force tracking cost weight.")
+    parser.add_argument("--planner-object-target-weight", type=float, default=300.0, help="Gated object target position cost weight.")
+    parser.add_argument("--planner-object-orientation-weight", type=float, default=15.0, help="Gated object target orientation cost weight.")
+    parser.add_argument("--planner-synchronization-weight", type=float, default=25.0, help="Dual-arm synchronization cost weight.")
+    parser.add_argument("--planner-action-weight", type=float, default=2.0, help="Action magnitude cost weight.")
+    parser.add_argument("--planner-smooth-action-weight", type=float, default=3.0, help="Action smoothness cost weight.")
+    parser.add_argument("--planner-workspace-weight", type=float, default=50.0, help="Workspace violation cost weight.")
+    parser.add_argument("--planner-contact-gate-scale", type=float, default=0.004, help="Soft contact gate length scale in meters.")
     parser.add_argument("--planner-attract-coef", type=float, default=0.5, help="Attract cost coefficient for plan_once.")
     parser.add_argument("--planner-reject-coef", type=float, default=0.001, help="Reject cost coefficient for plan_once.")
     parser.add_argument("--planner-contact-coef", type=float, default=0.7, help="Contact cost coefficient for plan_once.")
@@ -4287,25 +4374,25 @@ def build_argparser():
         "--force-control-stiffness",
         type=float,
         default=None,
-        help="Normal stiffness used by the Stage 4/5 spring model. Defaults to required_force / squeeze_depth.",
+        help="Legacy compatibility option for the old spring model.",
     )
     parser.add_argument(
         "--force-control-dissipation-velocity",
         type=float,
         default=0.1,
-        help="Normal dissipation velocity used by the Stage 4/5 spring model.",
+        help="Legacy compatibility option for the old spring model.",
     )
     parser.add_argument(
         "--force-control-stiction-velocity",
         type=float,
         default=0.05,
-        help="Tangential velocity regularization used by the Stage 4/5 spring model.",
+        help="Legacy compatibility option for the old spring model.",
     )
     parser.add_argument(
         "--force-control-smoothing",
         type=float,
         default=0.0,
-        help="Optional softplus smoothing used by the Stage 4/5 spring model.",
+        help="Legacy compatibility option for the old spring model.",
     )
     parser.add_argument("--contact-stable-steps", type=int, default=15, help="Number of consecutive squeeze steps that must satisfy the normal-force threshold.")
     parser.add_argument("--lift-success-margin", type=float, default=0.005, help="Allowed height error when deciding whether the lift succeeded.")

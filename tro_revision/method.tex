@@ -318,9 +318,6 @@ $\|\boldsymbol{z}\|_A
 \begin{proof}
 See Appendix~\ref{app:scm_motion_accuracy}.
 \end{proof}
-\renewcommand{\qedsymbol}{}
-See Appendix \ref{proof:lemma3}.
-\end{proof}
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/surrogate_contact_model.pdf}}
 \caption{Illustration of SCM. SCM is a lightweight approximation of the object-environment contact, enabling fast contact selection optimization.}
@@ -696,6 +693,5 @@ $\boldsymbol{\tau} =
 \subsubsection{Sampling-based Motion Planner}
 
 Another formulation is to directly solve the full-order planning problem of the robot. In this case, the state in \eqref{equ:cpo_formulation} is given by $\boldsymbol{x} \in \mathbb{R}^{7 + n_{\text{DoF}}}$, where $n_{\text{DoF}}$ denotes the number of robot DoFs. For this class of problems, we employ sampling-based MPC methods as the solver, such as MPPI \cite{williams2015model}. Recent studies  have demonstrated the impressive performance of MPPI in solving high-dimensional optimization problems for redundant robots, enabling real-time computation while avoiding issues related to gradient-based methods. The cost function is defined in the same manner as in the previous formulation, except that $\boldsymbol{p}_{\text{ee}}$ is computed via forward kinematics for the full-order problem. 
-
 
 

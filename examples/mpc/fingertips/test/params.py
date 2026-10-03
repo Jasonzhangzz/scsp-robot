@@ -3,6 +3,7 @@ import numpy as np
 import os
 import tempfile
 import hashlib
+import re
 import trimesh
 
 
@@ -105,6 +106,150 @@ def _mujoco_visual_mesh(mesh_path, model_path):
         return cached
     except Exception:
         return mesh_path
+
+
+_CANONICAL_MESH_VERSION = "source-geom-v2"
+
+
+def _canonicalize_mesh(mesh):
+    """Canonical vertex/face order without changing mesh geometry or winding."""
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64).reshape(-1, 3)
+    if vertices.size:
+        order = np.lexsort((vertices[:, 2], vertices[:, 1], vertices[:, 0]))
+        inverse = np.empty(order.size, dtype=np.int64)
+        inverse[order] = np.arange(order.size, dtype=np.int64)
+        vertices = vertices[order]
+        faces = inverse[faces]
+    # Rotate each triangle to its lexicographically smallest cyclic form,
+    # preserving winding, then sort rows.  This removes qhull/trimesh order
+    # differences while keeping normals usable by the pose metric.
+    if faces.size:
+        rotated = []
+        for face in faces.tolist():
+            candidates = [face, face[1:] + face[:1], face[2:] + face[:2]]
+            rotated.append(min(candidates))
+        faces = np.asarray(sorted(rotated), dtype=np.int64)
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+
+def _xml_obj_geom_transform(model_path):
+    """Read the authored object geom transform without compiling MuJoCo."""
+    identity = np.eye(3, dtype=np.float64)
+    zero = np.zeros(3, dtype=np.float64)
+    unit = np.ones(3, dtype=np.float64)
+    try:
+        with open(model_path, "r", encoding="ascii") as f:
+            text = f.read()
+    except OSError:
+        return identity, zero
+    tag = None
+    for match in re.finditer(r"<geom\b[^>]*>", text):
+        chunk = match.group(0)
+        if re.search(r'\bname="obj"', chunk):
+            tag = chunk
+            break
+    if tag is None:
+        return identity, zero, unit
+    def attr(name, default):
+        found = re.search(r"\b%s=\"([^\"]+)\"" % name, tag)
+        if found is None:
+            return np.asarray(default, dtype=np.float64)
+        value = np.fromstring(found.group(1), sep=" ", dtype=np.float64)
+        return value if value.size else np.asarray(default, dtype=np.float64)
+    quat = attr("quat", [1.0, 0.0, 0.0, 0.0]).reshape(-1)
+    if quat.size != 4 or not np.isfinite(quat).all():
+        quat = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    quat = quat / max(float(np.linalg.norm(quat)), 1e-12)
+    qw, qx, qy, qz = quat
+    rot = np.array([
+        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+        [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+        [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+    ], dtype=np.float64)
+    pos = attr("pos", [0.0, 0.0, 0.0]).reshape(-1)
+    if pos.size != 3 or not np.isfinite(pos).all():
+        pos = zero.copy()
+    # Mesh scale is part of the authored geometry, while geom pos/quat are
+    # part of the authored pose.  Applying both explicitly keeps the result
+    # independent of MuJoCo's mesh centering/compiler conventions.
+    mesh_name = re.search(r'\bmesh="([^"]+)"', tag)
+    scale = unit.copy()
+    if mesh_name is not None:
+        mesh_decl = None
+        try:
+            xml_text = text
+            for candidate in re.finditer(r"<mesh\b[^>]*>", xml_text):
+                chunk = candidate.group(0)
+                if re.search(r'\bname="%s"' % re.escape(mesh_name.group(1)), chunk):
+                    mesh_decl = chunk
+                    break
+            if mesh_decl is None:
+                for candidate in re.finditer(r"<mesh\b[^>]*/>", xml_text):
+                    chunk = candidate.group(0)
+                    if re.search(r'\bname="%s"' % re.escape(mesh_name.group(1)), chunk):
+                        mesh_decl = chunk
+                        break
+        except Exception:
+            mesh_decl = None
+        if mesh_decl is not None:
+            found = re.search(r'\bscale="([^"]+)"', mesh_decl)
+            if found is not None:
+                parsed = np.fromstring(found.group(1), sep=" ", dtype=np.float64)
+                if parsed.size == 3 and np.isfinite(parsed).all():
+                    scale = parsed
+    return rot, pos, scale
+
+
+def canonical_object_meshes(mesh_path, model_path):
+    """Build a MuJoCo-independent body-frame mesh pair.
+
+    MuJoCo's compiled mesh arrays changed shape and frame conventions between
+    supported releases.  The source STL and authored XML geom transform are
+    stable inputs, so they are the only inputs used here.  The cache lives in
+    ``/tmp`` and is content-addressed; running Isaac never modifies tracked
+    repository assets.
+    """
+    mesh_path = os.path.abspath(mesh_path)
+    model_path = os.path.abspath(model_path)
+    with open(mesh_path, "rb") as f:
+        source = f.read()
+    with open(model_path, "rb") as f:
+        model = f.read()
+    rot, pos, scale = _xml_obj_geom_transform(model_path)
+    key_data = b"\0".join((
+        _CANONICAL_MESH_VERSION.encode("ascii"), source, model,
+        np.asarray(rot, dtype="<f8").tobytes(), np.asarray(pos, dtype="<f8").tobytes(),
+        np.asarray(scale, dtype="<f8").tobytes(),
+    ))
+    key = hashlib.sha256(key_data).hexdigest()[:24]
+    cache_dir = os.path.join(tempfile.gettempdir(), "scsp_robot_canonical_meshes")
+    os.makedirs(cache_dir, exist_ok=True)
+    collision = os.path.join(cache_dir, key + "_collision.stl")
+    visual = os.path.join(cache_dir, key + "_visual.stl")
+    if os.path.isfile(collision) and os.path.isfile(visual):
+        return collision, visual
+
+    raw = trimesh.load_mesh(mesh_path, process=False)
+    if not isinstance(raw, trimesh.Trimesh):
+        raw = trimesh.util.concatenate(tuple(raw.geometry.values()))
+    vertices = np.asarray(raw.vertices, dtype=np.float64) * scale
+    vertices = vertices @ rot.T + pos
+    faces = np.asarray(raw.faces, dtype=np.int64)
+    visual_mesh = _canonicalize_mesh(
+        trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    )
+    # The convex hull is computed from authored vertices, never MuJoCo's
+    # version-specific compiled vertices.  Exporting both files atomically
+    # keeps a concurrent planner from observing a half-written asset.
+    hull = _canonicalize_mesh(trimesh.convex.convex_hull(vertices))
+    collision_tmp = collision + ".tmp.%d.stl" % os.getpid()
+    visual_tmp = visual + ".tmp.%d.stl" % os.getpid()
+    hull.export(collision_tmp)
+    visual_mesh.export(visual_tmp)
+    os.replace(collision_tmp, collision)
+    os.replace(visual_tmp, visual)
+    return collision, visual
 
 from utils import rotations
 from planning.attract_function import compute_scalar_potential_and_gradient

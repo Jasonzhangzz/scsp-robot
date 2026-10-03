@@ -1,8 +1,10 @@
 import argparse
+import hashlib
 import os
 import re
 import shutil
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -471,7 +473,20 @@ class IsaacFrankaSimulator:
         collision_abs = _abs_mesh(mesh_path)
         visual_abs = _abs_mesh(visual_mesh_path or mesh_path)
 
-        mesh_asset_root = os.path.join(repo_root, "envs", "assets", "objects", "_isaac_tmp")
+        with open(collision_abs, "rb") as collision_file:
+            collision_bytes = collision_file.read()
+        with open(visual_abs, "rb") as visual_file:
+            visual_bytes = visual_file.read()
+        cache_key = hashlib.sha256(
+            b"\0".join((
+                collision_bytes,
+                visual_bytes,
+                repr((float(mass), None if inertia_diag is None else tuple(np.asarray(inertia_diag).reshape(3)))).encode("ascii"),
+            ))
+        ).hexdigest()[:24]
+        mesh_asset_root = os.path.join(
+            tempfile.gettempdir(), "scsp_robot_isaac_assets", cache_key
+        )
         os.makedirs(mesh_asset_root, exist_ok=True)
         visual_rel = "obj_mesh_visual.stl"
         collision_rel = "obj_mesh_collision.stl"

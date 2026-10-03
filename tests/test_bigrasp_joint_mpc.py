@@ -1,121 +1,96 @@
+"""EE-pose MPPI regression tests (kept at the historical test path)."""
+
 from types import SimpleNamespace
 
-import mujoco
 import numpy as np
+import pytest
 
-from envs.panda_fkin import franka_fingertip_fk
-from planning.mpc_costs import build_cost_fns, pack_cost_params
-from planning.mpc_explicit import MPCExplicit
+torch = pytest.importorskip("torch")
+
+from planning.bigrasp_ee_cost import (  # noqa: E402
+    integrate_ee_pose,
+    numpy_pose_state,
+    project_contact_points_world,
+    transform_force_vectors_world,
+)
+from planning.mppi_bigrasp_ee import BimanualEEMPPI  # noqa: E402
 
 
-def _make_joint_param(max_ncon=1):
+def _params():
     return SimpleNamespace(
-        n_qpos_=21,
-        n_qvel_=20,
-        n_cmd_=14,
-        n_robot_qpos_=14,
-        max_ncon_=max_ncon,
-        left_base_pos_=np.zeros(3),
-        left_base_rot_=np.eye(3),
-        right_base_pos_=np.array([1.0, 0.0, 0.0]),
-        right_base_rot_=np.diag([-1.0, -1.0, 1.0]),
-        Q=np.eye(20),
-        robot_stiff_=np.eye(14),
-        obj_mass_=1.0,
-        gravity_=np.array([0.0, 0.0, -9.8, 0.0, 0.0, 0.0]),
-        model_params=1.0,
-        contact_cost_param=0.0,
-        attract_coef=0.5,
-        reject_coef=0.001,
-        contact_coef=0.7,
-        reject_dis=0.005,
-        object_position_cost_weight_=500.0,
-        object_orientation_cost_weight_=5.0,
-        joint_reference_cost_weight_=0.05,
-        planner_force_tracking_weight_=1.0,
-        planner_torque_tracking_weight_=1.0,
-        mpc_cost_kind="bigrasp_joint",
+        mpc_horizon_=4,
+        mppi_samples_=24,
+        mppi_iterations_=1,
+        mppi_init_iterations_=1,
+        mppi_lambda_=1.0,
+        mppi_noise_sigma_=0.01,
+        mppi_noise_decay_=0.9,
+        mppi_elite_frac_=0.25,
+        mppi_device_="cpu",
+        planner_cmd_limit=0.02,
+        planner_rotation_delta_limit_=0.1,
+        h_=0.01,
+        obj_mass_=0.1,
+        contact_stiffness=12.5,
+        arm_friction=0.9,
+        planner_ee_position_weight_=80.0,
+        planner_ee_orientation_weight_=2.0,
+        planner_force_tracking_weight_=12.0,
+        planner_object_target_weight_=30.0,
+        planner_object_orientation_weight_=3.0,
+        planner_synchronization_weight_=25.0,
+        planner_action_weight_=2.0,
+        planner_smooth_action_weight_=3.0,
+        planner_workspace_weight_=50.0,
+        planner_contact_gate_scale_=0.004,
+        planner_workspace_lower_=(-1.0, -1.0, 0.0),
+        planner_workspace_upper_=(2.0, 1.0, 2.0),
     )
 
 
-def _cost_kwargs(param):
-    n_phi = param.max_ncon_ * 4
-    return dict(
-        target_p=np.array([0.0, 0.0, 0.3]),
-        target_q=np.array([1.0, 0.0, 0.0, 0.0]),
-        phi_vec=np.ones(n_phi),
-        jac_mat=np.zeros((n_phi, param.n_qvel_)),
-        verify_cost_param_1=0.0,
-        verify_cost_param_2=0.0,
-        virtual_point_1=np.zeros(3),
-        virtual_point_2=np.ones(3),
-        contact_point_1=np.zeros(3),
-        contact_point_2=np.ones(3),
-        joint_reference=np.zeros(param.n_robot_qpos_),
+def _state():
+    return numpy_pose_state(
+        [0.0, 0.0, 0.2],
+        [1.0, 0.0, 0.0, 0.0],
+        ([-0.1, 0.0, 0.2], [1.0, 0.0, 0.0, 0.0]),
+        ([0.1, 0.0, 0.2], [1.0, 0.0, 0.0, 0.0]),
     )
 
 
-def test_bigrasp_joint_cost_packs_14d_state_and_contact_map():
-    param = _make_joint_param(max_ncon=2)
-    path_fn, final_fn = build_cost_fns(param)
-    packed = pack_cost_params("bigrasp_joint", param, path_fn, **_cost_kwargs(param))
-
-    assert path_fn.size_in(0) == (21, 1)
-    assert path_fn.size_in(1) == (14, 1)
-    assert final_fn.size_in(0) == (21, 1)
-    assert packed.shape == (path_fn.size_in(2)[0],)
-    value = float(path_fn(np.zeros(21), np.zeros(14), packed))
-    assert np.isfinite(value)
-
-
-def test_joint_space_mpc_returns_14d_increment():
-    param = _make_joint_param()
-    param.h_ = 0.01
-    param.mpc_horizon_ = 2
-    param.mpc_model = "explicit"
-    param.planner_solver_ = "ipopt"
-    param.mpc_u_lb_ = np.full(14, -0.02)
-    param.mpc_u_ub_ = np.full(14, 0.02)
-    param.mpc_q_lb_ = np.r_[-1e7 * np.ones(7), -2.9 * np.ones(14)]
-    param.mpc_q_ub_ = np.r_[1e7 * np.ones(7), 2.9 * np.ones(14)]
-    param.ipopt_max_iter_ = 20
-    param.smooth_contact_detour = False
-
-    planner = MPCExplicit(param)
+def test_ee_state_and_control_dimensions():
+    state = _state()
+    assert state.shape == (21,)
+    planner = BimanualEEMPPI(_params(), seed=3)
     result = planner.plan_once(
-        np.array([0.0, 0.0, 0.3]),
-        np.array([1.0, 0.0, 0.0, 0.0]),
-        np.r_[np.array([0.0, 0.0, 0.2, 1.0, 0.0, 0.0, 0.0]), np.zeros(14)],
-        np.ones(4),
-        np.zeros((4, 20)),
-        verify_cost_param_1=0.0,
-        verify_cost_param_2=0.0,
-        virtual_point_1=np.zeros(3),
-        virtual_point_2=np.ones(3),
-        contact_point_1=np.zeros(3),
-        contact_point_2=np.ones(3),
-        joint_reference=np.zeros(14),
+        state,
+        [[-0.05, 0.0, 0.0], [0.05, 0.0, 0.0]],
+        [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]],
+        [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]],
+        [0.0, 0.0, 0.26],
+        [1.0, 0.0, 0.0, 0.0],
+        [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        support_z=0.0,
+        hold_mask=(True, False),
+        approach_offset=0.02,
     )
+    assert result["action"].shape == (12,)
+    np.testing.assert_array_equal(result["action"][:6], np.zeros(6))
+    assert result["rollout"].shape == (4, 21)
+    assert np.all(np.linalg.norm(result["rollout"][:, 3:7], axis=1) > 0.999)
+    assert np.all(np.linalg.norm(result["rollout"][:, 10:14], axis=1) > 0.999)
+    assert np.all(np.linalg.norm(result["rollout"][:, 17:21], axis=1) > 0.999)
 
-    action = np.asarray(result["action"])
-    assert action.shape == (14,)
-    assert np.all(action <= param.mpc_u_ub_ + 1e-8)
-    assert np.all(action >= param.mpc_u_lb_ - 1e-8)
 
+def test_quaternion_integration_and_contact_projection():
+    state = torch.as_tensor(_state())
+    action = torch.zeros(12)
+    action[3] = np.pi / 2.0
+    action[9] = -np.pi / 2.0
+    integrated = integrate_ee_pose(state, action)
+    assert torch.allclose(torch.linalg.vector_norm(integrated[10:14]), torch.tensor(1.0), atol=1e-6)
+    assert torch.allclose(torch.linalg.vector_norm(integrated[17:21]), torch.tensor(1.0), atol=1e-6)
 
-def test_panda_symbolic_fingertip_fk_matches_mujoco():
-    model = mujoco.MjModel.from_xml_path("envs/xmls/panda_nohand.xml")
-    data = mujoco.MjData(model)
-    joint_ids = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, f"joint{i}") for i in range(1, 8)]
-    qpos_adr = [model.jnt_qposadr[joint_id] for joint_id in joint_ids]
-    tip_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "fingertip")
-
-    for q in (
-        np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]),
-        np.array([0.2, -1.0, 0.4, -1.8, 0.3, 1.2, 0.5]),
-    ):
-        data.qpos[qpos_adr] = q
-        mujoco.mj_forward(model, data)
-        expected = np.asarray(data.geom_xpos[tip_id], dtype=np.float64)
-        predicted = np.asarray(franka_fingertip_fk(q)).reshape(3)
-        np.testing.assert_allclose(predicted, expected, atol=1e-8)
+    points = project_contact_points_world([1.0, 2.0, 3.0], [1.0, 0.0, 0.0, 0.0], [[0.1, 0.0, 0.0], [0.0, 0.2, 0.0]])
+    np.testing.assert_allclose(points.numpy(), [[1.1, 2.0, 3.0], [1.0, 2.2, 3.0]])
+    forces = transform_force_vectors_world([1.0, 0.0, 0.0, 0.0], [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    np.testing.assert_allclose(forces.numpy(), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])

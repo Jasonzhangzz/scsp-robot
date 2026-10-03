@@ -238,8 +238,11 @@ class MPCExplicit:
             if result is not None:
                 return self._finalize_result(result, curr_x, u_lb, u_ub)
             self.acados_fallback_count += 1
+            # An IPOPT iterate is not a valid acados iterate (and vice versa).
+            # Drop it when the backend changes so a failed/slow solver cannot
+            # turn stale multipliers into an oversized first action.
             result = self._plan_once_ipopt(
-                curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub,
+                curr_x, phi_vec, jac_mat, cost_params, None, u_lb, u_ub,
                 requested_solver="acados",
                 fallback_reason="acados_unavailable_or_failed",
             )
@@ -637,6 +640,12 @@ class MPCExplicit:
                 self._acados_init_error = exc
                 _warn_acados_ipopt_fallback(str(exc))
                 print(f"acados initialization failed; IPOPT fallback remains available: {exc}")
+                # Initialization failure is a backend change.  Publish the
+                # concrete backend and start with a cold IPOPT iterate rather
+                # than carrying acados multipliers into the fallback.
+                self.planner_solver_ = "ipopt"
+                self.param_.planner_solver_ = "ipopt"
+                self.param_.torch_solver = "ipopt"
 
 
 class MPCExplicitAcados(MPCExplicit):
@@ -685,7 +694,9 @@ def _build_mpc_planner_runtime(init):
     )
 
     args = argparse.Namespace(**init["args"])
-    args.solver = "acados"
+    from planning.runtime_compat import resolve_solver_backend
+    args.solver_backend = getattr(args, "solver_backend", "auto")
+    args.solver = resolve_solver_backend(args.solver_backend)
     args.rollout = True
     trial_count = int(init["trial_count"])
     param = ExplicitMPCParams(
@@ -858,6 +869,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     trackers["sol_guess"] = sol["sol_guess"]
     policy["choose_dt"] = rank_dt
     return {
+        "seq": None if msg.get("seq") is None else int(msg["seq"]),
         "action": np.asarray(sol["action"], dtype=np.float64).reshape(3),
         "sol_guess": sol["sol_guess"],
         "cost_opt": sol.get("cost_opt"),
@@ -871,6 +883,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "rank_dt": float(rank_dt),
         "plan_dt": float(plan_dt),
         "mppi_dt": float(plan_dt),
+        "solver_backend": str(sol.get("solver_backend", getattr(mpc, "planner_solver_", "ipopt"))),
         "lambda_failures": int(getattr(param.lambda_optimizer, "acados_failure_count", 0)),
         "mpc_failures": int(getattr(mpc, "acados_failure_count", 0)),
         "lambda_solves": int(getattr(param.lambda_optimizer, "acados_solve_count", 0)),
@@ -882,6 +895,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
 def mpc_planner_worker(state_q, action_q, ready_q, init):
     """Independent planner loop.  Must not import isaacgym."""
     import traceback
+    import time
     from planning.MPPIWarp import drain_latest, put_latest
 
     try:
@@ -901,7 +915,13 @@ def mpc_planner_worker(state_q, action_q, ready_q, init):
         if msg is None:
             break
         try:
-            put_latest(action_q, handle_mpc_request(args, param, mpc, trackers, msg))
+            action = handle_mpc_request(args, param, mpc, trackers, msg)
+            # Both processes use the same monotonic clock.  Carrying this
+            # timestamp lets Isaac report queue/planner latency without using
+            # wall-clock time or restarting the active policy interval.
+            action["submitted_at"] = time.monotonic()
+            action["planner_dt"] = float(action.get("plan_dt", action.get("mppi_dt", 0.0)))
+            put_latest(action_q, action)
         except Exception:
             put_latest(action_q, {"ok": False, "error": traceback.format_exc()})
 

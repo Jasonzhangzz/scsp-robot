@@ -6,10 +6,8 @@ import trimesh
 from utils import rotations
 from planning.attract_function import compute_scalar_potential_and_gradient
 from planning.mlqp_point import LambdaContactControlOptimizer
-from examples.mpc.fingertips.test.params import (
-    _mujoco_collision_mesh,
-    _mujoco_visual_mesh,
-)
+from examples.mpc.fingertips.test.params import canonical_object_meshes
+from planning.runtime_compat import resolve_solver_backend
 
 # Historical elephant goal-geom offset, same as fingertips --rollout.
 _GOAL_GEOM_Q = np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], dtype=np.float64)
@@ -157,7 +155,9 @@ def build_lambda_optimizer(param, args):
         contact_switch_margin_abs=getattr(args, "contact_switch_margin_abs", 1e-3),
         fingertip_clearance=getattr(args, "fingertip_clearance", 0.011),
         normal_stability_cos=getattr(args, "normal_stability_cos", 0.95),
-        solver=getattr(args, "solver", "acados"),
+        solver=resolve_solver_backend(
+            getattr(args, "solver_backend", getattr(args, "solver", "auto"))
+        ),
         torch_max_iter=getattr(args, "torch_max_iter", 100),
         obj_inertia=None,
         wrench_is_force=False,
@@ -194,17 +194,17 @@ class ExplicitMPCParams:
         self.object_names_ = ["obj"]
         requested_hull = getattr(args, "collision_hull", None)
         self.collision_hull = True if requested_hull is None else bool(requested_hull)
-        # Sample the same compiled convex hull as fingertips --rollout so
-        # ranking, PhysX, and the pose metric share the MuJoCo body frame.
+        # Use one authored, version-independent convex hull so ranking,
+        # PhysX, and the pose metric share the same object frame.
         self._collision_mesh_extracted = False
         if self.collision_hull:
-            extracted = _mujoco_collision_mesh(self.source_mesh_path_, self.model_path_)
-            if extracted != self.source_mesh_path_:
-                self.mesh_path_ = extracted
-                self.visual_mesh_path_ = _mujoco_visual_mesh(
-                    self.source_mesh_path_, self.model_path_
-                )
-                self._collision_mesh_extracted = True
+            # Do not consume MuJoCo's compiled mesh arrays here.  Their frame
+            # and centering conventions differ between MuJoCo releases and
+            # change both ranking contacts and PhysX geometry.
+            self.mesh_path_, self.visual_mesh_path_ = canonical_object_meshes(
+                self.source_mesh_path_, self.model_path_
+            )
+            self._collision_mesh_extracted = True
         try:
             bounds = np.asarray(
                 trimesh.load_mesh(self.mesh_path_, process=False).bounds,
@@ -338,8 +338,12 @@ class ExplicitMPCParams:
         self.model_params = args.model_param
 
         self.mpc_model = mpc_model
-        self.torch_solver = getattr(args, "solver", "acados")
-        self.planner_solver_ = "acados"
+        requested_solver = getattr(
+            args, "solver_backend", getattr(args, "solver", "auto")
+        )
+        self.solver_backend_ = str(requested_solver)
+        self.torch_solver = resolve_solver_backend(requested_solver)
+        self.planner_solver_ = self.torch_solver
         self.mpc_horizon_ = 5
         self.ipopt_max_iter_ = 100
         self.comple_relax = 0.01

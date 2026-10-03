@@ -8,7 +8,7 @@ import casadi as cs
 import numpy as np
 
 
-COST_KINDS = ("param", "fingertip", "bigrasp", "isaac", "tilted_push")
+COST_KINDS = ("param", "fingertip", "bigrasp", "bigrasp_ee", "isaac", "tilted_push")
 
 
 def log_barrier(point, target, epsilon=1e-3):
@@ -71,6 +71,8 @@ def infer_cost_kind(param, explicit=None):
         return "tilted_push"
     if hasattr(param, "planner_force_tracking_weight_") or hasattr(param, "planner_solver_"):
         n_qpos = int(getattr(param, "n_qpos_", 0))
+        if n_qpos == 21 and int(getattr(param, "n_cmd_", 0)) == 12:
+            return "bigrasp_ee"
         if n_qpos >= 13:
             return "bigrasp"
     if hasattr(param, "init_cost_fns"):
@@ -88,6 +90,8 @@ def build_cost_fns(param, kind=None):
         return param.init_cost_fns()
     if kind == "bigrasp":
         return build_bigrasp_cost_fns(param)
+    if kind == "bigrasp_ee":
+        return build_bigrasp_ee_cost_fns(param)
     if kind == "isaac":
         return build_isaac_cost_fns(param)
     return build_tilted_push_cost_fns(param)
@@ -102,7 +106,7 @@ def uses_isaac_model(kind):
 
 
 def acados_solver_profile(kind):
-    if kind == "bigrasp":
+    if kind in {"bigrasp", "bigrasp_ee"}:
         return {
             "qp_solver": "FULL_CONDENSING_HPIPM",
             "nlp_solver_type": "SQP",
@@ -150,6 +154,8 @@ def pack_cost_params(kind, param, path_cost_fn, **kwargs):
 
     if kind == "bigrasp":
         packed = _pack_bigrasp_cost_params(param, **kwargs)
+    elif kind == "bigrasp_ee":
+        packed = _pack_bigrasp_ee_cost_params(param, **kwargs)
     elif kind == "isaac":
         packed = _pack_isaac_cost_params(param, **kwargs)
     elif kind == "tilted_push":
@@ -202,6 +208,99 @@ def _pack_fingertip_cost_params(
                 [1.0 if curr_ori_coef is None else float(curr_ori_coef)],
                 dtype=np.float64,
             ),
+        ]
+    )
+
+
+def _quat_rotate_symbolic(quat, vec):
+    quat = _normalize_quaternion_wxyz(quat)
+    w, x, y, z = quat[0], quat[1], quat[2], quat[3]
+    vx, vy, vz = vec[0], vec[1], vec[2]
+    return cs.vertcat(
+        (1 - 2 * (y * y + z * z)) * vx + 2 * (x * y - z * w) * vy + 2 * (x * z + y * w) * vz,
+        2 * (x * y + z * w) * vx + (1 - 2 * (x * x + z * z)) * vy + 2 * (y * z - x * w) * vz,
+        2 * (x * z - y * w) * vx + 2 * (y * z + x * w) * vy + (1 - 2 * (x * x + y * y)) * vz,
+    )
+
+
+def build_bigrasp_ee_cost_fns(param):
+    """CasADi compatibility cost for callers that still use ``MPCExplicit``.
+
+    The production BigRasp path uses :mod:`planning.mppi_bigrasp_ee`; this
+    compact symbolic form keeps the public ``mpc_costs`` dispatcher useful for
+    diagnostics without reintroducing the old stage/verify variables.
+    """
+    x = cs.SX.sym("x", 21)
+    u = cs.SX.sym("u", 12)
+    target_p = cs.SX.sym("target_object_pos", 3)
+    target_q = cs.SX.sym("target_object_quat", 4)
+    contact_local = cs.SX.sym("contact_points_local", 6)
+    normals_local = cs.SX.sym("normals_local", 6)
+    desired_force_local = cs.SX.sym("desired_force_local", 6)
+    ee_target_q = cs.SX.sym("ee_target_quat", 8)
+    approach_offset = cs.SX.sym("approach_offset", 1)
+    cost_params = cs.vertcat(target_p, target_q, contact_local, normals_local, desired_force_local, ee_target_q, approach_offset)
+
+    obj_p, obj_q = x[0:3], x[3:7]
+    left_p, left_q = x[7:10], x[10:14]
+    right_p, right_q = x[14:17], x[17:21]
+    contact_cost = 0.0
+    force_cost = 0.0
+    approach_dist = []
+    for idx, (ee_p, ee_q) in enumerate(((left_p, left_q), (right_p, right_q))):
+        local_p = contact_local[3 * idx : 3 * idx + 3]
+        local_n = _normalize_vector(normals_local[3 * idx : 3 * idx + 3])
+        contact_p = obj_p + _quat_rotate_symbolic(obj_q, local_p)
+        inward_n = _quat_rotate_symbolic(obj_q, local_n)
+        outward_n = -inward_n
+        approach_p = contact_p + approach_offset[0] * outward_n
+        gap = cs.dot(ee_p - contact_p, outward_n) - 0.01
+        gate = 1.0 / (1.0 + cs.exp(gap / 0.004))
+        desired_f = _quat_rotate_symbolic(obj_q, desired_force_local[3 * idx : 3 * idx + 3])
+        normal_f = cs.fmax(-12.5 * gap, 0.0)
+        predicted_f = inward_n * normal_f
+        contact_cost += 80.0 * cs.sumsqr(ee_p - approach_p)
+        contact_cost += 2.0 * (1.0 - cs.dot(_normalize_quaternion_wxyz(ee_q), _normalize_quaternion_wxyz(ee_target_q[4 * idx : 4 * idx + 4])) ** 2)
+        force_cost += 12.0 * gate * cs.sumsqr(predicted_f - desired_f)
+        approach_dist.append(cs.sqrt(cs.sumsqr(ee_p - approach_p) + 1e-9))
+    bilateral_gate = 1.0 / (1.0 + cs.exp((approach_dist[0] + approach_dist[1] - 0.02) / 0.004))
+    object_cost = bilateral_gate * (300.0 * cs.sumsqr(obj_p - target_p) + 15.0 * (1.0 - cs.dot(_normalize_quaternion_wxyz(obj_q), _normalize_quaternion_wxyz(target_q)) ** 2))
+    sync_cost = 25.0 * (approach_dist[0] - approach_dist[1]) ** 2
+    action_cost = 2.0 * cs.sumsqr(u)
+    path_cost = contact_cost + force_cost + object_cost + sync_cost + action_cost
+    final_cost = 5.0 * (contact_cost + object_cost)
+    return (
+        cs.Function("path_cost_fn_bigrasp_ee", [x, u, cost_params], [path_cost]),
+        cs.Function("final_cost_fn_bigrasp_ee", [x, cost_params], [final_cost]),
+    )
+
+
+def _pack_bigrasp_ee_cost_params(
+    param,
+    target_object_pos=None,
+    target_p=None,
+    object_target_pos=None,
+    target_object_quat=None,
+    target_q=None,
+    object_target_quat=None,
+    contact_points_local=None,
+    normals_local=None,
+    desired_force_local=None,
+    desired_force_vectors_local=None,
+    ee_target_quat=None,
+    ee_target_quaternions=None,
+    approach_offset=0.0,
+    **_unused,
+):
+    return np.concatenate(
+        [
+            _as_vec(target_object_pos if target_object_pos is not None else (object_target_pos if object_target_pos is not None else target_p), 3),
+            _as_vec(target_object_quat if target_object_quat is not None else (object_target_quat if object_target_quat is not None else target_q), 4),
+            _as_vec(contact_points_local, 6),
+            _as_vec(normals_local, 6),
+            _as_vec(desired_force_local if desired_force_local is not None else desired_force_vectors_local, 6),
+            _as_vec(ee_target_quat if ee_target_quat is not None else ee_target_quaternions, 8),
+            np.asarray([float(approach_offset)], dtype=np.float64),
         ]
     )
 

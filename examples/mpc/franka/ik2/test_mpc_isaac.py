@@ -2,6 +2,7 @@ import argparse
 import os
 import re
 import sys
+import time
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -73,7 +74,8 @@ from examples.mpc.franka.ik2.contact_frames import (
     tangent_basis_from_normal as _tangent_basis_from_normal,
     _contact_jacobian_np as _contact_jacobian,
 )
-from examples.mpc.franka.ik2.isaac_bus import joint_hold_target
+from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule, joint_hold_target
+from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
 from examples.mpc.franka.ik2.physx_contact import (
     DEFAULT_CONTACT_OFFSET,
     contact_impulse,
@@ -127,6 +129,7 @@ ISAAC_VIA_MAX_STEP = 0.005
 ISAAC_VIA_MAX_LEAD = 0.005
 ISAAC_VIA_SMOOTH_RATE = 0.10
 ISAAC_ACTION_SLEW = 0.0025
+ISAAC_TABLE_CLEARANCE = 0.012
 # Same keep-out as path_blocked / verify.  An extra 8 cm circle
 # sent the Franka tip 15 cm from the COM before it could drop.
 ISAAC_ORBIT_EXTRA = 0.0
@@ -361,6 +364,18 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         compute_id = int(sim_device.split(":")[-1]) if ":" in sim_device else 0
         self.sim_dt_ = float(getattr(self.param_, "sim_dt_", DYWA_SIM_DT))
         sim_substeps = int(getattr(self.param_, "sim_substeps_", DYWA_SIM_SUBSTEPS))
+        self.runtime_profile_ = make_runtime_profile(
+            getattr(self.param_, "solver_backend_", "auto"),
+            policy_dt=POLICY_INTERVAL,
+            sim_dt=self.sim_dt_,
+            table_clearance=float(getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE)),
+        )
+        self._policy_schedule = PolicyActionSchedule(
+            sim_dt=self.runtime_profile_.sim_dt,
+            policy_dt=self.runtime_profile_.policy_dt,
+            max_step=float(getattr(self.param_, "mpc_u_ub_", AIR_VIA_STEP)),
+        )
+        self._pending_via_meta = None
 
         sim_params = gymapi.SimParams()
         sim_params.dt = self.sim_dt_
@@ -1166,6 +1181,9 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._path_blocked = False
         self._mpc_t = 0.0
         self._mpc_T = POLICY_INTERVAL
+        if hasattr(self, "_policy_schedule"):
+            self._policy_schedule.clear()
+        self._pending_via_meta = None
 
     def _advance_mpc_action_target(self):
         """Slide ``p_d`` along the MPC increment, same as the 3-DoF ball."""
@@ -1244,9 +1262,9 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         )
         self._hold_i = 0
 
-    def set_via_action(self, via_pos, action=None, policy_dt=None,
-                       press=None, path_blocked=None):
-        """Execute the MPC action as a 20 ms fingertip trajectory."""
+    def _start_via_action(self, via_pos, action=None, policy_dt=None,
+                          press=None, path_blocked=None):
+        """Start one admitted MPC action at a policy boundary."""
         p_curr, _ = self.get_end_effector_pos()
         p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
         via = np.asarray(via_pos, dtype=np.float64).reshape(3)
@@ -1271,6 +1289,11 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             getattr(self, "_last_mpc_action", None), increment, max_step,
             max_slew=max_slew,
         )
+        floor_z = float(getattr(self.param_, "table_height", 0.35)) + float(
+            getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE)
+        )
+        if p_curr[2] + float(increment[2]) < floor_z:
+            increment[2] = np.float32(floor_z - p_curr[2])
         target = (p_curr + np.asarray(increment, dtype=np.float64).reshape(3)).astype(np.float32)
         horizon = float(policy_dt if policy_dt is not None else POLICY_INTERVAL)
         self._hold_dq = None
@@ -1288,6 +1311,38 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             self._mpc_p0, self._mpc_action, 0.0, self._mpc_T
         )
         self.R_d = self.R_d_hold.copy()
+
+    def set_via_action(self, via_pos, action=None, policy_dt=None,
+                       press=None, path_blocked=None, seq=None,
+                       submitted_at=None, planner_dt=None, solver_backend=None):
+        """Queue an action; never restart an in-progress policy interval."""
+        p_curr, _ = self.get_end_effector_pos()
+        p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
+        via = np.asarray(via_pos, dtype=np.float64).reshape(3)
+        raw = via - p_curr if action is None else np.asarray(action, dtype=np.float64).reshape(3)
+        self._policy_schedule.max_step = abs(float(getattr(self.param_, "mpc_u_ub_", AIR_VIA_STEP)))
+        accepted = self._policy_schedule.submit(
+            raw,
+            seq=seq,
+            policy_dt=policy_dt,
+            origin=p_curr,
+            table_z=float(getattr(self.param_, "table_height", 0.35)),
+            clearance=float(getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE)),
+            submitted_at=submitted_at,
+            planner_dt=planner_dt,
+            solver_backend=solver_backend,
+        )
+        if accepted:
+            self._pending_via_meta = {
+                "via": via,
+                "press": None if press is None else np.asarray(press, dtype=np.float64).reshape(3),
+                "path_blocked": path_blocked,
+                # The executor owns the cadence.  A planner's declared
+                # interval is metadata and must not stretch the physical
+                # trajectory.
+                "policy_dt": self._policy_schedule.policy_dt,
+            }
+        return accepted
 
     def hold_current_pose(self):
         self._hold_dq = None
@@ -1311,8 +1366,32 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             self.R_d = T_i[:3, :3].copy()
             if self._hold_i >= self._hold_n:
                 self._hold_dq = None
+        elif self._mpc_action is None and self._policy_schedule.pending is not None:
+            pending = self._policy_schedule.take_pending(
+                origin=np.asarray(self.get_end_effector_pos()[0], dtype=np.float64)
+            )
+            meta = self._pending_via_meta or {}
+            self._pending_via_meta = None
+            self._start_via_action(
+                np.asarray(meta.get("via", np.asarray(self.get_end_effector_pos()[0])), dtype=np.float64),
+                action=np.asarray(pending["action"], dtype=np.float64),
+                policy_dt=meta.get("policy_dt"),
+                press=meta.get("press"),
+                path_blocked=meta.get("path_blocked"),
+            )
+            self._advance_mpc_action_target()
         elif self._mpc_action is not None:
             self._advance_mpc_action_target()
+        tip_now = np.asarray(self.get_end_effector_pos()[0], dtype=np.float64).reshape(3)
+        floor_z = float(getattr(self.param_, "table_height", 0.35)) + float(
+            getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE)
+        )
+        self._policy_schedule.record_execution(
+            velocity=self._mpc_v_ref,
+            table_gap=float(tip_now[2] - floor_z),
+        )
+        if self._mpc_action is None and self._policy_schedule.active is not None:
+            self._policy_schedule.finish()
         tau = self._track_desired_pose(
             preserve_nullspace_target=True,
             sync_realtime=sync_realtime,
@@ -1470,14 +1549,19 @@ def adapt_param_for_cartesian_solver(param, args):
     # Same fingertip box as test_0902 --rollout, shifted by the Isaac table.
     param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), np.array([-10.0, -10.0, table_height - 0.01])))
     param.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), np.array([10.0, 10.0, table_height + 1.0])))
-    args.solver = "acados"
-    param.torch_solver = "acados"
-    param.planner_solver_ = "acados"
+    requested_backend = getattr(args, "solver_backend", "auto")
+    concrete_backend = resolve_solver_backend(requested_backend)
+    args.solver_backend = requested_backend
+    args.solver = concrete_backend
+    param.solver_backend_ = requested_backend
+    param.torch_solver = concrete_backend
+    param.planner_solver_ = concrete_backend
+    param.table_clearance_ = float(getattr(args, "table_clearance", ISAAC_TABLE_CLEARANCE))
     # Keep the ranking NLP built with the fingertip --rollout mass / hull.
     # Rebuilding after DyWA would score patches with the randomized sim mass.
     if getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
-    param.lambda_optimizer.solver = "acados"
+    param.lambda_optimizer.solver = concrete_backend
     param.sol_guess_ = None
     return param
 
@@ -1993,6 +2077,18 @@ def _add_rollout_policy_args(parser):
     parser.add_argument("--cartesian_damping", type=float, nargs="+", default=None)
     parser.add_argument("--effort-joint-damping", type=float, default=DEFAULT_EFFORT_JOINT_DAMPING)
     parser.add_argument(
+        "--solver-backend",
+        choices=("portable", "auto", "acados", "ipopt"),
+        default="auto",
+        help="Portable uses deterministic IPOPT for both planner and contact ranking.",
+    )
+    parser.add_argument(
+        "--table-clearance",
+        type=float,
+        default=ISAAC_TABLE_CLEARANCE,
+        help="Minimum fingertip-center height above the table plane (m).",
+    )
+    parser.add_argument(
         "--target-type",
         dest="target_type",
         type=str,
@@ -2078,6 +2174,16 @@ def run_mpc_planner(bus, args):
         raise ValueError(f"trial_start must be non-negative, got {args.trial_start}")
     if int(args.trial_num) <= 0:
         raise ValueError(f"trial_num must be positive, got {args.trial_num}")
+    args.solver = resolve_solver_backend(getattr(args, "solver_backend", "auto"))
+    print_runtime_profile(
+        make_runtime_profile(
+            getattr(args, "solver_backend", "auto"),
+            policy_dt=POLICY_INTERVAL,
+            sim_dt=DYWA_SIM_DT,
+            table_clearance=float(getattr(args, "table_clearance", ISAAC_TABLE_CLEARANCE)),
+        ),
+        prefix="[mpc-runtime]",
+    )
 
     trial_start = int(args.trial_start)
     trial_num = max(1, int(args.trial_num))
@@ -2233,9 +2339,13 @@ def run_mpc_planner(bus, args):
             )
             bus.publish_cmd({
                 "kind": "via",
+                "seq": int(rollout_step),
                 "via": exec_via,
                 "action": action,
                 "policy_dt": POLICY_INTERVAL,
+                "planner_dt": float(result.get("plan_dt", result.get("mppi_dt", 0.0))),
+                "submitted_at": time.monotonic(),
+                "solver_backend": result.get("solver_backend"),
                 "press": policy["p_arm_world"],
                 "path_blocked": bool((policy.get("value_info") or {}).get(
                     "path_blocked", False)),

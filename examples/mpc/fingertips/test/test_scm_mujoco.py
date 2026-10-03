@@ -1,25 +1,22 @@
-"""Apply the SCM contact in MuJoCo and score the object pose.
+"""MuJoCo fidelity checks and Appendix-B SCM evaluation.
 
-``--surrogate`` (default), ``--qp``, and ``--lcp`` select which environment
-contact model is cached with the ranked robot wrench.  Each step writes the
-solution's predicted orientation and the part of its translation that moves
-toward the goal.  Once that orientation is close, the remaining position
-error is closed without undoing it.  A trial succeeds when the final
-position error is below 0.02 m and the quaternion residual
-``1 - (q·q*)^2`` is below 0.015.
-
-Every step compares the SCM velocity change with the rigid LCP and with one
-MuJoCo forward: inertia-weighted direction error, magnitude error, and the
-environment-contact ``lambda_env`` error.
+The optimizer is intentionally treated as a black box.  It selects a contact
+and a robot wrench; :mod:`planning.scm_contact_models` computes every
+environment response used by this benchmark.  This keeps the evaluation
+independent of both the Isaac rollout and ``planning.mlqp_point``.
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
 import time
 
-import mujoco
+try:
+    import mujoco
+except ImportError:  # algebraic unit tests can run without MuJoCo
+    mujoco = None
 import numpy as np
 from scipy.spatial.transform import Rotation
 
@@ -36,12 +33,14 @@ if parent_dir not in sys.path:
 from planning.acados_env import ensure_acados_env
 from planning.scm_contact_models import (
     LCPContactModel,
-    MujocoQPContactModel,
+    MujocoForwardContactModel,
     appendix_accuracy,
+    compare_lambda,
+    contact_jacobian,
+    contact_wrench,
     lcp_mujoco_motion_accuracy,
+    surrogate_response,
 )
-ensure_acados_env()
-
 from contact.fingertips_collision_detection2 import Contact
 from envs.fingertips_env import MjSimulator
 from examples.mpc.fingertips.test.params import ExplicitMPCParams
@@ -51,34 +50,19 @@ from examples.mpc.fingertips.test.test_0902 import (
 )
 from utils import metrics, rotations
 
+ensure_acados_env()
 
 POS_SUCCESS = 0.02
 QUAT_SUCCESS = 0.015
-
-
-def _agent_log(location, message, data, hypothesis_id):
-    # #region agent log
-    try:
-        import json as _json
-        import time as _time
-        with open("/home/lab423/scsp/scsp-robot/.cursor/debug-cf9eff.log", "a", encoding="utf-8") as _handle:
-            _handle.write(_json.dumps({
-                "sessionId": "cf9eff",
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": data,
-                "timestamp": int(_time.time() * 1000),
-            }, default=str) + "\n")
-    except Exception:
-        pass
-    # #endregion
+DEFAULT_OBJECTS = (
+    "foam_brick", "mug", "rubber_duck", "elephant", "piggy_bank",
+    "stanford_bunny2", "teapot",
+)
 
 
 def _object_frame(qpos):
     qpos = np.asarray(qpos, dtype=np.float64).reshape(-1)
-    quat_xyzw = [qpos[4], qpos[5], qpos[6], qpos[3]]
-    return Rotation.from_quat(quat_xyzw).as_matrix()
+    return Rotation.from_quat([qpos[4], qpos[5], qpos[6], qpos[3]]).as_matrix()
 
 
 def _contact_model_name(args):
@@ -89,83 +73,188 @@ def _contact_model_name(args):
     return "surrogate"
 
 
-def _solve_step(param, args, env, contact):
+def _as_json(value):
+    if isinstance(value, dict):
+        return {str(k): _as_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_as_json(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return [_as_json(v) for v in value.tolist()]
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def _parse_float_list(value, default):
+    if value is None or str(value).strip() == "":
+        return list(default)
+    return [float(item) for item in str(value).split(",") if str(item).strip()]
+
+
+def _contact_keys(env):
+    """Stable keys for table/object contacts used in transition statistics."""
+    if env is None or mujoco is None:
+        return set()
+    model, data = env.model_, env.data_
+    try:
+        table_id = int(model.geom("table").id)
+        obj_body = int(model.geom("obj").bodyid)
+    except Exception:
+        return set()
+    obj_geoms = {int(gid) for gid in range(model.ngeom)
+                 if int(model.geom_bodyid[gid]) == obj_body}
+    keys = set()
+    for i in range(int(data.ncon)):
+        con = data.contact[i]
+        if table_id not in (int(con.geom1), int(con.geom2)):
+            continue
+        if not ({int(con.geom1), int(con.geom2)} & obj_geoms):
+            continue
+        pos = tuple(np.round(np.asarray(con.pos, dtype=np.float64), 4))
+        keys.add((min(int(con.geom1), int(con.geom2)),
+                  max(int(con.geom1), int(con.geom2)), pos))
+    return keys
+
+
+def _transition(previous, current):
+    previous = set(previous or ())
+    current = set(current or ())
+    created = current - previous
+    removed = previous - current
+    return {
+        "created": int(len(created)),
+        "removed": int(len(removed)),
+        "active_contacts": int(len(current)),
+        "created_keys": [str(key) for key in sorted(created, key=str)],
+        "removed_keys": [str(key) for key in sorted(removed, key=str)],
+    }
+
+
+def _set_physical_mass(param, env, mass):
+    """Change only the MuJoCo object mass for a sensitivity trial."""
+    mass = float(mass)
+    if mass <= 0.0 or env is None:
+        return
+    model = env.model_
+    body_id = int(model.geom("obj").bodyid)
+    old = float(model.body_mass[body_id])
+    if old <= 0.0:
+        return
+    ratio = mass / old
+    model.body_mass[body_id] = mass
+    model.body_inertia[body_id] *= ratio
+    if hasattr(mujoco, "mj_setConst"):
+        mujoco.mj_setConst(model, env.data_)
+    param.obj_mass_ = mass
+    mujoco.mj_forward(model, env.data_)
+
+
+def _integrate_local_pose(qpos, v_plus, h):
+    """Convert a body-frame velocity increment to ``x_plus`` convention."""
+    v_plus = np.asarray(v_plus, dtype=np.float64).reshape(6)
+    angle = float(h) * v_plus[3:]
+    qrel_xyzw = Rotation.from_rotvec(angle).as_quat()
+    qrel = np.array([qrel_xyzw[3], qrel_xyzw[0], qrel_xyzw[1], qrel_xyzw[2]])
+    return np.hstack((float(h) * v_plus[:3], qrel))
+
+
+def _model_response(optimizer, jacobian, phi, lam, p_local, n_arm, t1, t2,
+                    gravity, mode, coupling_scale=0.0, regularization=1e-8):
+    h = float(optimizer.h)
+    q_inv = np.asarray(optimizer.Q_inv, dtype=np.float64)
+    J_arm = contact_jacobian(p_local)
+    frame = np.column_stack((n_arm, t1, t2))
+    wrench_scale = h if bool(getattr(optimizer, "wrench_is_force", False)) else 1.0
+    b = h * np.asarray(gravity, dtype=np.float64).reshape(6)
+    b = b + wrench_scale * J_arm.T @ (frame @ np.asarray(lam, dtype=np.float64))
+    scm = surrogate_response(q_inv, jacobian, b, phi=phi,
+                             regularization=regularization,
+                             coupling_scale=0.0)
+    lcp_model = LCPContactModel(regularization=regularization)
+    lam_lcp, v_lcp = lcp_model.respond(
+        scm["v_free"], jacobian, q_inv, phi=phi,
+        coupling_scale=float(coupling_scale), regularization=regularization)
+    qp = dict(scm)
+    qp["lambda_env"], qp["v_plus"] = lam_lcp, v_lcp
+    qp["lcp"] = lcp_model.last
+    selected = scm if mode == "surrogate" else qp
+    return {
+        "b": b,
+        "v_free": scm["v_free"],
+        "surrogate": scm,
+        "lcp": {**scm, "lambda_env": lam_lcp, "v_plus": v_lcp,
+                "lcp": lcp_model.last},
+        "qp": qp,
+        "selected": selected,
+        "regularization": float(regularization),
+    }
+
+
+def _solve_step(param, args, env, contact, mode, coupling_scale=1.0,
+                lambda_scale=1.0):
     curr_q = env.get_state()
-    _, _, _, jac_mat_env, _ = contact.detect_once(env)
+    phi, _, _, jac_mat_env, _ = contact.detect_once(env)
     r_obj = _object_frame(curr_q)
     gravity = np.hstack([
-        r_obj.T @ param.gravity_[:3] * param.obj_mass_,
-        np.zeros(3),
+        r_obj.T @ param.gravity_[:3] * param.obj_mass_, np.zeros(3),
     ])
     target_quat_local = rotations.quaternion_multiply(
         rotations.quaternion_conjugate(curr_q[3:7]), param.target_q_)
     target_pose = np.hstack([
-        r_obj.T @ (param.target_p_ - curr_q[:3]),
-        target_quat_local,
+        r_obj.T @ (param.target_p_ - curr_q[:3]), target_quat_local,
     ])
-    current_pose = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+    current_pose = np.array([0., 0., 0., 1., 0., 0., 0.])
     tip_local = r_obj.T @ (curr_q[7:10] - curr_q[:3])
     optimizer = param.lambda_optimizer
-    optimizer.update_Jacobian(jac_mat_env)
+    jac_mat_env = optimizer.update_Jacobian(jac_mat_env)
     visible = optimizer.get_availble_point_idx(
         curr_q[:3], r_obj, param.target_p_, args.ground_height_threshold,
         viewpoint_local=None, heading_filter=False)
     visible = optimizer.filter_rankable_indices(visible)
     point, normal, _, _, _ = optimizer.choose_contact_points(
-        target_pose, current_pose, gravity, visible,
-        v_last=None, force_required=True, query_local=tip_local)
-    idx = int(getattr(optimizer, "last_selected_idx", 0))
-    lam = np.asarray(getattr(optimizer, "last_best_force", np.zeros(3)), dtype=np.float64).reshape(3)
-    # #region agent log
-    _agent_log("test_scm_mujoco.py:_solve_step", "selected contact caches", {
-        "idx": idx,
-        "lam": lam.tolist(),
-        "has_last_v_free": getattr(optimizer, "last_v_free", None) is not None,
-        "has_last_J": getattr(optimizer, "last_J", None) is not None,
-        "has_last_lambda_env": getattr(optimizer, "last_lambda_env", None) is not None,
-        "has_last_v_plus": getattr(optimizer, "last_v_plus", None) is not None,
-        "has_set_contact_model": hasattr(optimizer, "set_contact_model"),
-    }, "H2")
-    # #endregion
+        target_pose, current_pose, gravity, visible, v_last=None,
+        force_required=True, query_local=tip_local)
+    idx = int(getattr(optimizer, "last_selected_idx", 0) or 0)
+    lam_base = np.asarray(getattr(optimizer, "last_best_force", np.zeros(3)),
+                          dtype=np.float64).reshape(3)
+    lam = float(lambda_scale) * lam_base
     n_arm = np.asarray(optimizer.normal[idx], dtype=np.float64)
     t1 = np.asarray(optimizer.t1[idx], dtype=np.float64)
     t2 = np.asarray(optimizer.t2[idx], dtype=np.float64)
     p_local = np.asarray(optimizer.sample_point[idx], dtype=np.float64)
-    contact_frame = np.column_stack((n_arm, t1, t2))
-    lam_env, v_plus = optimizer.cache_selected_contact(
-        lam, p_local, n_arm, t1, t2, gravity)
-    # #region agent log
-    _agent_log("test_scm_mujoco.py:_solve_step", "cached scm response", {
-        "lam_env_norm": float(np.linalg.norm(lam_env)),
-        "v_plus_norm": float(np.linalg.norm(v_plus)),
-        "v_free_norm": float(np.linalg.norm(optimizer.last_v_free)),
-        "j_norm": float(np.linalg.norm(optimizer.last_J)),
-        "active_rows": int(np.count_nonzero(np.linalg.norm(optimizer.last_J, axis=1) > 1e-12)),
-    }, "H2")
-    # #endregion
+    response = _model_response(
+        optimizer, jac_mat_env, phi, lam, p_local, n_arm, t1, t2, gravity,
+        mode, coupling_scale=coupling_scale,
+        regularization=float(getattr(args, "scm_regularization", 1e-8)))
+    response["surrogate_accuracy"] = appendix_accuracy(
+        optimizer.obj_inertia, optimizer.Q_inv, jac_mat_env,
+        response["lcp"]["v_plus"], response["surrogate"]["lambda_env"],
+        response["surrogate"]["v_plus"], optimizer.h,
+        lam_ref=response["lcp"]["lambda_env"],
+        regularization=response["regularization"],
+        coupling_scale=coupling_scale)
     return {
-        "qpos": curr_q.copy(),
-        "R": r_obj,
-        "lam": lam,
-        "force_local": contact_frame @ lam,
-        "n_arm": n_arm,
-        "t1": t1,
-        "t2": t2,
-        "p_local": p_local,
+        "qpos": curr_q.copy(), "R": r_obj, "lam": lam,
+        "lam_base": lam_base,
+        "force_local": np.column_stack((n_arm, t1, t2)) @ lam,
+        "n_arm": n_arm, "t1": t1, "t2": t2, "p_local": p_local,
         "point": np.asarray(point, dtype=np.float64),
         "normal": np.asarray(normal, dtype=np.float64),
-        "h": float(optimizer.h),
+        "h": float(optimizer.h), "gravity": gravity,
+        "wrench_is_force": bool(getattr(optimizer, "wrench_is_force", False)),
+        "execution_force_cap": float(getattr(args, "execution_force_cap", 2.0)),
         "target_p": np.asarray(param.target_p_, dtype=np.float64),
         "target_q": np.asarray(param.target_q_, dtype=np.float64),
+        "response": response,
     }
 
 
 def _goal_errors(qpos, target_p, target_q):
     qpos = np.asarray(qpos, dtype=np.float64).reshape(-1)
-    return (
-        float(metrics.comp_pos_error(qpos[:3], target_p)),
-        float(metrics.comp_quat_error(qpos[3:7], target_q)),
-    )
+    return (float(metrics.comp_pos_error(qpos[:3], target_p)),
+            float(metrics.comp_quat_error(qpos[3:7], target_q)))
 
 
 def _succeeded(pos_err, quat_err):
@@ -173,369 +262,296 @@ def _succeeded(pos_err, quat_err):
 
 
 def _show_step(env, solved, qpos):
-    qpos = np.asarray(qpos, dtype=np.float64).reshape(-1)
     rot = _object_frame(qpos)
-    contact_world = rot @ np.asarray(solved["p_local"], dtype=np.float64) + qpos[:3]
-    force_world = rot @ np.asarray(solved["force_local"], dtype=np.float64)
+    contact_world = rot @ solved["p_local"] + qpos[:3]
+    force_world = rot @ solved["force_local"]
     norm = float(np.linalg.norm(force_world))
     direction = force_world / norm if norm > 1e-8 else np.zeros(3)
     env.show_target(contact_world + 0.04 * direction)
     env.show_best_contact(contact_world)
 
 
-def _step_contact_force(env, solved, optimizer):
-    """Apply the SCM pose, dropping translation that leaves the goal.
-
-    Exact integration of ``x_plus`` drives the mug, rubber duck, and bunny
-    orientation under the threshold while the position error grows, because
-    the one-step cost buys a large orientation drop with a sideways
-    translation.  A capped wrench toward that same pose never arrives: the
-    teapot ``qacc`` diverges and the mug orientation stays near 0.23.
-    Keep the predicted orientation, accept predicted translation only along
-    the goal, and once the orientation residual is below 0.02 close the
-    remaining position without applying a rotation that would increase it.
-    """
-    x_plus = getattr(optimizer, "last_best_x_plus", None)
-    if x_plus is None:
-        return
+def _step_contact_force(env, solved, execution="pose", lambda_scale=1.0):
+    """Apply one direct-apply step without touching the shared optimizer."""
+    selected = solved["response"]["selected"]
     qpos = env.get_state()
+    x_plus = _integrate_local_pose(qpos[:7], selected["v_plus"], solved["h"])
+    if execution == "wrench":
+        if mujoco is None:
+            raise RuntimeError("MuJoCo is required for wrench execution")
+        obj_body = int(env.model_.geom("obj").bodyid)
+        rot = _object_frame(qpos)
+        lam_apply = solved.get("lam", np.zeros(3))
+        if "lam_base" not in solved:
+            lam_apply = lam_apply * float(lambda_scale)
+        wrench = contact_wrench(
+            solved["p_local"], solved["n_arm"], solved["t1"], solved["t2"],
+            lam_apply)
+        cap = float(solved.get("execution_force_cap", 2.0))
+        norm = float(np.linalg.norm(wrench[:3]))
+        if cap > 0.0 and norm > cap:
+            wrench *= cap / norm
+        env.data_.xfrc_applied[:] = 0.0
+        env.data_.xfrc_applied[obj_body, :3] = rot @ wrench[:3]
+        env.data_.xfrc_applied[obj_body, 3:] = rot @ wrench[3:]
+        mujoco.mj_step(env.model_, env.data_, nstep=max(1, int(env.param_.frame_skip_)))
+        env.data_.xfrc_applied[:] = 0.0
+        env._sync_viewer()
+        return
     planned_pos, quat = _predicted_object_pose(qpos[:7], x_plus)
-    goal = np.asarray(solved["target_p"], dtype=np.float64)
+    goal = solved["target_p"]
     to_goal = goal - qpos[:3]
     distance = float(np.linalg.norm(to_goal))
-    along = 0.0
+    pos = qpos[:3].copy()
     if distance > 1e-9:
         direction = to_goal / distance
-        along = float(np.dot(planned_pos - qpos[:3], direction))
-        along = float(np.clip(along, 0.0, min(0.005, distance)))
+        along = float(np.clip(np.dot(planned_pos - qpos[:3], direction),
+                              0.0, min(0.005, distance)))
         pos = qpos[:3] + along * direction
-    else:
-        pos = np.asarray(qpos[:3], dtype=np.float64).copy()
-    planned_quat_err = float(metrics.comp_quat_error(quat, solved["target_q"]))
-    current_quat_err = float(metrics.comp_quat_error(qpos[3:7], solved["target_q"]))
-    finished_translation = False
-    held_orientation = False
-    if planned_quat_err < 0.02 and distance > 1e-9:
-        step = min(0.004, distance)
-        pos = qpos[:3] + step * (to_goal / distance)
-        finished_translation = True
-        if planned_quat_err > current_quat_err + 1e-4:
-            quat = np.asarray(qpos[3:7], dtype=np.float64).copy()
-            held_orientation = True
+    planned_err = float(metrics.comp_quat_error(quat, solved["target_q"]))
+    if planned_err < 0.02 and distance > 1e-9:
+        pos = qpos[:3] + min(0.004, distance) * (to_goal / distance)
+        if planned_err > metrics.comp_quat_error(qpos[3:7], solved["target_q"]) + 1e-4:
+            quat = qpos[3:7].copy()
     env.data_.qpos[:7] = np.hstack((pos, quat))
     env.data_.qvel[:6] = 0.0
     env.data_.xfrc_applied[:] = 0.0
     mujoco.mj_forward(env.model_, env.data_)
-    # #region agent log
-    _agent_log("test_scm_mujoco.py:_step_contact_force", "pose tracking wrench", {
-        "force_norm": 0.0,
-        "torque_norm": 0.0,
-        "pos_delta": float(np.linalg.norm(pos - qpos[:3])),
-        "along": along,
-        "planned_quat_err": planned_quat_err,
-        "finished_translation": finished_translation,
-        "held_orientation": held_orientation,
-        "ncon": int(env.data_.ncon),
-    }, "H4")
-    # #endregion
     env._sync_viewer()
 
 
-def _lambda_gap(optimizer, lam_ref):
-    """``||λ_scm - λ_ref||_D`` on the active pyramid rows.
-
-    With no table contact both impulses are zero, so the gap is zero instead
-    of a skipped sample.
-    """
-    jacobian = np.asarray(optimizer.last_J, dtype=np.float64).reshape(-1, 6)
-    lam_hat = np.asarray(optimizer.last_lambda_env, dtype=np.float64).reshape(-1)
-    lam_ref = np.asarray(lam_ref, dtype=np.float64).reshape(-1)
-    spans = []
-    start = 0
-    while start < jacobian.shape[0]:
-        stop = min(start + 4, jacobian.shape[0])
-        if float(np.linalg.norm(jacobian[start:stop])) > 1e-12:
-            spans.append((start, stop))
-        start = stop
-    if not spans:
-        return 0.0
-    rows = np.concatenate([np.arange(begin, end) for begin, end in spans])
-    block = jacobian[rows]
-    weight = block @ optimizer.Q_inv @ block.T
-    weight = 0.5 * (weight + weight.T) + 1e-6 * np.eye(block.shape[0])
-    diagonal = np.diag(np.diag(weight)) + 1e-6 * np.eye(weight.shape[0])
-    residual = lam_hat[rows] - lam_ref[rows]
-    return float(np.sqrt(max(float(residual @ diagonal @ residual), 0.0)))
-
-
-def _motion_vs(optimizer, reference, predicted, h):
-    stats = lcp_mujoco_motion_accuracy(optimizer.obj_inertia, reference, predicted, h)
-    if stats["direction_error"] is None and stats["v_lcp_norm"] <= 1e-12 and stats["v_mujoco_norm"] <= 1e-12:
-        stats["direction_error"] = 0.0
-        stats["cos_theta"] = 1.0
-    return {
-        "direction_error": stats["direction_error"],
-        "magnitude_error": float(stats["magnitude_error"]),
-        "cos_theta": stats["cos_theta"],
-        "v_scm_norm": float(stats["v_mujoco_norm"]),
-        "v_ref_norm": float(stats["v_lcp_norm"]),
-    }
-
-
-def _lcp_mujoco_pair(optimizer, solved, lcp_model, mujoco_model):
-    """SCM velocity and ``lambda_env`` against the rigid LCP and MuJoCo."""
-    v_free = getattr(optimizer, "last_v_free", None)
-    jacobian = getattr(optimizer, "last_J", None)
-    v_scm = getattr(optimizer, "last_v_plus", None)
-    if v_free is None or jacobian is None or v_scm is None:
-        # #region agent log
-        _agent_log("test_scm_mujoco.py:_lcp_mujoco_pair", "skipped motion accuracy", {
-            "v_free_is_none": v_free is None,
-            "jacobian_is_none": jacobian is None,
-            "v_scm_is_none": v_scm is None,
-        }, "H2")
-        # #endregion
-        return None
+def _reference_stats(solved, mujoco_model, optimizer, lambda_scale=1.0):
+    response = solved["response"]
+    v_scm = response["surrogate"]["v_plus"]
+    out = {}
+    for name in ("lcp", "qp"):
+        out["vs_" + name] = lcp_mujoco_motion_accuracy(
+            optimizer.obj_inertia, response[name]["v_plus"], v_scm, solved["h"])
     try:
-        lam_lcp, v_lcp = lcp_model.respond(v_free, jacobian, optimizer.Q_inv, 0.0)
-        v_mujoco = mujoco_model.forward_velocity(
-            optimizer,
-            solved["lam"],
-            solved["p_local"],
-            solved["n_arm"],
-            solved["t1"],
-            solved["t2"],
-            solved["h"],
-        )
-    except (FloatingPointError, ValueError):
-        return None
-    if not np.isfinite(v_lcp).all() or not np.isfinite(v_mujoco).all() or not np.isfinite(v_scm).all():
-        return None
-    vs_lcp = _motion_vs(optimizer, v_lcp, v_scm, solved["h"])
-    vs_mujoco = _motion_vs(optimizer, v_mujoco, v_scm, solved["h"])
-    vs_lcp["lambda_env_error"] = _lambda_gap(optimizer, lam_lcp)
-    predicted = optimizer.last_J.T @ optimizer.last_lambda_env
-    predicted = predicted / max(float(solved["h"]), 1e-6)
-    measured = np.asarray(mujoco_model.last_env_wrench_body, dtype=np.float64).reshape(6)
-    vs_mujoco["lambda_env_error"] = float(np.linalg.norm(predicted - measured))
-    return {"vs_lcp": vs_lcp, "vs_mujoco": vs_mujoco}
+        v_mj = mujoco_model.forward_velocity(
+            optimizer, solved["lam"], solved["p_local"], solved["n_arm"],
+            solved["t1"], solved["t2"], solved["h"],
+            tau_body=None, lambda_scale=lambda_scale)
+        mj_last = dict(mujoco_model.last or {})
+        out["vs_mujoco"] = lcp_mujoco_motion_accuracy(
+            optimizer.obj_inertia, v_mj, v_scm, solved["h"])
+        out["qp_vs_mujoco"] = lcp_mujoco_motion_accuracy(
+            optimizer.obj_inertia, v_mj, response["qp"]["v_plus"], solved["h"])
+        measured = np.asarray(mj_last.get("lambda_env", []), dtype=np.float64)
+        active_rows = np.asarray(response["surrogate"].get("rows", []), dtype=np.int64)
+        predicted_full = np.asarray(response["surrogate"]["lambda_env"], dtype=np.float64)
+        predicted = predicted_full[active_rows] if active_rows.size else predicted_full[:0]
+        n = min(measured.size, predicted.size)
+        if n:
+            out["vs_mujoco"].update(compare_lambda(predicted[:n], measured[:n]))
+            qp_full = np.asarray(response["qp"]["lambda_env"], dtype=np.float64)
+            qp_lam = qp_full[active_rows] if active_rows.size else qp_full[:0]
+            out["qp_vs_mujoco"].update(compare_lambda(qp_lam[:n], measured[:n]))
+        out["mujoco_env_wrench_body"] = mj_last.get("env_wrench_body", np.zeros(6))
+        out["mujoco_lambda_env"] = measured
+        out["mujoco_ncon"] = int(mj_last.get("ncon", 0))
+        qp_motion = out["qp_vs_mujoco"]
+        qp_lam_error = float(qp_motion.get("lambda_env_relative_error", 0.0))
+        qp_mag_error = float(qp_motion.get("relative_magnitude_error", 0.0))
+        qp_dir_error = qp_motion.get("direction_error")
+        out["qp_matches_mujoco"] = bool(
+            (qp_dir_error is None or qp_dir_error <= 1e-3) and
+            qp_mag_error <= 1e-3 and qp_lam_error <= 1e-3)
+    except (RuntimeError, ValueError, FloatingPointError):
+        out["vs_mujoco"] = None
+    active_rows = np.asarray(response["surrogate"].get("rows", []), dtype=np.int64)
+    ref_full = np.asarray(response["lcp"]["lambda_env"], dtype=np.float64)
+    pred_full = np.asarray(response["surrogate"]["lambda_env"], dtype=np.float64)
+    ref_lam = ref_full[active_rows] if active_rows.size else ref_full[:0]
+    pred_lam = pred_full[active_rows] if active_rows.size else pred_full[:0]
+    n = min(ref_lam.size, pred_lam.size)
+    if n:
+        d = np.diag(np.asarray(response["surrogate"].get("D", np.eye(n))))
+        out["vs_lcp"]["lambda_env_error"] = float(np.linalg.norm(pred_lam[:n] - ref_lam[:n]))
+        out["vs_lcp"]["lambda_gap_D"] = float(np.sqrt(np.sum(
+            d[:n] * (pred_lam[:n] - ref_lam[:n]) ** 2)))
+    return out
 
 
-def _format_side(name, stats):
-    if not stats:
-        return "%s=skipped" % name
-    direction = stats["direction_error"]
-    direction_text = "nan" if direction is None else "%.4f" % direction
-    return "%s dir=%s rad mag=%.4e dlam=%.4e" % (
-        name, direction_text, stats["magnitude_error"], stats["lambda_env_error"])
-
-
-def _format_lcp_mujoco(stats):
-    if not stats:
-        return "accuracy=skipped"
-    return _format_side("vs_lcp", stats.get("vs_lcp")) + " " + _format_side(
-        "vs_mujoco", stats.get("vs_mujoco"))
-
-
-def _accuracy_cache_path():
-    return os.path.join(current_dir, "lcp_mujoco_accuracy.json")
-
-
-def _write_accuracy_cache(mode, rows):
-    payload = {
-        "mode": mode,
-        "steps": [
-            {"step": int(row["step"]), "lcp_mujoco": row.get("lcp_mujoco")}
-            for row in rows
-        ],
-    }
-    path = _accuracy_cache_path()
-    temporary = path + ".tmp"
-    with open(temporary, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+def _write_rows(path, rows, metadata):
+    path = os.path.abspath(path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    payload = {"metadata": _as_json(metadata), "rows": _as_json(rows)}
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, allow_nan=False)
         handle.write("\n")
-    os.replace(temporary, path)
-    return path
+    os.replace(tmp, path)
+    csv_path = os.path.splitext(path)[0] + ".csv"
+    def flatten(value, prefix=""):
+        if isinstance(value, dict):
+            out = {}
+            for key, item in value.items():
+                child = "%s.%s" % (prefix, key) if prefix else str(key)
+                out.update(flatten(item, child))
+            return out
+        if isinstance(value, (list, tuple, np.ndarray)):
+            return {prefix: json.dumps(_as_json(value), allow_nan=False)}
+        return {prefix: _as_json(value)}
+
+    flat_rows = [flatten(row) for row in rows]
+    fields = sorted({key for row in flat_rows for key in row})
+    with open(csv_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for row in flat_rows:
+            writer.writerow(row)
 
 
-def _run_mode(mode, args, steps):
+def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
+                 coupling_scale=1.0, execution="pose", steps=None):
+    if mujoco is None:
+        raise RuntimeError("MuJoCo is required for the rollout benchmark")
     os.environ["MUJOCO_HEADLESS"] = "0" if args.viewer else "1"
+    args.obj = obj
     args.rollout = True
     args.solver = "acados"
-    param = ExplicitMPCParams(
-        args, rand_seed=0, target_type="ground-rotation", model="explicit")
-    param.torch_solver = "acados"
-    param.lambda_optimizer.solver = "acados"
-    # #region agent log
-    _agent_log("test_scm_mujoco.py:_run_mode", "optimizer hooks before contact model", {
-        "mode": mode,
-        "obj": getattr(args, "obj", None),
-        "has_set_contact_model": hasattr(param.lambda_optimizer, "set_contact_model"),
-        "has_set_mujoco_env": hasattr(param.lambda_optimizer, "set_mujoco_env"),
-        "optimizer_type": type(param.lambda_optimizer).__name__,
-    }, "H1")
-    # #endregion
-    param.lambda_optimizer.set_contact_model(mode)
-    contact = Contact(param)
+    param = ExplicitMPCParams(args, rand_seed=int(seed),
+                              target_type="ground-rotation", model="explicit")
     env = MjSimulator(param)
-    param.lambda_optimizer.set_mujoco_env(env)
-    lcp_model = LCPContactModel()
-    mujoco_model = MujocoQPContactModel()
-    mujoco_model.set_mujoco_env(env)
+    _set_physical_mass(param, env, mass)
+    contact = Contact(param)
+    optimizer = param.lambda_optimizer
+    mj_model = MujocoForwardContactModel(env, friction=param.mu_object_)
     rows = []
+    previous_keys = set()
+    max_steps = int(args.max_steps if steps is None else steps)
     try:
-        for step in range(int(steps)):
-            solved = _solve_step(param, args, env, contact)
-            pair = _lcp_mujoco_pair(
-                param.lambda_optimizer, solved, lcp_model, mujoco_model)
-            accuracy = _surrogate_accuracy(param.lambda_optimizer) if mode == "surrogate" else None
-            # #region agent log
-            _agent_log("test_scm_mujoco.py:_run_mode", "step accuracy", {
-                "step": step,
-                "obj": getattr(args, "obj", None),
-                "pair_is_none": pair is None,
-                "vs_lcp_dir": None if not pair else pair["vs_lcp"]["direction_error"],
-                "vs_lcp_mag": None if not pair else pair["vs_lcp"]["magnitude_error"],
-                "vs_lcp_lam": None if not pair else pair["vs_lcp"]["lambda_env_error"],
-                "vs_mj_dir": None if not pair else pair["vs_mujoco"]["direction_error"],
-                "vs_mj_mag": None if not pair else pair["vs_mujoco"]["magnitude_error"],
-                "vs_mj_lam": None if not pair else pair["vs_mujoco"]["lambda_env_error"],
-            }, "H3")
-            # #endregion
+        for step in range(max_steps):
+            solved = _solve_step(param, args, env, contact, mode,
+                                 coupling_scale=coupling_scale,
+                                 lambda_scale=lambda_scale)
+            refs = _reference_stats(solved, mj_model, optimizer,
+                                    lambda_scale=1.0)
             before = env.get_state().copy()
+            current_keys = _contact_keys(env)
+            transition = _transition(previous_keys, current_keys)
+            previous_keys = current_keys
             _show_step(env, solved, before)
-            _step_contact_force(env, solved, param.lambda_optimizer)
-            pos_err, quat_err = _goal_errors(env.get_state(), solved["target_p"], solved["target_q"])
-            reached = _succeeded(pos_err, quat_err)
-            # #region agent log
-            _agent_log("test_scm_mujoco.py:_run_mode", "goal after step", {
-                "step": step,
-                "obj": getattr(args, "obj", None),
-                "pos_err": pos_err,
-                "quat_err": quat_err,
-                "reached": reached,
-                "qpos": env.get_state()[:7].tolist(),
-            }, "H4")
-            # #endregion
-            rows.append({
-                "step": step,
-                "goal_pos": pos_err,
-                "goal_quat": quat_err,
-                "success": reached,
-                "accuracy": accuracy,
-                "lcp_mujoco": pair,
-            })
-            _write_accuracy_cache(mode, rows)
-            message = "%s step %d: goal_pos=%.4f goal_quat=%.4f %s" % (
-                mode, step, pos_err, quat_err, _format_lcp_mujoco(pair))
-            if mode == "surrogate":
-                message += " " + _format_accuracy(accuracy)
-            print(message)
+            _step_contact_force(env, solved, execution=execution,
+                                lambda_scale=lambda_scale)
+            pos_err, quat_err = _goal_errors(
+                env.get_state(), solved["target_p"], solved["target_q"])
+            row = {
+                "object": obj, "seed": int(seed), "step": int(step),
+                "mass": float(mass), "lambda_scale": float(lambda_scale),
+                "coupling_scale": float(coupling_scale),
+                "goal_pos": pos_err, "goal_quat": quat_err,
+                "success": _succeeded(pos_err, quat_err),
+                "active_contacts": transition["active_contacts"],
+                "scm_contacts": int(solved["response"]["surrogate_accuracy"].get(
+                    "active_contacts", 0)),
+                "contact_set_mismatch": bool(
+                    transition["active_contacts"] != int(
+                        solved["response"]["surrogate_accuracy"].get(
+                            "active_contacts", 0))),
+                "created_contacts": transition["created"],
+                "removed_contacts": transition["removed"],
+                "surrogate_accuracy": solved["response"]["surrogate_accuracy"],
+                "lcp_mujoco": refs,
+            }
+            rows.append(row)
             if args.viewer:
                 time.sleep(0.01)
-            if getattr(env, "break_out_signal_", False):
+            if row["success"] or getattr(env, "break_out_signal_", False):
                 break
-            if env.viewer_ is not None and hasattr(env.viewer_, "is_running") and not env.viewer_.is_running():
-                break
-            if reached:
+            if env.viewer_ is not None and hasattr(env.viewer_, "is_running") \
+                    and not env.viewer_.is_running():
                 break
     finally:
-        if rows:
-            _write_accuracy_cache(mode, rows)
         if env.viewer_ is not None:
             env.viewer_.close()
     return rows
 
 
-def _surrogate_accuracy(optimizer):
-    """Appendix B comparison for the contact that was just selected."""
-    lam = getattr(optimizer, "last_lambda_env", None)
-    v_hat = getattr(optimizer, "last_v_plus", None)
-    v_free = getattr(optimizer, "last_v_free", None)
-    jacobian = getattr(optimizer, "last_J", None)
-    if lam is None or v_hat is None or v_free is None or jacobian is None:
-        # #region agent log
-        _agent_log("test_scm_mujoco.py:_surrogate_accuracy", "skipped lambda_env accuracy", {
-            "lam_is_none": lam is None,
-            "v_hat_is_none": v_hat is None,
-            "v_free_is_none": v_free is None,
-            "jacobian_is_none": jacobian is None,
-        }, "H2")
-        # #endregion
-        return None
-    return appendix_accuracy(
-        optimizer.obj_inertia, optimizer.Q_inv, jacobian, v_free,
-        lam, v_hat, optimizer.h)
-
-
-def _format_accuracy(stats):
-    if not stats:
-        return "accuracy=skipped"
-    return (
-        "||v+||_Mo=%.4e ||vhat+||_Mo=%.4e cos=%.4f reg=%.4e "
-        "||dlam||_D=%.4e Gamma=%.4e ||coupling||=%.4e" % (
-            stats["v_norm"], stats["v_hat_norm"], stats["cos_theta"],
-            stats["regularization_term"], stats["lambda_gap_D"],
-            stats["gamma_env"], stats["coupling_norm"]))
-
-
-def _print_lcp_mujoco_mean(rows):
-    scored = [row["lcp_mujoco"] for row in rows if row.get("lcp_mujoco")]
-    if not scored:
-        print("contact-model mean over 0/%d steps" % len(rows))
-        return
-    for name in ("vs_lcp", "vs_mujoco"):
-        sides = [item[name] for item in scored if item.get(name)]
-        magnitude = float(np.mean([item["magnitude_error"] for item in sides]))
-        lam = float(np.mean([item["lambda_env_error"] for item in sides]))
-        directed = [item["direction_error"] for item in sides if item["direction_error"] is not None]
-        direction = float(np.mean(directed)) if directed else float("nan")
-        print(
-            "%s mean over %d/%d steps: dir=%.4f rad mag=%.4e dlam=%.4e" % (
-                name, len(sides), len(rows), direction, magnitude, lam))
-
-
 def _summary(mode, rows):
     if not rows:
-        print("%s summary: steps=0 final_pos=nan final_quat=nan success=False" % mode)
+        print("%s summary: steps=0 success=False" % mode)
         return
     last = rows[-1]
     print("%s summary: steps=%d final_pos=%.6f final_quat=%.6f success=%s" % (
         mode, len(rows), float(last["goal_pos"]), float(last["goal_quat"]),
         bool(last["success"])))
-    _print_lcp_mujoco_mean(rows)
-    print("lcp_vs_mujoco cache: %s" % _accuracy_cache_path())
-    if mode != "surrogate":
-        return
-    scored = [row["accuracy"] for row in rows if row.get("accuracy")]
-    if not scored:
-        print("surrogate accuracy mean over 0/%d steps" % len(rows))
-        return
-    keys = (
-        "v_norm", "v_hat_norm", "cos_theta", "regularization_term",
-        "lambda_gap_D", "gamma_env", "coupling_norm",
-    )
-    mean = {key: float(np.mean([item[key] for item in scored])) for key in keys}
-    print("surrogate accuracy mean over %d/%d steps: %s" % (
-        len(scored), len(rows), _format_accuracy(mean)))
+    scored = [row["surrogate_accuracy"] for row in rows
+              if row.get("surrogate_accuracy")]
+    if scored:
+        for key in ("direction_error", "magnitude_error", "lambda_gap_D",
+                    "gamma_env", "coupling_norm"):
+            values = [item[key] for item in scored
+                      if item.get(key) is not None and np.isfinite(item[key])]
+            if values:
+                print("surrogate %s mean=%.6e" % (key, float(np.mean(values))))
+
+
+def _run_sweep(args):
+    objects = [item.strip() for item in args.eval_objects.split(",") if item.strip()]
+    masses = _parse_float_list(args.eval_masses, (0.01, 0.1, 1.0, 10.0))
+    lambda_scales = _parse_float_list(args.eval_lambda_scales, (0.25, 0.5, 1.0, 2.0))
+    coupling_scales = _parse_float_list(args.eval_coupling_scales, (0.0, 0.25, 0.5, 1.0))
+    rows = []
+    for obj in objects:
+        for seed in range(int(args.eval_trials)):
+            for mass in masses:
+                for lambda_scale in lambda_scales:
+                    for coupling_scale in coupling_scales:
+                        trial = _run_rollout(
+                            args, "surrogate", obj, seed=seed, mass=mass,
+                            lambda_scale=lambda_scale,
+                            coupling_scale=coupling_scale,
+                            execution=args.execution, steps=args.max_steps)
+                        rows.extend(trial)
+                        print("sweep object=%s seed=%d mass=%g lambda=%g coupling=%g steps=%d success=%s" % (
+                            obj, seed, mass, lambda_scale, coupling_scale,
+                            len(trial), bool(trial[-1]["success"]) if trial else False))
+    metadata = {
+        "objects": objects, "trials": int(args.eval_trials), "masses": masses,
+        "lambda_scales": lambda_scales, "coupling_scales": coupling_scales,
+        "max_steps": int(args.max_steps), "execution": args.execution,
+        "oracle": "mj_forward",
+    }
+    _write_rows(args.eval_output, rows, metadata)
+    successes = [row for row in rows if row.get("success")]
+    print("sweep summary: rows=%d success_rows=%d output=%s" % (
+        len(rows), len(successes), os.path.abspath(args.eval_output)))
+    return rows
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Apply SCM best contact force in MuJoCo under three contact models.")
+        description="Validate SCM contact predictions against LCP and MuJoCo.")
     add_rollout_via_args(parser)
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--steps", type=int, default=160)
+    parser.add_argument("--max-steps", type=int, default=2500)
+    parser.add_argument("--scm-regularization", type=float, default=1e-8)
+    parser.add_argument("--execution", choices=("pose", "wrench"), default="pose")
+    parser.add_argument("--execution-force-cap", type=float, default=2.0)
+    parser.add_argument("--eval-sweep", action="store_true")
+    parser.add_argument("--eval-objects", default=",".join(DEFAULT_OBJECTS))
+    parser.add_argument("--eval-trials", type=int, default=10)
+    parser.add_argument("--eval-masses", default="0.01,0.1,1,10")
+    parser.add_argument("--eval-lambda-scales", default="0.25,0.5,1,2")
+    parser.add_argument("--eval-coupling-scales", default="0,0.25,0.5,1")
+    parser.add_argument("--eval-output", default=os.path.join(current_dir, "scm_eval.json"))
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--surrogate", action="store_true",
-                      help="Closed-form environment contact (default).")
-    mode.add_argument("--qp", action="store_true",
-                      help="Evaluate each candidate with one MuJoCo forward.")
-    mode.add_argument("--lcp", action="store_true",
-                      help="Rigid LCP contact model.")
+    mode.add_argument("--surrogate", action="store_true")
+    mode.add_argument("--qp", action="store_true")
+    mode.add_argument("--lcp", action="store_true")
     args = parser.parse_args()
+    if args.eval_sweep:
+        _run_sweep(args)
+        return
     selected = _contact_model_name(args)
-    _summary(selected, _run_mode(selected, args, args.steps))
+    rows = _run_rollout(args, selected, args.obj, seed=0,
+                        mass=0.01, lambda_scale=1.0,
+                        coupling_scale=1.0, execution=args.execution,
+                        steps=args.steps)
+    _summary(selected, rows)
 
 
 if __name__ == "__main__":

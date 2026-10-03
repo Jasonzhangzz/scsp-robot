@@ -41,6 +41,7 @@ from examples.mpc.franka.ik2.test_mpc_isaac import (
     _add_rollout_policy_args,
     adapt_param_for_cartesian_solver,
 )
+from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
 
 
 def viewer_closed(env):
@@ -66,6 +67,8 @@ def pack_state(env, seq, trial, contact_fields):
         "osc_force": None if force is None else np.asarray(force, dtype=np.float32),
         "osc_pd": None if p_d is None else np.asarray(p_d, dtype=np.float32),
         "osc_near_press": bool(getattr(env, "_last_osc_near_press", False)),
+        "policy_schedule": getattr(getattr(env, "_policy_schedule", None), "diagnostics", lambda: {})(),
+        "runtime_profile": getattr(getattr(env, "runtime_profile_", None), "as_dict", lambda: {})(),
         **contact_fields,
     }
 
@@ -108,6 +111,10 @@ def apply_incoming(env, cmd, default_kind):
             np.asarray(via, dtype=np.float64),
             action=None if action is None else np.asarray(action, dtype=np.float64),
             policy_dt=cmd.get("policy_dt"),
+            seq=cmd.get("seq"),
+            submitted_at=cmd.get("submitted_at"),
+            planner_dt=cmd.get("planner_dt"),
+            solver_backend=cmd.get("solver_backend"),
             press=None if cmd.get("press") is None else np.asarray(
                 cmd.get("press"), dtype=np.float64),
             path_blocked=cmd.get("path_blocked"),
@@ -243,8 +250,17 @@ def main():
     else:
         _add_rollout_policy_args(parser)
     args = parser.parse_args(["--planner", pre_args.planner, *remaining])
-    args.solver = "acados"
+    args.solver = resolve_solver_backend(getattr(args, "solver_backend", "auto"))
     args.rollout = True
+    print_runtime_profile(
+        make_runtime_profile(
+            getattr(args, "solver_backend", "auto"),
+            policy_dt=POLICY_INTERVAL,
+            sim_dt=0.002,
+            table_clearance=float(getattr(args, "table_clearance", 0.012)),
+        ),
+        prefix="[isaac-runtime]",
+    )
     print(f"isaac pid={os.getpid()} planner={args.planner}", flush=True)
     bus, proc = start_planner(args, args.planner)
     try:

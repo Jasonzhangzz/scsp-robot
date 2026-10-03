@@ -1,0 +1,293 @@
+\relax 
+\providecommand{\transparent@use}[1]{}
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{zito2012two,wu2020r3t,haustein2015kinodynamic,chen2021trajectotree,cheng2022contact}
+\citation{aceituno2020global,marcucci2017approximate,hogan2020feedback}
+\citation{kim2023pre,lianglearning,zhou2023learning,zhang2023learning,zhou2023hacman,cho2024corn,jiang2024hacman++,le2025enhancing,lyu2025dywa}
+\citation{lyu2025dywa}
+\citation{aydinoglu2024consensus}
+\citation{li2025surprising}
+\citation{kurtz2026inverse}
+\citation{pang2023global}
+\citation{jin2024complementarity}
+\citation{zhang2025simultaneous}
+\citation{yang2024contactsdf}
+\citation{lyu2025dywa}
+\citation{venkatesh2025approximating}
+\citation{posa2014direct,wensing2023optimization}
+\citation{zhang2025simultaneous}
+\citation{stewart2000implicit,anitescu2006optimization}
+\citation{aydinoglu2024consensus,pang2023global,bui2025push}
+\citation{jin2024complementarity}
+\@writefile{toc}{\contentsline {section}{Nomenclature}{1}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{I}{1}{Introduction}{section.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textcolor {blue}{ SCSP enables online contact selection and closed-loop generation of diverse manipulation trajectories, allowing it to address a wide range of challenging contact-rich manipulation tasks. }}}{1}{figure.caption.2}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:scsp_fig1}{{1}{1}{\textcolor {blue}{ SCSP enables online contact selection and closed-loop generation of diverse manipulation trajectories, allowing it to address a wide range of challenging contact-rich manipulation tasks. }}{figure.caption.2}{}}
+\citation{suh2025dexterous,jiang2025robust}
+\citation{yang2024contactsdf}
+\citation{li2025surprising}
+\citation{venkatesh2025approximating}
+\citation{xie2026touch}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Comparison of Contact Planning Methods.}}{2}{table.caption.3}\protected@file@percent }
+\newlabel{tab:comparison}{{I}{2}{Comparison of Contact Planning Methods}{table.caption.3}{}}
+\citation{anitescu2006optimization}
+\citation{pang2021convex,jin2024complementarity}
+\citation{hogan1984impedance}
+\citation{anitescu2010iterative}
+\citation{avriel2003nonlinear}
+\citation{anitescu2006optimization}
+\@writefile{toc}{\contentsline {section}{\numberline {II}Preliminaries}{3}{section.2}\protected@file@percent }
+\newlabel{sec:preliminaries}{{II}{3}{Preliminaries}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Contact Dynamics}{3}{subsection.2.1}\protected@file@percent }
+\newlabel{preliminaries:contact_dynamics}{{\mbox  {II-A}}{3}{Contact Dynamics}{subsection.2.1}{}}
+\newlabel{equ.quasi_dyn}{{1}{3}{Contact Dynamics}{equation.1}{}}
+\newlabel{equ.quasi_dyn_1}{{1a}{3}{Contact Dynamics}{equation.1a}{}}
+\newlabel{equ.quasi_dyn_2}{{1b}{3}{Contact Dynamics}{equation.1b}{}}
+\newlabel{equ.complementarity_constraint}{{2}{3}{Contact Dynamics}{equation.2}{}}
+\newlabel{equ.contact_model}{{3}{3}{Contact Dynamics}{equation.3}{}}
+\newlabel{equ.qs_model_obj}{{3a}{3}{Contact Dynamics}{equation.3a}{}}
+\newlabel{equ.contact_model_con}{{3b}{3}{Contact Dynamics}{equation.3b}{}}
+\newlabel{equ.q_matrix}{{4}{3}{Contact Dynamics}{equation.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Model-based Contact Planning}{3}{subsection.2.2}\protected@file@percent }
+\newlabel{preliminaries:contact_planning}{{\mbox  {II-B}}{3}{Model-based Contact Planning}{subsection.2.2}{}}
+\citation{jin2024complementarity}
+\citation{jin2024complementarity}
+\newlabel{eq:CIMPC_opt}{{6}{4}{Model-based Contact Planning}{equation.6}{}}
+\newlabel{equ:obj_pose_cost}{{7}{4}{Model-based Contact Planning}{equation.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Complementarity-free Model}{4}{subsection.2.3}\protected@file@percent }
+\newlabel{preliminaries:complementarity_free}{{\mbox  {II-C}}{4}{Complementarity-free Model}{subsection.2.3}{}}
+\newlabel{equ.dual_prob_relax}{{8}{4}{Complementarity-free Model}{equation.8}{}}
+\newlabel{equ.dual_prob_relax_sol}{{10}{4}{Complementarity-free Model}{equation.10}{}}
+\newlabel{eq:cf_impulse}{{11}{4}{Complementarity-free Model}{equation.11}{}}
+\newlabel{equ:cf_model}{{12}{4}{Complementarity-free Model}{equation.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {III}Contact Selection Optimization}{4}{section.3}\protected@file@percent }
+\newlabel{sec:cso}{{III}{4}{Contact Selection Optimization}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Why Contact Selection is necessary?}{4}{subsection.3.1}\protected@file@percent }
+\newlabel{scsp}{{13}{4}{Why Contact Selection is necessary?}{equation.13}{}}
+\citation{lien2007approximate}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Framework structure of SCSP. SCSP consists of Contact Selection Optimization (CSO) and Contact Planning Optimization (CPO). CSO discretizes nonsmooth geometry through the Sampling \& Exchange method and introduces a surrogate contact model for efficient approximation of contact dynamics. CSO online computes the \textcolor {red}{optimal contact location among candidate contact set} $\bm  {\hat  {p}}_{\text  {r}}^*$ as contact prior. The ranking strategy in CPO further evaluates whether the nearest point $\bm  {p}_{\text  {near}}$ can serve as a feasible suboptimal substitute for $\bm  {\hat  {p}}_{\text  {r}}^*$ as the reference contact location, after which trajectory optimization is solved online to generate the approach and contact trajectories.}}{5}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:framework}{{2}{5}{Framework structure of SCSP. SCSP consists of Contact Selection Optimization (CSO) and Contact Planning Optimization (CPO). CSO discretizes nonsmooth geometry through the Sampling \& Exchange method and introduces a surrogate contact model for efficient approximation of contact dynamics. CSO online computes the \rev {optimal contact location among candidate contact set} $\boldsymbol {\hat {p}}_{\text {r}}^*$ as contact prior. The ranking strategy in CPO further evaluates whether the nearest point $\boldsymbol {p}_{\text {near}}$ can serve as a feasible suboptimal substitute for $\boldsymbol {\hat {p}}_{\text {r}}^*$ as the reference contact location, after which trajectory optimization is solved online to generate the approach and contact trajectories}{figure.caption.4}{}}
+\newlabel{equ:outer_loop}{{14}{5}{Why Contact Selection is necessary?}{equation.14}{}}
+\newlabel{equ:inner_loop}{{15}{5}{Why Contact Selection is necessary?}{equation.15}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Sampling and Exchange Method}{5}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:sampling&exchange}{{\mbox  {III-B}}{5}{Sampling and Exchange Method}{subsection.3.2}{}}
+\newlabel{equ:simplify_outer_loop}{{16}{5}{Sampling and Exchange Method}{equation.16}{}}
+\newlabel{equ:FPS}{{17}{5}{Sampling and Exchange Method}{equation.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces The sampling strategy in CSO. The candidate point set is sampled sequentially through: (a) Farthest-Point Sampling to uniformly sample points on the object, and (b) Valid Region Selection to select valid points for contact.}}{6}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:FPS}{{3}{6}{The sampling strategy in CSO. The candidate point set is sampled sequentially through: (a) Farthest-Point Sampling to uniformly sample points on the object, and (b) Valid Region Selection to select valid points for contact}{figure.caption.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Surrogate Contact Model}{6}{subsection.3.3}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Sampling and Exchange Method}}{6}{algorithm.1}\protected@file@percent }
+\newlabel{algorithm:sampling}{{1}{6}{Sampling and Exchange Method}{algorithm.1}{}}
+\newlabel{assumption:mode}{{1}{6}{Fixed Contact Set}{assumption.1}{}}
+\newlabel{assumption:decoupling}{{2}{6}{Multi-Contact Decoupling}{assumption.2}{}}
+\newlabel{eq:simplified}{{19}{6}{Surrogate Contact Model}{equation.19}{}}
+\newlabel{eq:dual_problem}{{20}{6}{Surrogate Contact Model}{equation.20}{}}
+\newlabel{eq:env_complementarity}{{21}{6}{Surrogate Contact Model}{equation.21}{}}
+\newlabel{equ:contact_i_complementarity}{{24}{7}{Surrogate Contact Model}{equation.24}{}}
+\newlabel{equ:decomposation}{{25}{7}{Surrogate Contact Model}{equation.25}{}}
+\newlabel{eq:quasi-closed_form_solution_nonsmooth}{{26}{7}{Surrogate Contact Model}{equation.26}{}}
+\newlabel{equ:max_decomposition}{{27}{7}{Surrogate Contact Model}{equation.27}{}}
+\newlabel{lemma2:piecewise-linear}{{2}{7}{}{lemma.2}{}}
+\newlabel{eq:quasi-closed_form_solution}{{28}{7}{}{equation.28}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Illustration of SCM. SCM is a lightweight approximation of the object-environment contact, enabling fast contact selection optimization.}}{7}{figure.caption.6}\protected@file@percent }
+\newlabel{fig:stick1}{{4}{7}{Illustration of SCM. SCM is a lightweight approximation of the object-environment contact, enabling fast contact selection optimization}{figure.caption.6}{}}
+\newlabel{equ:scm}{{29}{7}{Surrogate Contact Model}{equation.29}{}}
+\newlabel{lem:scm_accuracy}{{3}{7}{Local prediction estimates for SCM}{lemma.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}Formulation of CSO}{8}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:cs_opt}{{\mbox  {III-D}}{8}{Formulation of CSO}{subsection.3.4}{}}
+\newlabel{equ:csqp}{{30}{8}{Formulation of CSO}{equation.30}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}1}Objective}{8}{subsubsection.3.4.1}\protected@file@percent }
+\newlabel{equ:objectice_obj}{{32}{8}{Objective}{equation.32}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}2}Solving CSO over Sampled Candidates}{8}{subsubsection.3.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Contact Planning Optimization}{8}{section.4}\protected@file@percent }
+\newlabel{sec:cpo}{{IV}{8}{Contact Planning Optimization}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Problem Statement}{8}{subsection.4.1}\protected@file@percent }
+\newlabel{equ:origin_cpo_problem}{{34}{8}{Problem Statement}{equation.34}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-A}1}\textcolor {red}{Role of Contact Guidance}}{8}{subsubsection.4.1.1}\protected@file@percent }
+\newlabel{sec:feasible_contact_trajectory}{{\mbox  {IV-A}2}{9}{\textcolor {red}{Contact Switching Trajectory}}{subsubsection.4.1.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-A}2}\textcolor {red}{Contact Switching Trajectory}}{9}{subsubsection.4.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Ranking Strategy of Contact Locations}{9}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:cpo-ranking_strategy}{{\mbox  {IV-B}}{9}{Ranking Strategy of Contact Locations}{subsection.4.2}{}}
+\newlabel{equ:nearest}{{35}{9}{Ranking Strategy of Contact Locations}{equation.35}{}}
+\newlabel{equ:ranking1}{{36}{9}{Ranking Strategy of Contact Locations}{equation.36}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces Ranking Strategy of CPO}}{9}{algorithm.2}\protected@file@percent }
+\newlabel{algo:ranking}{{2}{9}{Ranking Strategy of CPO}{algorithm.2}{}}
+\newlabel{equ:kappa}{{37}{9}{Ranking Strategy of Contact Locations}{equation.37}{}}
+\newlabel{equ:ranking}{{38}{9}{Ranking Strategy of Contact Locations}{equation.38}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Formulation of CPO}{9}{subsection.4.3}\protected@file@percent }
+\citation{acosta2025perceptive}
+\citation{nakanishi2008operational}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-C}1}Lifting Phase}{10}{subsubsection.4.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-C}2}Placing Phase}{10}{subsubsection.4.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-C}3}Switching Parameter}{10}{subsubsection.4.3.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces (a) Illustrative example of a feasible approach and contact trajectory. (b) Explanation of CPO in a geometric perspective. CPO can be characterized as operating over two manifolds: contact states in $\mathcal  {S}_{\text  {contact}}$ and approaching trajectories on the manifold $\mathcal  {S}_{\text  {approach}}$ embedded in the contact-free state space $\mathcal  {S}_{\text  {free}}$. CPO must not only generate contact trajectories on $\mathcal  {S}_{\text  {contact}}$ but also address the gradient-sparse issue and generate trajectories on $\mathcal  {S}_{\text  {approach}}$.}}{10}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:approaching_contact}{{5}{10}{(a) Illustrative example of a feasible approach and contact trajectory. (b) Explanation of CPO in a geometric perspective. CPO can be characterized as operating over two manifolds: contact states in $\mathcal {S}_{\text {contact}}$ and approaching trajectories on the manifold $\mathcal {S}_{\text {approach}}$ embedded in the contact-free state space $\mathcal {S}_{\text {free}}$. CPO must not only generate contact trajectories on $\mathcal {S}_{\text {contact}}$ but also address the gradient-sparse issue and generate trajectories on $\mathcal {S}_{\text {approach}}$}{figure.caption.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Illustration of the CPO-based contact planning module. (a) Ranking strategy. When $\bm  {p}_{\text  {near}}$ is evaluated infeasible, $\gamma $ turns to zero and $ \bm  {p}_{\text  {ref}} \gets \bm  {\hat  {p}}_r^*$. The evaluation runs continuously in real-time. (b) When $\gamma =0$, the robot is guided by the potential field to $\bm  {p}_{\text  {lift}}$. (c) Once above $\hat  {\bm  {p}}_r^*$ or the nearest point $\bm  {p}_{\text  {ref}}$ to the robot is detected feasible via \eqref  {equ:csqp}, $\gamma $ becomes 1 and an attractive potential is applied, guiding the robot to contact with the object.}}{10}{figure.caption.8}\protected@file@percent }
+\newlabel{fig:task_requirements}{{6}{10}{Illustration of the CPO-based contact planning module. (a) Ranking strategy. When $\boldsymbol {p}_{\text {near}}$ is evaluated infeasible, $\gamma $ turns to zero and $ \boldsymbol {p}_{\text {ref}} \gets \boldsymbol {\hat {p}}_r^*$. The evaluation runs continuously in real-time. (b) When $\gamma =0$, the robot is guided by the potential field to $\boldsymbol {p}_{\text {lift}}$. (c) Once above $\hat {\boldsymbol {p}}_r^*$ or the nearest point $\boldsymbol {p}_{\text {ref}}$ to the robot is detected feasible via \eqref {equ:csqp}, $\gamma $ becomes 1 and an attractive potential is applied, guiding the robot to contact with the object}{figure.caption.8}{}}
+\newlabel{equ:cpo_formulation}{{45}{10}{Switching Parameter}{equation.45}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Solvers of CPO}{10}{subsection.4.4}\protected@file@percent }
+\citation{williams2015model}
+\citation{brahmbhatt2019contactdb}
+\citation{todorov2012mujoco}
+\citation{makoviychuk2021isaac}
+\citation{wei2022approximate}
+\citation{Andersson2019}
+\citation{gill2005snopt}
+\citation{wachter2006implementation}
+\newlabel{sec:osc_control}{{\mbox  {IV-D}1}{11}{Operational-Space Control}{subsubsection.4.4.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-D}1}Operational-Space Control}{11}{subsubsection.4.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-D}2}Sampling-based Motion Planner}{11}{subsubsection.4.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}Evaluation of Surrogate Contact Model}{11}{section.5}\protected@file@percent }
+\newlabel{sec:scm_evaluation}{{V}{11}{Evaluation of Surrogate Contact Model}{section.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Fidelity of SCM against the rigid LCP and success of direct-apply rollouts.}}{11}{table.caption.9}\protected@file@percent }
+\newlabel{tab:scm_eval}{{II}{11}{Fidelity of SCM against the rigid LCP and success of direct-apply rollouts}{table.caption.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Experiment: Nonprehensile Manipulation}{11}{section.6}\protected@file@percent }
+\newlabel{sec:experiment}{{VI}{11}{Experiment: Nonprehensile Manipulation}{section.6}{}}
+\newlabel{eq:pose_success}{{49}{11}{Experiment: Nonprehensile Manipulation}{equation.49}{}}
+\citation{lyu2025dywa}
+\citation{venkatesh2025approximating}
+\citation{aydinoglu2024consensus}
+\citation{venkatesh2025approximating}
+\citation{jin2024complementarity}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Experimental results of fingertip manipulation. SCSP achieves a substantially higher success rate than the other methods.}}{12}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:results_fingertip}{{7}{12}{Experimental results of fingertip manipulation. SCSP achieves a substantially higher success rate than the other methods}{figure.caption.10}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-A}}Fingertip Manipulation in Simulation}{12}{subsection.6.1}\protected@file@percent }
+\newlabel{sec:fingertip_exps}{{\mbox  {VI-A}}{12}{Fingertip Manipulation in Simulation}{subsection.6.1}{}}
+\citation{wen2024foundationpose}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Experimental results of robot manipulation in simulation. SCSP significantly outperforms other model-based methods and exceeds the performance of well-trained learning-based methods.}}{13}{figure.caption.11}\protected@file@percent }
+\newlabel{fig:results_panda}{{8}{13}{Experimental results of robot manipulation in simulation. SCSP significantly outperforms other model-based methods and exceeds the performance of well-trained learning-based methods}{figure.caption.11}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-B}}Robot Manipulation in Simulation}{13}{subsection.6.2}\protected@file@percent }
+\newlabel{sec:robot_manipulation}{{\mbox  {VI-B}}{13}{Robot Manipulation in Simulation}{subsection.6.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-C}}Ablation Studies}{13}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-D}}Real-world Experiments}{13}{subsection.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-D}1}Experimental Setup}{13}{subsubsection.6.4.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces  {Comparison of nonprehensile manipulation tasks of the fingertip experiment and the robot experiment (200 trials).} }}{14}{table.caption.12}\protected@file@percent }
+\newlabel{tab:all_data}{{III}{14}{Comparison of nonprehensile manipulation tasks of the fingertip experiment and the robot experiment (200 trials)}{table.caption.12}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Nonprehensile manipulation experiments in simulation. (a1)-(a4): Snapshots of SCSP in the fingertip and robot experiments, where the goal pose is visualized either transparently or as a floating coordinate frame. (b1)-(b4): The left two panels show the mean and standard deviation curves of the position and orientation errors over steps across 10 SCSP trials. The right panel shows the pose error $\ell _{\text  {pose}}$ of different methods during manipulation. The comparison methods either require longer execution time or fail due to local minima or solver failures.}}{14}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:simulation_data}{{9}{14}{Nonprehensile manipulation experiments in simulation. (a1)-(a4): Snapshots of SCSP in the fingertip and robot experiments, where the goal pose is visualized either transparently or as a floating coordinate frame. (b1)-(b4): The left two panels show the mean and standard deviation curves of the position and orientation errors over steps across 10 SCSP trials. The right panel shows the pose error $\ell _{\text {pose}}$ of different methods during manipulation. The comparison methods either require longer execution time or fail due to local minima or solver failures}{figure.caption.13}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Evaluation of the effect of the number of candidate points}}{14}{table.caption.14}\protected@file@percent }
+\newlabel{tab:cso_sampling}{{IV}{14}{Evaluation of the effect of the number of candidate points}{table.caption.14}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Hardware setup of the real-world experiments.}}{15}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:illustrative_example_1}{{10}{15}{Hardware setup of the real-world experiments}{figure.caption.15}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Perception method in the real-world experimental setting. Object pose is detected using \texttt  {FoundationPose} and filtered via a Kalman filter. Contact estimation is performed using a \texttt  {MuJoCo} implementation that approximates the experimental environment.}}{15}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:illustrative_example_i}{{11}{15}{Perception method in the real-world experimental setting. Object pose is detected using \texttt {FoundationPose} and filtered via a Kalman filter. Contact estimation is performed using a \texttt {MuJoCo} implementation that approximates the experimental environment}{figure.caption.16}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-D}2}Results and Discussion}{15}{table.caption.18}\protected@file@percent }
+\citation{yin2025visualmimic,kong2026learning}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Snapshots of nonprehensile manipulation in real-world experiments. (a) \textbf  {DyWA} failed to flip the bunny. (b) \textbf  {SCSP} succeeds in flipping the bunny. (c) \textbf  {Sampling} failed by pushing the Xbox controller to fall off the foam padding. (d) \textbf  {SCSP} succeed in flipping the Xbox controller.}}{16}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:results_real_world_flip}{{12}{16}{Snapshots of nonprehensile manipulation in real-world experiments. (a) \textbf {DyWA} failed to flip the bunny. (b) \textbf {SCSP} succeeds in flipping the bunny. (c) \textbf {Sampling} failed by pushing the Xbox controller to fall off the foam padding. (d) \textbf {SCSP} succeed in flipping the Xbox controller}{figure.caption.17}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Success rates (\%) for on-ground rotation and flipping on different surfaces and objects.}}{16}{table.caption.18}\protected@file@percent }
+\newlabel{tab:real_world_success}{{V}{16}{Success rates (\%) for on-ground rotation and flipping on different surfaces and objects}{table.caption.18}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces Computation time of SCSP}}{16}{table.caption.19}\protected@file@percent }
+\newlabel{tab:metrics}{{VI}{16}{Computation time of SCSP}{table.caption.19}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Generalization to Multiple Tasks}{16}{section.7}\protected@file@percent }
+\newlabel{sec:generalize}{{VII}{16}{Generalization to Multiple Tasks}{section.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-A}}Case Study I: Multi-Contact Task}{16}{subsection.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VII-A}1}Soccer Dribbling}{16}{subsubsection.7.1.1}\protected@file@percent }
+\citation{lin2026bidexgrasp}
+\citation{borst2004grasp}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Snapshots of manipulation under external disturbances. The object’s pose is continuously perturbed during manipulation to demonstrate SCSP’s real-time robustness under such disturbances. The panels on the right shows the temporal evolution of position and orientation errors.}}{17}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:real_world_continous}{{13}{17}{Snapshots of manipulation under external disturbances. The object’s pose is continuously perturbed during manipulation to demonstrate SCSP’s real-time robustness under such disturbances. The panels on the right shows the temporal evolution of position and orientation errors}{figure.caption.20}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Robustness validation of SCSP on surfaces with different friction. (a) Foam. (b) Cotton clothes.}}{17}{figure.caption.21}\protected@file@percent }
+\newlabel{fig:real_world_disturbance}{{14}{17}{Robustness validation of SCSP on surfaces with different friction. (a) Foam. (b) Cotton clothes}{figure.caption.21}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces Soccer dribbling task. (a) Experiment setup. The task is to kick the soccer to the target (translucent). Red and green cubes show footworkspaces, and the yellow point indicates CSO-planned contact locations. (b) Gribbling trajectory.}}{17}{figure.caption.22}\protected@file@percent }
+\newlabel{fig:soccer}{{15}{17}{Soccer dribbling task. (a) Experiment setup. The task is to kick the soccer to the target (translucent). Red and green cubes show footworkspaces, and the yellow point indicates CSO-planned contact locations. (b) Gribbling trajectory}{figure.caption.22}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces Experiment setup. The task is to push an object on a surface tilted at 15$^\circ $. (a) The open-loop method fails when execution errors occur, causing the teapot to fall off the tilted surface. (b) SCSP can replan online and thus successfully complete the dynamic task.}}{17}{figure.caption.23}\protected@file@percent }
+\newlabel{fig:tilted_push}{{16}{17}{Experiment setup. The task is to push an object on a surface tilted at 15$^\circ $. (a) The open-loop method fails when execution errors occur, causing the teapot to fall off the tilted surface. (b) SCSP can replan online and thus successfully complete the dynamic task}{figure.caption.23}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VII-A}2}Tilted Pushing}{17}{subsubsection.7.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VII-A}3}Grasping \& Dexterous Manipulation}{17}{subsubsection.7.1.3}\protected@file@percent }
+\citation{bhardwaj2022storm}
+\citation{huang2026pointworld}
+\citation{xu2026interprior}
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces Snapshots of the multi-contact grasping tasks. (a) Bi-manual grasping of an elephant with the size scaling factor $\varsigma =1$. (b) Multi-finger grasping of a duck with $\varsigma =1.5$.}}{18}{figure.caption.24}\protected@file@percent }
+\newlabel{fig:grasping}{{17}{18}{Snapshots of the multi-contact grasping tasks. (a) Bi-manual grasping of an elephant with the size scaling factor $\varsigma =1$. (b) Multi-finger grasping of a duck with $\varsigma =1.5$}{figure.caption.24}{}}
+\newlabel{equ:force_closure}{{52}{18}{Grasping \& Dexterous Manipulation}{equation.52}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-B}}Case Study II: Articulated Object Manipulation}{18}{subsection.7.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces Snapshots of long-horizon tasks. Given only the target pose of the object, SCSP performs online reasoning and selects appropriate contact locations to accomplish the task. (a) Opening a drawer. (b) Opening the microwave door.}}{18}{figure.caption.25}\protected@file@percent }
+\newlabel{fig:long_horizon}{{18}{18}{Snapshots of long-horizon tasks. Given only the target pose of the object, SCSP performs online reasoning and selects appropriate contact locations to accomplish the task. (a) Opening a drawer. (b) Opening the microwave door}{figure.caption.25}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VIII}Discussion \& Limitations}{18}{section.8}\protected@file@percent }
+\newlabel{sec:discussion}{{VIII}{18}{Discussion \& Limitations}{section.8}{}}
+\bibstyle{IEEEtran}
+\bibdata{reference}
+\bibcite{zito2012two}{1}
+\bibcite{wu2020r3t}{2}
+\bibcite{haustein2015kinodynamic}{3}
+\bibcite{chen2021trajectotree}{4}
+\bibcite{cheng2022contact}{5}
+\bibcite{aceituno2020global}{6}
+\bibcite{marcucci2017approximate}{7}
+\bibcite{hogan2020feedback}{8}
+\bibcite{kim2023pre}{9}
+\bibcite{lianglearning}{10}
+\bibcite{zhou2023learning}{11}
+\bibcite{zhang2023learning}{12}
+\bibcite{zhou2023hacman}{13}
+\bibcite{cho2024corn}{14}
+\bibcite{jiang2024hacman++}{15}
+\bibcite{le2025enhancing}{16}
+\bibcite{lyu2025dywa}{17}
+\bibcite{aydinoglu2024consensus}{18}
+\bibcite{li2025surprising}{19}
+\bibcite{kurtz2026inverse}{20}
+\bibcite{pang2023global}{21}
+\bibcite{jin2024complementarity}{22}
+\bibcite{zhang2025simultaneous}{23}
+\bibcite{yang2024contactsdf}{24}
+\bibcite{venkatesh2025approximating}{25}
+\bibcite{posa2014direct}{26}
+\bibcite{wensing2023optimization}{27}
+\bibcite{stewart2000implicit}{28}
+\bibcite{anitescu2006optimization}{29}
+\bibcite{bui2025push}{30}
+\bibcite{suh2025dexterous}{31}
+\bibcite{jiang2025robust}{32}
+\bibcite{xie2026touch}{33}
+\@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces Success trials across different tasks.}}{19}{table.caption.26}\protected@file@percent }
+\newlabel{tab:generalization_tasks_result}{{VII}{19}{Success trials across different tasks}{table.caption.26}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {IX}Conclusion}{19}{section.9}\protected@file@percent }
+\newlabel{sec:conclusion}{{IX}{19}{Conclusion}{section.9}{}}
+\@writefile{toc}{\contentsline {section}{References}{19}{section*.27}\protected@file@percent }
+\bibcite{pang2021convex}{34}
+\bibcite{hogan1984impedance}{35}
+\bibcite{anitescu2010iterative}{36}
+\bibcite{avriel2003nonlinear}{37}
+\bibcite{lien2007approximate}{38}
+\bibcite{acosta2025perceptive}{39}
+\bibcite{nakanishi2008operational}{40}
+\bibcite{williams2015model}{41}
+\bibcite{brahmbhatt2019contactdb}{42}
+\bibcite{todorov2012mujoco}{43}
+\bibcite{makoviychuk2021isaac}{44}
+\bibcite{wei2022approximate}{45}
+\bibcite{Andersson2019}{46}
+\bibcite{gill2005snopt}{47}
+\bibcite{wachter2006implementation}{48}
+\bibcite{wen2024foundationpose}{49}
+\bibcite{yin2025visualmimic}{50}
+\bibcite{kong2026learning}{51}
+\bibcite{lin2026bidexgrasp}{52}
+\bibcite{borst2004grasp}{53}
+\bibcite{bhardwaj2022storm}{54}
+\bibcite{huang2026pointworld}{55}
+\bibcite{xu2026interprior}{56}
+\@writefile{toc}{\contentsline {section}{Appendix}{20}{section*.28}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A}Proof of Closest Approximation}{20}{subsection.Appendix.A.1}\protected@file@percent }
+\newlabel{proof:closest_approximation}{{A}{20}{Proof of Closest Approximation}{subsection.Appendix.A.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {B}Local Motion-Prediction Accuracy of SCM}{20}{subsection.Appendix.A.2}\protected@file@percent }
+\newlabel{app:scm_motion_accuracy}{{B}{20}{Local Motion-Prediction Accuracy of SCM}{subsection.Appendix.A.2}{}}
+\newlabel{eq:appB_geometry_gain}{{56}{20}{Local Motion-Prediction Accuracy of SCM}{equation.56}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {B1}Directional accuracy}{20}{subsubsection.Appendix.A.2.1}\protected@file@percent }
+\newlabel{eq:appB_direction_proof}{{57}{20}{Directional accuracy}{equation.57}{}}
+\newlabel{eq:appB_direction_consistency}{{58}{20}{Directional accuracy}{equation.58}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {B2}Magnitude accuracy}{21}{subsubsection.Appendix.A.2.2}\protected@file@percent }
+\newlabel{eq:appB_force_fixed_point}{{59}{21}{Magnitude accuracy}{equation.59}{}}
+\newlabel{eq:appB_force_accuracy}{{60}{21}{Magnitude accuracy}{equation.60}{}}
+\newlabel{eq:appB_motion_accuracy}{{61}{21}{Magnitude accuracy}{equation.61}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {B3}Contact transitions}{21}{subsubsection.Appendix.A.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C}Proof of Lemma 4}{21}{subsection.Appendix.A.3}\protected@file@percent }
+\newlabel{proof:lemma4}{{C}{21}{Proof of Lemma 4}{subsection.Appendix.A.3}{}}
+\gdef\svg@ink@ver@settings{{\m@ne }{inkscape}{\m@ne }}
+\gdef \@abspage@last{21}

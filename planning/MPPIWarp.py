@@ -482,12 +482,16 @@ def adapt_param_for_cartesian_ranking(param, args):
     param.mpc_u_ub_ = -param.mpc_u_lb_
     param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), np.array([-10.0, -10.0, table_height - 0.01])))
     param.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), np.array([10.0, 10.0, table_height + 1.0])))
-    args.solver = "acados"
-    param.torch_solver = "acados"
-    param.planner_solver_ = "acados"
+    from planning.runtime_compat import resolve_solver_backend
+    requested_backend = getattr(args, "solver_backend", "auto")
+    concrete_backend = resolve_solver_backend(requested_backend)
+    args.solver = concrete_backend
+    param.solver_backend_ = requested_backend
+    param.torch_solver = concrete_backend
+    param.planner_solver_ = concrete_backend
     if getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
-    param.lambda_optimizer.solver = "acados"
+    param.lambda_optimizer.solver = concrete_backend
     param.sol_guess_ = None
     return param
 
@@ -508,6 +512,7 @@ def configure_mppi_rollout_param(param, args):
 def adapt_param_for_joint_mppi(param, args):
     """7-DoF MPPI model.  Does not overwrite cartesian ranking dims."""
     from examples.mpc.franka.ik2.params import build_lambda_optimizer
+    from planning.runtime_compat import resolve_solver_backend
 
     param.mppi_tabletop_lock_ = True
     param.fingertip_radius_ = 0.01
@@ -534,7 +539,9 @@ def adapt_param_for_joint_mppi(param, args):
 
     if getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
-    param.lambda_optimizer.solver = "acados"
+    param.lambda_optimizer.solver = resolve_solver_backend(
+        getattr(args, "solver_backend", "auto")
+    )
     param.sol_guess_ = None
     return param
 
@@ -976,7 +983,9 @@ def _build_planner_runtime(init):
     )
 
     args = argparse.Namespace(**init["args"])
-    args.solver = "acados"
+    from planning.runtime_compat import resolve_solver_backend
+    args.solver_backend = getattr(args, "solver_backend", "auto")
+    args.solver = resolve_solver_backend(args.solver_backend)
     args.rollout = True
     trial_count = int(init["trial_count"])
     param = ExplicitMPCParams(
