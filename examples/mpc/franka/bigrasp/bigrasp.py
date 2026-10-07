@@ -48,6 +48,11 @@ except Exception as exc:  # pragma: no cover - runtime dependency
 from planning.mlqp_point_v2 import LambdaContactControlOptimizer
 from planning.mppi_bigrasp_ee import BimanualEEMPPI
 from planning.bigrasp_ee_cost import numpy_pose_state
+from planning.contact_pair import ContactPair
+from planning.physical_bimanual_mppi import (
+    MujocoBimanualRolloutBackend,
+    PhysicalBimanualMPPI,
+)
 
 PANDA_XML_PATH = REPO_ROOT / "envs" / "xmls" / "panda_nohand.xml"
 GENERATED_SCENE_PATH = REPO_ROOT / "envs" / "xmls" / "_generated_bigrasp_scene.xml"
@@ -759,12 +764,15 @@ class DualArmPlanOnceParams:
         self.planner_ee_orientation_weight_ = float(getattr(args, "planner_ee_orientation_weight", 2.0))
         self.planner_force_tracking_weight_ = float(getattr(args, "planner_force_tracking_weight", 12.0))
         self.planner_object_target_weight_ = float(getattr(args, "planner_object_target_weight", 300.0))
+        self.planner_object_lateral_weight_ = float(getattr(args, "planner_object_lateral_weight", 300.0))
         self.planner_object_orientation_weight_ = float(getattr(args, "planner_object_orientation_weight", 15.0))
         self.planner_synchronization_weight_ = float(getattr(args, "planner_synchronization_weight", 25.0))
+        self.planner_contact_gate_sync_weight_ = float(getattr(args, "planner_contact_gate_sync_weight", 25.0))
         self.planner_action_weight_ = float(getattr(args, "planner_action_weight", 2.0))
         self.planner_smooth_action_weight_ = float(getattr(args, "planner_smooth_action_weight", 3.0))
         self.planner_workspace_weight_ = float(getattr(args, "planner_workspace_weight", 50.0))
         self.planner_contact_gate_scale_ = float(getattr(args, "planner_contact_gate_scale", 0.004))
+        self.planner_contact_tangent_scale_ = float(getattr(args, "planner_contact_tangent_scale", 0.015))
         self.planner_rotation_delta_limit_ = rotation_limit
         self.planner_cmd_limit = float(args.planner_cmd_limit)
         self.planner_workspace_lower_ = (-1.0, -1.0, 0.0)
@@ -778,6 +786,8 @@ class DualArmPlanOnceParams:
         self.mppi_noise_sigma_ = float(args.mppi_noise_sigma)
         self.mppi_noise_decay_ = float(args.mppi_noise_decay)
         self.mppi_elite_frac_ = float(args.mppi_elite_frac)
+        seed = None if args.mppi_seed is None else int(args.mppi_seed)
+        self.mppi_seed_ = None if seed is None or seed < 0 else seed
         self.mppi_use_torch_compile_ = bool(args.mppi_use_torch_compile)
         default_mppi_device = "cuda:0" if torch is not None and torch.cuda.is_available() else "cpu"
         self.mppi_device_ = str(args.mppi_device or default_mppi_device)
@@ -931,7 +941,43 @@ class BimanualPandaGrasper:
             * max(int(self.args.command_substeps), 1)
         )
         self.plan_params = DualArmPlanOnceParams(self.args, args.obj_mass)
-        self.planner = BimanualEEMPPI(self.plan_params)
+        self.planner = BimanualEEMPPI(self.plan_params, seed=self.plan_params.mppi_seed_)
+        self.physical_planner = None
+        self.physical_execution_steps = max(
+            int(getattr(args, "physical_mppi_physics_steps", 10)), 1
+        )
+        planner_backend = str(getattr(args, "planner_backend", "surrogate_mppi")).strip().lower()
+        if str(getattr(args, "planner_solver", "mppi")).strip().lower() == "physical_mppi":
+            planner_backend = "physical_mppi"
+        if planner_backend == "physical_mppi":
+            # ``touch_offset`` is a pre-contact stand-off used by the legacy
+            # waypoint controller.  A physical rollout must put the
+            # fingertip sphere on the object (and apply the configured small
+            # squeeze), otherwise the MPPI objective can converge to a
+            # several-millimetre gap with zero MuJoCo contacts.
+            physical_contact_offset = max(
+                TIP_RADIUS - min(float(getattr(args, "squeeze_depth", 0.0)), TIP_RADIUS * 0.9),
+                0.001,
+            )
+            self.physical_planner = PhysicalBimanualMPPI(
+                MujocoBimanualRolloutBackend(
+                    self,
+                    ee_target_offset=physical_contact_offset,
+                    physics_steps=self.physical_execution_steps,
+                ),
+                horizon=int(args.planner_horizon),
+                samples=int(getattr(args, "physical_mppi_samples", min(int(args.mppi_samples), 64))),
+                iterations=int(getattr(args, "physical_mppi_iterations", min(int(args.mppi_iterations), 2))),
+                init_iterations=int(getattr(args, "physical_mppi_init_iterations", 4)),
+                temperature=float(args.mppi_lambda),
+                noise_sigma=float(args.mppi_noise_sigma),
+                noise_decay=float(args.mppi_noise_decay),
+                elite_frac=float(args.mppi_elite_frac),
+                translation_limit=float(args.planner_cmd_limit),
+                rotation_limit=float(args.planner_rotation_delta_limit),
+                dt=float(args.planner_dt),
+                seed=self.plan_params.mppi_seed_,
+            )
         self._setup_curobo()
 
     def _resolve_mesh_scale(self, args):
@@ -3537,6 +3583,7 @@ class BimanualPandaGrasper:
         hold_mask=(False, False),
         object_force_world=None,
         object_torque_world=None,
+        orientation_reference=None,
     ):
         """Execute one 12D dual-EE SE(3) increment through impedance control.
 
@@ -3565,11 +3612,22 @@ class BimanualPandaGrasper:
         right_pos, right_rot = self.get_tip_pose(self.right_arm)
         left_delta = np.zeros(6, dtype=np.float64) if hold[0] else action[:6]
         right_delta = np.zeros(6, dtype=np.float64) if hold[1] else action[6:12]
+        if orientation_reference is None:
+            left_reference_rot = left_rot
+            right_reference_rot = right_rot
+        else:
+            reference_quat = np.asarray(orientation_reference, dtype=np.float64).reshape(2, 4)
+            left_reference_rot = Rotation.from_quat(
+                [reference_quat[0, 1], reference_quat[0, 2], reference_quat[0, 3], reference_quat[0, 0]]
+            ).as_matrix()
+            right_reference_rot = Rotation.from_quat(
+                [reference_quat[1, 1], reference_quat[1, 2], reference_quat[1, 3], reference_quat[1, 0]]
+            ).as_matrix()
         left_target_rot = _project_to_rotation_matrix(
-            Rotation.from_rotvec(left_delta[3:6]).as_matrix() @ left_rot
+            Rotation.from_rotvec(left_delta[3:6]).as_matrix() @ left_reference_rot
         )
         right_target_rot = _project_to_rotation_matrix(
-            Rotation.from_rotvec(right_delta[3:6]).as_matrix() @ right_rot
+            Rotation.from_rotvec(right_delta[3:6]).as_matrix() @ right_reference_rot
         )
         self.step_cartesian_action(
             left_delta[:3],
@@ -3911,10 +3969,10 @@ class BimanualPandaGrasper:
     def run(self):
         """Run one receding-horizon MPPI loop for the complete grasp.
 
-        Contact geometry is solved once in the object frame.  Every following
-        cycle only reprojects those fixed points through the measured object
-        pose and runs the same target/cost; synchronization is represented by
-        the per-arm hold mask rather than by stage transitions.
+        Contact geometry is solved in the object frame and held during normal
+        receding-horizon operation.  The physical rollout backend can request
+        a new lambda pair after bilateral contact is lost or the object drifts
+        materially; the analytic acc backend keeps its historical fixed pair.
         """
         self.planner.reset()
         object_pos, object_quat, object_rot = self.get_object_pose()
@@ -3979,6 +4037,10 @@ class BimanualPandaGrasper:
         else:
             normals_unit = normals_local / np.maximum(np.linalg.norm(normals_local, axis=1, keepdims=True), 1.0e-9)
             desired_normal_forces_local[:] = normals_unit * required_normal_force
+        contact_targets["desired_force_vectors_local"] = desired_normal_forces_local.copy()
+        contact_pair = ContactPair.from_lambda_targets(contact_targets)
+        contact_replan_origin = object_pos.copy()
+        contact_lost_steps = 0
 
         # Solve the fixed contact orientation once.  The IK solution is used
         # only as the common EE orientation reference for all MPPI cycles.
@@ -4045,13 +4107,42 @@ class BimanualPandaGrasper:
         stable_steps = 0
         last_info = {}
         telemetry = []
+        measured_contact_mask = np.zeros(2, dtype=bool)
         control_steps = max(int(getattr(self.args, "control_steps", 1600)), 1)
         sync_pos_tol = float(getattr(self.args, "planner_sync_pos_tol", self.args.planner_attract_tol))
         sync_rot_tol = float(getattr(self.args, "planner_sync_rot_tol", self.args.ik_rot_tol))
         report_stride = max(1, control_steps // 20)
+        print_mppi_timing = bool(getattr(self.args, "print_mppi_timing", False))
 
         for step_idx in range(control_steps):
+            loop_t0 = time.perf_counter()
             current_pos, current_quat, current_rot = self.get_object_pose()
+            if self.physical_planner is not None:
+                drifted = float(np.linalg.norm(current_pos - contact_replan_origin)) >= float(
+                    getattr(self.args, "contact_replan_drift_m", 0.01)
+                )
+                lost = contact_lost_steps >= max(int(getattr(self.args, "contact_replan_lost_steps", 3)), 1)
+                if drifted or lost:
+                    refreshed = self._get_live_contact_targets(
+                        current_pos,
+                        current_rot,
+                        previous_targets=contact_targets,
+                        virtual_offset=float(self.args.planner_attract_offset),
+                    )
+                    contact_targets = refreshed
+                    contact_points_local = np.asarray(refreshed["contact_points_local"], dtype=np.float64).reshape(2, 3)
+                    normals_local = np.asarray(refreshed["normals_local"], dtype=np.float64).reshape(2, 3)
+                    self.contact_points_local = contact_points_local.copy()
+                    self.normals_local = normals_local.copy()
+                    refreshed_force = np.asarray(
+                        refreshed.get("desired_force_vectors_local", []), dtype=np.float64
+                    ).reshape(-1, 3)
+                    if refreshed_force.shape[0] == 2:
+                        desired_normal_forces_local = refreshed_force.copy()
+                    refreshed["desired_force_vectors_local"] = desired_normal_forces_local.copy()
+                    contact_pair = ContactPair.from_lambda_targets(refreshed)
+                    contact_replan_origin = current_pos.copy()
+                    contact_lost_steps = 0
             contact_points_world = (current_rot @ contact_points_local.T).T + current_pos[None, :]
             self.contact_points_world = contact_points_world.copy()
             inward_normals_world = (current_rot @ normals_local.T).T
@@ -4066,6 +4157,18 @@ class BimanualPandaGrasper:
                 current_pos,
                 current_rot,
                 center_offset=touch_offset,
+            )
+            # Reproject the contact-frame orientation with the measured
+            # object pose on every physical cycle.  Keeping the initial IK
+            # quaternion fixed while a unilateral contact yaws the object
+            # leaves the impedance controller tracking a stale normal and
+            # creates a tangential miss at the other fingertip.
+            ee_target_quat_cycle = np.asarray(
+                [
+                    mat_to_quat_wxyz(approach_targets["left_tip_rot"]),
+                    mat_to_quat_wxyz(approach_targets["right_tip_rot"]),
+                ],
+                dtype=np.float64,
             )
             left_pos, left_rot = self.get_tip_pose(self.left_arm)
             right_pos, right_rot = self.get_tip_pose(self.right_arm)
@@ -4084,29 +4187,85 @@ class BimanualPandaGrasper:
                 [ready_mask[0] and not ready_mask[1], ready_mask[1] and not ready_mask[0]],
                 dtype=bool,
             )
+            # Contact feedback remains part of the rollout cost, but the
+            # physical planner must keep both arms free to adjust in the same
+            # rollout.  Freezing the first contact creates a discrete
+            # one-arm stage and can make the bilateral solution unreachable.
+            contact_hold_mask = np.zeros(2, dtype=bool)
             planner_state = self.get_planner_state()
-            planner_result = self.planner.plan_once(
-                planner_state,
-                contact_points_local,
-                normals_local,
-                desired_normal_forces_local,
-                object_target_pos,
-                object_target_quat,
-                ee_target_quat,
-                support_z=float(self.support_height_threshold),
-                hold_mask=hold_mask,
-                approach_offset=touch_offset,
+            planner_t0 = time.perf_counter()
+            trajectory_path = None
+            if self.physical_planner is not None:
+                trajectory_path = getattr(self.args, "planner_trajectory_path", None)
+                if trajectory_path:
+                    trajectory_path = str(trajectory_path)
+                    if control_steps > 1:
+                        trajectory_file = Path(trajectory_path)
+                        if trajectory_file.suffix.lower() != ".npz":
+                            trajectory_file = trajectory_file.with_suffix(".npz")
+                        trajectory_path = str(
+                            trajectory_file.with_name(f"{trajectory_file.stem}_{step_idx:04d}{trajectory_file.suffix}")
+                        )
+                planner_result = self.physical_planner.plan_once(
+                    contact_pair,
+                    object_target_pos,
+                    object_target_quat,
+                    state=planner_state,
+                    trajectory_path=trajectory_path,
+                    hold_mask=hold_mask,
+                    ee_target_quat=ee_target_quat_cycle,
+                    # Recompute a small feedback seed from the measured EE
+                    # pose every cycle.  This keeps the warm-started MPPI
+                    # distribution attracted to the fixed contact pair when
+                    # all sampled rollouts are still non-contact.
+                    approach_seed_weight=1.0,
+                )
+            else:
+                planner_result = self.planner.plan_once(
+                    planner_state,
+                    contact_points_local,
+                    normals_local,
+                    desired_normal_forces_local,
+                    object_target_pos,
+                    object_target_quat,
+                    ee_target_quat,
+                    support_z=float(self.support_height_threshold),
+                    hold_mask=hold_mask,
+                    approach_offset=touch_offset,
+                )
+            planner_wall_time = float(
+                planner_result.get("solve_time", time.perf_counter() - planner_t0)
             )
             action = np.asarray(planner_result["action"], dtype=np.float64).reshape(12)
             # The mask is applied again at the execution boundary so a ready
             # arm is exactly stationary even if a backend returns stale noise.
-            action[:6] = 0.0 if hold_mask[0] else action[:6]
-            action[6:12] = 0.0 if hold_mask[1] else action[6:12]
-            self.step_ee_pose_delta(action, hold_mask=hold_mask)
+            if self.physical_planner is None:
+                action[:6] = 0.0 if hold_mask[0] else action[:6]
+                action[6:12] = 0.0 if hold_mask[1] else action[6:12]
+            control_t0 = time.perf_counter()
+            if self.physical_planner is not None:
+                original_command_steps = int(self.args.mj_steps_per_command)
+                self.args.mj_steps_per_command = self.physical_execution_steps
+                try:
+                    self.step_ee_pose_delta(
+                        action,
+                        hold_mask=hold_mask,
+                        orientation_reference=ee_target_quat_cycle,
+                    )
+                finally:
+                    self.args.mj_steps_per_command = original_command_steps
+            else:
+                self.step_ee_pose_delta(action, hold_mask=hold_mask)
+            control_wall_time = float(time.perf_counter() - control_t0)
 
             if self.viewer is not None:
                 self.sync_viewer()
             contacts = self.extract_object_contacts()
+            measured_contact_mask = np.asarray(
+                [bool(contacts["left"]), bool(contacts["right"])], dtype=bool
+            )
+            if self.physical_planner is not None:
+                contact_lost_steps = 0 if bool(np.all(measured_contact_mask)) else contact_lost_steps + 1
             measured_force = np.asarray(
                 [
                     max((float(item.get("normal_force", 0.0)) for item in contacts["left"]), default=0.0),
@@ -4115,6 +4274,19 @@ class BimanualPandaGrasper:
                 dtype=np.float64,
             )
             post_pos, post_quat, _ = self.get_object_pose()
+            post_targets = self._stage_targets_from_object_pose(
+                contact_points_local,
+                normals_local,
+                post_pos,
+                quat_wxyz_to_mat(post_quat),
+                center_offset=touch_offset,
+            )
+            post_left_pos, post_left_rot = self.get_tip_pose(self.left_arm)
+            post_right_pos, post_right_rot = self.get_tip_pose(self.right_arm)
+            post_left_pos_err = float(np.linalg.norm(post_left_pos - post_targets["left_tip_pos"]))
+            post_right_pos_err = float(np.linalg.norm(post_right_pos - post_targets["right_tip_pos"]))
+            post_left_rot_err = float(np.linalg.norm(_rotation_error(post_left_rot, left_fixed_rot)))
+            post_right_rot_err = float(np.linalg.norm(_rotation_error(post_right_rot, right_fixed_rot)))
             object_pos_error = float(np.linalg.norm(post_pos - object_target_pos))
             object_rot_error = float(np.linalg.norm(_rotation_error(quat_wxyz_to_mat(post_quat), quat_wxyz_to_mat(object_target_quat))))
             force_ok = bool(np.all(measured_force >= desired_normal_thresholds))
@@ -4124,6 +4296,31 @@ class BimanualPandaGrasper:
             else:
                 stable_steps = 0
 
+            best_diagnostics = planner_result.get("best_diagnostics") or {}
+            terminal_diagnostics = best_diagnostics.get("terminal", {})
+
+            def _diag_scalar(name, default=0.0):
+                value = terminal_diagnostics.get(name, default)
+                values = np.asarray(value, dtype=np.float64).reshape(-1)
+                return float(values[0]) if values.size else float(default)
+
+            predicted_force_gate = np.asarray(
+                terminal_diagnostics.get("force_gate", np.zeros(2)), dtype=np.float64
+            ).reshape(-1)
+            predicted_tangent_distance = np.asarray(
+                terminal_diagnostics.get("tangential_distance", np.zeros(2)), dtype=np.float64
+            ).reshape(-1)
+            predicted_force_world = np.asarray(
+                terminal_diagnostics.get("predicted_force_world", np.zeros((2, 3))), dtype=np.float64
+            ).reshape(-1, 3)
+            predicted_contact_mask = np.asarray(
+                planner_result.get("contact_mask", np.zeros((0, 2))), dtype=bool
+            )
+            predicted_normal_force = np.asarray(
+                planner_result.get("normal_force", np.zeros((0, 2))), dtype=np.float64
+            )
+            loop_wall_time = float(time.perf_counter() - loop_t0)
+
             last_info = {
                 "step": step_idx,
                 "best_contact_point_world": contact_points_world.copy(),
@@ -4132,21 +4329,65 @@ class BimanualPandaGrasper:
                 "measured_normal_force": measured_force.copy(),
                 "ready_mask": ready_mask.copy(),
                 "hold_mask": hold_mask.copy(),
+                "contact_hold_mask": contact_hold_mask.copy(),
                 "mppi_cost": planner_result.get("cost"),
+                "mppi_action": action.copy(),
                 "planner_backend": planner_result.get("solver_backend", "mppi_ee"),
                 "object_pose": (post_pos.copy(), post_quat.copy()),
                 "object_target_pose": (object_target_pos.copy(), object_target_quat.copy()),
                 "object_position_error": object_pos_error,
                 "object_orientation_error": object_rot_error,
+                "left_pos_err": float(left_pos_err),
+                "right_pos_err": float(right_pos_err),
+                "left_rot_err": float(left_rot_err),
+                "right_rot_err": float(right_rot_err),
+                "post_left_pos_err": post_left_pos_err,
+                "post_right_pos_err": post_right_pos_err,
+                "post_left_rot_err": post_left_rot_err,
+                "post_right_rot_err": post_right_rot_err,
+                "contact_count": np.asarray(
+                    [len(contacts["left"]), len(contacts["right"])], dtype=np.int32
+                ),
+                "object_xy_delta": (post_pos[:2] - current_pos[:2]).copy(),
+                "predicted_force_gate": predicted_force_gate.copy(),
+                "predicted_tangential_distance": predicted_tangent_distance.copy(),
+                "predicted_bilateral_gate": _diag_scalar("bilateral_gate"),
+                "predicted_unilateral_gate": _diag_scalar("unilateral_gate"),
+                "predicted_force_world": predicted_force_world.copy(),
+                "predicted_contact_mask": predicted_contact_mask.copy(),
+                "predicted_normal_force": predicted_normal_force.copy(),
+                "rollout_object_pose_se3": np.asarray(
+                    planner_result.get("object_pose_se3", np.zeros((0, 6))), dtype=np.float64
+                ).copy(),
+                "rollout_ee_delta_pose": np.asarray(
+                    planner_result.get("ee_delta_pose", np.zeros((0, 12))), dtype=np.float64
+                ).copy(),
+                "planner_trajectory_path": trajectory_path,
+                "planner_wall_time": planner_wall_time,
+                "control_wall_time": control_wall_time,
+                "loop_wall_time": loop_wall_time,
             }
             telemetry.append(last_info)
             if step_idx % report_stride == 0 or stable_steps == int(self.args.contact_stable_steps):
                 print(
                     f"[{step_idx:04d}] cost={planner_result.get('cost', float('nan')):.4f} "
                     f"ready={ready_mask.astype(int).tolist()} hold={hold_mask.astype(int).tolist()} "
+                    f"ee={post_left_pos_err:.4f}/{post_right_pos_err:.4f} "
+                    f"contacts={len(contacts['left'])}/{len(contacts['right'])} "
                     f"force={np.array2string(measured_force, precision=3)} "
+                    f"dxy={np.array2string(post_pos[:2] - current_pos[:2], precision=5)} "
                     f"obj_err={object_pos_error:.4f} target_z={object_target_pos[2]:.4f}"
                 )
+                if print_mppi_timing:
+                    print(
+                        "  mppi_timing: "
+                        f"plan={planner_wall_time:.4f}s ctrl={control_wall_time:.4f}s "
+                        f"loop={loop_wall_time:.4f}s "
+                        f"force_gate={np.array2string(predicted_force_gate, precision=3)} "
+                        f"tangent={np.array2string(predicted_tangent_distance, precision=4)} "
+                        f"bilateral={_diag_scalar('bilateral_gate'):.3f} "
+                        f"unilateral={_diag_scalar('unilateral_gate'):.3f}"
+                    )
             if stable_steps >= max(int(self.args.contact_stable_steps), 1):
                 print(f"Unified MPPI grasp reached a stable target at step {step_idx}.")
                 break
@@ -4157,6 +4398,24 @@ class BimanualPandaGrasper:
             stable_steps >= max(int(self.args.contact_stable_steps), 1)
             and final_height >= float(self.args.lift_height) - float(self.args.lift_success_margin)
         )
+        if telemetry:
+            left_errors = np.asarray([item["post_left_pos_err"] for item in telemetry], dtype=np.float64)
+            right_errors = np.asarray([item["post_right_pos_err"] for item in telemetry], dtype=np.float64)
+            contact_counts = np.asarray([item["contact_count"] for item in telemetry], dtype=np.int32)
+            xy_steps = np.asarray([item["object_xy_delta"] for item in telemetry], dtype=np.float64)
+            measured_forces = np.asarray([item["measured_normal_force"] for item in telemetry], dtype=np.float64)
+            both_contact_steps = int(np.count_nonzero(np.all(contact_counts > 0, axis=1)))
+            one_contact_steps = int(np.count_nonzero(np.sum(contact_counts > 0, axis=1) == 1))
+            max_xy_step = float(np.max(np.linalg.norm(xy_steps, axis=1)))
+            net_xy = float(np.linalg.norm(final_pos[:2] - object_pos[:2]))
+            max_normal_force = float(np.max(measured_forces))
+            print(
+                "Contact diagnostics: "
+                f"min_ee={np.min(left_errors):.4f}/{np.min(right_errors):.4f} "
+                f"one_arm_steps={one_contact_steps} both_arm_steps={both_contact_steps} "
+                f"max_dxy_step={max_xy_step:.5f} net_xy={net_xy:.5f} "
+                f"max_normal_force={max_normal_force:.3f}"
+            )
         print(
             f"Unified MPPI result: success={success} height_gain={final_height:.4f} "
             f"target_gain={float(self.args.lift_height):.4f}"
@@ -4288,6 +4547,12 @@ def build_argparser():
     parser.add_argument("--curobo-robot-cfg", type=str, default="franka.yml", help="Robot config passed to cuRobo.")
     parser.add_argument("--mujoco-dt", type=float, default=0.01, help="MuJoCo simulation timestep in seconds.")
     parser.add_argument("--mj-steps-per-command", type=int, default=1, help="Number of MuJoCo steps executed after each MPC command.")
+    parser.add_argument(
+        "--physical-mppi-physics-steps",
+        type=int,
+        default=10,
+        help="MuJoCo steps per physical-MPPI action, used consistently in candidate rollouts and execution.",
+    )
     parser.add_argument("--command-substeps", type=int, default=1, help="Multiplier used when matching cuRobo MPC dt to the MuJoCo control cadence.")
     parser.add_argument("--curobo-collision-activation-distance", type=float, default=0.06, help="Collision activation distance passed to cuRobo.")
     parser.add_argument("--disable-curobo-self-collision", action="store_true", help="Disable cuRobo self-collision checking.")
@@ -4298,9 +4563,34 @@ def build_argparser():
     parser.add_argument(
         "--planner-solver",
         type=str,
-        choices=("mppi", "ipopt", "acados"),
+        choices=("mppi", "ipopt", "acados", "physical_mppi"),
         default="mppi",
-        help="Planner backend label; BigRasp uses the Torch MPPI implementation.",
+        help="Planner backend label; physical_mppi selects the physical rollout MPPI path.",
+    )
+    parser.add_argument(
+        "--planner-backend",
+        type=str,
+        choices=("surrogate_mppi", "physical_mppi"),
+        default="surrogate_mppi",
+        help="Use the existing analytic MPPI or physical-in-the-loop MPPI rollout.",
+    )
+    parser.add_argument(
+        "--planner-trajectory-path",
+        type=str,
+        default=None,
+        help="Optional .npz path for the latest physical MPPI best trajectory.",
+    )
+    parser.add_argument(
+        "--contact-replan-lost-steps",
+        type=int,
+        default=3,
+        help="Re-run lambda contact selection after this many consecutive lost-contact cycles.",
+    )
+    parser.add_argument(
+        "--contact-replan-drift-m",
+        type=float,
+        default=0.01,
+        help="Re-run lambda contact selection after this object translation drift in meters.",
     )
     parser.add_argument("--planner-max-contacts", type=int, default=15, help="Maximum object contacts modeled by plan_once.")
     parser.add_argument("--planner-cmd-limit", type=float, default=0.05, help="Per-step Cartesian delta limit in meters for each arm.")
@@ -4313,12 +4603,15 @@ def build_argparser():
     parser.add_argument("--planner-ee-orientation-weight", type=float, default=2.0, help="EE contact orientation cost weight.")
     parser.add_argument("--planner-force-tracking-weight", type=float, default=12.0, help="Contact force tracking cost weight.")
     parser.add_argument("--planner-object-target-weight", type=float, default=300.0, help="Gated object target position cost weight.")
+    parser.add_argument("--planner-object-lateral-weight", type=float, default=300.0, help="Always-on horizontal object displacement cost weight.")
     parser.add_argument("--planner-object-orientation-weight", type=float, default=15.0, help="Gated object target orientation cost weight.")
     parser.add_argument("--planner-synchronization-weight", type=float, default=25.0, help="Dual-arm synchronization cost weight.")
+    parser.add_argument("--planner-contact-gate-sync-weight", type=float, default=25.0, help="Cost on unequal predicted contact gates between the two fingertips.")
     parser.add_argument("--planner-action-weight", type=float, default=2.0, help="Action magnitude cost weight.")
     parser.add_argument("--planner-smooth-action-weight", type=float, default=3.0, help="Action smoothness cost weight.")
     parser.add_argument("--planner-workspace-weight", type=float, default=50.0, help="Workspace violation cost weight.")
     parser.add_argument("--planner-contact-gate-scale", type=float, default=0.004, help="Soft contact gate length scale in meters.")
+    parser.add_argument("--planner-contact-tangent-scale", type=float, default=0.015, help="Tangential distance scale used by the soft contact gate.")
     parser.add_argument("--planner-attract-coef", type=float, default=0.5, help="Attract cost coefficient for plan_once.")
     parser.add_argument("--planner-reject-coef", type=float, default=0.001, help="Reject cost coefficient for plan_once.")
     parser.add_argument("--planner-contact-coef", type=float, default=0.7, help="Contact cost coefficient for plan_once.")
@@ -4329,13 +4622,33 @@ def build_argparser():
     parser.add_argument("--planner-robot-stiffness", type=float, default=300.0, help="Cartesian point stiffness used by the plan_once robot model.")
     parser.add_argument("--mppi-samples", type=int, default=256, help="Number of sampled trajectories used by plan_once.")
     parser.add_argument("--mppi-iterations", type=int, default=4, help="Number of MPPI update iterations after warm start.")
+    parser.add_argument(
+        "--physical-mppi-samples",
+        type=int,
+        default=64,
+        help="Sample count for physical rollouts; defaults lower than analytic MPPI because acc rollouts are sequential.",
+    )
+    parser.add_argument(
+        "--physical-mppi-iterations",
+        type=int,
+        default=2,
+        help="MPPI iterations for physical rollouts.",
+    )
+    parser.add_argument(
+        "--physical-mppi-init-iterations",
+        type=int,
+        default=4,
+        help="Initial physical MPPI iterations before the warm-start distribution is available.",
+    )
     parser.add_argument("--mppi-init-iterations", type=int, default=8, help="Number of MPPI iterations used before a warm start exists.")
     parser.add_argument("--mppi-lambda", type=float, default=1.0, help="MPPI temperature.")
     parser.add_argument("--mppi-noise-sigma", type=float, default=0.005, help="Action noise sigma for MPPI.")
     parser.add_argument("--mppi-noise-decay", type=float, default=0.85, help="Per-iteration MPPI noise decay.")
     parser.add_argument("--mppi-elite-frac", type=float, default=0.1, help="Elite fraction used by MPPI weighting.")
+    parser.add_argument("--mppi-seed", type=int, default=0, help="Random seed for reproducible MPPI rollouts; use a negative value to disable seeding.")
     parser.add_argument("--mppi-device", type=str, default=None, help="Torch device used by MPPI, for example cpu or cuda:0.")
     parser.add_argument("--mppi-use-torch-compile", action="store_true", help="Enable torch.compile for the MPPI kernels when available.")
+    parser.add_argument("--print-mppi-timing", action="store_true", help="Print per-cycle MPPI, control, and bilateral-contact diagnostics.")
     parser.add_argument("--cartesian-stiffness-pos", type=float, default=500.0, help="Translational stiffness used by the Cartesian impedance controller.")
     parser.add_argument("--cartesian-stiffness-rot", type=float, default=50.0, help="Rotational stiffness used by the Cartesian impedance controller.")
     parser.add_argument("--nullspace-stiffness", type=float, default=10.0, help="Nullspace stiffness used by the Cartesian impedance controller.")

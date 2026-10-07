@@ -564,8 +564,8 @@ From this directory:
 
 ```bash
 export PYTHONPATH="$(pwd):$PYTHONPATH"
-export ACADOS_SOURCE_DIR="/home/lab423/scsp/thirdparty/acados"
-export LD_LIBRARY_PATH="/home/lab423/scsp/thirdparty/acados/lib:${{LD_LIBRARY_PATH}}"
+export ACADOS_SOURCE_DIR="/home/lab423/push_ws/acados"
+export LD_LIBRARY_PATH="/home/lab423/push_ws/acados/lib:${{LD_LIBRARY_PATH}}"
 python examples/mpc/fingertips/test/test_0902.py --headless --trial_num 1
 python examples/mpc/franka/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-device cuda:0
 ```

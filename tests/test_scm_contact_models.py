@@ -1,7 +1,11 @@
 import numpy as np
+import os
+import pytest
+from types import SimpleNamespace
 
 from planning.scm_contact_models import (
     LCPContactModel,
+    MujocoForwardContactModel,
     appendix_accuracy,
     contact_jacobian,
     motion_accuracy,
@@ -70,3 +74,48 @@ def test_pyramid_matrix_reconstructs_axis_force():
     A = pyramid_matrix(0.5)
     lam = np.array([1.0, 0.0, 0.0, 0.0])
     np.testing.assert_allclose(A @ lam, [1.0, 0.5, 0.0])
+
+
+def test_mujoco_oracle_discovers_object_free_joint_dofs():
+    model = SimpleNamespace(
+        njnt=3,
+        jnt_bodyid=np.array([1, 2, 3]),
+        jnt_type=np.array([2, 0, 3]),
+        jnt_dofadr=np.array([0, 4, 10]),
+    )
+    np.testing.assert_array_equal(
+        MujocoForwardContactModel._object_free_dofs(model, 2),
+        np.arange(4, 10),
+    )
+
+
+def test_scaled_generalized_mass_inverse_preserves_physical_map():
+    mass = np.diag([1e-2, 1e-2, 1e-2, 5e-6, 8e-6, 1.2e-5])
+    scale = np.diag([1., 1., 1., 40., 35., 30.])
+    scaled = scale.T @ mass @ scale
+    qinv = scale @ np.linalg.inv(scaled) @ scale.T
+    np.testing.assert_allclose(qinv, np.linalg.inv(mass), rtol=1e-12, atol=1e-8)
+    assert np.linalg.cond(scaled) < np.linalg.cond(mass)
+
+
+def test_compiled_mujoco_calibration_reads_physical_parameters():
+    mujoco = pytest.importorskip("mujoco")
+    from examples.mpc.fingertips.test.params import mujoco_physical_parameters
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    path = os.path.join(root, "envs", "xmls", "env_fingertips_foam_brick.xml")
+    values = mujoco_physical_parameters(path)
+    assert values["mass"] > 0.0
+    assert values["inertia"].shape == (3, 3)
+    assert np.all(np.diag(values["inertia"]) > 0.0)
+    assert values["mu_object"] > 0.0
+    assert values["mu_table"] > 0.0
+
+
+def test_mujoco_support_height_uses_plane_level_not_plane_size():
+    pytest.importorskip("mujoco")
+    from examples.mpc.fingertips.test.params import mujoco_supported_height
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    path = os.path.join(root, "envs", "xmls", "env_fingertips_foam_brick.xml")
+    height = mujoco_supported_height(
+        path, np.array([0.0, 0.0, 0.03, 1.0, 0.0, 0.0, 0.0]))
+    assert 0.0 < height < 0.05

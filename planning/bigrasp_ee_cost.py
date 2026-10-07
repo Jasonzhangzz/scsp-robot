@@ -139,12 +139,15 @@ class BimanualEECostConfig:
     ee_orientation_weight: float = 2.0
     force_tracking_weight: float = 12.0
     object_position_weight: float = 300.0
+    object_lateral_position_weight: float = 300.0
     object_orientation_weight: float = 15.0
     synchronization_weight: float = 25.0
+    contact_gate_sync_weight: float = 25.0
     action_weight: float = 2.0
     smooth_action_weight: float = 3.0
     workspace_weight: float = 50.0
     contact_gate_scale: float = 0.004
+    contact_tangent_scale: float = 0.015
     object_initial_z: float = 0.0
     workspace_lower: tuple[float, float, float] = (-1.0, -1.0, 0.0)
     workspace_upper: tuple[float, float, float] = (2.0, 1.0, 2.0)
@@ -164,7 +167,8 @@ def contact_geometry(state, contact_points_local, normals_local, contact_radius=
     ee_pos = torch.stack((left_p, right_p), dim=-2)
     delta = ee_pos - contact_world
     signed_gap = torch.sum(delta * outward_world, dim=-1) - float(contact_radius)
-    tangential_delta = delta - signed_gap.unsqueeze(-1) * outward_world
+    normal_distance = torch.sum(delta * outward_world, dim=-1)
+    tangential_delta = delta - normal_distance.unsqueeze(-1) * outward_world
     return contact_world, inward_world, outward_world, signed_gap, tangential_delta
 
 
@@ -223,7 +227,15 @@ def evaluate_bimanual_ee_cost(
 
     desired_force_local = torch.as_tensor(context["desired_force_local"], device=state.device, dtype=state.dtype)
     desired_force_world = quat_rotate(obj_q.unsqueeze(-2), desired_force_local.reshape((1,) * (state.ndim - 1) + (2, 3)))
-    force_gate = torch.sigmoid(-signed_gap / max(float(cfg.contact_gate_scale), 1.0e-6))
+    normal_gate = torch.sigmoid(-signed_gap / max(float(cfg.contact_gate_scale), 1.0e-6))
+    tangential_distance = torch.linalg.vector_norm(tangent_delta, dim=-1)
+    tangent_scale = max(float(cfg.contact_tangent_scale), 1.0e-6)
+    tangential_gate = torch.exp(-0.5 * (tangential_distance / tangent_scale).square())
+    # A normal penetration by itself is not contact: the fingertip must also
+    # be close to the selected point in the tangent plane.  Without this term
+    # the surrogate reports force while an EE is centimetres away laterally,
+    # so MPPI prefers trajectories that MuJoCo cannot realize.
+    force_gate = normal_gate * tangential_gate
     force_error = torch.sum((predicted_force - desired_force_world) ** 2, dim=-1) * force_gate
 
     total_force = torch.sum(predicted_force, dim=-2)
@@ -235,8 +247,11 @@ def evaluate_bimanual_ee_cost(
     target_p = target_p.reshape((1,) * (state.ndim - 1) + (3,))
     target_q = target_q.reshape((1,) * (state.ndim - 1) + (4,))
     bilateral_gate = torch.prod(force_gate, dim=-1)
+    unilateral_gate = torch.sum(force_gate, dim=-1) - 2.0 * bilateral_gate
+    contact_gate_sync_error = (force_gate[..., 0] - force_gate[..., 1]).square()
     object_position_error = torch.sum((obj_p - target_p) ** 2, dim=-1)
     object_orientation_error = quat_alignment_error(obj_q, target_q)
+    object_lateral_error = torch.sum((obj_p[..., :2] - target_p[..., :2]) ** 2, dim=-1)
 
     distance_delta = torch.linalg.vector_norm(ee_pos - approach_target, dim=-1)
     synchronization_error = (distance_delta[..., 0] - distance_delta[..., 1]).square()
@@ -257,7 +272,9 @@ def evaluate_bimanual_ee_cost(
         + float(cfg.force_tracking_weight) * torch.sum(force_error, dim=-1)
         + float(cfg.object_position_weight) * bilateral_gate * object_position_error
         + float(cfg.object_orientation_weight) * bilateral_gate * object_orientation_error
+        + float(cfg.object_lateral_position_weight) * object_lateral_error
         + float(cfg.synchronization_weight) * synchronization_error
+        + float(cfg.contact_gate_sync_weight) * contact_gate_sync_error
         + float(cfg.action_weight) * action_cost
         + float(cfg.smooth_action_weight) * smooth_cost
         + float(cfg.workspace_weight) * workspace_cost
@@ -266,6 +283,7 @@ def evaluate_bimanual_ee_cost(
         total = total + 5.0 * (
             float(cfg.object_position_weight) * bilateral_gate * object_position_error
             + float(cfg.object_orientation_weight) * bilateral_gate * object_orientation_error
+            + float(cfg.object_lateral_position_weight) * object_lateral_error
             + float(cfg.ee_position_weight) * torch.sum(position_error, dim=-1)
         )
     return total, {
@@ -275,12 +293,18 @@ def evaluate_bimanual_ee_cost(
         "object_force_world": total_force,
         "object_torque_world": total_torque,
         "signed_gap": signed_gap,
+        "tangential_distance": tangential_distance,
+        "normal_gate": normal_gate,
+        "tangential_gate": tangential_gate,
         "force_gate": force_gate,
         "bilateral_gate": bilateral_gate,
+        "unilateral_gate": unilateral_gate,
+        "contact_gate_sync_error": contact_gate_sync_error,
         "position_error": position_error,
         "orientation_error": orientation_error,
         "object_position_error": object_position_error,
         "object_orientation_error": object_orientation_error,
+        "object_lateral_error": object_lateral_error,
     }
 
 

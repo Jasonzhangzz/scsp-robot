@@ -9,7 +9,9 @@ import os
 import sys
 from pathlib import Path
 
-DEFAULT_ACADOS_SOURCE_DIR = "/home/lab423/scsp/thirdparty/acados"
+# The locally installed/build-tested acados tree.  Keep ACADOS_SOURCE_DIR as
+# an explicit override, but prefer this installation over repository copies.
+DEFAULT_ACADOS_SOURCE_DIR = "/home/lab423/push_ws/acados"
 REPO_DIR_NAME = "scsp-robot"
 
 
@@ -64,13 +66,13 @@ def acados_root_candidates(repo_root=None):
     if acados_source_dir:
         candidates.append(os.path.abspath(acados_source_dir))
     candidates.extend((
+        os.path.abspath(DEFAULT_ACADOS_SOURCE_DIR),
         os.path.abspath(os.path.join(repo_root, "..", "thirdparty", "acados")),
         os.path.abspath(os.path.join(repo_root, "..", "acados")),
         os.path.abspath(os.path.join(repo_root, "thirdparty", "acados")),
         os.path.abspath(os.path.join(repo_root, "..", "zz_ws", "acados")),
         os.path.abspath(os.path.join(home, "zz_ws", "acados")),
         os.path.abspath(os.path.join(home, "acados")),
-        os.path.abspath(DEFAULT_ACADOS_SOURCE_DIR),
     ))
 
     deduped = []

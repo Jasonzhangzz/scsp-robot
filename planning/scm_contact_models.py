@@ -315,9 +315,11 @@ def surrogate_response(q_inv, jacobian, b, phi=0.0, regularization=1.0e-8,
 class MujocoForwardContactModel:
     """MuJoCo forward oracle for the environment contact response."""
 
-    def __init__(self, env=None, friction=0.5):
+    def __init__(self, env=None, friction=0.5, table_friction=None):
         self.env = env
         self.friction = float(friction)
+        self.table_friction = (self.friction if table_friction is None
+                               else float(table_friction))
         self.last = None
 
     def set_mujoco_env(self, env):
@@ -326,6 +328,33 @@ class MujocoForwardContactModel:
     @staticmethod
     def _object_frame(data, body_id):
         return np.asarray(data.xmat[body_id], dtype=np.float64).reshape(3, 3)
+
+    @staticmethod
+    def _object_free_dofs(model, body_id):
+        """Return the six qvel/qacc indices belonging to the object's free joint."""
+        for joint_id in range(int(model.njnt)):
+            if int(model.jnt_bodyid[joint_id]) != int(body_id):
+                continue
+            # MuJoCo's free joint has six velocity degrees of freedom.
+            if int(model.jnt_type[joint_id]) == 0:
+                start = int(model.jnt_dofadr[joint_id])
+                return np.arange(start, start + 6, dtype=np.int64)
+        raise ValueError("object body has no free joint")
+
+    @staticmethod
+    def _contact_signature(model, data, obj_body_id, table_id):
+        """Stable contact signature used only to identify contact transitions."""
+        obj_geoms = {int(gid) for gid in range(int(model.ngeom))
+                     if int(model.geom_bodyid[gid]) == int(obj_body_id)}
+        signature = []
+        for i in range(int(data.ncon)):
+            con = data.contact[i]
+            g1, g2 = int(con.geom1), int(con.geom2)
+            if table_id not in (g1, g2) or not ({g1, g2} & obj_geoms):
+                continue
+            signature.append((min(g1, g2), max(g1, g2),
+                              tuple(np.round(np.asarray(con.pos), 5))))
+        return tuple(sorted(signature))
 
     def _table_contacts(self, model, data, obj_body_id, obj_geom_ids, table_id,
                         body_pos, body_rot, mu):
@@ -366,7 +395,9 @@ class MujocoForwardContactModel:
         return np.asarray(rows, dtype=np.float64), wrench_body
 
     def forward_velocity(self, optimizer, lam_r, point_local, normal, tangent1,
-                         tangent2, h, tau_body=None, lambda_scale=1.0):
+                         tangent2, h, tau_body=None, lambda_scale=1.0,
+                         execution_dt=None, nstep=None, force_cap=0.0,
+                         torque_cap=0.0):
         if self.env is None:
             raise ValueError("MuJoCo environment has not been set")
         try:
@@ -380,42 +411,93 @@ class MujocoForwardContactModel:
         ctrl = data.ctrl.copy()
         try:
             obj_body = int(model.geom("obj").bodyid)
+            object_dofs = self._object_free_dofs(model, obj_body)
+            execution_dt = (float(execution_dt) if execution_dt is not None else
+                            float(h))
+            if execution_dt <= 0.0:
+                raise ValueError("execution_dt must be positive")
+            nstep = max(1, int(nstep if nstep is not None else
+                               getattr(env.param_, "frame_skip_", 1)))
+            table_id = int(model.geom("table").id)
+            contacts_before = self._contact_signature(
+                model, data, obj_body, table_id)
             body_rot = self._object_frame(data, obj_body)
-            force_body = contact_wrench(point_local, normal, tangent1, tangent2,
-                                        _array(lam_r, (3,)))
-            force_body[:3] *= float(lambda_scale)
-            force_body[3:] *= float(lambda_scale)
-            # The legacy fingertip optimizer stores an impulse-like lambda;
-            # MuJoCo's xfrc_applied buffer is a force in SI units.
-            if not bool(getattr(optimizer, "wrench_is_force", False)):
-                force_body /= max(float(h), _EPS)
+            wrench_value = contact_wrench(
+                point_local, normal, tangent1, tangent2, _array(lam_r, (3,)))
+            wrench_value[:3] *= float(lambda_scale)
+            wrench_value[3:] *= float(lambda_scale)
+            # The reduced optimizer uses an impulse-like lambda by default.
+            # Convert it using the actual MuJoCo execution interval so that
+            # one mj_step applies the same impulse represented by the model.
+            if bool(getattr(optimizer, "wrench_is_force", False)):
+                force_body = wrench_value.copy()
+                wrench_impulse = wrench_value * execution_dt
+            else:
+                wrench_impulse = wrench_value.copy()
+                force_body = wrench_impulse / execution_dt
+            force_body_unclipped = force_body.copy()
+            force_norm = float(np.linalg.norm(force_body[:3]))
+            if float(force_cap) > 0.0 and force_norm > float(force_cap):
+                force_body *= float(force_cap) / force_norm
+                wrench_impulse = force_body * execution_dt
+            torque_norm = float(np.linalg.norm(force_body[3:]))
+            if float(torque_cap) > 0.0 and torque_norm > float(torque_cap):
+                force_body[3:] *= float(torque_cap) / torque_norm
+                wrench_impulse = force_body * execution_dt
             force_world = body_rot @ force_body[:3]
             torque_world = body_rot @ force_body[3:]
             data.xfrc_applied[:] = 0.0
             data.xfrc_applied[obj_body, :3] = force_world
             data.xfrc_applied[obj_body, 3:] = torque_world
+            # Match the physical wrench rollout: the fingertip is an ideal
+            # position-controlled actuator and must not fall into the table
+            # while the object wrench is being measured.
+            tip_body = getattr(env, "fingertip_body_id", None)
+            tip_mass = getattr(env, "fingertip_mass", 0.0)
+            gravity_vec = getattr(env, "gravity_vec", np.zeros(3))
+            if tip_body is not None and float(tip_mass) > 0.0:
+                data.xfrc_applied[int(tip_body), :3] = (
+                    -float(tip_mass) * np.asarray(gravity_vec))
             if tau_body is not None:
                 tau = _array(tau_body, (6,))
                 data.xfrc_applied[obj_body, :3] += body_rot @ tau[:3]
                 data.xfrc_applied[obj_body, 3:] += body_rot @ tau[3:]
-            mujoco.mj_forward(model, data)
-            qacc_world = np.asarray(data.qacc[:6], dtype=np.float64).copy()
-            v_plus = float(h) * np.hstack((body_rot.T @ qacc_world[:3],
-                                           body_rot.T @ qacc_world[3:]))
-            table_id = int(model.geom("table").id)
+            mujoco.mj_step(model, data, nstep=nstep)
+            qvel_after = np.asarray(data.qvel[object_dofs], dtype=np.float64).copy()
+            qvel_before = np.asarray(qvel[object_dofs], dtype=np.float64).copy()
+            delta_world = qvel_after - qvel_before
+            v_plus = np.hstack((body_rot.T @ delta_world[:3],
+                                body_rot.T @ delta_world[3:]))
             obj_geom_ids = {int(g) for g in range(model.ngeom)
                             if int(model.geom_bodyid[g]) == obj_body}
             measured_lam_force, measured_wrench = self._table_contacts(
                 model, data, obj_body, obj_geom_ids, table_id,
-                np.asarray(data.xpos[obj_body]), body_rot, self.friction)
+                np.asarray(data.xpos[obj_body]), body_rot, self.table_friction)
             measured_lam = measured_lam_force.copy()
             if not bool(getattr(optimizer, "wrench_is_force", False)):
-                measured_lam *= float(h)
+                measured_lam *= execution_dt
+            contacts_after = self._contact_signature(
+                model, data, obj_body, table_id)
             self.last = {"v_plus": v_plus, "lambda_env": measured_lam,
                          "lambda_env_force": measured_lam_force,
                          "env_wrench_body": measured_wrench,
-                         "qacc_world": qacc_world,
-                         "ncon": int(data.ncon), "oracle": "mj_forward"}
+                         "qvel_before": qvel_before,
+                         "qvel_after": qvel_after,
+                         "delta_v_world": delta_world,
+                         "wrench_impulse_body": wrench_impulse,
+                         "force_body_unclipped": force_body_unclipped,
+                         "force_body": force_body,
+                         "force_cap": float(force_cap),
+                         "torque_cap": float(torque_cap),
+                         "force_was_clipped": bool(
+                             not np.allclose(force_body, force_body_unclipped)),
+                         "execution_dt": execution_dt,
+                         "nstep": nstep,
+                         "ncon": int(data.ncon), "oracle": "mj_step"}
+            self.last["ncon_before"] = int(len(contacts_before))
+            self.last["contact_transition"] = contacts_before != contacts_after
+            self.last["contacts_before"] = contacts_before
+            self.last["contacts_after"] = contacts_after
             return v_plus
         finally:
             data.qpos[:] = qpos; data.qvel[:] = qvel

@@ -1,0 +1,10 @@
+# Optional Python 3.12 environment for the Spider/MuJoCo-Warp rollout path.
+# Keep this separate from requirements-py38.txt (the acc environment).
+numpy>=1.26
+scipy>=1.11
+torch>=2.4
+mujoco>=3.2.3
+warp-lang
+mujoco-warp
+trimesh
+pytest

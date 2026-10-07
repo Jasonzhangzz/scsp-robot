@@ -45,8 +45,9 @@ Optional: `open3d` (debug viz), `Pillow`/`imageio` (goal_pose screenshots),
 
 - `trigrasp*` now prefers `scsp-robot/thirdparty/spider/.../right.xml`, then
   `/home/lab423/scsp/thirdparty/spider/...`.
-- acados is searched at `$ACADOS_SOURCE_DIR`, `../thirdparty/acados`,
-  `./thirdparty/acados`, then `/home/lab423/scsp/thirdparty/acados`.
+- acados is searched at `$ACADOS_SOURCE_DIR`, the local installation
+  `/home/lab423/push_ws/acados`, `../thirdparty/acados`, and
+  `./thirdparty/acados`.
   Entry points walk up to the `scsp-robot` directory and call
   `planning.acados_env.ensure_acados_env()`, so shell
   `export PYTHONPATH` / `export ACADOS_SOURCE_DIR` are not required.

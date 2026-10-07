@@ -64,7 +64,7 @@ python examples/mpc/fingertips/test/test_0902.py --headless --trial_num 1
 python examples/mpc/franka/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-device cuda:0
 ```
 
-acados is located in-process (`planning/acados_env.py`): `$ACADOS_SOURCE_DIR` if already set, then `../thirdparty/acados`, `./thirdparty/acados`, then `/home/lab423/scsp/thirdparty/acados`.
+acados is located in-process (`planning/acados_env.py`): `$ACADOS_SOURCE_DIR` if already set, then the local installation `/home/lab423/push_ws/acados`, `../thirdparty/acados`, and `./thirdparty/acados`.
 
 See `THIRD_PARTY.md` for what was vendored vs left as an install. Allegro hand assets now live in `thirdparty/spider/`. Isaac Gym, acados, and cuRobo stay as external installs.
 

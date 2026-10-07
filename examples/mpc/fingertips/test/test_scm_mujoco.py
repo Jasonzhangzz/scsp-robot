@@ -43,7 +43,7 @@ from planning.scm_contact_models import (
 )
 from contact.fingertips_collision_detection2 import Contact
 from envs.fingertips_env import MjSimulator
-from examples.mpc.fingertips.test.params import ExplicitMPCParams
+from examples.mpc.fingertips.test.params import ExplicitMPCParams, mujoco_physical_parameters
 from examples.mpc.fingertips.test.test_0902 import (
     _predicted_object_pose,
     add_rollout_via_args,
@@ -142,13 +142,70 @@ def _set_physical_mass(param, env, mass):
     old = float(model.body_mass[body_id])
     if old <= 0.0:
         return
+    # mj_setConst may rebuild derived model data and reset the associated
+    # data buffers on some MuJoCo versions. Preserve the actual rollout state
+    # so a parameter sweep cannot silently teleport the fingertip to zero.
+    qpos = env.data_.qpos.copy()
+    qvel = env.data_.qvel.copy()
+    ctrl = env.data_.ctrl.copy()
+    xfrc = env.data_.xfrc_applied.copy()
+    qfrc = env.data_.qfrc_applied.copy()
     ratio = mass / old
     model.body_mass[body_id] = mass
     model.body_inertia[body_id] *= ratio
     if hasattr(mujoco, "mj_setConst"):
         mujoco.mj_setConst(model, env.data_)
+    env.data_.qpos[:] = qpos
+    env.data_.qvel[:] = qvel
+    env.data_.ctrl[:] = ctrl
+    env.data_.xfrc_applied[:] = xfrc
+    env.data_.qfrc_applied[:] = qfrc
     param.obj_mass_ = mass
+    # Keep the surrogate and the execution model on the same mass/inertia
+    # after a sensitivity sweep changes MuJoCo's body mass.
+    _sync_surrogate_physics(param, env)
     mujoco.mj_forward(model, env.data_)
+
+
+def _sync_surrogate_physics(param, env):
+    """Refresh physical calibration after MuJoCo model edits."""
+    physics = mujoco_physical_parameters(
+        param.model_path_, getattr(param, 'calibration_noise_std_', 0.0),
+        np.random.default_rng(1000))
+    body_id = int(env.model_.geom('obj').bodyid)
+    physics['mass'] = float(env.model_.body_mass[body_id])
+    physics['generalized_mass'][:3, :3] = physics['mass'] * np.eye(3)
+    # body_inertia is already updated by _set_physical_mass.
+    physics['inertia'] = np.diag(np.asarray(env.model_.body_inertia[body_id], dtype=float))
+    physics['generalized_mass'][3:, 3:] = physics['inertia']
+    param.mujoco_physics_ = physics
+    param.obj_mass_ = physics['mass']
+    param.obj_inertia_ = physics['generalized_mass'].copy()
+    param.mu_object_ = physics['mu_object']
+    param.mu_table_ = physics['mu_table']
+    rot_diag = np.maximum(np.diag(param.obj_inertia_[3:, 3:]), 1e-15)
+    param.dynamics_scale_ = np.eye(6)
+    param.dynamics_scale_[3:, 3:] = np.diag(
+        np.sqrt(max(param.obj_mass_, 1e-15) / rot_diag))
+    opt = param.lambda_optimizer
+    opt.obj_inertia = param.obj_inertia_.copy()
+    opt.dynamics_scale = param.dynamics_scale_.copy()
+    scaled = opt.dynamics_scale.T @ opt.obj_inertia @ opt.dynamics_scale
+    opt.scaled_mass_matrix = scaled
+    opt.dynamics_condition_number = float(np.linalg.cond(scaled))
+    opt.Q_inv = opt.dynamics_scale @ np.linalg.inv(scaled) @ opt.dynamics_scale.T
+    opt.mu_arm_obj = float(param.mu_object_)
+    opt.max_normal_force = opt.max_contact_force / np.sqrt(
+        1.0 + 2.0 * opt.mu_arm_obj ** 2)
+    # The generated ACADOS graph embeds Q_inv and the friction bound. Rebuild
+    # it after a mass/friction sweep so the requested condition is actually
+    # solved with the calibrated parameters.
+    if getattr(opt, 'acados_solver', None) is not None:
+        try:
+            opt.acados_solver = opt._build_acados_contact_solver()
+        except Exception as exc:
+            opt.acados_solver = None
+            opt.last_acados_failure_reason = f'calibration rebuild failed: {exc}'
 
 
 def _integrate_local_pose(qpos, v_plus, h):
@@ -244,7 +301,15 @@ def _solve_step(param, args, env, contact, mode, coupling_scale=1.0,
         "normal": np.asarray(normal, dtype=np.float64),
         "h": float(optimizer.h), "gravity": gravity,
         "wrench_is_force": bool(getattr(optimizer, "wrench_is_force", False)),
-        "execution_force_cap": float(getattr(args, "execution_force_cap", 2.0)),
+        "execution_force_cap": float(getattr(args, "execution_force_cap", 0.1)),
+        "execution_torque_cap": float(getattr(args, "execution_torque_cap", 1e-5)),
+        "physical_mass": float(param.obj_mass_),
+        "physical_inertia": np.asarray(param.obj_inertia_[3:, 3:]).copy(),
+        "mu_object": float(param.mu_object_),
+        "mu_table": float(getattr(param, "mu_table_", np.nan)),
+        "dynamics_scale": np.asarray(getattr(param, "dynamics_scale_", np.eye(6))).copy(),
+        "dynamics_condition_number": float(getattr(optimizer, "dynamics_condition_number", np.nan)),
+        "calibration_noise_std": float(getattr(param, "calibration_noise_std_", 0.0)),
         "target_p": np.asarray(param.target_p_, dtype=np.float64),
         "target_q": np.asarray(param.target_q_, dtype=np.float64),
         "response": response,
@@ -271,11 +336,20 @@ def _show_step(env, solved, qpos):
     env.show_best_contact(contact_world)
 
 
-def _step_contact_force(env, solved, execution="pose", lambda_scale=1.0):
+def _execution_dt(env):
+    model_dt = float(getattr(env.model_.opt, "timestep", 0.0))
+    nstep = max(1, int(getattr(env.param_, "frame_skip_", 1)))
+    if model_dt <= 0.0:
+        raise RuntimeError("MuJoCo model timestep must be positive")
+    return model_dt * nstep, nstep
+
+
+def _step_contact_force(env, solved, execution="wrench", lambda_scale=1.0):
     """Apply one direct-apply step without touching the shared optimizer."""
     selected = solved["response"]["selected"]
     qpos = env.get_state()
     x_plus = _integrate_local_pose(qpos[:7], selected["v_plus"], solved["h"])
+    h_exec, nstep = _execution_dt(env)
     if execution == "wrench":
         if mujoco is None:
             raise RuntimeError("MuJoCo is required for wrench execution")
@@ -284,20 +358,100 @@ def _step_contact_force(env, solved, execution="pose", lambda_scale=1.0):
         lam_apply = solved.get("lam", np.zeros(3))
         if "lam_base" not in solved:
             lam_apply = lam_apply * float(lambda_scale)
-        wrench = contact_wrench(
+        wrench_impulse = contact_wrench(
             solved["p_local"], solved["n_arm"], solved["t1"], solved["t2"],
             lam_apply)
-        cap = float(solved.get("execution_force_cap", 2.0))
-        norm = float(np.linalg.norm(wrench[:3]))
+        wrench_impulse[:3] *= float(lambda_scale) if "lam_base" not in solved else 1.0
+        wrench_impulse[3:] *= float(lambda_scale) if "lam_base" not in solved else 1.0
+        if bool(solved.get("wrench_is_force", False)):
+            force_body = wrench_impulse.copy()
+            impulse_body = wrench_impulse * h_exec
+        else:
+            impulse_body = wrench_impulse.copy()
+            force_body = impulse_body / h_exec
+        cap = float(solved.get("execution_force_cap", 0.1))
+        torque_cap = float(solved.get("execution_torque_cap", 1e-5))
+        raw_impulse_body = impulse_body.copy()
+        unclipped_force = force_body.copy()
+        norm = float(np.linalg.norm(force_body[:3]))
         if cap > 0.0 and norm > cap:
-            wrench *= cap / norm
+            force_body *= cap / norm
+            impulse_body = force_body * h_exec
+        torque_norm = float(np.linalg.norm(force_body[3:]))
+        if torque_cap > 0.0 and torque_norm > torque_cap:
+            force_body[3:] *= torque_cap / torque_norm
+            impulse_body = force_body * h_exec
+        # #region agent log
+        try:
+            import json as _json
+            _log_path = "/home/lab423/scsp/scsp-robot/.cursor/debug-c69ca2.log"
+            os.makedirs(os.path.dirname(_log_path), exist_ok=True)
+            with open(_log_path, "a", encoding="utf-8") as _lf:
+                _lf.write(_json.dumps({
+                    "sessionId": "c69ca2",
+                    "runId": "pre-fix",
+                    "hypothesisId": "A",
+                    "location": "test_scm_mujoco.py:_step_contact_force",
+                    "message": "wrench unit conversion and caps",
+                    "timestamp": int(time.time() * 1000),
+                    "data": {
+                        "h_model": float(solved["h"]),
+                        "h_exec": float(h_exec),
+                        "nstep": int(nstep),
+                        "wrench_is_force": bool(solved.get("wrench_is_force", False)),
+                        "lam": [float(x) for x in np.asarray(lam_apply).reshape(-1)[:3]],
+                        "lam_norm": float(np.linalg.norm(lam_apply)),
+                        "impulse_raw": [float(x) for x in raw_impulse_body],
+                        "force_unclipped": [float(x) for x in unclipped_force],
+                        "force_applied": [float(x) for x in force_body],
+                        "force_norm_unclipped": float(np.linalg.norm(unclipped_force[:3])),
+                        "torque_norm_unclipped": float(np.linalg.norm(unclipped_force[3:])),
+                        "force_norm_applied": float(np.linalg.norm(force_body[:3])),
+                        "torque_norm_applied": float(np.linalg.norm(force_body[3:])),
+                        "force_cap": cap,
+                        "torque_cap": torque_cap,
+                        "force_clipped": bool(cap > 0.0 and float(np.linalg.norm(unclipped_force[:3])) > cap),
+                        "torque_clipped": bool(torque_cap > 0.0 and float(np.linalg.norm(unclipped_force[3:])) > torque_cap),
+                        "p_local": [float(x) for x in np.asarray(solved["p_local"]).reshape(3)],
+                        "origin_style_force_norm": float(np.linalg.norm(wrench_impulse[:3])),
+                    },
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
         env.data_.xfrc_applied[:] = 0.0
-        env.data_.xfrc_applied[obj_body, :3] = rot @ wrench[:3]
-        env.data_.xfrc_applied[obj_body, 3:] = rot @ wrench[3:]
-        mujoco.mj_step(env.model_, env.data_, nstep=max(1, int(env.param_.frame_skip_)))
+        env.data_.xfrc_applied[obj_body, :3] = rot @ force_body[:3]
+        env.data_.xfrc_applied[obj_body, 3:] = rot @ force_body[3:]
+        # Wrench execution represents an ideal position-controlled fingertip
+        # applying the selected contact wrench. Keep that actuator from
+        # falling under gravity during the MuJoCo step; otherwise the free
+        # fingertip collides with the table/object and injects an unrelated
+        # impulse into the benchmark.
+        tip_body = getattr(env, "fingertip_body_id", None)
+        tip_mass = getattr(env, "fingertip_mass", 0.0)
+        gravity_vec = getattr(env, "gravity_vec", np.zeros(3))
+        if tip_body is not None and float(tip_mass) > 0.0:
+            env.data_.xfrc_applied[int(tip_body), :3] = -float(tip_mass) * np.asarray(gravity_vec)
+        mujoco.mj_step(env.model_, env.data_, nstep=nstep)
+        qacc = np.asarray(env.data_.qacc, dtype=np.float64)
+        unstable = bool((not np.isfinite(qacc).all()) or
+                        np.max(np.abs(qacc)) > 1.0e6)
         env.data_.xfrc_applied[:] = 0.0
         env._sync_viewer()
-        return
+        return {
+            "execution": execution, "h_exec": h_exec, "nstep": nstep,
+            "wrench_impulse_body": impulse_body,
+            "wrench_impulse_raw_body": raw_impulse_body,
+            "actual_applied_impulse_body": impulse_body.copy(),
+            "force_body_unclipped": unclipped_force,
+            "force_body": force_body,
+            "force_cap": cap,
+            "torque_cap": torque_cap,
+            "force_was_clipped": bool(not np.allclose(force_body, unclipped_force)),
+            "mujoco_unstable": unstable,
+            "max_abs_qacc": float(np.max(np.abs(qacc))) if qacc.size else 0.0,
+            "force_units": "N", "impulse_units": "N*s",
+        }
     planned_pos, quat = _predicted_object_pose(qpos[:7], x_plus)
     goal = solved["target_p"]
     to_goal = goal - qpos[:3]
@@ -318,9 +472,13 @@ def _step_contact_force(env, solved, execution="pose", lambda_scale=1.0):
     env.data_.xfrc_applied[:] = 0.0
     mujoco.mj_forward(env.model_, env.data_)
     env._sync_viewer()
+    return {"execution": execution, "h_exec": h_exec, "nstep": nstep,
+            "force_units": "N", "impulse_units": "N*s"}
 
 
-def _reference_stats(solved, mujoco_model, optimizer, lambda_scale=1.0):
+def _reference_stats(solved, mujoco_model, optimizer, lambda_scale=1.0,
+                     execution_dt=None, nstep=None, force_cap=0.0,
+                     torque_cap=0.0):
     response = solved["response"]
     v_scm = response["surrogate"]["v_plus"]
     out = {}
@@ -331,10 +489,14 @@ def _reference_stats(solved, mujoco_model, optimizer, lambda_scale=1.0):
         v_mj = mujoco_model.forward_velocity(
             optimizer, solved["lam"], solved["p_local"], solved["n_arm"],
             solved["t1"], solved["t2"], solved["h"],
-            tau_body=None, lambda_scale=lambda_scale)
+            tau_body=None, lambda_scale=lambda_scale,
+            execution_dt=execution_dt, nstep=nstep, force_cap=force_cap,
+            torque_cap=torque_cap)
         mj_last = dict(mujoco_model.last or {})
+        out["mujoco_v_plus"] = np.asarray(v_mj, dtype=np.float64)
         out["vs_mujoco"] = lcp_mujoco_motion_accuracy(
             optimizer.obj_inertia, v_mj, v_scm, solved["h"])
+        out["vs_mujoco_raw"] = dict(out["vs_mujoco"])
         out["qp_vs_mujoco"] = lcp_mujoco_motion_accuracy(
             optimizer.obj_inertia, v_mj, response["qp"]["v_plus"], solved["h"])
         measured = np.asarray(mj_last.get("lambda_env", []), dtype=np.float64)
@@ -342,23 +504,38 @@ def _reference_stats(solved, mujoco_model, optimizer, lambda_scale=1.0):
         predicted_full = np.asarray(response["surrogate"]["lambda_env"], dtype=np.float64)
         predicted = predicted_full[active_rows] if active_rows.size else predicted_full[:0]
         n = min(measured.size, predicted.size)
-        if n:
+        contact_match = (not bool(mj_last.get("contact_transition", False)) and
+                         measured.size == predicted.size and measured.size > 0)
+        out["baseline_contact_match"] = bool(contact_match)
+        if contact_match:
             out["vs_mujoco"].update(compare_lambda(predicted[:n], measured[:n]))
             qp_full = np.asarray(response["qp"]["lambda_env"], dtype=np.float64)
             qp_lam = qp_full[active_rows] if active_rows.size else qp_full[:0]
             out["qp_vs_mujoco"].update(compare_lambda(qp_lam[:n], measured[:n]))
+        else:
+            out["vs_mujoco"] = None
+            out["qp_vs_mujoco"] = None
         out["mujoco_env_wrench_body"] = mj_last.get("env_wrench_body", np.zeros(6))
         out["mujoco_lambda_env"] = measured
         out["mujoco_ncon"] = int(mj_last.get("ncon", 0))
+        out["mujoco_ncon_before"] = int(mj_last.get("ncon_before", 0))
+        out["contact_transition"] = bool(mj_last.get("contact_transition", False))
+        out["baseline_valid"] = bool(contact_match and not bool(
+            mj_last.get("contact_transition", False)))
+        out["baseline_execution_dt"] = float(mj_last.get("execution_dt", 0.0))
         qp_motion = out["qp_vs_mujoco"]
-        qp_lam_error = float(qp_motion.get("lambda_env_relative_error", 0.0))
-        qp_mag_error = float(qp_motion.get("relative_magnitude_error", 0.0))
-        qp_dir_error = qp_motion.get("direction_error")
-        out["qp_matches_mujoco"] = bool(
-            (qp_dir_error is None or qp_dir_error <= 1e-3) and
-            qp_mag_error <= 1e-3 and qp_lam_error <= 1e-3)
+        if qp_motion is None:
+            out["qp_matches_mujoco"] = None
+        else:
+            qp_lam_error = float(qp_motion.get("lambda_env_relative_error", 0.0))
+            qp_mag_error = float(qp_motion.get("relative_magnitude_error", 0.0))
+            qp_dir_error = qp_motion.get("direction_error")
+            out["qp_matches_mujoco"] = bool(
+                (qp_dir_error is None or qp_dir_error <= 1e-3) and
+                qp_mag_error <= 1e-3 and qp_lam_error <= 1e-3)
     except (RuntimeError, ValueError, FloatingPointError):
         out["vs_mujoco"] = None
+        out["baseline_valid"] = False
     active_rows = np.asarray(response["surrogate"].get("rows", []), dtype=np.int64)
     ref_full = np.asarray(response["lcp"]["lambda_env"], dtype=np.float64)
     pred_full = np.asarray(response["surrogate"]["lambda_env"], dtype=np.float64)
@@ -404,7 +581,7 @@ def _write_rows(path, rows, metadata):
 
 
 def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
-                 coupling_scale=1.0, execution="pose", steps=None):
+                 coupling_scale=1.0, execution="wrench", steps=None):
     if mujoco is None:
         raise RuntimeError("MuJoCo is required for the rollout benchmark")
     os.environ["MUJOCO_HEADLESS"] = "0" if args.viewer else "1"
@@ -417,7 +594,9 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
     _set_physical_mass(param, env, mass)
     contact = Contact(param)
     optimizer = param.lambda_optimizer
-    mj_model = MujocoForwardContactModel(env, friction=param.mu_object_)
+    mj_model = MujocoForwardContactModel(
+        env, friction=param.mu_object_, table_friction=param.mu_table_)
+    h_exec, nstep = _execution_dt(env)
     rows = []
     previous_keys = set()
     max_steps = int(args.max_steps if steps is None else steps)
@@ -426,17 +605,56 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
             solved = _solve_step(param, args, env, contact, mode,
                                  coupling_scale=coupling_scale,
                                  lambda_scale=lambda_scale)
-            refs = _reference_stats(solved, mj_model, optimizer,
-                                    lambda_scale=1.0)
+            refs = _reference_stats(
+                solved, mj_model, optimizer, lambda_scale=1.0,
+                execution_dt=h_exec, nstep=nstep,
+                force_cap=float(args.execution_force_cap),
+                torque_cap=float(args.execution_torque_cap))
             before = env.get_state().copy()
             current_keys = _contact_keys(env)
             transition = _transition(previous_keys, current_keys)
             previous_keys = current_keys
             _show_step(env, solved, before)
-            _step_contact_force(env, solved, execution=execution,
-                                lambda_scale=lambda_scale)
+            execution_info = _step_contact_force(
+                env, solved, execution=execution,
+                lambda_scale=lambda_scale)
             pos_err, quat_err = _goal_errors(
                 env.get_state(), solved["target_p"], solved["target_q"])
+            # #region agent log
+            try:
+                import json as _json
+                _after = env.get_state()
+                _qvel = np.asarray(env.data_.qvel[:6], dtype=np.float64)
+                _body = int(env.model_.geom("obj").bodyid)
+                os.makedirs("/home/lab423/scsp/scsp-robot/.cursor", exist_ok=True)
+                with open("/home/lab423/scsp/scsp-robot/.cursor/debug-c69ca2.log", "a", encoding="utf-8") as _lf:
+                    _lf.write(_json.dumps({
+                        "sessionId": "c69ca2",
+                        "runId": "pre-fix",
+                        "hypothesisId": "C",
+                        "location": "test_scm_mujoco.py:_run_rollout",
+                        "message": "after mj_step pose and mass",
+                        "timestamp": int(time.time() * 1000),
+                        "data": {
+                            "step": int(step),
+                            "pos_err": float(pos_err),
+                            "quat_err": float(quat_err),
+                            "success": bool(_succeeded(pos_err, quat_err)),
+                            "qvel_obj": [float(x) for x in _qvel],
+                            "qvel_lin_norm": float(np.linalg.norm(_qvel[:3])),
+                            "qvel_ang_norm": float(np.linalg.norm(_qvel[3:])),
+                            "obj_mass": float(env.model_.body_mass[_body]),
+                            "obj_inertia": [float(x) for x in env.model_.body_inertia[_body]],
+                            "opt_mass_diag": [float(x) for x in np.diag(optimizer.obj_inertia)],
+                            "opt_h": float(optimizer.h),
+                            "mujoco_unstable": bool(execution_info.get("mujoco_unstable", False)),
+                            "max_abs_qacc": float(execution_info.get("max_abs_qacc", 0.0)),
+                            "ncon": int(env.data_.ncon),
+                        },
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
             row = {
                 "object": obj, "seed": int(seed), "step": int(step),
                 "mass": float(mass), "lambda_scale": float(lambda_scale),
@@ -444,16 +662,35 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
                 "goal_pos": pos_err, "goal_quat": quat_err,
                 "success": _succeeded(pos_err, quat_err),
                 "active_contacts": transition["active_contacts"],
-                "scm_contacts": int(solved["response"]["surrogate_accuracy"].get(
+                "scm_active_rows": int(solved["response"]["surrogate_accuracy"].get(
+                    "active_rows", 0)),
+                "scm_active_blocks": int(solved["response"]["surrogate_accuracy"].get(
                     "active_contacts", 0)),
-                "contact_set_mismatch": bool(
-                    transition["active_contacts"] != int(
-                        solved["response"]["surrogate_accuracy"].get(
-                            "active_contacts", 0))),
                 "created_contacts": transition["created"],
                 "removed_contacts": transition["removed"],
                 "surrogate_accuracy": solved["response"]["surrogate_accuracy"],
                 "lcp_mujoco": refs,
+                "execution_info": execution_info,
+                "execution": execution,
+                "h_model": float(solved["h"]),
+                "h_exec": float(h_exec),
+                "solver_requested": "acados",
+                "solver_backend": str(getattr(param.lambda_optimizer, "last_solver_status",
+                                               getattr(param.lambda_optimizer, "solver", "unknown"))),
+                "solver_requested_backend": str(getattr(param.lambda_optimizer, "solver", "unknown")),
+                "solver_fallback_reason": getattr(param.lambda_optimizer,
+                                                    "last_acados_failure_reason", None),
+                "solver_fallback": bool(str(getattr(param.lambda_optimizer,
+                                                     "last_solver_status", ""))
+                                         .endswith("fallback")),
+                "mujoco_unstable": bool(execution_info.get("mujoco_unstable", False)),
+                "physical_mass": float(solved.get("physical_mass", np.nan)),
+                "mu_object": float(solved.get("mu_object", np.nan)),
+                "mu_table": float(solved.get("mu_table", np.nan)),
+                "dynamics_condition_number": float(
+                    solved.get("dynamics_condition_number", np.nan)),
+                "calibration_noise_std": float(
+                    solved.get("calibration_noise_std", 0.0)),
             }
             rows.append(row)
             if args.viewer:
@@ -494,6 +731,7 @@ def _run_sweep(args):
     lambda_scales = _parse_float_list(args.eval_lambda_scales, (0.25, 0.5, 1.0, 2.0))
     coupling_scales = _parse_float_list(args.eval_coupling_scales, (0.0, 0.25, 0.5, 1.0))
     rows = []
+    trial_summaries = []
     for obj in objects:
         for seed in range(int(args.eval_trials)):
             for mass in masses:
@@ -505,19 +743,63 @@ def _run_sweep(args):
                             coupling_scale=coupling_scale,
                             execution=args.execution, steps=args.max_steps)
                         rows.extend(trial)
+                        final = trial[-1] if trial else None
+                        trial_summaries.append({
+                            "object": obj, "seed": int(seed),
+                            "mass": float(mass),
+                            "lambda_scale": float(lambda_scale),
+                            "coupling_scale": float(coupling_scale),
+                            "steps": len(trial),
+                            "success": bool(final and final.get("success")),
+                            "final_pos": (None if final is None else final["goal_pos"]),
+                            "final_quat": (None if final is None else final["goal_quat"]),
+                        })
                         print("sweep object=%s seed=%d mass=%g lambda=%g coupling=%g steps=%d success=%s" % (
                             obj, seed, mass, lambda_scale, coupling_scale,
                             len(trial), bool(trial[-1]["success"]) if trial else False))
+    def _wilson(successes, total, z=1.959963984540054):
+        if total <= 0:
+            return None
+        p = float(successes) / float(total)
+        den = 1.0 + z * z / total
+        center = (p + z * z / (2.0 * total)) / den
+        half = z * np.sqrt(p * (1.0 - p) / total + z * z / (4.0 * total * total)) / den
+        return [max(0.0, center - half), min(1.0, center + half)]
+
+    success_count = sum(int(item["success"]) for item in trial_summaries)
+    by_object = {}
+    for item in trial_summaries:
+        by_object.setdefault(item["object"], []).append(item)
+    object_stats = {}
+    for name, items in by_object.items():
+        count = sum(int(item["success"]) for item in items)
+        object_stats[name] = {
+            "successes": count, "trials": len(items),
+            "success_rate": count / len(items) if items else None,
+            "wilson_95": _wilson(count, len(items)),
+        }
     metadata = {
         "objects": objects, "trials": int(args.eval_trials), "masses": masses,
         "lambda_scales": lambda_scales, "coupling_scales": coupling_scales,
         "max_steps": int(args.max_steps), "execution": args.execution,
-        "oracle": "mj_forward",
+        "oracle": "mj_step",
+        "trial_summaries": trial_summaries,
+        "successes": success_count,
+        "total_trials": len(trial_summaries),
+        "success_rate": (success_count / len(trial_summaries)
+                         if trial_summaries else None),
+        "wilson_95": _wilson(success_count, len(trial_summaries)),
+        "success_by_object": object_stats,
     }
     _write_rows(args.eval_output, rows, metadata)
-    successes = [row for row in rows if row.get("success")]
-    print("sweep summary: rows=%d success_rows=%d output=%s" % (
-        len(rows), len(successes), os.path.abspath(args.eval_output)))
+    print("sweep summary: rows=%d trials=%d successes=%d success_rate=%.3f output=%s" % (
+        len(rows), len(trial_summaries), success_count,
+        success_count / len(trial_summaries) if trial_summaries else 0.0,
+        os.path.abspath(args.eval_output)))
+    for name, stats in object_stats.items():
+        print("success object=%s %d/%d=%.3f CI95=[%.3f,%.3f]" % (
+            name, stats["successes"], stats["trials"], stats["success_rate"],
+            stats["wilson_95"][0], stats["wilson_95"][1]))
     return rows
 
 
@@ -529,8 +811,12 @@ def main():
     parser.add_argument("--steps", type=int, default=160)
     parser.add_argument("--max-steps", type=int, default=2500)
     parser.add_argument("--scm-regularization", type=float, default=1e-8)
-    parser.add_argument("--execution", choices=("pose", "wrench"), default="pose")
-    parser.add_argument("--execution-force-cap", type=float, default=2.0)
+    parser.add_argument("--execution", choices=("pose", "wrench"), default="wrench")
+    parser.add_argument("--execution-force-cap", type=float, default=0.1)
+    parser.add_argument("--execution-torque-cap", type=float, default=1e-5)
+    parser.add_argument(
+        "--surrogate-param-noise", type=float, default=0.0,
+        help="log-normal stddev applied to MuJoCo mass/inertia/friction for robustness tests")
     parser.add_argument("--eval-sweep", action="store_true")
     parser.add_argument("--eval-objects", default=",".join(DEFAULT_OBJECTS))
     parser.add_argument("--eval-trials", type=int, default=10)

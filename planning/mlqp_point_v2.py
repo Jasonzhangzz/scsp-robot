@@ -1,5 +1,7 @@
 import argparse
 import ctypes
+import inspect
+import json
 import itertools
 import os
 import shutil
@@ -233,6 +235,69 @@ def _ensure_acados_renderer_available():
         f"{searched}\n"
         "Install the acados tera renderer or point TERA_PATH to an existing "
         "t_renderer binary before using the acados backend."
+    )
+
+
+def _set_acados_code_export_directory(ocp, directory):
+    """Set the code-generation directory across acados-template versions.
+
+    Older acados-template releases exposed this option through
+    ``ocp.code_gen_opts``.  Newer releases keep it directly on
+    ``AcadosOcp``.  Supporting both avoids silently falling back to the much
+    slower CasADi Opti implementation when the installed acados is otherwise
+    usable.
+    """
+    code_gen_opts = getattr(ocp, "code_gen_opts", None)
+    if code_gen_opts is not None:
+        code_gen_opts.code_export_directory = directory
+        return
+    if hasattr(ocp, "code_export_directory"):
+        ocp.code_export_directory = directory
+        return
+    raise AttributeError(
+        "AcadosOcp exposes neither code_gen_opts.code_export_directory "
+        "nor code_export_directory"
+    )
+
+
+def _build_acados_ocp_solver(ocp, json_file, *, generate, build):
+    """Construct ``AcadosOcpSolver`` across template API generations."""
+    # Importing here keeps the compatibility shim usable in minimal installs.
+    AcadosOcpSolver = _import_acados_template_symbols()[2]
+    kwargs = {
+        "json_file": json_file,
+        "generate": bool(generate),
+        "build": bool(build),
+        "verbose": False,
+    }
+    if "check_reuse_possible" in inspect.signature(AcadosOcpSolver).parameters:
+        kwargs["check_reuse_possible"] = False
+    return AcadosOcpSolver(ocp, **kwargs)
+
+
+def _acados_codegen_cache_is_valid(json_file, shared_lib_path, ocp):
+    """Reject codegen artifacts made by an incompatible acados-template API."""
+    if not (os.path.isfile(json_file) and os.path.isfile(shared_lib_path)):
+        return False
+    try:
+        with open(json_file, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return False
+    export_directory = getattr(ocp, "code_export_directory", None)
+    if export_directory is None:
+        code_gen_opts = getattr(ocp, "code_gen_opts", None)
+        export_directory = getattr(code_gen_opts, "code_export_directory", None)
+    if export_directory is None:
+        return False
+    expected_export = os.path.abspath(str(export_directory))
+    acados_lib_path = getattr(ocp, "acados_lib_path", None)
+    if acados_lib_path is None:
+        return False
+    expected_lib = os.path.abspath(str(acados_lib_path))
+    return (
+        os.path.abspath(str(payload.get("code_export_directory", ""))) == expected_export
+        and os.path.abspath(str(payload.get("acados_lib_path", ""))) == expected_lib
     )
 
 
@@ -1228,28 +1293,28 @@ class LambdaContactControlOptimizer:
             f"libacados_ocp_solver_{model.name}{_shared_lib_ext()}",
         )
         os.makedirs(code_export_directory, exist_ok=True)
-        ocp.code_gen_opts.code_export_directory = code_export_directory
+        _set_acados_code_export_directory(ocp, code_export_directory)
 
-        can_reuse_existing_solver = os.path.isfile(json_file) and os.path.isfile(shared_lib_path)
+        can_reuse_existing_solver = _acados_codegen_cache_is_valid(
+            json_file,
+            shared_lib_path,
+            ocp,
+        )
         if can_reuse_existing_solver:
-            solver = AcadosOcpSolver(
+            solver = _build_acados_ocp_solver(
                 ocp,
-                json_file=json_file,
+                json_file,
                 generate=False,
                 build=False,
-                check_reuse_possible=False,
-                verbose=False,
             )
         else:
             try:
                 _ensure_acados_renderer_available()
-                solver = AcadosOcpSolver(
+                solver = _build_acados_ocp_solver(
                     ocp,
-                    json_file=json_file,
+                    json_file,
                     generate=True,
                     build=True,
-                    check_reuse_possible=True,
-                    verbose=False,
                 )
             except Exception as exc:
                 _warn_acados_casadi_fallback(str(exc))
@@ -1342,28 +1407,28 @@ class LambdaContactControlOptimizer:
             f"libacados_ocp_solver_{model.name}{_shared_lib_ext()}",
         )
         os.makedirs(code_export_directory, exist_ok=True)
-        ocp.code_gen_opts.code_export_directory = code_export_directory
+        _set_acados_code_export_directory(ocp, code_export_directory)
 
-        can_reuse_existing_solver = os.path.isfile(json_file) and os.path.isfile(shared_lib_path)
+        can_reuse_existing_solver = _acados_codegen_cache_is_valid(
+            json_file,
+            shared_lib_path,
+            ocp,
+        )
         if can_reuse_existing_solver:
-            solver = AcadosOcpSolver(
+            solver = _build_acados_ocp_solver(
                 ocp,
-                json_file=json_file,
+                json_file,
                 generate=False,
                 build=False,
-                check_reuse_possible=False,
-                verbose=False,
             )
         else:
             try:
                 _ensure_acados_renderer_available()
-                solver = AcadosOcpSolver(
+                solver = _build_acados_ocp_solver(
                     ocp,
-                    json_file=json_file,
+                    json_file,
                     generate=True,
                     build=True,
-                    check_reuse_possible=True,
-                    verbose=False,
                 )
             except Exception as exc:
                 _warn_acados_casadi_fallback(str(exc))

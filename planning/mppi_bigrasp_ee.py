@@ -10,6 +10,7 @@ the measured state again on the next cycle.
 from __future__ import annotations
 
 from dataclasses import asdict
+import time
 
 import numpy as np
 try:  # Keep importing bigrasp.py possible when only MuJoCo is installed.
@@ -32,6 +33,19 @@ from .bigrasp_ee_cost import (
 
 def _get(params, name, default):
     return getattr(params, name, default)
+
+
+def _select_batch_value(value, index, batch_size):
+    """Select one rollout's diagnostics and convert it to CPU NumPy values."""
+    if torch is not None and isinstance(value, torch.Tensor):
+        if value.ndim > 0 and value.shape[0] == batch_size:
+            return value[index].detach().cpu().numpy()
+        return value.detach().cpu().numpy()
+    if isinstance(value, dict):
+        return {key: _select_batch_value(item, index, batch_size) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return type(value)(_select_batch_value(item, index, batch_size) for item in value)
+    return value
 
 
 class BimanualEEMPPI:
@@ -125,12 +139,15 @@ class BimanualEEMPPI:
             ee_orientation_weight=float(_get(self.params, "planner_ee_orientation_weight_", 2.0)),
             force_tracking_weight=float(_get(self.params, "planner_force_tracking_weight_", 12.0)),
             object_position_weight=float(_get(self.params, "planner_object_target_weight_", 300.0)),
+            object_lateral_position_weight=float(_get(self.params, "planner_object_lateral_weight_", 300.0)),
             object_orientation_weight=float(_get(self.params, "planner_object_orientation_weight_", 15.0)),
             synchronization_weight=float(_get(self.params, "planner_synchronization_weight_", 25.0)),
+            contact_gate_sync_weight=float(_get(self.params, "planner_contact_gate_sync_weight_", 25.0)),
             action_weight=float(_get(self.params, "planner_action_weight_", 2.0)),
             smooth_action_weight=float(_get(self.params, "planner_smooth_action_weight_", 3.0)),
             workspace_weight=float(_get(self.params, "planner_workspace_weight_", 50.0)),
             contact_gate_scale=float(_get(self.params, "planner_contact_gate_scale_", 0.004)),
+            contact_tangent_scale=float(_get(self.params, "planner_contact_tangent_scale_", 0.015)),
             object_initial_z=float(torch.as_tensor(target_object_pos).reshape(-1)[2].item()),
             workspace_lower=tuple(_get(self.params, "planner_workspace_lower_", (-1.0, -1.0, 0.0))),
             workspace_upper=tuple(_get(self.params, "planner_workspace_upper_", (2.0, 1.0, 2.0))),
@@ -187,8 +204,12 @@ class BimanualEEMPPI:
             action = actions[:, t]
             next_ee = integrate_ee_pose(current, action)
             stage_cost, diagnostics = evaluate_bimanual_ee_cost(next_ee, action, context, previous_action=previous)
-            force = diagnostics["object_force_world"]
-            torque = diagnostics["object_torque_world"]
+            bilateral_gate = diagnostics["bilateral_gate"].clamp(0.0, 1.0)
+            # Do not let a single predicted fingertip contact drag the object
+            # during the bimanual approach.  The measured MuJoCo state is fed
+            # back on the next cycle, so real unilateral motion remains visible.
+            force = diagnostics["object_force_world"] * bilateral_gate.unsqueeze(-1)
+            torque = diagnostics["object_torque_world"] * bilateral_gate.unsqueeze(-1)
             gravity = torch.zeros_like(force)
             gravity[:, 2] = -cfg.object_mass * 9.81
             velocity = 0.96 * velocity + (force + gravity) / cfg.object_mass * cfg.dt
@@ -241,6 +262,7 @@ class BimanualEEMPPI:
         approach_offset=0.0,
         **_,
     ):
+        solve_t0 = time.perf_counter()
         state_t = torch.as_tensor(state, device=self.device, dtype=self.dtype).reshape(STATE_DIM)
         context = self._context(
             contact_points_local,
@@ -300,6 +322,13 @@ class BimanualEEMPPI:
             "solve_status": "success",
             "hold_mask": hold_np,
             "diagnostics": best_diag,
+            "best_diagnostics": (
+                _select_batch_value(best_diag, int(best_idx), self.samples)
+                if best_cost is not None
+                else None
+            ),
+            "best_index": int(best_idx) if best_cost is not None else None,
+            "solve_time": float(time.perf_counter() - solve_t0),
         }
         self.last_result = result
         return result

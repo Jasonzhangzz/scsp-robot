@@ -83,6 +83,32 @@ def _format_acados_status(status_code, sqp_iter=None):
     return f"{label} (sqp_iter={int(sqp_iter)})"
 
 
+def _set_acados_code_export_directory(ocp, directory):
+    """Support legacy and current acados-template codegen APIs."""
+    options = getattr(ocp, "code_gen_opts", None)
+    if options is not None:
+        options.code_export_directory = directory
+    elif hasattr(ocp, "code_export_directory"):
+        ocp.code_export_directory = directory
+    else:
+        raise AttributeError(
+            "AcadosOcp exposes neither code_gen_opts nor code_export_directory"
+        )
+
+
+def _acados_codegen_cache_is_current(json_file, shared_file):
+    if not (os.path.isfile(json_file) and os.path.isfile(shared_file)):
+        return False
+    try:
+        import json
+        with open(json_file, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return all(key in payload for key in ("acados_lib_path",
+                                              "code_export_directory"))
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def _load_acados():
     from planning.acados_env import ensure_acados_env
     ensure_acados_env()
@@ -566,17 +592,17 @@ class MPCExplicit:
 
         code_dir = os.path.join("/tmp", model.name + "_codegen")
         os.makedirs(code_dir, exist_ok=True)
-        ocp.code_gen_opts.code_export_directory = code_dir
+        _set_acados_code_export_directory(ocp, code_dir)
         json_file = os.path.join(code_dir, model.name + ".json")
         shared = os.path.join(code_dir, "libacados_ocp_solver_" + model.name + ".so")
-        if os.path.isfile(json_file) and os.path.isfile(shared):
+        if _acados_codegen_cache_is_current(json_file, shared):
             return AcadosOcpSolver(
                 ocp, json_file=json_file, generate=False, build=False,
-                check_reuse_possible=False, verbose=False,
+                verbose=False,
             )
         return AcadosOcpSolver(
             ocp, json_file=json_file, generate=True, build=True,
-            check_reuse_possible=True, verbose=False,
+            verbose=False,
         )
 
     def init_MPC(self):

@@ -7,6 +7,74 @@ import re
 import trimesh
 
 
+def mujoco_physical_parameters(model_path, noise_std=0.0, rng=None):
+    """Read the compiled MuJoCo object parameters in body coordinates.
+
+    The returned 6x6 matrix is a generalized mass matrix for
+    ``[linear_velocity, angular_velocity]``.  Optional multiplicative noise
+    is intended for robustness experiments and is never applied by default.
+    """
+    import mujoco
+    model = mujoco.MjModel.from_xml_path(os.path.abspath(model_path))
+    body_id = int(np.asarray(model.geom("obj").bodyid).reshape(-1)[0])
+    mass = float(model.body_mass[body_id])
+    inertia = np.diag(np.asarray(model.body_inertia[body_id], dtype=np.float64))
+    obj_geom = int(np.asarray(model.geom("obj").id).reshape(-1)[0])
+    table_geom = int(np.asarray(model.geom("table").id).reshape(-1)[0])
+    mu_object = float(model.geom_friction[obj_geom, 0])
+    mu_table = float(model.geom_friction[table_geom, 0])
+    if noise_std:
+        sigma = float(noise_std)
+        if sigma < 0 or not np.isfinite(sigma):
+            raise ValueError("noise_std must be finite and non-negative")
+        rng = np.random.default_rng() if rng is None else rng
+        mass *= float(np.exp(rng.normal(0.0, sigma)))
+        inertia *= np.exp(rng.normal(0.0, sigma, size=3))
+        mu_object *= float(np.exp(rng.normal(0.0, sigma)))
+        mu_table *= float(np.exp(rng.normal(0.0, sigma)))
+    generalized_mass = np.zeros((6, 6), dtype=np.float64)
+    generalized_mass[:3, :3] = mass * np.eye(3)
+    generalized_mass[3:, 3:] = inertia
+    return {
+        "mass": mass,
+        "inertia": inertia,
+        "generalized_mass": generalized_mass,
+        "mu_object": mu_object,
+        "mu_table": mu_table,
+        "body_id": body_id,
+        "object_geom_id": obj_geom,
+        "table_geom_id": table_geom,
+        "noise_std": float(noise_std),
+    }
+
+
+def mujoco_supported_height(model_path, obj_qpos, clearance=5.0e-4):
+    """Return the object COM height that just clears the MuJoCo table."""
+    import mujoco
+    model = mujoco.MjModel.from_xml_path(os.path.abspath(model_path))
+    data = mujoco.MjData(model)
+    data.qpos[:7] = np.asarray(obj_qpos, dtype=np.float64).reshape(7)
+    mujoco.mj_forward(model, data)
+    obj_geom = int(np.asarray(model.geom("obj").id).reshape(-1)[0])
+    table_geom = int(np.asarray(model.geom("table").id).reshape(-1)[0])
+    mesh_id = int(model.geom_dataid[obj_geom])
+    start = int(model.mesh_vertadr[mesh_id])
+    count = int(model.mesh_vertnum[mesh_id])
+    vertices = np.asarray(model.mesh_vert[start:start + count], dtype=np.float64)
+    geom_rot = np.asarray(data.geom_xmat[obj_geom], dtype=np.float64).reshape(3, 3)
+    geom_pos = np.asarray(data.geom_xpos[obj_geom], dtype=np.float64)
+    min_z = float(np.min(geom_pos[2] + vertices @ geom_rot[2, :]))
+    # The fingertip XML uses a plane geom for the table (size[2] is a
+    # rendering extent, not a thickness). For box tables, include the half
+    # height in the support level.
+    if int(model.geom_type[table_geom]) == 0:  # mjGEOM_PLANE
+        table_top = float(data.geom_xpos[table_geom, 2])
+    else:
+        table_top = float(data.geom_xpos[table_geom, 2] + model.geom_size[table_geom, 2])
+    return float(np.asarray(obj_qpos, dtype=np.float64).reshape(7)[2]
+                 + table_top - min_z + float(clearance))
+
+
 def _compiled_object_surface(mesh_path, model_path):
     """Compiled object mesh in the body frame: (vertices, faces or None)."""
     import mujoco
@@ -288,6 +356,10 @@ class ExplicitMPCParams:
 
         self.model_path_ = './envs/xmls/env_fingertips_'+args.obj+'.xml'
         self.mesh_path_ = "envs/assets/objects/"+args.obj+".stl"
+        self.calibration_noise_std_ = float(getattr(args, 'surrogate_param_noise', 0.0))
+        self.mujoco_physics_ = mujoco_physical_parameters(
+            self.model_path_, self.calibration_noise_std_,
+            np.random.default_rng(1000 + int(rand_seed)))
         self.object_names_ = ['obj']
         # The MuJoCo mesh geom is rendered from the full STL but collisions
         # are evaluated on its compiled convex representation.  Lambda must
@@ -312,10 +384,8 @@ class ExplicitMPCParams:
             self.object_circumradius = 0.08
 
         # MPC / MuJoCo execution can stay on the 20 ms control interval in
-        # rollout.  Lambda contact *ranking* must not: a 20 ms step with a
-        # force-scaled wrench against the historical Q=50 inertia predicts
-        # micrometre-scale x_plus for every sample, flattens the pose-cost
-        # landscape, and traps the switch policy on the nearest patch.
+        # rollout. Lambda ranking uses its explicit model horizon below;
+        # physical execution converts the resulting impulse using h_exec.
         self.frame_skip_ = int(10)
         try:
             import mujoco
@@ -324,10 +394,12 @@ class ExplicitMPCParams:
             _model_dt = 0.002
         self.h_ = (_model_dt * self.frame_skip_
                    if bool(getattr(args, 'rollout', False)) else 0.05)
-        # Calibrated one-step ranking horizon, shared with
-        # --ideal_contact_switch.  Do not couple this to the MuJoCo control
-        # interval; object motion in rollout still comes from physics.
-        self.lambda_h_ = 0.05
+        # Use the actual rollout control interval for contact ranking and the
+        # pose objective. The optimized lambda remains an impulse, so this
+        # aligns the predicted pose change with the mj_step interval without
+        # changing its physical units. Non-rollout callers retain the legacy
+        # 50 ms planning horizon.
+        self.lambda_h_ = self.h_ if bool(getattr(args, 'rollout', False)) else 0.05
 
         # system dimensions:
         self.n_robot_qpos_ = 9 - 6
@@ -409,6 +481,15 @@ class ExplicitMPCParams:
             init_height = max(init_height, -min_world_z + 0.002)
 
         self.init_obj_qpos_ = np.hstack((init_xy_rand, init_height, init_obj_quat_rand))
+        # Start at the actual compiled-mesh support height. The historical
+        # fixed z=.03 leaves a gap for some orientations; gravity then lets
+        # the object hit the table during the first control interval and the
+        # tiny physical inertia turns that impact into a large spin.
+        try:
+            self.init_obj_qpos_[2] = mujoco_supported_height(
+                self.model_path_, self.init_obj_qpos_, clearance=5.0e-4)
+        except Exception:
+            pass
         self.init_robot_qpos_ = np.array([0.2, 0.0, 0.02])
         if getattr(args, 'random_init_tilt', False):
             self.init_robot_qpos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
@@ -465,7 +546,8 @@ class ExplicitMPCParams:
         # ---------------------------------------------------------------------------------------------
         #      contact parameters
         # ---------------------------------------------------------------------------------------------
-        self.mu_object_ = 0.5
+        self.mu_object_ = float(self.mujoco_physics_["mu_object"])
+        self.mu_table_ = float(self.mujoco_physics_["mu_table"])
         self.n_mj_q_ = self.n_qpos_
         self.n_mj_v_ = self.n_qvel_
         self.max_ncon_ = 10
@@ -473,18 +555,20 @@ class ExplicitMPCParams:
         # ---------------------------------------------------------------------------------------------
         #      models parameters
         # ---------------------------------------------------------------------------------------------
-        self.obj_mass_ = 0.01
-        self.obj_inertia_ = np.identity(6)
-        # Keep the historical effective inertia for now.  Replacing it with
-        # the raw XML mass changes the contact-force scale by orders of
-        # magnitude and requires a separate force-model calibration.
-        self.obj_inertia_[0:3, 0:3] = 50 * np.eye(3)
-        self.obj_inertia_[3:, 3:] = 0.05 * np.eye(3)
-        # Keep the explicit MPC in its historically conditioned numerical
-        # coordinates.  The physical MuJoCo mass matrix is passed separately
-        # to LambdaContactControlOptimizer below; putting values around 1e-6
-        # directly into this Q makes Q^{-1} ill-conditioned and causes the
-        # acados planner to fail before it can generate lateral motion.
+        self.obj_mass_ = float(self.mujoco_physics_["mass"])
+        self.obj_inertia_ = np.asarray(
+            self.mujoco_physics_["generalized_mass"], dtype=np.float64).copy()
+        # A diagonal coordinate scaling makes the physical mass matrix well
+        # conditioned without changing the physical map M^-1 b.  Rotational
+        # coordinates are scaled so their typical diagonal is comparable to
+        # the translational mass.
+        rot_diag = np.maximum(np.diag(self.obj_inertia_[3:, 3:]), 1e-15)
+        self.dynamics_scale_ = np.eye(6, dtype=np.float64)
+        self.dynamics_scale_[3:, 3:] = np.diag(
+            np.sqrt(max(self.obj_mass_, 1e-15) / rot_diag))
+        # Keep the explicit MPC Q in physical generalized-velocity units. Its
+        # lambda optimizer uses dynamics_scale_ when inverting the much
+        # smaller rotational block.
         # MjSimulator drives the fingertip with -100*dpos - 2*dvel.  The
         # simplified MPC uses the command as a position increment, so its
         # stiffness term should match that 100 N/m rollout actuator.
@@ -535,11 +619,9 @@ class ExplicitMPCParams:
                                                 ori_coef=args.ori_coef,
                                                 friction_reg_coef=getattr(args, 'friction_reg_coef', 0.0),
                                                 force_reg_coef=getattr(args, 'force_reg_coef', 0.01),
-                                                # Keep the ranking force cap on the same impulse
-                                                # scale as --ideal_contact_switch.  A 0.75 N
-                                                # physical cap made every candidate look equally
-                                                # powerless against Q=50, so nearest-patch
-                                                # hysteresis always won.
+                                                # This cap is expressed in the optimizer impulse
+                                                # convention; execution applies physical force and
+                                                # torque caps after dividing by h_exec.
                                                 max_contact_force=float(getattr(args, 'max_contact_force', 10.0)),
                                                 contact_switch_radius=getattr(args, 'contact_switch_radius', 0.03),
                                                 contact_switch_margin_ratio=getattr(args, 'contact_switch_margin_ratio', 0.2),
@@ -548,15 +630,12 @@ class ExplicitMPCParams:
                                                 normal_stability_cos=getattr(args, 'normal_stability_cos', 0.95),
                                                 solver=getattr(args, 'solver', 'ipopt'),
                                                 torch_max_iter=getattr(args, 'torch_max_iter', 100),
-                                                # The raw MuJoCo rotational inertia is only a few
-                                                # 1e-6 kg m^2.  The reduced one-step contact model
-                                                # has no compliant contact state, so using it directly
-                                                # turns the table reaction into an enormous angular
-                                                # impulse.  Keep the calibrated effective inertia for
-                                                # candidate ranking; MuJoCo remains the execution
-                                                # model and the measured mass is retained above for
-                                                # diagnostics.
-                                                obj_inertia=None,
+                                                # Use measured MuJoCo generalized mass. The optimizer
+                                                # applies dynamics_scale internally so small physical
+                                                # rotational inertias remain well conditioned while
+                                                # preserving the physical M^{-1} b map.
+                                                obj_inertia=self.obj_inertia_,
+                                                dynamics_scale=self.dynamics_scale_,
                                                 # Ranking uses the historical impulse-like lambda.
                                                 # Interpreting the wrench as a force (times h)
                                                 # is a physical-unit conversion for diagnostics

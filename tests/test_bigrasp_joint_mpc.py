@@ -8,6 +8,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from planning.bigrasp_ee_cost import (  # noqa: E402
+    evaluate_bimanual_ee_cost,
     integrate_ee_pose,
     numpy_pose_state,
     project_contact_points_world,
@@ -94,3 +95,66 @@ def test_quaternion_integration_and_contact_projection():
     np.testing.assert_allclose(points.numpy(), [[1.1, 2.0, 3.0], [1.0, 2.2, 3.0]])
     forces = transform_force_vectors_world([1.0, 0.0, 0.0, 0.0], [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     np.testing.assert_allclose(forces.numpy(), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+
+
+def test_unilateral_contact_does_not_drag_surrogate_object():
+    planner = BimanualEEMPPI(_params(), seed=0)
+    contact_points = [[0.05, 0.0, 0.35], [-0.05, 0.0, 0.35]]
+    normals = [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]
+    state = numpy_pose_state(
+        [0.0, 0.0, 0.35],
+        [1.0, 0.0, 0.0, 0.0],
+        ([0.036, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+        ([0.20, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+    )
+    context = planner.build_context(
+        contact_points,
+        normals,
+        [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        [0.0, 0.0, 0.41],
+        [1.0, 0.0, 0.0, 0.0],
+        [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        support_z=0.30,
+        approach_offset=0.0,
+    )
+    rollout, _, diagnostics = planner.rollout(
+        state,
+        torch.zeros((1, 4, 12), dtype=torch.float32),
+        context,
+    )
+    np.testing.assert_allclose(
+        rollout[0, :, 0:2].cpu().numpy(),
+        np.repeat(state[None, 0:2], 4, axis=0),
+        atol=1e-6,
+    )
+    terminal_gate = diagnostics["terminal"]["bilateral_gate"].detach().cpu().numpy()
+    assert float(np.max(terminal_gate)) < 1e-4
+
+
+def test_contact_gate_requires_tangential_proximity():
+    planner = BimanualEEMPPI(_params(), seed=0)
+    context = planner.build_context(
+        [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+        [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+        [0.0, 0.0, 0.2],
+        [1.0, 0.0, 0.0, 0.0],
+        [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        support_z=0.0,
+        approach_offset=0.0,
+    )
+    state = numpy_pose_state(
+        [0.0, 0.0, 0.2],
+        [1.0, 0.0, 0.0, 0.0],
+        ([0.10, 0.0, 0.2], [1.0, 0.0, 0.0, 0.0]),
+        ([-0.10, 0.0, 0.2], [1.0, 0.0, 0.0, 0.0]),
+    )
+    _, diagnostics = evaluate_bimanual_ee_cost(
+        torch.as_tensor(state), torch.zeros(12), context
+    )
+    np.testing.assert_allclose(
+        diagnostics["normal_gate"].detach().cpu().numpy(),
+        np.ones(2) * 0.9241418,
+        atol=1e-5,
+    )
+    assert float(torch.max(diagnostics["force_gate"])) < 1e-9

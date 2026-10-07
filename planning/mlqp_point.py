@@ -8,6 +8,7 @@ except ImportError:  # keep the IPOPT backend usable in non-Torch installs
 import os
 import sys
 import ctypes
+import hashlib
 from scipy.sparse.csgraph import dijkstra
 try:
     # The reference fingertip experiment samples mesh vertices.  Keep the
@@ -16,6 +17,30 @@ try:
     from project_point import ProjectionPoint
 except:
     from planning.project_point import ProjectionPoint
+
+
+def _set_acados_code_export_directory(ocp, directory):
+    options = getattr(ocp, 'code_gen_opts', None)
+    if options is not None:
+        options.code_export_directory = directory
+    elif hasattr(ocp, 'code_export_directory'):
+        ocp.code_export_directory = directory
+    else:
+        raise AttributeError(
+            'AcadosOcp exposes neither code_gen_opts nor code_export_directory')
+
+
+def _acados_codegen_cache_is_current(json_file, shared_file):
+    if not (os.path.isfile(json_file) and os.path.isfile(shared_file)):
+        return False
+    try:
+        import json
+        with open(json_file, 'r', encoding='utf-8') as handle:
+            payload = json.load(handle)
+        return all(key in payload for key in ('acados_lib_path',
+                                              'code_export_directory'))
+    except (OSError, ValueError, TypeError):
+        return False
 
 class LambdaContactControlOptimizer:
     # Smooth positive part used by all backends.  The contact projection is
@@ -37,6 +62,7 @@ class LambdaContactControlOptimizer:
                  solver='acados', torch_max_iter=100,
                  fingertip_clearance=0.011,
                  obj_inertia=None,
+                 dynamics_scale=None,
                  wrench_is_force=False,
                  top_k=2):
         # 系统参数
@@ -72,10 +98,9 @@ class LambdaContactControlOptimizer:
         # 构建系统刚度矩阵Q
         self.obj_inertia = np.eye(6)
         if obj_inertia is None:
-            # Preserve the historical effective inertia for ranking.
-            # Using MuJoCo's raw free-body mass here (especially the 1e-6
-            # rotational block) makes the reduced one-step model explode;
-            # execution still uses MuJoCo.
+            # Keep a conditioned fallback for callers that do not provide a
+            # physical model.  The MuJoCo fingertip benchmark passes its
+            # measured generalized mass explicitly.
             self.obj_inertia[0:3, 0:3] = 50 * np.eye(3)
             self.obj_inertia[3:, 3:] = 0.05 * np.eye(3)
         else:
@@ -86,7 +111,21 @@ class LambdaContactControlOptimizer:
             self.obj_inertia[:, :] = 0.5 * (candidate_inertia + candidate_inertia.T)
         Q = np.zeros((6,6))
         Q[:6, :6] = self.obj_inertia
-        self.Q_inv = np.linalg.inv(Q + 1e-8 * np.eye(Q.shape[0]))
+        # Evaluate M^{-1} through a dimensionless coordinate transform.  This
+        # is algebraically identical to inv(M), but avoids adding an absolute
+        # 1e-8 regularizer that would overwhelm MuJoCo's ~1e-6 rotational
+        # inertias.  If S maps normalized generalized velocities to physical
+        # velocities, M_n=S^T M S and M^-1=S M_n^-1 S^T.
+        if dynamics_scale is None:
+            dynamics_scale = np.eye(6, dtype=np.float64)
+        self.dynamics_scale = np.asarray(dynamics_scale, dtype=np.float64).reshape(6, 6)
+        if (not np.isfinite(self.dynamics_scale).all() or
+                np.min(np.abs(np.linalg.eigvals(self.dynamics_scale))) <= 0.0):
+            raise ValueError('dynamics_scale must be finite and nonsingular')
+        mass_scaled = self.dynamics_scale.T @ Q @ self.dynamics_scale
+        self.scaled_mass_matrix = mass_scaled
+        self.dynamics_condition_number = float(np.linalg.cond(mass_scaled))
+        self.Q_inv = self.dynamics_scale @ np.linalg.inv(mass_scaled) @ self.dynamics_scale.T
 
         self.pos_coef = pos_coef
         self.ori_coef = ori_coef
@@ -1207,7 +1246,9 @@ class LambdaContactControlOptimizer:
         # a terminal cost may not depend on ``u``.
         terminal_pos_cost = self.pos_coef * cs.sumsqr(x[:3] - cs_p[:3])
         terminal_ori_cost = self.ori_coef * (1-cs.dot(x[3:7],cs_p[3:7])**2)
-        model=AcadosModel(); model.name=f'contact_lambda_acados_v10_dv_m{self.max_contacts}_f{int(self.max_contact_force*1000)}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
+        mass_key = hashlib.sha1(np.asarray(self.Q_inv, dtype='<f8').tobytes()).hexdigest()[:10]
+        mu_key = int(round(float(self.mu_arm_obj) * 1000.0))
+        model=AcadosModel(); model.name=f'contact_lambda_acados_v10_dv_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
         model.cost_expr_ext_cost = self.friction_reg_coef * cs.sumsqr(u[1:3])
         model.cost_expr_ext_cost_e = terminal_pos_cost + terminal_ori_cost
         ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.cost.cost_type='EXTERNAL'; ocp.cost.cost_type_e='EXTERNAL';
@@ -1217,10 +1258,10 @@ class LambdaContactControlOptimizer:
         ocp.constraints.uh = np.array([self.max_normal_force, 0., 0., 0., 0., self.max_contact_force ** 2])
         ocp.constraints.idxbx_0=np.arange(7); ocp.constraints.lbx_0=np.zeros(7); ocp.constraints.ubx_0=np.zeros(7)
         ocp.solver_options.N_horizon=1; ocp.solver_options.tf=float(self.h); ocp.solver_options.qp_solver='PARTIAL_CONDENSING_HPIPM'; ocp.solver_options.hessian_approx='EXACT'; ocp.solver_options.integrator_type='DISCRETE'; ocp.solver_options.nlp_solver_type='SQP_RTI'; ocp.solver_options.regularize_method='PROJECT'; ocp.solver_options.print_level=0
-        d='/tmp/'+model.name+'_codegen'; os.makedirs(d,exist_ok=True); ocp.code_gen_opts.code_export_directory=d; jf=os.path.join(d,model.name+'.json'); so=os.path.join(d,'libacados_ocp_solver_'+model.name+'.so')
-        if os.path.isfile(jf) and os.path.isfile(so):
-            return AcadosOcpSolver(ocp,json_file=jf,generate=False,build=False,check_reuse_possible=False,verbose=False)
-        return AcadosOcpSolver(ocp,json_file=jf,generate=True,build=True,check_reuse_possible=True,verbose=False)
+        d='/tmp/'+model.name+'_codegen'; os.makedirs(d,exist_ok=True); _set_acados_code_export_directory(ocp, d); jf=os.path.join(d,model.name+'.json'); so=os.path.join(d,'libacados_ocp_solver_'+model.name+'.so')
+        if _acados_codegen_cache_is_current(jf, so):
+            return AcadosOcpSolver(ocp,json_file=jf,generate=False,build=False,verbose=False)
+        return AcadosOcpSolver(ocp,json_file=jf,generate=True,build=True,verbose=False)
 
     def _solve_optimization_acados(self, **kwargs):
         solver=self.acados_solver; xcur=np.asarray(kwargs['current_x'],float).reshape(7)
