@@ -17,7 +17,9 @@ Finally, we present the detailed design of our CSO module for online contact sel
 
 \subsection{Why Contact Selection is necessary?} 
 
-Contact selection refers to choosing the contact locations $\left \{ \boldsymbol{p}_{\mathcal{O}, i} \right \} \in \partial \mathcal{O}$ and $\left \{ \boldsymbol{p}_{\mathcal{R}, i} \right \} \in \partial \mathcal{R}$ according to a given task specification. Since $\partial \mathcal{O}$ is a low-dimensional manifold embedded in Cartesian space, the set of robot–object contact states (i.e., the contact-rich stage) also lies on a low-dimensional manifold $\mathcal{S}_{\text{contact}}$ within the full state space $\mathcal{S}$. Task-related costs are defined only on $\mathcal{S}_{\text{contact}}$, whereas the remaining state space $\mathcal{S}_{\text{free}}$ is gradient-sparse. Moreover, CIMPC methods typically employ a short\footnote{For computational efficiency, these methods usually adopt a local approximation of the contact dynamics, which limits the valid region (i.e., the trust region) of the model and therefore necessitates a short planning horizon.} and fixed planning horizon with a fixed step size, which prevents reliable exploration of cost differences arising from different contact locations when starting from an arbitrary contact-free state $\boldsymbol{s}_k \in \mathcal{S}_{\text{free}}$. As a result, integrating contact selection into CIMPC, which must hybridly plan both contact-free and contact-rich trajectories, is challenging. Existing CIMPC methods often rely on manually designed costs or reference trajectories to guide contacts. Such designs effectively fix the contact locations and constrain the resulting manipulation trajectories to a narrow distribution, limiting the diversity of achievable behaviors. Moreover, the contact location is not a direct control variable in robot-centric CIMPC but is determined implicitly through nonsmooth collision checking, which further introduces complexity.
+\textcolor{red}{Contact selection refers to choosing object contact locations $\left \{ \boldsymbol{p}_{\mathcal{O}, i} \right \} \subset \partial \mathcal{O}$ that can generate task-beneficial wrenches for changing the object pose. According to \eqref{equ.quasi_dyn_1} and \eqref{equ.quasi_dyn_2}, the object wrench is jointly determined by the contact Jacobian, which depends on the contact location and its local geometry, and the contact impulse $\boldsymbol{\beta}_i$ (or, equivalently, the contact force $\boldsymbol{\lambda}_i$). For some contact locations, no force within the corresponding friction cone can produce a wrench that improves the object pose; contact switching is therefore necessary.}
+
+\textcolor{red}{CIMPC models robot--object interaction (ROI) with contact dynamics whose informative gradients are confined to the low-dimensional contact manifold $\mathcal{S}_{\text{contact}}$ embedded in the full state space $\mathcal{S}$. The contact-free manifold $\mathcal{S}_{\text{free}}$ provides no effective contact-induced gradient, making autonomous contact selection difficult and requiring attractive costs or reference trajectories to induce contact. Although CIMPC can choose between contact and non-contact modes, its short receding horizon may not reveal, within the fixed horizon, the benefit of reaching a distant contact location.}
 
 Rather than integrating contact selection into the CIMPC formulation, we study how to formulate contact selection as a separate optimization problem. As illustrated in Fig. \ref{fig:framework}, we first simplify the problem by ignoring the planning of the robot contact locations $\left \{ \boldsymbol{p}_{\mathcal{R}, i} \right \}$ and thereby obtain the following object-centric optimization problem:
 \begin{equation}
@@ -242,7 +244,10 @@ The environment contact force $\boldsymbol{\lambda}_{\text{env}}$ is a piecewise
 \left(
 -
 \boldsymbol{D}^{-1}
-\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\hat{\lambda}}_{\text{r},i}),
+\left[
+\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\hat{\lambda}}_{\text{r},i})
++\boldsymbol{\tilde{\phi}}_{\text{env},i}
+\right],
 \;\boldsymbol{0}
 \right).
 \label{eq:quasi-closed_form_solution}
@@ -250,7 +255,7 @@ The environment contact force $\boldsymbol{\lambda}_{\text{env}}$ is a piecewise
 \end{lemma}
 \begin{proof}
     \renewcommand{\qedsymbol}{}
-    Based on Assumption 1, we can obtain that $\phi \equiv 0$, leading to \eqref{eq:quasi-closed_form_solution}. Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \eqref{eq:quasi-closed_form_solution} is piecewise linear.
+    Under Assumption~\ref{assumption:mode}, the contact geometry and gap are held fixed over the SCM rollout. Hence $\boldsymbol{\tilde{J}}_{\text{env},i}$, $\boldsymbol{\tilde{\phi}}_{\text{env},i}$, $\boldsymbol{W}_{ii}$, $\boldsymbol{D}$, and $\boldsymbol{M}_o^{-1}$ are constant. The affine argument of the componentwise projection in \eqref{eq:quasi-closed_form_solution} is therefore affine in $\boldsymbol{\lambda}_{\mathrm r}$, which makes the environment reaction piecewise linear.
 \end{proof}
 Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified}, we obtain a lightweight explicit model:
 \begin{equation}
@@ -268,51 +273,31 @@ Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified}, w
 \end{cases} \label{equ:scm}
 \end{equation}
 
-This Surrogate Contact Model converts the original contact dynamics into a computationally efficient formulation, enabling \eqref{equ:inner_loop} to be solved efficiently using gradient-based solvers.
+This Surrogate Contact Model converts the original contact dynamics into a computationally efficient formulation, enabling \eqref{equ:inner_loop} to be solved efficiently using gradient-based solvers. Following the complementarity-free construction in~\cite{jin2024complementarity}, the diagonalization is an approximation of the original dual contact problem: it does not imply that the SCM trajectory is identical to the trajectory of the full complementarity model. Its theoretical role is instead to provide the exact closed-form solution of a diagonal surrogate problem and a local perturbation bound for the discarded inter-contact coupling.
 
-\begin{lemma}[Local prediction estimates for SCM]
+The componentwise maximum in \eqref{eq:quasi-closed_form_solution} is
+piecewise affine and is differentiable away from activation boundaries.
+For a smooth implementation, we replace $\max(z,0)$ by the SoftPlus map
+$\operatorname{sp}_{\gamma}(z)=\gamma^{-1}\log(1+\exp(\gamma z))$, as in
+the complementarity-free model~\cite{jin2024complementarity}. The
+automatic Coulomb-cone guarantee proved for the polyhedral dual
+multipliers in~\cite{jin2024complementarity} does not follow from a
+componentwise three-vector projection by itself; the force-cone limits
+in~\eqref{equ:csqp} and the reference-model experiment below are therefore
+part of the validity check for this SCM implementation.
+
+\begin{lemma}[Closed-form surrogate and local prediction bound]
 \label{lem:scm_accuracy}
-Consider the reference model \eqref{equ:scm} and SCM in (29),
-evaluated using identical current states, robot contact inputs,
-contact geometry, and model parameters in the zero-gap setting
-of (28). Let $\boldsymbol{\lambda}_{\mathrm{env}}$ and
-$\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ denote their
-nonnegative contact multipliers. Assume $M_o\succ0$ and
-$R\succ0$, let $D\succ0$ collect the diagonal approximations
-in (27), and define $E:=W_{\mathrm{env}}-D$.
-
-The predicted velocity changes satisfy
-\begin{equation*}
-    (\boldsymbol{v}^+)^\top M_o\hat{\boldsymbol{v}}^+
-    \geq
-    \|\boldsymbol{v}^+\|_{M_o}^2
-    -
-    \frac{
-    \hat{\boldsymbol{\lambda}}_{\mathrm{env}}^\top
-    R\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
-    }{4h^2}.
-\end{equation*}
-Their multiplier and motion discrepancies satisfy
-\begin{equation*}
-\begin{aligned}
-    &\|\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
-      -\boldsymbol{\lambda}_{\mathrm{env}}\|_D
-    \leq
-    \|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2,\\
-    &h\|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{M_o}
-    \leq
-    \Gamma_{\mathrm{env}}
-    \|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2,
-\end{aligned}
-\end{equation*}
-where
-$\|\boldsymbol{z}\|_A
-=(\boldsymbol{z}^\top A\boldsymbol{z})^{1/2}$ and
-\begin{equation*}
-    \Gamma_{\mathrm{env}}
-    :=
-    \|M_o^{-1/2}\tilde J_{\mathrm{env}}^\top D^{-1/2}\|_2.
-\end{equation*}
+Under the fixed-contact assumption, with the same contact gaps $\boldsymbol{\tilde{\phi}}_{\mathrm{env}}$ used in the full and surrogate models, let $\boldsymbol{W}_{\mathrm{env}}$ and $\boldsymbol{g}_{\mathrm{env}}$ be defined in \eqref{eq:env_complementarity}, let $\boldsymbol{D}\succ0$ be the diagonal matrix used by SCM, and write $\boldsymbol{E}=\boldsymbol{W}_{\mathrm{env}}-\boldsymbol{D}$. Then:
+\begin{enumerate}
+    \item SCM is the exact solution of the diagonal surrogate dual problem, namely
+    $\hat{\boldsymbol{\lambda}}_{\mathrm{env}}=\arg\max_{\boldsymbol{\lambda}\geq0}\{-\tfrac12\boldsymbol{\lambda}^{\top}\boldsymbol{D}\boldsymbol{\lambda}-\boldsymbol{g}_{\mathrm{env}}^{\top}\boldsymbol{\lambda}\}$.
+    \item If $\boldsymbol{\lambda}_{\mathrm{env}}$ is the solution of the full regularized dual problem, then
+    $\|\hat{\boldsymbol{\lambda}}_{\mathrm{env}}-\boldsymbol{\lambda}_{\mathrm{env}}\|_{\boldsymbol{D}}\leq\delta_{\lambda}:=\|\boldsymbol{D}^{-1/2}\boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\|_2$, and the corresponding velocity predictions satisfy
+    $|\|\hat{\boldsymbol{v}}^+\|_{\boldsymbol{M}_o}-\|\boldsymbol{v}^+\|_{\boldsymbol{M}_o}|\leq\delta_v:=\Gamma_{\mathrm{env}}\delta_{\lambda}/h$.
+\end{enumerate}
+Moreover, if $a:=\|\boldsymbol{v}^+\|_{\boldsymbol{M}_o}>\delta_v$, the inertia-weighted direction obeys
+$\cos\theta_{\boldsymbol{M}_o}\geq(a-\delta_v)/(a+\delta_v)$. Thus SCM is a controlled local approximation when the discarded coupling is small relative to the current contact loading and motion; the lemma gives no claim about the fraction of rollout steps that satisfy a prescribed acceptance threshold.
 \end{lemma}
 
 \begin{proof}
@@ -337,7 +322,10 @@ Integrating SCM into \eqref{equ:inner_loop}, we can obtain the formulation of CS
 \left(
 -
 \boldsymbol{D}^{-1}
-\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o,
+\left(
+\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o
+\boldsymbol{\tilde{\phi}}_{\text{env},i}
+\right),
 \;\boldsymbol{0}
 \right), \\
 & \boldsymbol{\hat{x}}_{k+1} 
@@ -386,7 +374,7 @@ The original contact dynamics in \eqref{equ:inner_loop} are non-differentiable b
 \frac{\partial \boldsymbol{\lambda}_{\text{env},j}}{\partial \boldsymbol{\lambda}_{\text{r},i}}\right), 
 \end{aligned} 
 \end{equation} 
-where the gradient $\frac{\partial \boldsymbol{\lambda}_{\text{env},j}}{\partial \boldsymbol{\lambda}_{\text{r},i}}$ can be computed via automatic differentiation and satisfies Lipschitz continuity because \eqref{eq:quasi-closed_form_solution} is piecewise linear.  Moreover, the objective function $\ell_{\text{cso}}$ is second-order differentiable. Therefore, the continuous subproblem can be solved efficiently for each candidate; the reported implementation uses SNOPT to solve the resulting nonlinear program, and the candidate costs are then enumerated.
+where the derivative $\frac{\partial \boldsymbol{\lambda}_{\text{env},j}}{\partial \boldsymbol{\lambda}_{\text{r},i}}$ is obtained by automatic differentiation on each fixed active set, or from the SoftPlus derivative at an activation boundary. The resulting map is piecewise smooth; with SoftPlus it is smooth everywhere. The objective function $\ell_{\text{cso}}$ is then differentiable for the continuous force subproblem, which is solved for each candidate using SNOPT, after which the candidate costs are enumerated.
 
 
 
@@ -693,5 +681,3 @@ $\boldsymbol{\tau} =
 \subsubsection{Sampling-based Motion Planner}
 
 Another formulation is to directly solve the full-order planning problem of the robot. In this case, the state in \eqref{equ:cpo_formulation} is given by $\boldsymbol{x} \in \mathbb{R}^{7 + n_{\text{DoF}}}$, where $n_{\text{DoF}}$ denotes the number of robot DoFs. For this class of problems, we employ sampling-based MPC methods as the solver, such as MPPI \cite{williams2015model}. Recent studies  have demonstrated the impressive performance of MPPI in solving high-dimensional optimization problems for redundant robots, enabling real-time computation while avoiding issues related to gradient-based methods. The cost function is defined in the same manner as in the previous formulation, except that $\boldsymbol{p}_{\text{ee}}$ is computed via forward kinematics for the full-order problem. 
-
-

@@ -48,11 +48,31 @@ except Exception as exc:  # pragma: no cover - runtime dependency
 from planning.mlqp_point_v2 import LambdaContactControlOptimizer
 from planning.mppi_bigrasp_ee import BimanualEEMPPI
 from planning.bigrasp_ee_cost import numpy_pose_state
+from planning.planner_mode import resolve_planner_backend, resolve_planner_mode
 from planning.contact_pair import ContactPair
 from planning.physical_bimanual_mppi import (
     MujocoBimanualRolloutBackend,
     PhysicalBimanualMPPI,
 )
+
+# #region agent log
+def _agent_dbg(hypothesis_id, location, message, **data):
+    import json as _json
+    payload = {
+        "sessionId": "a4aad5",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open("/home/zz/scsp-robot/.cursor/debug-a4aad5.log", "a") as _fh:
+            _fh.write(_json.dumps(payload) + "\n")
+            _fh.flush()
+    except OSError:
+        return
+# #endregion
 
 PANDA_XML_PATH = REPO_ROOT / "envs" / "xmls" / "panda_nohand.xml"
 GENERATED_SCENE_PATH = REPO_ROOT / "envs" / "xmls" / "_generated_bigrasp_scene.xml"
@@ -75,6 +95,17 @@ ARM_OBSTACLE_SEGMENTS = (
 )
 ARM_OBSTACLE_LENGTH_PADDING = 0.06
 PANDA_TORQUE_LIMITS = np.array([87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0], dtype=np.float64)
+# Position-servo gains copied from the Franka ``general`` actuators.  SPIDER
+# writes these setpoints straight into ``data.ctrl``.
+PANDA_POSITION_ACTUATORS = (
+    (4500.0, 450.0, -2.8973, 2.8973, 87.0),
+    (4500.0, 450.0, -1.7628, 1.7628, 87.0),
+    (3500.0, 350.0, -2.8973, 2.8973, 87.0),
+    (3500.0, 350.0, -3.0718, -0.0698, 87.0),
+    (2000.0, 200.0, -2.8973, 2.8973, 12.0),
+    (2000.0, 200.0, -0.0175, 3.7525, 12.0),
+    (2000.0, 200.0, -2.8973, 2.8973, 12.0),
+)
 
 
 def _normalize(vec, eps=1e-9):
@@ -399,6 +430,7 @@ def build_bimanual_scene_xml(
     pedestal_pos=(0.58, 0.0, 0.06),
     mujoco_timestep=0.01,
     scene_output_path=GENERATED_SCENE_PATH,
+    position_actuators=False,
 ):
     panda_root = ET.parse(PANDA_XML_PATH).getroot()
 
@@ -632,16 +664,34 @@ def build_bimanual_scene_xml(
     actuator = ET.SubElement(root, "actuator")
     for prefix in ("left_", "right_"):
         for joint_idx, torque_limit in enumerate(PANDA_TORQUE_LIMITS, start=1):
-            ET.SubElement(
-                actuator,
-                "motor",
-                {
-                    "name": f"{prefix}actuator{joint_idx}",
-                    "joint": f"{prefix}joint{joint_idx}",
-                    "ctrllimited": "true",
-                    "ctrlrange": f"{-float(torque_limit):.8f} {float(torque_limit):.8f}",
-                },
-            )
+            if position_actuators:
+                gain, damping, low, high, force = PANDA_POSITION_ACTUATORS[joint_idx - 1]
+                ET.SubElement(
+                    actuator,
+                    "general",
+                    {
+                        "name": f"{prefix}actuator{joint_idx}",
+                        "joint": f"{prefix}joint{joint_idx}",
+                        "dyntype": "none",
+                        "biastype": "affine",
+                        "gainprm": f"{gain:.8f}",
+                        "biasprm": f"0 {-gain:.8f} {-damping:.8f}",
+                        "ctrllimited": "true",
+                        "ctrlrange": f"{low:.8f} {high:.8f}",
+                        "forcerange": f"{-force:.8f} {force:.8f}",
+                    },
+                )
+            else:
+                ET.SubElement(
+                    actuator,
+                    "motor",
+                    {
+                        "name": f"{prefix}actuator{joint_idx}",
+                        "joint": f"{prefix}joint{joint_idx}",
+                        "ctrllimited": "true",
+                        "ctrlrange": f"{-float(torque_limit):.8f} {float(torque_limit):.8f}",
+                    },
+                )
 
     contact = ET.SubElement(root, "contact")
     for child in list(robot_contact):
@@ -744,8 +794,9 @@ class DualArmPlanOnceParams:
 
         self.mpc_horizon_ = int(args.planner_horizon)
         self.mpc_model = "mppi"
-        self.planner_solver_ = str(args.planner_solver).strip().lower()
+        self.planner_solver_ = str(getattr(args, "planner_solver", None) or "acados").strip().lower()
         self.mpc_cost_kind = "bigrasp_ee"
+        self.planner_joint_delta_limit = float(getattr(args, "planner_joint_delta_limit", 0.15))
         rotation_limit = float(getattr(args, "planner_rotation_delta_limit", 0.12))
         self.mpc_u_lb_ = np.asarray(
             [-float(args.planner_cmd_limit)] * 3
@@ -775,6 +826,11 @@ class DualArmPlanOnceParams:
         self.planner_contact_tangent_scale_ = float(getattr(args, "planner_contact_tangent_scale", 0.015))
         self.planner_rotation_delta_limit_ = rotation_limit
         self.planner_cmd_limit = float(args.planner_cmd_limit)
+        self.adam_iters = int(getattr(args, "adam_iters", 40))
+        self.adam_lr = float(getattr(args, "adam_lr", 0.05))
+        self.adam_horizon = int(getattr(args, "adam_horizon", 5))
+        self.adam_knot_substeps = int(getattr(args, "adam_knot_substeps", 6))
+        self._squeeze_depth = float(getattr(args, "squeeze_depth", 0.0))
         self.planner_workspace_lower_ = (-1.0, -1.0, 0.0)
         self.planner_workspace_upper_ = (2.0, 1.0, 2.0)
 
@@ -791,27 +847,81 @@ class DualArmPlanOnceParams:
         self.mppi_use_torch_compile_ = bool(args.mppi_use_torch_compile)
         default_mppi_device = "cuda:0" if torch is not None and torch.cuda.is_available() else "cpu"
         self.mppi_device_ = str(args.mppi_device or default_mppi_device)
+        self.apply_planner_mode(resolve_planner_mode(args))
+
+    def apply_planner_mode(self, mode: str):
+        mode = str(mode).strip().lower()
+        if mode == "mpc_ee":
+            from planning.mpc_explicit_adam import configure_adam_layout
+
+            configure_adam_layout(self)
+            self.robot_stiff_ = np.diag(self.n_cmd_ * [float(np.mean(np.diag(self.robot_stiff_)))]).astype(np.float32)
+            self.Q = np.zeros((self.n_qvel_, self.n_qvel_), dtype=np.float32)
+            self.Q[:6, :6] = self.obj_inertia_
+            self.Q[6:, 6:] = self.robot_stiff_
+            # Assigned-contact gate: do not let the old 300/12 CLI defaults
+            # pull the object before both tips reach their own contacts.
+            self.planner_ee_position_weight_ = 160.0
+            self.planner_object_target_weight_ = 40.0
+            self.planner_object_lateral_weight_ = 40.0
+            # Predicted contact force is identically zero in the Warp rollout,
+            # so a nonzero force weight only raises the cost as the tips approach.
+            self.planner_force_tracking_weight_ = 0.0
+            squeeze = min(float(getattr(self, "_squeeze_depth", 0.0)), TIP_RADIUS * 0.9)
+            # Sphere center sits this far outside the surface point so the
+            # fingertip sphere touches instead of trying to occupy the surface.
+            self.adam_approach_offset_ = max(TIP_RADIUS - squeeze, 0.001)
+            self.planner_contact_gate_scale_ = max(float(self.planner_contact_gate_scale_), 0.02)
+            self.adam_iters = int(getattr(self, "adam_iters", 40))
+            self.adam_lr = float(getattr(self, "adam_lr", 0.05))
+            self.adam_horizon = int(getattr(self, "adam_horizon", 5))
+            self.adam_knot_substeps = int(getattr(self, "adam_knot_substeps", 6))
+            self.mpc_horizon_ = int(getattr(self, "adam_horizon", self.mpc_horizon_))
+            return
+        if mode in {"mppi_joint", "mpc_joint"}:
+            self.n_robot_qpos_ = 14
+            self.n_qpos_ = 21
+            self.n_qvel_ = 20
+            self.n_cmd_ = 14
+            self.n_state_ = 21
+            self.n_action_ = 14
+            self.robot_stiff_ = np.diag(self.n_cmd_ * [float(np.mean(np.diag(self.robot_stiff_)))]).astype(np.float32)
+            self.Q = np.zeros((self.n_qvel_, self.n_qvel_), dtype=np.float32)
+            self.Q[:6, :6] = self.obj_inertia_
+            self.Q[6:, 6:] = self.robot_stiff_
+            bound = np.full(14, float(self.planner_joint_delta_limit), dtype=np.float32)
+            self.mpc_u_lb_ = -bound
+            self.mpc_u_ub_ = bound
+            if mode == "mpc_joint":
+                self.mpc_model = "explicit"
+                self.planner_solver_ = "acados"
+                self.mpc_cost_kind = "bigrasp_joint"
 
 
 class BimanualPandaGrasper:
     def __init__(self, args):
-        requested_ik_backend = str(getattr(args, "ik_backend", "auto")).strip().lower()
-        if requested_ik_backend not in {"auto", "curobo", "mujoco"}:
+        requested_ik_backend = str(getattr(args, "ik_backend", "mink")).strip().lower()
+        if requested_ik_backend not in {"auto", "mink", "mujoco", "curobo"}:
             raise ValueError(f"Unsupported IK backend: {requested_ik_backend}")
-        if requested_ik_backend == "curobo" and not _HAS_CUROBO:
-            raise ImportError(
-                "Failed to import cuRobo. Make sure cuRobo is installed or "
-                f"{CUROBO_SRC_ROOT} is available on PYTHONPATH. "
-                f"Original error: {_CUROBO_IMPORT_ERROR!r}"
-            )
-        self._use_curobo = requested_ik_backend != "mujoco" and _HAS_CUROBO
-        if not self._use_curobo:
-            print(
-                "cuRobo is unavailable or disabled; using the built-in "
-                "MuJoCo Jacobian damped-least-squares EE IK fallback."
-            )
+        self._ik_backend = "mujoco"
+        if requested_ik_backend == "curobo" and _HAS_CUROBO:
+            self._ik_backend = "curobo"
+        elif requested_ik_backend != "mujoco":
+            try:
+                import mink  # noqa: F401
+
+                self._ik_backend = "mink"
+            except ImportError as exc:
+                if requested_ik_backend == "mink":
+                    raise ImportError("mink is required for the EE IK backend") from exc
+                print(f"mink is unavailable ({exc}); using MuJoCo Jacobian IK.")
+        self._use_curobo = self._ik_backend == "curobo"
+        print(f"EE IK backend: {self._ik_backend}")
 
         self.args = args
+        self.planner_mode = resolve_planner_mode(args)
+        self.planner_backend = self.planner_mode
+        self._position_control = self.planner_mode in {"mppi_joint", "mpc_joint", "mpc_ee"}
         if self._use_curobo:
             logging.getLogger("curobo").setLevel(logging.WARNING)
         self.mesh_path = resolve_mesh_path(args.obj, args.mesh)
@@ -869,21 +979,19 @@ class BimanualPandaGrasper:
             pedestal_pos=self.pedestal_pos,
             mujoco_timestep=args.mujoco_dt,
             scene_output_path=args.scene_output,
+            position_actuators=self._position_control,
         )
 
         self.model = mujoco.MjModel.from_xml_path(str(self.scene_path))
         self.model.opt.timestep = float(args.mujoco_dt)
         self.data = mujoco.MjData(self.model)
         
-        self.viewer = (
-            mujoco.viewer.launch_passive(self.model, self.data)
-            if bool(getattr(args, "visualize", False))
-            else None
-        )
-        if self.viewer is not None:
-            self.viewer.cam.distance = 1.8
-            self.viewer.cam.azimuth = 135
-            self.viewer.cam.elevation = -25
+        self.viewer = None
+        self._defer_viewer = self.planner_mode == "mpc_ee" and bool(getattr(args, "visualize", True))
+        if bool(getattr(args, "visualize", True)) and not self._defer_viewer:
+            self._launch_viewer()
+        elif not self._defer_viewer:
+            print("MuJoCo viewer: off")
 
         self.left_arm = self._build_arm_handles("left_", self.left_base_pos, self.left_base_rot)
         self.right_arm = self._build_arm_handles("right_", self.right_base_pos, self.right_base_rot)
@@ -916,7 +1024,7 @@ class BimanualPandaGrasper:
                 "support_surface_clearance": args.ground_height_margin,
                 "support_surface_normal_alignment_threshold": args.support_normal_alignment_threshold,
             }
-        self.optimizer = LambdaContactControlOptimizer(
+        optimizer_kwargs = dict(
             mesh_path=str(self.mesh_path),
             obj_mass=args.obj_mass,
             arm_friction=args.optimizer_arm_friction,
@@ -926,14 +1034,27 @@ class BimanualPandaGrasper:
             pos_coef=args.pos_coef,
             ori_coef=args.ori_coef,
             scale_factors=tuple(self.mesh_scale.tolist()),
-            curvature_neighbor_k=args.optimizer_curvature_neighbor_k,
-            region_max_mean_curvature=args.optimizer_max_region_mean_curvature,
-            region_max_point_curvature=args.optimizer_max_point_curvature,
-            curvature_penalty_weight=args.optimizer_curvature_penalty_weight,
-            nlp_solver=args.solver,
-            static_nlp_solver=args.solver,
             **optimizer_support_kwargs,
         )
+        if self.planner_mode == "mpc_ee":
+            from planning.lambda_contact_warp import LambdaContactWarp
+
+            self.optimizer = LambdaContactWarp(
+                tip_radius=TIP_RADIUS,
+                device=str(getattr(args, "mppi_device", None) or "cuda:0"),
+                adam_steps=int(getattr(args, "adam_steps", 25)),
+                **optimizer_kwargs,
+            )
+        else:
+            self.optimizer = LambdaContactControlOptimizer(
+                curvature_neighbor_k=args.optimizer_curvature_neighbor_k,
+                region_max_mean_curvature=args.optimizer_max_region_mean_curvature,
+                region_max_point_curvature=args.optimizer_max_point_curvature,
+                curvature_penalty_weight=args.optimizer_curvature_penalty_weight,
+                nlp_solver=args.solver,
+                static_nlp_solver=args.solver,
+                **optimizer_kwargs,
+            )
         self.optimizer.set_timing_print_enabled(bool(getattr(args, "print_contact_timing", False)))
         self.command_dt = (
             float(self.model.opt.timestep)
@@ -941,14 +1062,92 @@ class BimanualPandaGrasper:
             * max(int(self.args.command_substeps), 1)
         )
         self.plan_params = DualArmPlanOnceParams(self.args, args.obj_mass)
-        self.planner = BimanualEEMPPI(self.plan_params, seed=self.plan_params.mppi_seed_)
+        self.planner = None
         self.physical_planner = None
+        self.spider_planner = None
+        self.explicit_planner = None
+        self._arm_mppi = None
         self.physical_execution_steps = max(
             int(getattr(args, "physical_mppi_physics_steps", 10)), 1
         )
-        planner_backend = str(getattr(args, "planner_backend", "surrogate_mppi")).strip().lower()
-        if str(getattr(args, "planner_solver", "mppi")).strip().lower() == "physical_mppi":
-            planner_backend = "physical_mppi"
+        planner_backend = self.planner_mode
+        warp_kwargs = dict(
+            left_actuator_ids=self.left_arm.actuator_ids,
+            right_actuator_ids=self.right_arm.actuator_ids,
+            obj_qpos_adr=self.obj_qpos_adr,
+            left_site_id=int(self.left_arm.tip_site_id),
+            right_site_id=int(self.right_arm.tip_site_id),
+            left_qpos_adr=self.left_arm.qpos_adr,
+            right_qpos_adr=self.right_arm.qpos_adr,
+            left_dof_adr=self.left_arm.dof_adr,
+            right_dof_adr=self.right_arm.dof_adr,
+            num_samples=int(getattr(args, "spider_num_samples", 128)),
+            horizon=int(getattr(args, "spider_horizon", 8)),
+            knot_steps=int(getattr(args, "spider_knot_steps", 2)),
+            iterations=int(getattr(args, "spider_iterations", 2)),
+            temperature=float(getattr(args, "spider_temperature", 0.1)),
+            beta_traj=float(getattr(args, "spider_beta", 0.85)),
+            noise_scale=float(getattr(args, "spider_noise", 0.1)),
+            substeps=int(getattr(args, "spider_substeps", 1)),
+            comfree_stiffness=float(getattr(args, "comfree_stiffness", 0.2)),
+            comfree_damping=float(getattr(args, "comfree_damping", 0.001)),
+            device=str(getattr(args, "mppi_device", None) or "cuda:0"),
+        )
+        if planner_backend == "mppi_joint":
+            from planning.mppi_explicit import ExplicitJointMPPI
+
+            self.explicit_planner = ExplicitJointMPPI(
+                self.model,
+                self.data,
+                joint_delta_limit=float(getattr(args, "planner_joint_delta_limit", 0.15)),
+                **warp_kwargs,
+            )
+            self._arm_mppi = self.explicit_planner
+        elif planner_backend == "mppi_ee":
+            from planning.mppi_explicit import ExplicitEEMPPI
+
+            self.explicit_planner = ExplicitEEMPPI(
+                self.model,
+                self.data,
+                translation_limit=float(args.planner_cmd_limit),
+                rotation_limit=float(args.planner_rotation_delta_limit),
+                **warp_kwargs,
+            )
+            self._arm_mppi = self.explicit_planner
+        elif planner_backend == "mpc_ee":
+            from models.dexforge_fast_step import DexForgeFastStep
+            from models.dexforge_planner_scene import write_dexforge_planner_scene
+            from planning.mpc_explicit_adam import MPCExplicitEEAdam
+
+            self.plan_params.table_height = float(self.support_height_threshold)
+            self.plan_params.tip_radius = float(TIP_RADIUS)
+            planner_xml = write_dexforge_planner_scene(
+                self.scene_path,
+                self.optimizer.cloud,
+                tip_radius=float(TIP_RADIUS),
+            )
+            warp_device = str(getattr(args, "mppi_device", None) or "cuda:0")
+            self.plan_params.mppi_device_ = warp_device
+            print(f"DexForge planner scene: {planner_xml}")
+            print("Compiling DexForge Warp step + CUDA-graph Adam (first run JIT-compiles GPU kernels)...")
+            warp_model = DexForgeFastStep(planner_xml, device=warp_device)
+            warp_model.set_cloud(self.optimizer.cloud)
+            self.planner = MPCExplicitEEAdam(
+                self.plan_params,
+                cloud=self.optimizer.cloud,
+                warp_model=warp_model,
+            )
+            print(
+                f"Warp-graph Adam MPC: horizon={self.planner.horizon} "
+                f"knot_substeps={getattr(self.planner, 'knot_substeps', 1)} "
+                f"iters={self.planner.iters} lr={self.planner.lr} u_limit={self.planner.u_limit}"
+            )
+            if getattr(self, "_defer_viewer", False):
+                self._launch_viewer()
+        elif planner_backend == "mpc_joint":
+            from planning.mpc_explicit import MPCExplicitJoint
+
+            self.planner = MPCExplicitJoint(self.plan_params)
         if planner_backend == "physical_mppi":
             # ``touch_offset`` is a pre-contact stand-off used by the legacy
             # waypoint controller.  A physical rollout must put the
@@ -1042,6 +1241,20 @@ class BimanualPandaGrasper:
             ).astype(np.float64),
             nullspace_stiffness=float(self.args.nullspace_stiffness),
         )
+
+    def _launch_viewer(self):
+        try:
+            self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+        except Exception as exc:
+            print(f"MuJoCo viewer failed to start: {exc}")
+            self.viewer = None
+        if self.viewer is not None:
+            print("MuJoCo viewer: on")
+            self.viewer.cam.distance = 1.8
+            self.viewer.cam.azimuth = 135
+            self.viewer.cam.elevation = -25
+        else:
+            print("MuJoCo viewer: off")
 
     def _build_curobo_world_config_dict(self, arm, include_pedestal=True):
         floor_world_pos = np.array([self.args.scene_center_x, 0.0, -0.05], dtype=np.float64)
@@ -1241,8 +1454,12 @@ class BimanualPandaGrasper:
     def reset(self, object_pos, object_quat):
         self.data.qpos[self.left_arm.qpos_adr] = PANDA_HOME_Q
         self.data.qpos[self.right_arm.qpos_adr] = PANDA_HOME_Q
-        self.data.ctrl[self.left_arm.actuator_ids] = 0.0
-        self.data.ctrl[self.right_arm.actuator_ids] = 0.0
+        if self._position_control:
+            self.data.ctrl[self.left_arm.actuator_ids] = PANDA_HOME_Q
+            self.data.ctrl[self.right_arm.actuator_ids] = PANDA_HOME_Q
+        else:
+            self.data.ctrl[self.left_arm.actuator_ids] = 0.0
+            self.data.ctrl[self.right_arm.actuator_ids] = 0.0
         self.data.qpos[self.obj_qpos_adr : self.obj_qpos_adr + 7] = np.hstack([object_pos, object_quat])
         self.data.qvel[:] = 0.0
         self.data.act[:] = 0.0
@@ -3220,7 +3437,75 @@ class BimanualPandaGrasper:
             failure_reason="mujoco Jacobian IK did not reach tolerance" if not success else "",
         )
 
+    def _solve_arm_ik_mink(self, arm, target_tip_pos_world, target_tip_rot_world):
+        """Solve one fingertip pose with mink differential IK."""
+        import mink
+
+        target_tip_pos_world = np.asarray(target_tip_pos_world, dtype=np.float64).reshape(3)
+        target_tip_rot_world = _project_to_rotation_matrix(target_tip_rot_world)
+        target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
+            target_tip_pos_world,
+            target_tip_rot_world,
+        )
+        configuration = mink.Configuration(self.model, q=np.asarray(self.data.qpos, dtype=np.float64).copy())
+        geom_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, int(arm.tip_geom_id))
+        frame_task = mink.FrameTask(
+            frame_name=geom_name,
+            frame_type="geom",
+            position_cost=float(getattr(self.args, "ik_pos_weight", 1.0)),
+            orientation_cost=float(getattr(self.args, "ik_rot_weight", 0.35)),
+            lm_damping=1.0e-3,
+        )
+        target = np.eye(4, dtype=np.float64)
+        target[:3, :3] = target_tip_rot_world
+        target[:3, 3] = target_tip_pos_world
+        frame_task.set_target(mink.SE3.from_matrix(target))
+        posture = mink.PostureTask(self.model, cost=1.0e-3)
+        posture.set_target_from_configuration(configuration)
+        limits = [mink.ConfigurationLimit(self.model)]
+        dt = 0.02
+        max_iters = max(int(getattr(self.args, "ik_max_iters", 80)), 1)
+        position_error = float("inf")
+        rotation_error = float("inf")
+        for _ in range(max_iters):
+            velocity = mink.solve_ik(
+                configuration,
+                [frame_task, posture],
+                dt,
+                "daqp",
+                damping=1.0e-3,
+                safety_break=False,
+                limits=limits,
+            )
+            masked = np.zeros_like(velocity)
+            masked[arm.dof_adr] = velocity[arm.dof_adr]
+            configuration.integrate_inplace(masked, dt)
+            current_pos, current_rot = self.get_tip_pose(arm, data=configuration.data)
+            position_error = float(np.linalg.norm(target_tip_pos_world - current_pos))
+            rotation_error = float(np.linalg.norm(_rotation_error(current_rot, target_tip_rot_world)))
+            if position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol):
+                break
+        solved_tip_pos, solved_tip_rot = self.get_tip_pose(arm, data=configuration.data)
+        solved_hand_pos, solved_hand_rot = self.tip_target_to_hand_pose(solved_tip_pos, solved_tip_rot)
+        success = position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol)
+        self.set_ghost_pose(arm, solved_hand_pos, solved_hand_rot)
+        return ArmIkResult(
+            q_mj=np.asarray(configuration.q[arm.qpos_adr], dtype=np.float64).copy(),
+            success=bool(success),
+            position_error=position_error,
+            rotation_error=rotation_error,
+            target_hand_pos_world=target_hand_pos_world,
+            target_hand_rot_world=target_hand_rot_world,
+            solved_hand_pos_world=solved_hand_pos,
+            solved_hand_rot_world=solved_hand_rot,
+            solved_tip_pos_world=solved_tip_pos,
+            solved_tip_rot_world=solved_tip_rot,
+            failure_reason="" if success else "mink IK did not reach tolerance",
+        )
+
     def solve_arm_ik(self, arm, target_tip_pos_world, target_tip_rot_world):
+        if self._ik_backend == "mink":
+            return self._solve_arm_ik_mink(arm, target_tip_pos_world, target_tip_rot_world)
         if not self._use_curobo:
             return self._solve_arm_ik_mujoco(arm, target_tip_pos_world, target_tip_rot_world)
         target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
@@ -3335,6 +3620,13 @@ class BimanualPandaGrasper:
         )
 
     def get_planner_state(self):
+        if getattr(self, "planner_mode", "") == "mpc_ee":
+            return self.get_planner_state_joints()
+        if getattr(self, "planner_mode", "") in {"mppi_joint", "mpc_joint"}:
+            return self.get_planner_state_joints()
+        return self.get_planner_state_poses()
+
+    def get_planner_state_poses(self):
         obj_pos, obj_quat, _ = self.get_object_pose()
         left_tip_pos, left_tip_rot = self.get_tip_pose(self.left_arm)
         right_tip_pos, right_tip_rot = self.get_tip_pose(self.right_arm)
@@ -3343,6 +3635,30 @@ class BimanualPandaGrasper:
             obj_quat,
             (left_tip_pos, mat_to_quat_wxyz(left_tip_rot)),
             (right_tip_pos, mat_to_quat_wxyz(right_tip_rot)),
+        )
+
+    def get_planner_state_tips(self):
+        obj_pos, obj_quat, _ = self.get_object_pose()
+        left_tip_pos, _ = self.get_tip_pose(self.left_arm)
+        right_tip_pos, _ = self.get_tip_pose(self.right_arm)
+        return np.concatenate(
+            (
+                np.asarray(obj_pos, dtype=np.float64).reshape(3),
+                np.asarray(obj_quat, dtype=np.float64).reshape(4),
+                np.asarray(left_tip_pos, dtype=np.float64).reshape(3),
+                np.asarray(right_tip_pos, dtype=np.float64).reshape(3),
+            )
+        )
+
+    def get_planner_state_joints(self):
+        obj_pos, obj_quat, _ = self.get_object_pose()
+        return np.concatenate(
+            (
+                np.asarray(obj_pos, dtype=np.float64).reshape(3),
+                np.asarray(obj_quat, dtype=np.float64).reshape(4),
+                np.asarray(self.data.qpos[self.left_arm.qpos_adr], dtype=np.float64).reshape(7),
+                np.asarray(self.data.qpos[self.right_arm.qpos_adr], dtype=np.float64).reshape(7),
+            )
         )
 
     def _build_object_jacobian(self, point_local):
@@ -3357,11 +3673,19 @@ class BimanualPandaGrasper:
         return jacobian
 
     def _build_tip_jacobian_block(self, arm):
-        jacobian = np.zeros((3, self.plan_params.n_qvel_), dtype=np.float64)
+        n_qvel = int(self.plan_params.n_qvel_)
+        jacobian = np.zeros((3, n_qvel), dtype=np.float64)
+        if n_qvel == 20:
+            jacp = np.zeros((3, self.model.nv), dtype=np.float64)
+            mujoco.mj_jacSite(self.model, self.data, jacp, None, int(arm.tip_site_id))
+            offset = 6 if arm.prefix == "left_" else 13
+            jacobian[:, offset : offset + 7] = jacp[:, arm.dof_adr]
+            return jacobian
         if arm.prefix == "left_":
             jacobian[:, 6:9] = np.eye(3, dtype=np.float64)
         else:
-            jacobian[:, 9:12] = np.eye(3, dtype=np.float64)
+            col = 9 if n_qvel >= 12 else 6
+            jacobian[:, col : col + 3] = np.eye(3, dtype=np.float64)
         return jacobian
 
     def _reformat_planner_contacts(self, con_phi_list=None, con_jac_list=None):
@@ -3637,6 +3961,87 @@ class BimanualPandaGrasper:
             object_force_world=object_force_world,
             object_torque_world=object_torque_world,
         )
+
+    def step_joint_delta(self, action, substeps=1):
+        """Apply a 14-D joint increment to position actuators and step MuJoCo."""
+        action = np.asarray(action, dtype=np.float64).reshape(14)
+        left_cmd = np.asarray(self.data.qpos[self.left_arm.qpos_adr], dtype=np.float64) + action[:7]
+        right_cmd = np.asarray(self.data.qpos[self.right_arm.qpos_adr], dtype=np.float64) + action[7:]
+        self.data.ctrl[self.left_arm.actuator_ids] = np.clip(
+            left_cmd,
+            self.model.actuator_ctrlrange[self.left_arm.actuator_ids, 0],
+            self.model.actuator_ctrlrange[self.left_arm.actuator_ids, 1],
+        )
+        self.data.ctrl[self.right_arm.actuator_ids] = np.clip(
+            right_cmd,
+            self.model.actuator_ctrlrange[self.right_arm.actuator_ids, 0],
+            self.model.actuator_ctrlrange[self.right_arm.actuator_ids, 1],
+        )
+        for _ in range(max(int(substeps), 1)):
+            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_forward(self.model, self.data)
+
+    def _compute_arm_osc_torque(self, arm, remain, velocity, v_ref=None, k_task=600.0, d_task=40.0, force_limit=12.0):
+        from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque, isaac_task_force
+
+        q = self.get_current_joint_position(arm)
+        dq = self.get_current_joint_velocity(arm)
+        jacobian = np.asarray(self.get_arm_jacobian(arm)[:3], dtype=np.float64)
+        force = isaac_task_force(remain, velocity, v_ref=v_ref, k_task=k_task, d_task=d_task, limit=force_limit)
+        tau_task = jacobian.T @ np.asarray(force, dtype=np.float64)
+        tau_null = franka_nullspace_posture_torque(
+            jacobian, q, dq, arm.home_q, float(arm.nullspace_stiffness)
+        )
+        tau_bias = np.asarray(self.data.qfrc_bias[arm.dof_adr], dtype=np.float64)
+        return np.clip(tau_task + np.asarray(tau_null, dtype=np.float64) + tau_bias, -arm.torque_limits, arm.torque_limits)
+
+    def step_osc_tip_delta(self, left_cmd, right_cmd, object_force_world=None, object_torque_world=None):
+        """Track dual-arm 3D fingertip increments with position-only OSC."""
+        from examples.mpc.franka.ik2.contact_frames import mpc_ball_trajectory, remaining_along_action
+
+        left_cmd = np.asarray(left_cmd, dtype=np.float64).reshape(3)
+        right_cmd = np.asarray(right_cmd, dtype=np.float64).reshape(3)
+        left_p0, left_rot = self.get_tip_pose(self.left_arm)
+        right_p0, right_rot = self.get_tip_pose(self.right_arm)
+        num_steps = self._planner_tracking_steps()
+        horizon = max(float(num_steps) * float(self.model.opt.timestep), 1.0e-6)
+        for step_idx in range(num_steps):
+            t = float(step_idx + 1) * float(self.model.opt.timestep)
+            left_pref, left_vref = mpc_ball_trajectory(left_p0, left_cmd, t, horizon)
+            right_pref, right_vref = mpc_ball_trajectory(right_p0, right_cmd, t, horizon)
+            self.set_desired_tip_pose(self.left_arm, left_pref, left_rot)
+            self.set_desired_tip_pose(self.right_arm, right_pref, right_rot)
+            mujoco.mj_forward(self.model, self.data)
+            left_curr, _ = self.get_tip_pose(self.left_arm)
+            right_curr, _ = self.get_tip_pose(self.right_arm)
+            left_jac = self.get_arm_jacobian(self.left_arm)[:3]
+            right_jac = self.get_arm_jacobian(self.right_arm)[:3]
+            left_vel = left_jac @ self.get_current_joint_velocity(self.left_arm)
+            right_vel = right_jac @ self.get_current_joint_velocity(self.right_arm)
+            left_tau = self._compute_arm_osc_torque(
+                self.left_arm,
+                remaining_along_action(left_curr, left_p0, left_cmd),
+                left_vel,
+                v_ref=left_vref,
+            )
+            right_tau = self._compute_arm_osc_torque(
+                self.right_arm,
+                remaining_along_action(right_curr, right_p0, right_cmd),
+                right_vel,
+                v_ref=right_vref,
+            )
+            self.set_control_torque(self.left_arm, left_tau)
+            self.set_control_torque(self.right_arm, right_tau)
+            self.apply_object_wrench_world(
+                force_world=object_force_world,
+                torque_world=object_torque_world,
+            )
+            mujoco.mj_step(self.model, self.data)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None:
+                self.sync_viewer()
+            if self.args.real_time and self.viewer is not None:
+                time.sleep(self.model.opt.timestep)
 
     def hold_current_pose(self, num_steps=1, object_force_world=None, object_torque_world=None):
         for arm in (self.left_arm, self.right_arm):
@@ -3974,7 +4379,15 @@ class BimanualPandaGrasper:
         a new lambda pair after bilateral contact is lost or the object drifts
         materially; the analytic acc backend keeps its historical fixed pair.
         """
-        self.planner.reset()
+        for planner in (
+            self.planner,
+            self.explicit_planner,
+            self.physical_planner,
+            self.spider_planner,
+        ):
+            reset = getattr(planner, "reset", None)
+            if callable(reset):
+                reset()
         object_pos, object_quat, object_rot = self.get_object_pose()
         touch_offset = TIP_RADIUS + float(self.args.touch_offset)
 
@@ -4042,8 +4455,6 @@ class BimanualPandaGrasper:
         contact_replan_origin = object_pos.copy()
         contact_lost_steps = 0
 
-        # Solve the fixed contact orientation once.  The IK solution is used
-        # only as the common EE orientation reference for all MPPI cycles.
         self._set_curobo_world_mode("floor_only")
         self._update_inter_arm_worlds()
         initial_touch_targets = self._stage_targets_from_object_pose(
@@ -4053,22 +4464,54 @@ class BimanualPandaGrasper:
             object_rot,
             center_offset=touch_offset,
         )
-        left_touch_ik = self.solve_arm_ik(
-            self.left_arm,
-            initial_touch_targets["left_tip_pos"],
-            initial_touch_targets["left_tip_rot"],
-        )
-        right_touch_ik = self.solve_arm_ik(
-            self.right_arm,
-            initial_touch_targets["right_tip_pos"],
-            initial_touch_targets["right_tip_rot"],
-        )
-        left_fixed_rot = _project_to_rotation_matrix(
-            left_touch_ik.solved_tip_rot_world if left_touch_ik.success else initial_touch_targets["left_tip_rot"]
-        )
-        right_fixed_rot = _project_to_rotation_matrix(
-            right_touch_ik.solved_tip_rot_world if right_touch_ik.success else initial_touch_targets["right_tip_rot"]
-        )
+        if self.planner_mode == "mpc_ee":
+            # DexForge plans joint ctrl from the current qpos; no IK seed.
+            print("Skipping touch IK; Adam MPC commands 14-D joints from the current configuration")
+            _, left_fixed_rot = self.get_tip_pose(self.left_arm)
+            _, right_fixed_rot = self.get_tip_pose(self.right_arm)
+            left_fixed_rot = _project_to_rotation_matrix(left_fixed_rot)
+            right_fixed_rot = _project_to_rotation_matrix(right_fixed_rot)
+            left_touch_ik = ArmIkResult(
+                q_mj=self.get_current_joint_position(self.left_arm),
+                success=False,
+                position_error=0.0,
+                rotation_error=0.0,
+                target_hand_pos_world=initial_touch_targets["left_tip_pos"],
+                target_hand_rot_world=initial_touch_targets["left_tip_rot"],
+                solved_hand_pos_world=initial_touch_targets["left_tip_pos"],
+                solved_hand_rot_world=initial_touch_targets["left_tip_rot"],
+                solved_tip_pos_world=initial_touch_targets["left_tip_pos"],
+                solved_tip_rot_world=initial_touch_targets["left_tip_rot"],
+            )
+            right_touch_ik = ArmIkResult(
+                q_mj=self.get_current_joint_position(self.right_arm),
+                success=False,
+                position_error=0.0,
+                rotation_error=0.0,
+                target_hand_pos_world=initial_touch_targets["right_tip_pos"],
+                target_hand_rot_world=initial_touch_targets["right_tip_rot"],
+                solved_hand_pos_world=initial_touch_targets["right_tip_pos"],
+                solved_hand_rot_world=initial_touch_targets["right_tip_rot"],
+                solved_tip_pos_world=initial_touch_targets["right_tip_pos"],
+                solved_tip_rot_world=initial_touch_targets["right_tip_rot"],
+            )
+        else:
+            left_touch_ik = self.solve_arm_ik(
+                self.left_arm,
+                initial_touch_targets["left_tip_pos"],
+                initial_touch_targets["left_tip_rot"],
+            )
+            right_touch_ik = self.solve_arm_ik(
+                self.right_arm,
+                initial_touch_targets["right_tip_pos"],
+                initial_touch_targets["right_tip_rot"],
+            )
+            left_fixed_rot = _project_to_rotation_matrix(
+                left_touch_ik.solved_tip_rot_world if left_touch_ik.success else initial_touch_targets["left_tip_rot"]
+            )
+            right_fixed_rot = _project_to_rotation_matrix(
+                right_touch_ik.solved_tip_rot_world if right_touch_ik.success else initial_touch_targets["right_tip_rot"]
+            )
         ee_target_quat = np.asarray(
             [mat_to_quat_wxyz(left_fixed_rot), mat_to_quat_wxyz(right_fixed_rot)],
             dtype=np.float64,
@@ -4088,21 +4531,41 @@ class BimanualPandaGrasper:
         print("Generated scene:", self.scene_path)
         print("Mesh:", self.mesh_path)
         print("Object pose:", object_pos, object_quat)
-        print(
-            "Unified MPPI:",
-            f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
-            f"horizon={self.plan_params.mpc_horizon_} samples={self.plan_params.mppi_samples_}",
-        )
+        if self._arm_mppi is not None:
+            planner_name = {
+                "mppi_ee": "Explicit EE MPPI",
+                "mppi_joint": "Explicit joint MPPI",
+            }.get(self.planner_mode, "Warp MPPI")
+            print(
+                f"{planner_name}:",
+                f"action_dim={self._arm_mppi.action_dim} horizon={self._arm_mppi.horizon} "
+                f"samples={self._arm_mppi.num_samples} "
+                f"knots={self._arm_mppi.num_knots} "
+                f"substeps={self._arm_mppi.substeps} device={self._arm_mppi.device}",
+            )
+        elif self.planner_mode in {"mpc_ee", "mpc_joint"}:
+            print(
+                f"Explicit MPC ({self.planner_mode}):",
+                f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
+                f"solver={self.plan_params.planner_solver_}",
+            )
+        else:
+            print(
+                "Unified MPPI:",
+                f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
+                f"horizon={self.plan_params.mpc_horizon_} samples={self.plan_params.mppi_samples_}",
+            )
         print("Fixed contact points local:\n", contact_points_local)
         print("Fixed desired contact forces local:\n", desired_normal_forces_local)
         print(
             f"Initial contact projection world:\n{contact_points_world}\n"
             f"target object pose: {object_target_pos} {object_target_quat}"
         )
-        print(
-            f"IK orientation references: left_success={left_touch_ik.success} "
-            f"right_success={right_touch_ik.success}"
-        )
+        if self.planner_mode != "mpc_ee":
+            print(
+                f"IK orientation references: left_success={left_touch_ik.success} "
+                f"right_success={right_touch_ik.success}"
+            )
 
         stable_steps = 0
         last_info = {}
@@ -4114,8 +4577,21 @@ class BimanualPandaGrasper:
         report_stride = max(1, control_steps // 20)
         print_mppi_timing = bool(getattr(self.args, "print_mppi_timing", False))
 
+        if torch is not None:
+            torch.set_num_threads(1)
         for step_idx in range(control_steps):
             loop_t0 = time.perf_counter()
+            # #region agent log
+            if step_idx == 0:
+                _agent_dbg(
+                    "C",
+                    "bigrasp.py:run.loop0",
+                    "control loop start",
+                    warp_loaded=any(n == "warp" or n.startswith("warp.") for n in sys.modules),
+                    planner=type(self.planner).__name__ if self.planner is not None else None,
+                    device=str(getattr(getattr(self, "planner", None), "device", None)),
+                )
+            # #endregion
             current_pos, current_quat, current_rot = self.get_object_pose()
             if self.physical_planner is not None:
                 drifted = float(np.linalg.norm(current_pos - contact_replan_origin)) >= float(
@@ -4151,6 +4627,10 @@ class BimanualPandaGrasper:
             self.set_marker("contact_point2", contact_points_world[1])
             self.set_marker("goal", object_target_pos, object_target_quat)
 
+            # #region agent log
+            if step_idx == 0:
+                _agent_dbg("B", "bigrasp.py:run.before_stage", "before _stage_targets_from_object_pose")
+            # #endregion
             approach_targets = self._stage_targets_from_object_pose(
                 contact_points_local,
                 normals_local,
@@ -4158,6 +4638,10 @@ class BimanualPandaGrasper:
                 current_rot,
                 center_offset=touch_offset,
             )
+            # #region agent log
+            if step_idx == 0:
+                _agent_dbg("B", "bigrasp.py:run.after_stage", "after _stage_targets_from_object_pose")
+            # #endregion
             # Reproject the contact-frame orientation with the measured
             # object pose on every physical cycle.  Keeping the initial IK
             # quaternion fixed while a unilateral contact yaws the object
@@ -4183,19 +4667,65 @@ class BimanualPandaGrasper:
                 ],
                 dtype=bool,
             )
-            hold_mask = np.asarray(
-                [ready_mask[0] and not ready_mask[1], ready_mask[1] and not ready_mask[0]],
-                dtype=bool,
-            )
-            # Contact feedback remains part of the rollout cost, but the
-            # physical planner must keep both arms free to adjust in the same
-            # rollout.  Freezing the first contact creates a discrete
-            # one-arm stage and can make the bilateral solution unreachable.
+            # A ready arm used to be frozen until the other caught up.  The
+            # 3 cm ready ball already contains the contact pose, so that hold
+            # locked the first fingertip against the object.  Both arms stay
+            # free; simultaneous contact has to come from the rollout cost.
+            hold_mask = np.zeros(2, dtype=bool)
             contact_hold_mask = np.zeros(2, dtype=bool)
             planner_state = self.get_planner_state()
             planner_t0 = time.perf_counter()
             trajectory_path = None
-            if self.physical_planner is not None:
+            if self._arm_mppi is not None:
+                approach_q = None
+                if self.planner_mode == "mppi_joint" and bool(left_touch_ik.success) and bool(right_touch_ik.success):
+                    approach_q = np.concatenate(
+                        (
+                            np.asarray(left_touch_ik.q_mj, dtype=np.float64).reshape(7),
+                            np.asarray(right_touch_ik.q_mj, dtype=np.float64).reshape(7),
+                        )
+                    )
+                planner_result = self._arm_mppi.plan_once(
+                    contact_points_local,
+                    object_target_pos,
+                    object_target_quat,
+                    approach_q=approach_q,
+                )
+            elif self.planner_mode == "mpc_ee":
+                planner_result = self.planner.plan_once(
+                    object_target_pos,
+                    object_target_quat,
+                    self.get_planner_state(),
+                    sol_guess=getattr(self.plan_params, "sol_guess_", None),
+                    verify_cost_param_1=1.0,
+                    verify_cost_param_2=1.0,
+                    contact_points_local=contact_points_local,
+                    normals_local=normals_local,
+                    desired_force_local=desired_normal_forces_local,
+                    approach_offset=float(getattr(self.plan_params, "adam_approach_offset_", TIP_RADIUS)),
+                    qpos0=np.asarray(self.data.qpos, dtype=np.float32),
+                    qvel0=np.asarray(self.data.qvel, dtype=np.float32),
+                )
+                self.plan_params.sol_guess_ = planner_result.get("sol_guess")
+            elif self.planner_mode == "mpc_joint":
+                phi_vec, jac_mat = self._detect_planner_contacts()
+                planner_virtual = np.asarray(contact_points_world, dtype=np.float64).reshape(2, 3)
+                planner_result = self.planner.plan_once(
+                    object_target_pos,
+                    object_target_quat,
+                    self.get_planner_state(),
+                    phi_vec,
+                    jac_mat,
+                    sol_guess=getattr(self.plan_params, "sol_guess_", None),
+                    verify_cost_param_1=1.0,
+                    verify_cost_param_2=1.0,
+                    virtual_point_1=np.asarray(planner_virtual[0], dtype=np.float64),
+                    virtual_point_2=np.asarray(planner_virtual[1], dtype=np.float64),
+                    contact_point_1=np.asarray(contact_points_world[0], dtype=np.float64),
+                    contact_point_2=np.asarray(contact_points_world[1], dtype=np.float64),
+                )
+                self.plan_params.sol_guess_ = planner_result.get("sol_guess")
+            elif self.physical_planner is not None:
                 trajectory_path = getattr(self.args, "planner_trajectory_path", None)
                 if trajectory_path:
                     trajectory_path = str(trajectory_path)
@@ -4214,11 +4744,10 @@ class BimanualPandaGrasper:
                     trajectory_path=trajectory_path,
                     hold_mask=hold_mask,
                     ee_target_quat=ee_target_quat_cycle,
-                    # Recompute a small feedback seed from the measured EE
-                    # pose every cycle.  This keeps the warm-started MPPI
-                    # distribution attracted to the fixed contact pair when
-                    # all sampled rollouts are still non-contact.
-                    approach_seed_weight=1.0,
+                    # The backend writes the coordinated approach seed only
+                    # while there is no warm start.  Reimposing it every cycle
+                    # deletes a mean that has learned to wait for the farther arm.
+                    approach_seed_weight=0.0,
                 )
             else:
                 planner_result = self.planner.plan_once(
@@ -4236,14 +4765,25 @@ class BimanualPandaGrasper:
             planner_wall_time = float(
                 planner_result.get("solve_time", time.perf_counter() - planner_t0)
             )
-            action = np.asarray(planner_result["action"], dtype=np.float64).reshape(12)
+            action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
             # The mask is applied again at the execution boundary so a ready
             # arm is exactly stationary even if a backend returns stale noise.
-            if self.physical_planner is None:
+            if self.planner_mode == "mppi_ee" and self.physical_planner is None:
                 action[:6] = 0.0 if hold_mask[0] else action[:6]
                 action[6:12] = 0.0 if hold_mask[1] else action[6:12]
             control_t0 = time.perf_counter()
-            if self.physical_planner is not None:
+            if self.planner_mode == "mppi_joint":
+                self.step_joint_delta(action, substeps=self._arm_mppi.substeps)
+            elif self.planner_mode == "mpc_joint":
+                self.step_joint_delta(action, substeps=max(int(getattr(self.args, "spider_substeps", 1)), 1))
+            elif self.planner_mode == "mpc_ee":
+                self.step_joint_delta(
+                    action.reshape(14),
+                    substeps=max(int(getattr(self.planner, "knot_substeps", getattr(self.args, "adam_knot_substeps", 6))), 1),
+                )
+            elif self._arm_mppi is not None:
+                self.step_ee_pose_delta(action, hold_mask=hold_mask)
+            elif self.physical_planner is not None:
                 original_command_steps = int(self.args.mj_steps_per_command)
                 self.args.mj_steps_per_command = self.physical_execution_steps
                 try:
@@ -4376,7 +4916,8 @@ class BimanualPandaGrasper:
                     f"contacts={len(contacts['left'])}/{len(contacts['right'])} "
                     f"force={np.array2string(measured_force, precision=3)} "
                     f"dxy={np.array2string(post_pos[:2] - current_pos[:2], precision=5)} "
-                    f"obj_err={object_pos_error:.4f} target_z={object_target_pos[2]:.4f}"
+                    f"obj_err={object_pos_error:.4f} target_z={object_target_pos[2]:.4f} "
+                    f"plan={planner_wall_time*1000:.1f}ms ({(1.0/planner_wall_time) if planner_wall_time > 1e-6 else 0.0:.1f} Hz)"
                 )
                 if print_mppi_timing:
                     print(
@@ -4533,9 +5074,9 @@ def build_argparser():
     parser.add_argument(
         "--ik-backend",
         type=str,
-        choices=("auto", "curobo", "mujoco"),
-        default="auto",
-        help="EE-pose IK backend. auto uses cuRobo when installed, otherwise MuJoCo Jacobian IK.",
+        choices=("auto", "mink", "mujoco", "curobo"),
+        default="mink",
+        help="EE-pose IK backend. mink is the default differential IK. mujoco is the Jacobian fallback.",
     )
     parser.add_argument("--ik-max-iters", type=int, default=120, help="Maximum iterations used by the selected EE IK backend.")
     parser.add_argument("--ik-num-seeds", type=int, default=32, help="Number of cuRobo IK seeds when cuRobo is selected.")
@@ -4560,20 +5101,38 @@ def build_argparser():
     parser.add_argument("--pose-only-mpc", action="store_true", help="Legacy option kept for CLI compatibility; plan_once tracking is pose-based by default.")
     parser.add_argument("--planner-dt", type=float, default=0.01, help="Time step used by the plan_once object-motion model.")
     parser.add_argument("--planner-horizon", type=int, default=20, help="plan_once horizon length.")
+    planner_mode = parser.add_mutually_exclusive_group()
+    planner_mode.add_argument("--mppi", dest="planner_mode", action="store_const", const="mppi_ee", help="Alias for --mppi-ee.")
+    planner_mode.add_argument("--mppi-ee", dest="planner_mode", action="store_const", const="mppi_ee", help="Warp MPPI over dual-arm EE delta pose (default).")
+    planner_mode.add_argument("--mppi-joint", dest="planner_mode", action="store_const", const="mppi_joint", help="Warp MPPI over 14-D joint increments.")
+    planner_mode.add_argument("--mpc", dest="planner_mode", action="store_const", const="mpc_ee", help="Alias for --mpc-ee.")
+    planner_mode.add_argument("--mpc-ee", dest="planner_mode", action="store_const", const="mpc_ee", help="Adam MPC over 14-D joint increments with DexForge Warp step.")
+    planner_mode.add_argument("--mpc-joint", dest="planner_mode", action="store_const", const="mpc_joint", help="Acados explicit MPC over 14-D joint increments.")
     parser.add_argument(
         "--planner-solver",
         type=str,
-        choices=("mppi", "ipopt", "acados", "physical_mppi"),
-        default="mppi",
-        help="Planner backend label; physical_mppi selects the physical rollout MPPI path.",
+        choices=("mppi", "ipopt", "acados", "physical_mppi", "spider_mjwp", "explicit_mjwp"),
+        default=None,
+        help="Legacy solver name. Prefer --mppi/--mpc. acados maps to --mpc-ee.",
     )
     parser.add_argument(
         "--planner-backend",
         type=str,
-        choices=("surrogate_mppi", "physical_mppi"),
-        default="surrogate_mppi",
-        help="Use the existing analytic MPPI or physical-in-the-loop MPPI rollout.",
+        choices=("surrogate_mppi", "physical_mppi", "spider_mjwp", "explicit_mjwp"),
+        default=None,
+        help="Legacy backend name. Prefer --mppi/--mpc. explicit_mjwp maps to --mppi-joint.",
     )
+    parser.add_argument("--planner-joint-delta-limit", type=float, default=0.15, help="Absolute joint-increment limit in radians for --mppi-joint and --mpc-joint.")
+    parser.add_argument("--spider-num-samples", type=int, default=128, help="Parallel MuJoCo Warp worlds used by SPIDER MPPI.")
+    parser.add_argument("--spider-horizon", type=int, default=8, help="SPIDER control horizon. Rounded up to a multiple of --spider-knot-steps.")
+    parser.add_argument("--spider-knot-steps", type=int, default=2, help="Interpolation factor from SPIDER control knots to the horizon.")
+    parser.add_argument("--spider-iterations", type=int, default=2, help="SPIDER MPPI iterations per replan. Noise scale is multiplied by --spider-beta each iteration.")
+    parser.add_argument("--spider-temperature", type=float, default=0.1, help="Temperature of SPIDER's top-10-percent reward softmax.")
+    parser.add_argument("--spider-beta", type=float, default=0.85, help="Per-iteration SPIDER noise decay.")
+    parser.add_argument("--spider-noise", type=float, default=0.1, help="Joint-position knot noise in radians.")
+    parser.add_argument("--spider-substeps", type=int, default=1, help="MuJoCo Warp / CPU steps executed for each sampled control. SPIDER uses one simulation step per horizon index.")
+    parser.add_argument("--comfree-stiffness", type=float, default=0.2, help="Closed-form contact stiffness used by --planner-backend explicit_mjwp.")
+    parser.add_argument("--comfree-damping", type=float, default=0.001, help="Closed-form contact damping used by --planner-backend explicit_mjwp.")
     parser.add_argument(
         "--planner-trajectory-path",
         type=str,
@@ -4622,6 +5181,15 @@ def build_argparser():
     parser.add_argument("--planner-robot-stiffness", type=float, default=300.0, help="Cartesian point stiffness used by the plan_once robot model.")
     parser.add_argument("--mppi-samples", type=int, default=256, help="Number of sampled trajectories used by plan_once.")
     parser.add_argument("--mppi-iterations", type=int, default=4, help="Number of MPPI update iterations after warm start.")
+    parser.add_argument("--adam-iters", type=int, default=40, help="Adam iterations for --mpc (DexForge n_iter).")
+    parser.add_argument("--adam-lr", type=float, default=0.05, help="Adam lr_max for --mpc. Warp cosine-decays it to 0.0015.")
+    parser.add_argument("--adam-horizon", type=int, default=5, help="Adam rollout horizon for --mpc (DexForge horizon).")
+    parser.add_argument(
+        "--adam-knot-substeps",
+        type=int,
+        default=6,
+        help="Physics steps per Adam knot (DexForge knot_dt/mpc_dt).",
+    )
     parser.add_argument(
         "--physical-mppi-samples",
         type=int,
@@ -4718,7 +5286,12 @@ def build_argparser():
         type=parse_bool_arg,
         help="If true, project the current best optimizer wrench to world coordinates and apply it directly to the object every simulation step.",
     )
-    parser.add_argument("--visualize", action="store_true", help="Launch the MuJoCo passive viewer.")
+    parser.add_argument(
+        "--visualize",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Launch the MuJoCo passive viewer. Use --no-visualize for a headless run.",
+    )
     parser.add_argument("--print-viewer-camera-state", action="store_true", help="Print the passive-viewer camera state on every viewer sync. Disabled by default to avoid slowing down the control loop.")
     parser.add_argument("--real-time", action="store_true", help="Sleep to approximate real-time playback when visualizing.")
     parser.add_argument(

@@ -138,6 +138,7 @@ class BimanualEEMPPI:
             ee_position_weight=float(_get(self.params, "planner_ee_position_weight_", 80.0)),
             ee_orientation_weight=float(_get(self.params, "planner_ee_orientation_weight_", 2.0)),
             force_tracking_weight=float(_get(self.params, "planner_force_tracking_weight_", 12.0)),
+            wrench_residual_weight=float(_get(self.params, "planner_wrench_residual_weight_", 12.0)),
             object_position_weight=float(_get(self.params, "planner_object_target_weight_", 300.0)),
             object_lateral_position_weight=float(_get(self.params, "planner_object_lateral_weight_", 300.0)),
             object_orientation_weight=float(_get(self.params, "planner_object_orientation_weight_", 15.0)),
@@ -203,13 +204,15 @@ class BimanualEEMPPI:
         for t in range(actions.shape[1]):
             action = actions[:, t]
             next_ee = integrate_ee_pose(current, action)
-            stage_cost, diagnostics = evaluate_bimanual_ee_cost(next_ee, action, context, previous_action=previous)
-            bilateral_gate = diagnostics["bilateral_gate"].clamp(0.0, 1.0)
-            # Do not let a single predicted fingertip contact drag the object
-            # during the bimanual approach.  The measured MuJoCo state is fed
-            # back on the next cycle, so real unilateral motion remains visible.
-            force = diagnostics["object_force_world"] * bilateral_gate.unsqueeze(-1)
-            torque = diagnostics["object_torque_world"] * bilateral_gate.unsqueeze(-1)
+            # Each fingertip wrench is applied on its own.  A one-sided contact
+            # therefore slides the object, and the pose cost below can reject
+            # that sample.  Gating the wrench on bilateral contact hides the
+            # only signal that says the arms must arrive together.
+            _, force_diagnostics = evaluate_bimanual_ee_cost(
+                next_ee, action, context, previous_action=previous
+            )
+            force = force_diagnostics["object_force_world"]
+            torque = force_diagnostics["object_torque_world"]
             gravity = torch.zeros_like(force)
             gravity[:, 2] = -cfg.object_mass * 9.81
             velocity = 0.96 * velocity + (force + gravity) / cfg.object_mass * cfg.dt
@@ -224,6 +227,9 @@ class BimanualEEMPPI:
             obj_q = quat_multiply(quat_exp(angular_velocity * cfg.dt), obj_q)
             obj_q = quat_normalize(obj_q)
             current = torch.cat((obj_p, obj_q, next_ee[..., 7:]), dim=-1)
+            stage_cost, _ = evaluate_bimanual_ee_cost(
+                current, action, context, previous_action=previous
+            )
             states.append(current)
             costs.append(stage_cost)
             force_history.append(force)

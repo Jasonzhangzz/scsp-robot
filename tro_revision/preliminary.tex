@@ -352,19 +352,14 @@ Specifically, the solution of~\eqref{equ.dual_prob_relax} satisfies the followin
     \boldsymbol{0}.
 \end{equation}
 
-Assuming there exists a positive-definite diagonal matrix that satisfies
-$
-\boldsymbol{K}(\boldsymbol{q})
-=
-(
-\boldsymbol{\widetilde{J}}
-\boldsymbol{Q}^{-1}
-\boldsymbol{\widetilde{J}}^{\top}
-+
-\boldsymbol{R}
-)^{-1},
-$
-we get the closed-form solution of~\eqref{equ.dual_prob_relax} as:
+Following~\cite{jin2024complementarity}, we replace the dense inverse
+$(\boldsymbol{\widetilde{J}}\boldsymbol{Q}^{-1}
+\boldsymbol{\widetilde{J}}^{\top}+\boldsymbol{R})^{-1}$ by a
+positive-definite diagonal matrix $\boldsymbol{K}(\boldsymbol{q})$ chosen
+as a local approximation. This replacement defines a modified dual
+problem; it is not an equality that holds for a general multi-contact
+geometry. With $\boldsymbol{D}=\boldsymbol{K}^{-1}$, the modified
+problem has the following closed-form solution:
 \begin{equation}
     \boldsymbol{\beta}^{+}
     =
@@ -415,5 +410,8 @@ f_{\mathrm{cf}}:
 where $\boldsymbol{\beta}$ denotes the contact impulses of all contact points and $\boldsymbol{v}^{+}$ combines the object velocity $\boldsymbol{v}_o$ and robot velocity $\boldsymbol{v}_r$.
 
 \textcolor{blue}{
-As discussed in~\cite{jin2024complementarity}, this assumption provides a computationally efficient approximation of the original contact model and enables the closed-form update in~\eqref{eq:cf_impulse}.
+The modified problem is exact for the chosen diagonal surrogate, while
+its discrepancy from the original contact model depends on the discarded
+off-diagonal coupling. This is the approximation analyzed for SCM in
+Section~\ref{sec:cso} and Appendix~\ref{app:scm_motion_accuracy}.
 }

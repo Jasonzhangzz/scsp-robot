@@ -8,7 +8,7 @@ import casadi as cs
 import numpy as np
 
 
-COST_KINDS = ("param", "fingertip", "bigrasp", "bigrasp_ee", "isaac", "tilted_push")
+COST_KINDS = ("param", "fingertip", "bigrasp", "bigrasp_ee", "bigrasp_joint", "isaac", "tilted_push")
 
 
 def log_barrier(point, target, epsilon=1e-3):
@@ -71,7 +71,10 @@ def infer_cost_kind(param, explicit=None):
         return "tilted_push"
     if hasattr(param, "planner_force_tracking_weight_") or hasattr(param, "planner_solver_"):
         n_qpos = int(getattr(param, "n_qpos_", 0))
-        if n_qpos == 21 and int(getattr(param, "n_cmd_", 0)) == 12:
+        n_cmd = int(getattr(param, "n_cmd_", 0))
+        if n_qpos == 21 and n_cmd == 14:
+            return "bigrasp_joint"
+        if n_qpos == 21 and n_cmd == 12:
             return "bigrasp_ee"
         if n_qpos >= 13:
             return "bigrasp"
@@ -92,6 +95,8 @@ def build_cost_fns(param, kind=None):
         return build_bigrasp_cost_fns(param)
     if kind == "bigrasp_ee":
         return build_bigrasp_ee_cost_fns(param)
+    if kind == "bigrasp_joint":
+        return build_bigrasp_joint_cost_fns(param)
     if kind == "isaac":
         return build_isaac_cost_fns(param)
     return build_tilted_push_cost_fns(param)
@@ -106,7 +111,7 @@ def uses_isaac_model(kind):
 
 
 def acados_solver_profile(kind):
-    if kind in {"bigrasp", "bigrasp_ee"}:
+    if kind in {"bigrasp", "bigrasp_ee", "bigrasp_joint"}:
         return {
             "qp_solver": "FULL_CONDENSING_HPIPM",
             "nlp_solver_type": "SQP",
@@ -156,6 +161,8 @@ def pack_cost_params(kind, param, path_cost_fn, **kwargs):
         packed = _pack_bigrasp_cost_params(param, **kwargs)
     elif kind == "bigrasp_ee":
         packed = _pack_bigrasp_ee_cost_params(param, **kwargs)
+    elif kind == "bigrasp_joint":
+        packed = _pack_bigrasp_joint_cost_params(param, **kwargs)
     elif kind == "isaac":
         packed = _pack_isaac_cost_params(param, **kwargs)
     elif kind == "tilted_push":
@@ -477,6 +484,52 @@ def _pack_bigrasp_cost_params(
             _as_map(robot_contact_force_map, 3, n_phi).reshape(-1, order="F"),
             _as_map(robot_contact_torque_map, 3, n_phi).reshape(-1, order="F"),
             np.asarray([float(bool(execute_desired_wrench))], dtype=np.float64),
+        ]
+    )
+
+
+def build_bigrasp_joint_cost_fns(param):
+    """Object-pose tracking plus a light joint-increment regularizer."""
+    x = cs.SX.sym("x", param.n_qpos_)
+    u = cs.SX.sym("u", param.n_cmd_)
+    target_position = cs.SX.sym("target_position", 3)
+    target_quaternion = cs.SX.sym("target_quaternion", 4)
+    phi_vec = cs.SX.sym("phi_vec", param.max_ncon_ * 4)
+    jac_mat = cs.SX.sym("jac_mat", param.max_ncon_ * 4, param.n_qvel_)
+    cost_params = cs.vvcat([target_position, target_quaternion, phi_vec, jac_mat])
+    obj_pos = x[0:3]
+    obj_quat = x[3:7]
+    pose_weight = float(getattr(param, "planner_object_target_weight_", 300.0))
+    lateral_weight = float(getattr(param, "planner_object_lateral_weight_", 300.0))
+    ori_weight = float(getattr(param, "planner_object_orientation_weight_", 15.0))
+    action_weight = float(getattr(param, "planner_action_weight_", 2.0))
+    pos_err = obj_pos - target_position
+    path_cost = (
+        pose_weight * cs.sumsqr(pos_err[2])
+        + lateral_weight * cs.sumsqr(pos_err[0:2])
+        + ori_weight * _quaternion_alignment_cost(obj_quat, target_quaternion)
+        + action_weight * cs.sumsqr(u)
+    )
+    final_cost = 10.0 * (
+        pose_weight * cs.sumsqr(pos_err)
+        + ori_weight * _quaternion_alignment_cost(obj_quat, target_quaternion)
+    )
+    _ = (phi_vec, jac_mat)
+    return (
+        cs.Function("path_cost_fn_bigrasp_joint", [x, u, cost_params], [path_cost]),
+        cs.Function("final_cost_fn_bigrasp_joint", [x, cost_params], [final_cost]),
+    )
+
+
+def _pack_bigrasp_joint_cost_params(param, target_p=None, target_q=None, phi_vec=None, jac_mat=None, **_unused):
+    n_phi = int(param.max_ncon_ * 4)
+    n_qvel = int(param.n_qvel_)
+    return np.concatenate(
+        [
+            _as_vec(target_p, 3),
+            _as_vec(target_q, 4),
+            _as_vec(phi_vec, n_phi),
+            _as_map(jac_mat, n_phi, n_qvel).reshape(-1, order="F"),
         ]
     )
 

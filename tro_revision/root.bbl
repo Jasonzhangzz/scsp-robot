@@ -7,7 +7,8 @@
 \providecommand{\BIBentrySTDinterwordspacing}{\spaceskip=0pt\relax}
 \providecommand{\BIBentryALTinterwordstretchfactor}{4}
 \providecommand{\BIBentryALTinterwordspacing}{\spaceskip=\fontdimen2\font plus
-\BIBentryALTinterwordstretchfactor\fontdimen3\font minus \fontdimen4\font\relax}
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
+  \fontdimen4\font\relax}
 \providecommand{\BIBforeignlanguage}[2]{{%
 \expandafter\ifx\csname l@#1\endcsname\relax
 \typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
@@ -21,171 +22,285 @@
 \BIBdecl
 
 \bibitem{zito2012two}
-C.~Zito, R.~Stolkin, M.~Kopicki, and J.~L. Wyatt, ``Two-level {RRT} planning for robotic push manipulation,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS)}, 2012, pp. 678--685.
+C.~Zito, R.~Stolkin, M.~Kopicki, and J.~L. Wyatt, ``Two-level {RRT} planning
+  for robotic push manipulation,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell.
+  Robots Syst. (IROS)}, 2012, pp. 678--685.
 
 \bibitem{wu2020r3t}
-A.~Wu, S.~Sadraddini, and R.~Tedrake, ``{R3T}: Rapidly-exploring random reachable set tree for optimal kinodynamic planning of nonlinear hybrid systems,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2020, pp. 4245--4251.
+A.~Wu, S.~Sadraddini, and R.~Tedrake, ``{R3T}: Rapidly-exploring random
+  reachable set tree for optimal kinodynamic planning of nonlinear hybrid
+  systems,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2020, pp.
+  4245--4251.
 
 \bibitem{haustein2015kinodynamic}
-J.~A. Haustein, J.~King, S.~S. Srinivasa, and T.~Asfour, ``Kinodynamic randomized rearrangement planning via dynamic transitions between statically stable states,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2015, pp. 3075--3082.
+J.~A. Haustein, J.~King, S.~S. Srinivasa, and T.~Asfour, ``Kinodynamic
+  randomized rearrangement planning via dynamic transitions between statically
+  stable states,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2015,
+  pp. 3075--3082.
 
 \bibitem{chen2021trajectotree}
-C.~Chen, P.~Culbertson, M.~Lepert, M.~Schwager, and J.~Bohg, ``Trajectotree: Trajectory optimization meets tree search for planning multi-contact dexterous manipulation,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS)}, 2021, pp. 8262--8268.
+C.~Chen, P.~Culbertson, M.~Lepert, M.~Schwager, and J.~Bohg, ``Trajectotree:
+  Trajectory optimization meets tree search for planning multi-contact
+  dexterous manipulation,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots
+  Syst. (IROS)}, 2021, pp. 8262--8268.
 
 \bibitem{cheng2022contact}
-X.~Cheng, E.~Huang, Y.~Hou, and M.~T. Mason, ``Contact mode guided motion planning for quasidynamic dexterous manipulation in 3{D},'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2022, pp. 2730--2736.
+X.~Cheng, E.~Huang, Y.~Hou, and M.~T. Mason, ``Contact mode guided motion
+  planning for quasidynamic dexterous manipulation in 3{D},'' in \emph{Proc.
+  IEEE Int. Conf. Robot. Autom. (ICRA)}, 2022, pp. 2730--2736.
 
 \bibitem{aceituno2020global}
-B.~Aceituno-Cabezas and A.~Rodriguez, ``A global quasi-dynamic model for contact-trajectory optimization in manipulation,'' 2020.
+B.~Aceituno-Cabezas and A.~Rodriguez, ``A global quasi-dynamic model for
+  contact-trajectory optimization in manipulation,'' 2020.
 
 \bibitem{marcucci2017approximate}
-T.~Marcucci, R.~Deits, M.~Gabiccini, A.~Bicchi, and R.~Tedrake, ``Approximate hybrid model predictive control for multi-contact push recovery in complex environments,'' in \emph{Proc. IEEE-RAS Int. Conf. Humanoid Robots (Humanoids)}, 2017, pp. 31--38.
+T.~Marcucci, R.~Deits, M.~Gabiccini, A.~Bicchi, and R.~Tedrake, ``Approximate
+  hybrid model predictive control for multi-contact push recovery in complex
+  environments,'' in \emph{Proc. IEEE-RAS Int. Conf. Humanoid Robots
+  (Humanoids)}, 2017, pp. 31--38.
 
 \bibitem{hogan2020feedback}
-F.~R. Hogan and A.~Rodriguez, ``Feedback control of the pusher-slider system: A story of hybrid and underactuated contact dynamics,'' in \emph{Algorithmic Foundations of Robotics XII}, 2020, pp. 800--815.
+F.~R. Hogan and A.~Rodriguez, ``Feedback control of the pusher-slider system: A
+  story of hybrid and underactuated contact dynamics,'' in \emph{Algorithmic
+  Foundations of Robotics XII}, 2020, pp. 800--815.
 
 \bibitem{kim2023pre}
-M.~Kim, J.~Han, J.~Kim, and B.~Kim, ``Pre- and post-contact policy decomposition for non-prehensile manipulation with zero-shot sim-to-real transfer,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS)}, 2023, pp. 10\,644--10\,651.
+M.~Kim, J.~Han, J.~Kim, and B.~Kim, ``Pre- and post-contact policy
+  decomposition for non-prehensile manipulation with zero-shot sim-to-real
+  transfer,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS)},
+  2023, pp. 10\,644--10\,651.
 
 \bibitem{lianglearning}
-J.~Liang, X.~Cheng, and O.~Kroemer, ``Learning preconditions of hybrid force-velocity controllers for contact-rich manipulation,'' in \emph{Proc. Conf. Robot Learn. (CoRL)}.
+J.~Liang, X.~Cheng, and O.~Kroemer, ``Learning preconditions of hybrid
+  force-velocity controllers for contact-rich manipulation,'' in \emph{Proc.
+  Conf. Robot Learn. (CoRL)}.
 
 \bibitem{zhou2023learning}
-W.~Zhou and D.~Held, ``Learning to grasp the ungraspable with emergent extrinsic dexterity,'' in \emph{Proc. Conf. Robot Learn. (CoRL)}, 2023, pp. 150--160.
+W.~Zhou and D.~Held, ``Learning to grasp the ungraspable with emergent
+  extrinsic dexterity,'' in \emph{Proc. Conf. Robot Learn. (CoRL)}, 2023, pp.
+  150--160.
 
 \bibitem{zhang2023learning}
-X.~Zhang, S.~Jain, B.~Huang, M.~Tomizuka, and D.~Romeres, ``Learning generalizable pivoting skills,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2023, pp. 5865--5871.
+X.~Zhang, S.~Jain, B.~Huang, M.~Tomizuka, and D.~Romeres, ``Learning
+  generalizable pivoting skills,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom.
+  (ICRA)}, 2023, pp. 5865--5871.
 
 \bibitem{zhou2023hacman}
-W.~Zhou, B.~Jiang, F.~Yang, C.~Paxton, and D.~Held, ``{HACMan}: Learning hybrid actor-critic maps for 6{D} non-prehensile manipulation,'' in \emph{Proc. Conf. Robot Learn. (CoRL)}, 2023, pp. 241--265.
+W.~Zhou, B.~Jiang, F.~Yang, C.~Paxton, and D.~Held, ``{HACMan}: Learning hybrid
+  actor-critic maps for 6{D} non-prehensile manipulation,'' in \emph{Proc.
+  Conf. Robot Learn. (CoRL)}, 2023, pp. 241--265.
 
 \bibitem{cho2024corn}
-Y.~Cho, J.~Han, Y.~Cho, and B.~Kim, ``Corn: Contact-based object representation for nonprehensile manipulation of general unseen objects,'' \emph{arXiv preprint arXiv:2403.10760}, 2024.
+Y.~Cho, J.~Han, Y.~Cho, and B.~Kim, ``Corn: Contact-based object representation
+  for nonprehensile manipulation of general unseen objects,'' \emph{arXiv
+  preprint arXiv:2403.10760}, 2024.
 
 \bibitem{jiang2024hacman++}
-B.~Jiang, Y.~Wu, W.~Zhou, C.~Paxton, and D.~Held, ``Hacman++: Spatially-grounded motion primitives for manipulation,'' \emph{arXiv preprint arXiv:2407.08585}, 2024.
+B.~Jiang, Y.~Wu, W.~Zhou, C.~Paxton, and D.~Held, ``Hacman++:
+  Spatially-grounded motion primitives for manipulation,'' \emph{arXiv preprint
+  arXiv:2407.08585}, 2024.
 
 \bibitem{le2025enhancing}
-H.~Le, T.~Hoang, M.~Gabriel, G.~Neumann, and N.~A. Vien, ``Enhancing exploration with diffusion policies in hybrid off-policy {RL}: Application to non-prehensile manipulation,'' \emph{IEEE Robot. Autom. Lett.}, 2025.
+H.~Le, T.~Hoang, M.~Gabriel, G.~Neumann, and N.~A. Vien, ``Enhancing
+  exploration with diffusion policies in hybrid off-policy {RL}: Application to
+  non-prehensile manipulation,'' \emph{IEEE Robot. Autom. Lett.}, 2025.
 
 \bibitem{lyu2025dywa}
-J.~Lyu, Z.~Li, X.~Shi, C.~Xu, Y.~Wang, and H.~Wang, ``Dywa: Dynamics-adaptive world action model for generalizable non-prehensile manipulation,'' in \emph{Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV)}, 2025, pp. 11\,058--11\,068.
+J.~Lyu, Z.~Li, X.~Shi, C.~Xu, Y.~Wang, and H.~Wang, ``Dywa: Dynamics-adaptive
+  world action model for generalizable non-prehensile manipulation,'' in
+  \emph{Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV)}, 2025, pp.
+  11\,058--11\,068.
 
 \bibitem{aydinoglu2024consensus}
-A.~Aydinoglu, A.~Wei, W.-C. Huang, and M.~Posa, ``Consensus complementarity control for multi-contact {MPC},'' \emph{IEEE Trans. Robot.}, 2024.
+A.~Aydinoglu, A.~Wei, W.-C. Huang, and M.~Posa, ``Consensus complementarity
+  control for multi-contact {MPC},'' \emph{IEEE Trans. Robot.}, 2024.
 
 \bibitem{li2025surprising}
-Y.~Li, H.~Han, S.~Kang, J.~Ma, and H.~Yang, ``On the surprising robustness of sequential convex optimization for contact-implicit motion planning,'' \emph{arXiv preprint arXiv:2502.01055}, 2025.
+Y.~Li, H.~Han, S.~Kang, J.~Ma, and H.~Yang, ``On the surprising robustness of
+  sequential convex optimization for contact-implicit motion planning,''
+  \emph{arXiv preprint arXiv:2502.01055}, 2025.
 
 \bibitem{kurtz2026inverse}
-V.~Kurtz, A.~Castro, A.~{\"O}. {\"O}nol, and H.~Lin, ``Inverse dynamics trajectory optimization for contact-implicit model predictive control,'' \emph{Int. J. Robot. Res.}, vol.~45, no.~1, pp. 23--40, 2026.
+V.~Kurtz, A.~Castro, A.~{\"O}. {\"O}nol, and H.~Lin, ``Inverse dynamics
+  trajectory optimization for contact-implicit model predictive control,''
+  \emph{Int. J. Robot. Res.}, vol.~45, no.~1, pp. 23--40, 2026.
 
 \bibitem{pang2023global}
-T.~Pang, H.~J.~T. Suh, L.~Yang, and R.~Tedrake, ``Global planning for contact-rich manipulation via local smoothing of quasi-dynamic contact models,'' \emph{IEEE Trans. Robot.}, vol.~39, no.~6, pp. 4691--4711, 2023.
+T.~Pang, H.~J.~T. Suh, L.~Yang, and R.~Tedrake, ``Global planning for
+  contact-rich manipulation via local smoothing of quasi-dynamic contact
+  models,'' \emph{IEEE Trans. Robot.}, vol.~39, no.~6, pp. 4691--4711, 2023.
 
 \bibitem{jin2024complementarity}
-W.~Jin, ``Complementarity-free multi-contact modeling and optimization for dexterous manipulation,'' \emph{arXiv preprint arXiv:2408.07855}, 2024.
+W.~Jin, ``Complementarity-free multi-contact modeling and optimization for
+  dexterous manipulation,'' \emph{arXiv preprint arXiv:2408.07855}, 2024.
 
 \bibitem{zhang2025simultaneous}
-M.~Zhang, D.~K. Jha, A.~U. Raghunathan, and K.~Hauser, ``Simultaneous trajectory optimization and contact selection for contact-rich manipulation with high-fidelity geometry,'' \emph{IEEE Trans. Robot.}, 2025.
+M.~Zhang, D.~K. Jha, A.~U. Raghunathan, and K.~Hauser, ``Simultaneous
+  trajectory optimization and contact selection for contact-rich manipulation
+  with high-fidelity geometry,'' \emph{IEEE Trans. Robot.}, 2025.
 
 \bibitem{yang2024contactsdf}
-W.~Yang and W.~Jin, ``Contactsdf: Signed distance functions as multi-contact models for dexterous manipulation,'' \emph{arXiv preprint arXiv:2408.09612}, 2024.
+W.~Yang and W.~Jin, ``Contactsdf: Signed distance functions as multi-contact
+  models for dexterous manipulation,'' \emph{arXiv preprint arXiv:2408.09612},
+  2024.
 
 \bibitem{venkatesh2025approximating}
-S.~Venkatesh, B.~Bianchini, A.~Aydinoglu, W.~Yang, and M.~Posa, ``Approximating global contact-implicit {MPC} via sampling and local complementarity,'' \emph{arXiv preprint arXiv:2505.13350}, 2025.
+S.~Venkatesh, B.~Bianchini, A.~Aydinoglu, W.~Yang, and M.~Posa, ``Approximating
+  global contact-implicit {MPC} via sampling and local complementarity,''
+  \emph{arXiv preprint arXiv:2505.13350}, 2025.
 
 \bibitem{posa2014direct}
-M.~Posa, C.~Cantu, and R.~Tedrake, ``A direct method for trajectory optimization of rigid bodies through contact,'' \emph{Int. J. Robot. Res.}, vol.~33, no.~1, pp. 69--81, 2014.
+M.~Posa, C.~Cantu, and R.~Tedrake, ``A direct method for trajectory
+  optimization of rigid bodies through contact,'' \emph{Int. J. Robot. Res.},
+  vol.~33, no.~1, pp. 69--81, 2014.
 
 \bibitem{wensing2023optimization}
-P.~M. Wensing, M.~Posa, Y.~Hu, A.~Escande, N.~Mansard, and A.~Del~Prete, ``Optimization-based control for dynamic legged robots,'' \emph{IEEE Trans. Robot.}, vol.~40, pp. 43--63, 2023.
+P.~M. Wensing, M.~Posa, Y.~Hu, A.~Escande, N.~Mansard, and A.~Del~Prete,
+  ``Optimization-based control for dynamic legged robots,'' \emph{IEEE Trans.
+  Robot.}, vol.~40, pp. 43--63, 2023.
 
 \bibitem{stewart2000implicit}
-D.~Stewart and J.~C. Trinkle, ``An implicit time-stepping scheme for rigid body dynamics with {C}oulomb friction,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, vol.~1, 2000, pp. 162--169.
+D.~Stewart and J.~C. Trinkle, ``An implicit time-stepping scheme for rigid body
+  dynamics with {C}oulomb friction,'' in \emph{Proc. IEEE Int. Conf. Robot.
+  Autom. (ICRA)}, vol.~1, 2000, pp. 162--169.
 
 \bibitem{anitescu2006optimization}
-M.~Anitescu, ``Optimization-based simulation of nonsmooth rigid multibody dynamics,'' \emph{Math. Program.}, vol. 105, no.~1, pp. 113--143, 2006.
+M.~Anitescu, ``Optimization-based simulation of nonsmooth rigid multibody
+  dynamics,'' \emph{Math. Program.}, vol. 105, no.~1, pp. 113--143, 2006.
 
 \bibitem{bui2025push}
-H.~Bui, Y.~Gao, H.~Yang, E.~Cui, S.~Mody, B.~Acosta, T.~S. Felix, B.~Bianchini, and M.~Posa, ``Push anything: Single- and multi-object pushing from first sight with contact-implicit {MPC},'' \emph{arXiv preprint arXiv:2510.19974}, 2025.
+H.~Bui, Y.~Gao, H.~Yang, E.~Cui, S.~Mody, B.~Acosta, T.~S. Felix, B.~Bianchini,
+  and M.~Posa, ``Push anything: Single- and multi-object pushing from first
+  sight with contact-implicit {MPC},'' \emph{arXiv preprint arXiv:2510.19974},
+  2025.
 
 \bibitem{suh2025dexterous}
-H.~Suh, T.~Pang, T.~Zhao, and R.~Tedrake, ``Dexterous contact-rich manipulation via the contact trust region,'' \emph{arXiv preprint arXiv:2505.02291}, 2025.
+H.~Suh, T.~Pang, T.~Zhao, and R.~Tedrake, ``Dexterous contact-rich manipulation
+  via the contact trust region,'' \emph{arXiv preprint arXiv:2505.02291}, 2025.
 
 \bibitem{jiang2025robust}
-Y.~Jiang, M.~Yu, X.~Zhu, M.~Tomizuka, and X.~Li, ``Robust model-based in-hand manipulation with integrated real-time motion-contact planning and tracking,'' \emph{arXiv preprint arXiv:2505.04978}, 2025.
+Y.~Jiang, M.~Yu, X.~Zhu, M.~Tomizuka, and X.~Li, ``Robust model-based in-hand
+  manipulation with integrated real-time motion-contact planning and
+  tracking,'' \emph{arXiv preprint arXiv:2505.04978}, 2025.
 
 \bibitem{xie2026touch}
-Z.~Xie, Y.~Xiang, M.~Posa, and W.~Jin, ``Where to touch, how to contact: Hierarchical {RL-MPC} framework for geometry-aware long-horizon dexterous manipulation,'' \emph{arXiv preprint arXiv:2601.10930}, 2026.
+Z.~Xie, Y.~Xiang, M.~Posa, and W.~Jin, ``Where to touch, how to contact:
+  Hierarchical {RL-MPC} framework for geometry-aware long-horizon dexterous
+  manipulation,'' \emph{arXiv preprint arXiv:2601.10930}, 2026.
 
 \bibitem{pang2021convex}
-T.~Pang and R.~Tedrake, ``A convex quasistatic time-stepping scheme for rigid multibody systems with contact and friction,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2021, pp. 6614--6620.
+T.~Pang and R.~Tedrake, ``A convex quasistatic time-stepping scheme for rigid
+  multibody systems with contact and friction,'' in \emph{Proc. IEEE Int. Conf.
+  Robot. Autom. (ICRA)}, 2021, pp. 6614--6620.
 
 \bibitem{hogan1984impedance}
-N.~Hogan, ``Impedance control: An approach to manipulation,'' in \emph{Proc. Amer. Control Conf. (ACC)}, 1984, pp. 304--313.
+N.~Hogan, ``Impedance control: An approach to manipulation,'' in \emph{Proc.
+  Amer. Control Conf. (ACC)}, 1984, pp. 304--313.
 
 \bibitem{anitescu2010iterative}
-M.~Anitescu and A.~Tasora, ``An iterative approach for cone complementarity problems for nonsmooth dynamics,'' \emph{Comput. Optim. Appl.}, vol.~47, no.~2, pp. 207--235, 2010.
+M.~Anitescu and A.~Tasora, ``An iterative approach for cone complementarity
+  problems for nonsmooth dynamics,'' \emph{Comput. Optim. Appl.}, vol.~47,
+  no.~2, pp. 207--235, 2010.
 
 \bibitem{avriel2003nonlinear}
-M.~Avriel, \emph{Nonlinear programming: Analysis and methods}.\hskip 1em plus 0.5em minus 0.4em\relax Courier Corporation, 2003.
+M.~Avriel, \emph{Nonlinear programming: Analysis and methods}.\hskip 1em plus
+  0.5em minus 0.4em\relax Courier Corporation, 2003.
 
 \bibitem{lien2007approximate}
-J.-M. Lien and N.~M. Amato, ``Approximate convex decomposition of polyhedra,'' in \emph{Proc. ACM Symp. Solid Phys. Model.}, 2007, pp. 121--131.
+J.-M. Lien and N.~M. Amato, ``Approximate convex decomposition of polyhedra,''
+  in \emph{Proc. ACM Symp. Solid Phys. Model.}, 2007, pp. 121--131.
 
 \bibitem{acosta2025perceptive}
-B.~Acosta and M.~Posa, ``Perceptive mixed-integer footstep control for underactuated bipedal walking on rough terrain,'' \emph{IEEE Trans. Robot.}, 2025.
+B.~Acosta and M.~Posa, ``Perceptive mixed-integer footstep control for
+  underactuated bipedal walking on rough terrain,'' \emph{IEEE Trans. Robot.},
+  2025.
 
 \bibitem{nakanishi2008operational}
-J.~Nakanishi, R.~Cory, M.~Mistry, J.~Peters, and S.~Schaal, ``Operational space control: A theoretical and empirical comparison,'' \emph{Int. J. Robot. Res.}, vol.~27, no.~6, pp. 737--757, 2008.
+J.~Nakanishi, R.~Cory, M.~Mistry, J.~Peters, and S.~Schaal, ``Operational space
+  control: A theoretical and empirical comparison,'' \emph{Int. J. Robot.
+  Res.}, vol.~27, no.~6, pp. 737--757, 2008.
 
 \bibitem{williams2015model}
-G.~Williams, A.~Aldrich, and E.~Theodorou, ``Model predictive path integral control using covariance variable importance sampling,'' \emph{arXiv preprint arXiv:1509.01149}, 2015.
+G.~Williams, A.~Aldrich, and E.~Theodorou, ``Model predictive path integral
+  control using covariance variable importance sampling,'' \emph{arXiv preprint
+  arXiv:1509.01149}, 2015.
 
 \bibitem{brahmbhatt2019contactdb}
-S.~Brahmbhatt, C.~Ham, C.~C. Kemp, and J.~Hays, ``Contactdb: Analyzing and predicting grasp contact via thermal imaging,'' in \emph{Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR)}, 2019, pp. 8709--8719.
+S.~Brahmbhatt, C.~Ham, C.~C. Kemp, and J.~Hays, ``Contactdb: Analyzing and
+  predicting grasp contact via thermal imaging,'' in \emph{Proc. IEEE/CVF Conf.
+  Comput. Vis. Pattern Recognit. (CVPR)}, 2019, pp. 8709--8719.
 
 \bibitem{todorov2012mujoco}
-E.~Todorov, T.~Erez, and Y.~Tassa, ``{MuJoCo}: A physics engine for model-based control,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS)}, 2012, pp. 5026--5033.
+E.~Todorov, T.~Erez, and Y.~Tassa, ``{MuJoCo}: A physics engine for model-based
+  control,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS)},
+  2012, pp. 5026--5033.
 
 \bibitem{makoviychuk2021isaac}
-V.~Makoviychuk, L.~Wawrzyniak, Y.~Guo, M.~Lu, K.~Storey, M.~Macklin, D.~Hoeller, N.~Rudin, A.~Allshire, A.~Handa, and G.~State, ``Isaac {G}ym: High performance {GPU}-based physics simulation for robot learning,'' arXiv preprint arXiv:2108.10470, 2021.
+V.~Makoviychuk, L.~Wawrzyniak, Y.~Guo, M.~Lu, K.~Storey, M.~Macklin,
+  D.~Hoeller, N.~Rudin, A.~Allshire, A.~Handa, and G.~State, ``Isaac {G}ym:
+  High performance {GPU}-based physics simulation for robot learning,'' arXiv
+  preprint arXiv:2108.10470, 2021.
 
 \bibitem{wei2022approximate}
-X.~Wei, M.~Liu, Z.~Ling, and H.~Su, ``Approximate convex decomposition for 3{D} meshes with collision-aware concavity and tree search,'' \emph{ACM Trans. Graph.}, vol.~41, no.~4, pp. 1--18, 2022.
+X.~Wei, M.~Liu, Z.~Ling, and H.~Su, ``Approximate convex decomposition for 3{D}
+  meshes with collision-aware concavity and tree search,'' \emph{ACM Trans.
+  Graph.}, vol.~41, no.~4, pp. 1--18, 2022.
 
 \bibitem{Andersson2019}
-J.~A.~E. Andersson, J.~Gillis, G.~Horn, J.~B. Rawlings, and M.~Diehl, ``{CasADi} -- a software framework for nonlinear optimization and optimal control,'' \emph{Math. Program. Comput.}, vol.~11, no.~1, pp. 1--36, 2019.
+J.~A.~E. Andersson, J.~Gillis, G.~Horn, J.~B. Rawlings, and M.~Diehl,
+  ``{CasADi} -- a software framework for nonlinear optimization and optimal
+  control,'' \emph{Math. Program. Comput.}, vol.~11, no.~1, pp. 1--36, 2019.
 
 \bibitem{gill2005snopt}
-P.~E. Gill, W.~Murray, and M.~A. Saunders, ``{SNOPT}: An {SQP} algorithm for large-scale constrained optimization,'' \emph{SIAM Rev.}, vol.~47, no.~1, pp. 99--131, 2005.
+P.~E. Gill, W.~Murray, and M.~A. Saunders, ``{SNOPT}: An {SQP} algorithm for
+  large-scale constrained optimization,'' \emph{SIAM Rev.}, vol.~47, no.~1, pp.
+  99--131, 2005.
 
 \bibitem{wachter2006implementation}
-A.~W{\"a}chter and L.~T. Biegler, ``On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear programming,'' \emph{Math. Program.}, vol. 106, no.~1, pp. 25--57, 2006.
+A.~W{\"a}chter and L.~T. Biegler, ``On the implementation of an interior-point
+  filter line-search algorithm for large-scale nonlinear programming,''
+  \emph{Math. Program.}, vol. 106, no.~1, pp. 25--57, 2006.
 
 \bibitem{wen2024foundationpose}
-B.~Wen, W.~Yang, J.~Kautz, and S.~Birchfield, ``Foundationpose: Unified 6d pose estimation and tracking of novel objects,'' in \emph{Proceedings of the IEEE/CVF conference on computer vision and pattern recognition}, 2024, pp. 17\,868--17\,879.
+B.~Wen, W.~Yang, J.~Kautz, and S.~Birchfield, ``Foundationpose: Unified 6d pose
+  estimation and tracking of novel objects,'' in \emph{Proceedings of the
+  IEEE/CVF conference on computer vision and pattern recognition}, 2024, pp.
+  17\,868--17\,879.
 
 \bibitem{yin2025visualmimic}
-S.~Yin, Y.~Ze, H.-X. Yu, C.~K. Liu, and J.~Wu, ``Visualmimic: Visual humanoid loco-manipulation via motion tracking and generation,'' \emph{arXiv preprint arXiv:2509.20322}, 2025.
+S.~Yin, Y.~Ze, H.-X. Yu, C.~K. Liu, and J.~Wu, ``Visualmimic: Visual humanoid
+  loco-manipulation via motion tracking and generation,'' \emph{arXiv preprint
+  arXiv:2509.20322}, 2025.
 
 \bibitem{kong2026learning}
-J.~Kong, X.~Liu, Y.~Lin, J.~Han, S.~Schwertfeger, C.~Bai, and X.~Li, ``Learning soccer skills for humanoid robots: A progressive perception-action framework,'' \emph{arXiv preprint arXiv:2602.05310}, 2026.
+J.~Kong, X.~Liu, Y.~Lin, J.~Han, S.~Schwertfeger, C.~Bai, and X.~Li, ``Learning
+  soccer skills for humanoid robots: A progressive perception-action
+  framework,'' \emph{arXiv preprint arXiv:2602.05310}, 2026.
 
 \bibitem{lin2026bidexgrasp}
-M.~Lin, Y.-L. Wei, J.~Chen, Y.~Lin, S.~Chen, J.~Lyu, J.~Chen, Y.~Tang, H.~Wang, and W.-S. Zheng, ``Bidexgrasp: Coordinated bimanual dexterous grasps across object geometries and sizes,'' \emph{arXiv preprint arXiv:2604.06589}, 2026.
+M.~Lin, Y.-L. Wei, J.~Chen, Y.~Lin, S.~Chen, J.~Lyu, J.~Chen, Y.~Tang, H.~Wang,
+  and W.-S. Zheng, ``Bidexgrasp: Coordinated bimanual dexterous grasps across
+  object geometries and sizes,'' \emph{arXiv preprint arXiv:2604.06589}, 2026.
 
 \bibitem{borst2004grasp}
-C.~Borst, M.~Fischer, and G.~Hirzinger, ``Grasp planning: How to choose a suitable task wrench space,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, vol.~1, 2004, pp. 319--325.
+C.~Borst, M.~Fischer, and G.~Hirzinger, ``Grasp planning: How to choose a
+  suitable task wrench space,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom.
+  (ICRA)}, vol.~1, 2004, pp. 319--325.
 
 \bibitem{bhardwaj2022storm}
-M.~Bhardwaj, B.~Sundaralingam, A.~Mousavian, N.~D. Ratliff, D.~Fox, F.~Ramos, and B.~Boots, ``Storm: An integrated framework for fast joint-space model-predictive control for reactive manipulation,'' in \emph{Proc. Conf. Robot Learn. (CoRL)}, 2022, pp. 750--759.
+M.~Bhardwaj, B.~Sundaralingam, A.~Mousavian, N.~D. Ratliff, D.~Fox, F.~Ramos,
+  and B.~Boots, ``Storm: An integrated framework for fast joint-space
+  model-predictive control for reactive manipulation,'' in \emph{Proc. Conf.
+  Robot Learn. (CoRL)}, 2022, pp. 750--759.
 
 \bibitem{huang2026pointworld}
-W.~Huang, Y.-W. Chao, A.~Mousavian, M.-Y. Liu, D.~Fox, K.~Mo, and L.~Fei-Fei, ``Pointworld: Scaling 3{D} world models for in-the-wild robotic manipulation,'' \emph{arXiv preprint arXiv:2601.03782}, 2026.
+W.~Huang, Y.-W. Chao, A.~Mousavian, M.-Y. Liu, D.~Fox, K.~Mo, and L.~Fei-Fei,
+  ``Pointworld: Scaling 3{D} world models for in-the-wild robotic
+  manipulation,'' \emph{arXiv preprint arXiv:2601.03782}, 2026.
 
 \bibitem{xu2026interprior}
-S.~Xu, S.~Schulter, M.~Ziyadi, X.~He, X.~Fei, Y.-X. Wang, and L.~Gui, ``Interprior: Scaling generative control for physics-based human-object interactions,'' \emph{arXiv preprint arXiv:2602.06035}, 2026.
+S.~Xu, S.~Schulter, M.~Ziyadi, X.~He, X.~Fei, Y.-X. Wang, and L.~Gui,
+  ``Interprior: Scaling generative control for physics-based human-object
+  interactions,'' \emph{arXiv preprint arXiv:2602.06035}, 2026.
 
 \end{thebibliography}

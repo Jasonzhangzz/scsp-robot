@@ -189,6 +189,13 @@ def main() -> int:
     except Exception as exc:
         errors.append(f"import models.explicit_model failed: {exc}")
 
+    try:
+        import models.explicit_model_warp  # noqa: F401
+    except ModuleNotFoundError as exc:
+        print(f"[smoke] skip models.explicit_model_warp (optional dep missing): {exc}")
+    except Exception as exc:
+        errors.append(f"import models.explicit_model_warp failed: {exc}")
+
     # Import params modules that do not construct a simulator at import time.
     try:
         import examples.mpc.franka.ik2.params  # noqa: F401

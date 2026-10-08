@@ -10,3 +10,4 @@ outputs/
 .venv/
 venv/
 envs/assets/objects/_generated_collision/
+thirdparty/

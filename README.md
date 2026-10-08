@@ -73,3 +73,10 @@ See `THIRD_PARTY.md` for what was vendored vs left as an install. Allegro hand a
 ```bash
 python tests/test_smoke.py
 ```
+
+
+cd /home/zz/scsp-robot/tro_revision
+pdflatex -interaction=nonstopmode -file-line-error root.tex
+bibtex root
+pdflatex -interaction=nonstopmode -file-line-error root.tex
+pdflatex -interaction=nonstopmode -file-line-error root.tex

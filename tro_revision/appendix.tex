@@ -26,144 +26,96 @@ Hence \eqref{equ:max_decomposition} is the closest diagonal approximation in the
 \subsection{Local Motion-Prediction Accuracy of SCM}
 \label{app:scm_motion_accuracy}
 
-We compare (29) and (31) using identical current states,
-robot contact inputs, contact geometry, and model parameters.
-Let $\boldsymbol{\lambda}_{\mathrm{env}}$ and
-$\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ denote the nonnegative
-multipliers in (21) and their SCM predictions, respectively.
-Let $D\succ0$ collect the diagonal approximations in (27),
-$E:=W_{\mathrm{env}}-D$, and $M_o\succ0$, $R\succ0$.
-We use $\|\boldsymbol{z}\|_A
-=(\boldsymbol{z}^\top A\boldsymbol{z})^{1/2}$ and define the
-geometry-dependent motion gain
+We prove the local bound in Lemma~\ref{lem:scm_accuracy} by comparing
+the full regularized dual problem with the diagonal surrogate at the
+same state, robot contact input, and contact geometry. Let
+$\boldsymbol{\lambda}_{\mathrm{env}}$ and
+$\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ denote the corresponding
+solutions, let $\boldsymbol{E}:=\boldsymbol{W}_{\mathrm{env}}-\boldsymbol{D}$,
+and define $\|\boldsymbol{z}\|_A=(\boldsymbol{z}^{\top}A\boldsymbol{z})^{1/2}$.
+The geometry-dependent gain is
 \begin{equation}
     \Gamma_{\mathrm{env}}
     :=\|M_o^{-1/2}\tilde J_{\mathrm{env}}^\top D^{-1/2}\|_2.
     \label{eq:appB_geometry_gain}
 \end{equation}
 
-\subsubsection{Directional accuracy}
-
-In the zero-gap setting of (28), reference complementarity
-and (29)--(31) give
+The KKT conditions of the full and diagonal problems are, respectively,
 \begin{equation}
 \begin{aligned}
-    &h^2(\boldsymbol{v}^+)^\top M_o
-      (\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+)\\
-    &\quad=(\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
-             -\boldsymbol{\lambda}_{\mathrm{env}})^\top
-             h\tilde J_{\mathrm{env}}\boldsymbol{v}^+\\
-    &\quad\geq(\boldsymbol{\lambda}_{\mathrm{env}}
-             -\hat{\boldsymbol{\lambda}}_{\mathrm{env}})^\top
-             R\boldsymbol{\lambda}_{\mathrm{env}}\\
-    &\quad\geq-\frac14
-             \hat{\boldsymbol{\lambda}}_{\mathrm{env}}^\top
-             R\hat{\boldsymbol{\lambda}}_{\mathrm{env}},
+    &0\leq\boldsymbol{\lambda}_{\mathrm{env}}\perp
+      (\boldsymbol{W}_{\mathrm{env}}\boldsymbol{\lambda}_{\mathrm{env}}
+      +\boldsymbol{g}_{\mathrm{env}})\geq0,\\
+    &0\leq\hat{\boldsymbol{\lambda}}_{\mathrm{env}}\perp
+      (\boldsymbol{D}\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
+      +\boldsymbol{g}_{\mathrm{env}})\geq0.
 \end{aligned}
-\label{eq:appB_direction_proof}
+\label{eq:appB_two_kkt}
 \end{equation}
-where the inequalities follow from nonnegative multipliers
-and slack, followed by completing the square. For nonzero
-velocity changes, their inertia-weighted angle satisfies
+
+The second relation is exactly the optimality condition of the
+strictly concave diagonal surrogate dual problem. Using the
+variational inequalities associated with the two complementarity
+systems, with $\Delta\boldsymbol{\lambda}=\hat{\boldsymbol{\lambda}}_{\mathrm{env}}-\boldsymbol{\lambda}_{\mathrm{env}}$, gives
 \begin{equation}
 \begin{aligned}
-    \cos\theta_{M_o}
-    &:=\frac{(\boldsymbol{v}^+)^\top M_o\hat{\boldsymbol{v}}^+}
-    {\|\boldsymbol{v}^+\|_{M_o}
-     \|\hat{\boldsymbol{v}}^+\|_{M_o}}\\
-    &\geq\frac{\|\boldsymbol{v}^+\|_{M_o}}
-    {\|\hat{\boldsymbol{v}}^+\|_{M_o}}
-    -\frac{\hat{\boldsymbol{\lambda}}_{\mathrm{env}}^\top
-    R\hat{\boldsymbol{\lambda}}_{\mathrm{env}}}
-    {4h^2\|\boldsymbol{v}^+\|_{M_o}
-     \|\hat{\boldsymbol{v}}^+\|_{M_o}}.
+    \|\Delta\boldsymbol{\lambda}\|_{D}^{2}
+    &\leq \Delta\boldsymbol{\lambda}^{\top}
+       \boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\\
+    &\leq \|\Delta\boldsymbol{\lambda}\|_{D}
+       \|D^{-1/2}\boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\|_2.
 \end{aligned}
-\label{eq:appB_direction_consistency}
+\label{eq:appB_force_accuracy}
 \end{equation}
+After cancelling the common factor (or treating the zero-error case
+separately), this proves
+$\|\Delta\boldsymbol{\lambda}\|_D\leq\delta_\lambda$ with
+$\delta_\lambda:=\|D^{-1/2}\boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\|_2$.
 
-For the stationary-environment tasks, the force limits in (32)
-constrain robot-induced loading. With bounded non-contact loads,
-fixed contact geometry, and retained diagonal responses bounded
-away from zero, (26) also bounds the predicted environment
-reactions. Small $R$ then limits the quadratic regularization
-contribution. Its normalized contribution in
-\eqref{eq:appB_direction_consistency} is small during
-motion-producing steps for which the velocity changes are not
-negligible relative to the contact loading.
-
-When the normalized correction is negligible, a large angular error requires substantial overestimation of the motion magnitude. Conversely, closely matched magnitudes imply small angular errors. The weak-coupling analysis below supports such magnitude agreement away from near-static force balance
-
-Most tasks considered here emphasize pose regulation rather
-than highly dynamic motion. Accordingly, the stable-pose
-objective in (34) uses the predicted motion to identify contacts
-that promote goal-directed pose changes, rather than to track
-an exact velocity. Preserving these motion trends is therefore
-particularly important for CSO contact selection.
-
-\subsubsection{Magnitude accuracy}
-
-Since $W_{\mathrm{env}}=D+E$, the reference complementarity
-conditions and SCM prediction can be written as
+The two velocity updates differ only through the environment reaction,
+so
 \begin{equation}
-\begin{aligned}
-    \boldsymbol{\lambda}_{\mathrm{env}}
-    &=\max\!\left[-D^{-1}
-      (\boldsymbol{g}_{\mathrm{env}}
-      +E\boldsymbol{\lambda}_{\mathrm{env}}),0\right],\\
-    \hat{\boldsymbol{\lambda}}_{\mathrm{env}}
-    &=\max(-D^{-1}\boldsymbol{g}_{\mathrm{env}},0).
-\end{aligned}
-\label{eq:appB_force_fixed_point}
+    \hat{\boldsymbol{v}}^+-\boldsymbol{v}^+
+    =\frac{1}{h}M_o^{-1}\tilde J_{\mathrm{env}}^{\top}
+      \Delta\boldsymbol{\lambda}.
 \end{equation}
-The scalar map $\max(\cdot,0)$ does not amplify differences.
-Applying this property componentwise and summing with weights
-$D_{ii}$ gives
+Consequently,
 \begin{equation}
-    \|\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
-      -\boldsymbol{\lambda}_{\mathrm{env}}\|_D
-    \leq\|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2.
-    \label{eq:appB_force_accuracy}
-\end{equation}
-Together with (29) and (31), this implies
-\begin{equation}
-    h\|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{M_o}
-    \leq\Gamma_{\mathrm{env}}
-    \|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2.
+    \|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{M_o}
+    \leq \frac{\Gamma_{\mathrm{env}}}{h}\delta_\lambda
+    =:\delta_v,
+    \qquad
+    \left|\|\hat{\boldsymbol{v}}^+\|_{M_o}
+    -\|\boldsymbol{v}^+\|_{M_o}\right|\leq\delta_v.
     \label{eq:appB_motion_accuracy}
 \end{equation}
-The discarded coupling and diagonal-perturbation effects are
-therefore weighted by the current contact loading. Small
-$\|D^{-1/2}E\boldsymbol{\lambda}_{\mathrm{env}}\|_2$
-yields small force errors and, with a moderate
-$\Gamma_{\mathrm{env}}$, small motion errors. This characterizes
-the weak-coupling regime targeted by Assumption~2 and (25).
 
-Contact orientations, moment arms, and object inertia determine
-$E$, $D$, and $\Gamma_{\mathrm{env}}$, affecting both coupling
-strength and the conversion of force errors into motion errors.
-Robot-force magnitude affects
-$\boldsymbol{\lambda}_{\mathrm{env}}$ through
-$\tilde{\boldsymbol{b}}_o$ in (19), with the robot-induced load
-limited by (32). Prediction accuracy therefore depends jointly
-on contact geometry and current loading, including gravity,
-rather than on coupling strength alone.
+For the direction bound, set $\boldsymbol{u}=M_o^{1/2}\boldsymbol{v}^+$,
+$\hat{\boldsymbol{u}}=M_o^{1/2}\hat{\boldsymbol{v}}^+$, and
+$a=\|\boldsymbol{u}\|_2$. If $a>\delta_v$, then
+$\|\hat{\boldsymbol{u}}-\boldsymbol{u}\|_2\leq\delta_v$ implies
+\begin{equation}
+\begin{aligned}
+    \boldsymbol{u}^{\top}\hat{\boldsymbol{u}}
+    &\geq a(a-\delta_v),\\
+    \|\hat{\boldsymbol{u}}\|_2&\leq a+\delta_v.
+\end{aligned}
+\end{equation}
+Therefore,
+\begin{equation}
+    \cos\theta_{M_o}
+    :=\frac{(\boldsymbol{v}^+)^{\top}M_o\hat{\boldsymbol{v}}^+}
+    {\|\boldsymbol{v}^+\|_{M_o}\|\hat{\boldsymbol{v}}^+\|_{M_o}}
+    \geq \frac{a-\delta_v}{a+\delta_v}.
+    \label{eq:appB_direction_consistency}
+\end{equation}
 
-\subsubsection{Contact transitions}
-
-A newly established object--environment contact introduces a
-reaction absent from the SCM rollout. Its effect is not included
-in $E\boldsymbol{\lambda}_{\mathrm{env}}$ for the previous contact
-set, and the fixed-set estimates do not control the full
-transition error. SCSP incorporates updated object states and
-contact estimates through high-frequency replanning, while the
-ranking strategy in (40) temporally filters contact-switching
-decisions. Together with CPO using
-$\hat{\boldsymbol{p}}_r^*$ as guidance rather than a prescribed
-contact, these mechanisms limit the persistence of inaccurate
-priors and reduce unnecessary switching. When contact estimates
-are refreshed promptly relative to object motion, they help
-prevent transient SCM errors from persistently biasing contact
-selection.
+The terms in the bound depend on contact geometry, object inertia, and
+the current loading. The estimate is therefore local: it applies while
+the contact set is fixed and must be recomputed after a contact
+transition. In particular, the inequalities do not imply that SCM is
+acceptable at most time steps; that frequency is an empirical quantity
+reported in Section~\ref{sec:scm_evaluation}.
 
 \subsection{Proof of Lemma 4}
 \label{proof:lemma4}
@@ -181,4 +133,3 @@ on the object, it does not obstruct the first-order improvement of the objective
 above the reference contact. Since CPO uses a short horizon, it is usually unable to reach $\mathcal{S}_{\text{contact}}$ while moving away from the object, and thus unable to obtain the gradient of $\ell_{\text{obj}}$. Therefore, $\ell_{\text{obj}}$ does not affect $\ell_{\text{lp}}$.
 
 Since $\ell_{\text{lp}}$ is a convex combination of lift and place costs, $\ell_{\text{lp}}$ and $\ell_{\text{obj}}$ are non-conflicting objectives.
-

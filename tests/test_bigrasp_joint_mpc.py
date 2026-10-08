@@ -97,38 +97,68 @@ def test_quaternion_integration_and_contact_projection():
     np.testing.assert_allclose(forces.numpy(), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
 
 
-def test_unilateral_contact_does_not_drag_surrogate_object():
-    planner = BimanualEEMPPI(_params(), seed=0)
-    contact_points = [[0.05, 0.0, 0.35], [-0.05, 0.0, 0.35]]
-    normals = [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]
-    state = numpy_pose_state(
-        [0.0, 0.0, 0.35],
-        [1.0, 0.0, 0.0, 0.0],
-        ([0.036, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
-        ([0.20, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
-    )
-    context = planner.build_context(
-        contact_points,
-        normals,
-        [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+def _grasp_context(planner, desired_force):
+    return planner.build_context(
+        [[0.05, 0.0, 0.0], [-0.05, 0.0, 0.0]],
+        [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]],
+        desired_force,
         [0.0, 0.0, 0.41],
         [1.0, 0.0, 0.0, 0.0],
         [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
         support_z=0.30,
         approach_offset=0.0,
     )
-    rollout, _, diagnostics = planner.rollout(
-        state,
-        torch.zeros((1, 4, 12), dtype=torch.float32),
-        context,
+
+
+def test_unilateral_contact_drags_surrogate_object():
+    planner = BimanualEEMPPI(_params(), seed=0)
+    desired = [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]
+    context = _grasp_context(planner, desired)
+    unilateral = numpy_pose_state(
+        [0.0, 0.0, 0.35],
+        [1.0, 0.0, 0.0, 0.0],
+        ([0.05, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+        ([0.20, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
     )
-    np.testing.assert_allclose(
-        rollout[0, :, 0:2].cpu().numpy(),
-        np.repeat(state[None, 0:2], 4, axis=0),
-        atol=1e-6,
+    bilateral = numpy_pose_state(
+        [0.0, 0.0, 0.35],
+        [1.0, 0.0, 0.0, 0.0],
+        ([0.05, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+        ([-0.05, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
     )
-    terminal_gate = diagnostics["terminal"]["bilateral_gate"].detach().cpu().numpy()
-    assert float(np.max(terminal_gate)) < 1e-4
+    actions = torch.zeros((1, 4, 12), dtype=torch.float32)
+    unilateral_rollout, _, _ = planner.rollout(unilateral, actions, context)
+    bilateral_rollout, _, _ = planner.rollout(bilateral, actions, context)
+    unilateral_xy = float(np.linalg.norm(unilateral_rollout[0, -1, 0:2].cpu().numpy()))
+    bilateral_xy = float(np.linalg.norm(bilateral_rollout[0, -1, 0:2].cpu().numpy()))
+    assert unilateral_xy > 1.0e-4
+    assert bilateral_xy < unilateral_xy
+
+
+def test_unilateral_wrench_residual_exceeds_balanced_pair():
+    planner = BimanualEEMPPI(_params(), seed=0)
+    context = _grasp_context(planner, [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+    unilateral = numpy_pose_state(
+        [0.0, 0.0, 0.35],
+        [1.0, 0.0, 0.0, 0.0],
+        ([0.05, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+        ([0.20, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+    )
+    bilateral = numpy_pose_state(
+        [0.0, 0.0, 0.35],
+        [1.0, 0.0, 0.0, 0.0],
+        ([0.05, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+        ([-0.05, 0.0, 0.35], [1.0, 0.0, 0.0, 0.0]),
+    )
+    _, unilateral_diag = evaluate_bimanual_ee_cost(
+        torch.as_tensor(unilateral), torch.zeros(12), context
+    )
+    _, bilateral_diag = evaluate_bimanual_ee_cost(
+        torch.as_tensor(bilateral), torch.zeros(12), context
+    )
+    unilateral_residual = float(unilateral_diag["wrench_force_residual"])
+    bilateral_residual = float(bilateral_diag["wrench_force_residual"])
+    assert unilateral_residual > bilateral_residual
 
 
 def test_contact_gate_requires_tangential_proximity():

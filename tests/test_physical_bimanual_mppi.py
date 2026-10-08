@@ -10,6 +10,7 @@ from planning.physical_bimanual_mppi import (
     PhysicalBimanualMPPI,
     PhysicalRollout,
     _lift_progress_signal,
+    shared_approach_translation,
 )
 
 
@@ -90,6 +91,20 @@ def test_physical_mppi_shifts_warm_start_horizon():
     planner.plan_once(_pair(), [0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0])
     assert planner.u_mean.shape == (3, 12)
     np.testing.assert_allclose(planner.u_mean[-1], 0.0)
+
+
+def test_shared_approach_finishes_both_arms_together():
+    current = np.zeros((2, 3))
+    targets = np.array([[0.40, 0.0, 0.0], [0.08, 0.0, 0.0]])
+    delta = shared_approach_translation(current, targets, steps=4, translation_limit=0.05)
+    np.testing.assert_allclose(np.linalg.norm(delta[0]), 0.05)
+    left_steps = 0.40 / np.linalg.norm(delta[0])
+    right_steps = 0.08 / np.linalg.norm(delta[1])
+    np.testing.assert_allclose(left_steps, right_steps)
+
+    near_targets = np.array([[0.04, 0.0, 0.0], [0.02, 0.0, 0.0]])
+    near_delta = shared_approach_translation(current, near_targets, steps=4, translation_limit=0.05)
+    np.testing.assert_allclose(near_delta, near_targets / 4.0)
 
 
 def test_lift_progress_requires_bilateral_physical_contact():

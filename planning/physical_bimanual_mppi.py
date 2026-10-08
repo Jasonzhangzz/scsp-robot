@@ -23,6 +23,26 @@ from .contact_pair import ContactPair
 ACTION_DIM = 12
 
 
+def shared_approach_translation(current, targets, steps, translation_limit):
+    """Return one world-frame translation delta for each arm.
+
+    Both arms move the same fraction of their remaining position error.  The
+    fraction is ``1/steps`` unless that would push the farther arm past
+    ``translation_limit``, in which case the farther arm sets the fraction.
+    Repeating the delta therefore finishes both approaches on the same step
+    instead of letting the nearer arm arrive first.
+    """
+    current = np.asarray(current, dtype=np.float64).reshape(2, 3)
+    targets = np.asarray(targets, dtype=np.float64).reshape(2, 3)
+    error = targets - current
+    farther = float(np.max(np.linalg.norm(error, axis=1)))
+    if farther <= 1.0e-9:
+        return np.zeros((2, 3), dtype=np.float64)
+    step_count = max(int(steps), 1)
+    step_fraction = min(1.0 / float(step_count), abs(float(translation_limit)) / farther)
+    return error * step_fraction
+
+
 def mjwarp_available() -> bool:
     """Return whether the optional Spider/MuJoCo-Warp stack is importable."""
     try:
@@ -253,13 +273,17 @@ class MujocoBimanualRolloutBackend:
         # The online loop executes only the first action before replanning.
         # Spreading the whole approach over the MPPI horizon would therefore
         # make the real controller move by only 1/H of the error per cycle.
-        # Use a short nominal approach rate.  The first action is executed in
-        # the real loop and then replanned, so the same rate is repeated in
-        # the rollout to represent that receding feedback rather than
-        # stopping the nominal sequence after a single prefix.
+        # Use a short nominal approach rate, shared by both arms so the nearer
+        # fingertip does not reach the surface while the other is still out.
+        # The same rate is repeated across the horizon to represent that
+        # receding feedback rather than stopping after a single prefix.
         approach_horizon = max(1, min(horizon, 4))
-        delta = (targets - current) / float(approach_horizon)
-        delta = np.clip(delta, -abs(float(translation_limit)), abs(float(translation_limit)))
+        delta = shared_approach_translation(
+            current,
+            targets,
+            approach_horizon,
+            translation_limit,
+        )
         seed = np.zeros((horizon, ACTION_DIM), dtype=np.float64)
         seed[:, 0:3] = delta[0]
         seed[:, 6:9] = delta[1]

@@ -138,6 +138,7 @@ class BimanualEECostConfig:
     ee_position_weight: float = 80.0
     ee_orientation_weight: float = 2.0
     force_tracking_weight: float = 12.0
+    wrench_residual_weight: float = 12.0
     object_position_weight: float = 300.0
     object_lateral_position_weight: float = 300.0
     object_orientation_weight: float = 15.0
@@ -241,6 +242,15 @@ def evaluate_bimanual_ee_cost(
     total_force = torch.sum(predicted_force, dim=-2)
     lever_arm = contact_world - obj_p.unsqueeze(-2)
     total_torque = torch.sum(torch.cross(lever_arm, predicted_force, dim=-1), dim=-2)
+    # Lambda's pair is a force closure: the two desired forces cancel in the
+    # horizontal plane.  A single fingertip cannot produce that net wrench, so
+    # the residual is large as soon as one arm touches and small when both
+    # match.  It is intentionally not multiplied by ``force_gate``; gating it
+    # would make a missing contact free.
+    desired_net_force = torch.sum(desired_force_world, dim=-2)
+    desired_net_torque = torch.sum(torch.cross(lever_arm, desired_force_world, dim=-1), dim=-2)
+    wrench_force_residual = torch.sum((total_force - desired_net_force) ** 2, dim=-1)
+    wrench_torque_residual = torch.sum((total_torque - desired_net_torque) ** 2, dim=-1)
 
     target_p = torch.as_tensor(context["target_object_pos"], device=state.device, dtype=state.dtype)
     target_q = torch.as_tensor(context["target_object_quat"], device=state.device, dtype=state.dtype)
@@ -270,8 +280,9 @@ def evaluate_bimanual_ee_cost(
         float(cfg.ee_position_weight) * torch.sum(position_error, dim=-1)
         + float(cfg.ee_orientation_weight) * torch.sum(orientation_error, dim=-1)
         + float(cfg.force_tracking_weight) * torch.sum(force_error, dim=-1)
-        + float(cfg.object_position_weight) * bilateral_gate * object_position_error
-        + float(cfg.object_orientation_weight) * bilateral_gate * object_orientation_error
+        + float(cfg.wrench_residual_weight) * (wrench_force_residual + wrench_torque_residual)
+        + float(cfg.object_position_weight) * object_position_error
+        + float(cfg.object_orientation_weight) * object_orientation_error
         + float(cfg.object_lateral_position_weight) * object_lateral_error
         + float(cfg.synchronization_weight) * synchronization_error
         + float(cfg.contact_gate_sync_weight) * contact_gate_sync_error
@@ -281,8 +292,8 @@ def evaluate_bimanual_ee_cost(
     )
     if terminal:
         total = total + 5.0 * (
-            float(cfg.object_position_weight) * bilateral_gate * object_position_error
-            + float(cfg.object_orientation_weight) * bilateral_gate * object_orientation_error
+            float(cfg.object_position_weight) * object_position_error
+            + float(cfg.object_orientation_weight) * object_orientation_error
             + float(cfg.object_lateral_position_weight) * object_lateral_error
             + float(cfg.ee_position_weight) * torch.sum(position_error, dim=-1)
         )
@@ -292,6 +303,8 @@ def evaluate_bimanual_ee_cost(
         "desired_force_world": desired_force_world,
         "object_force_world": total_force,
         "object_torque_world": total_torque,
+        "wrench_force_residual": wrench_force_residual,
+        "wrench_torque_residual": wrench_torque_residual,
         "signed_gap": signed_gap,
         "tangential_distance": tangential_distance,
         "normal_gate": normal_gate,

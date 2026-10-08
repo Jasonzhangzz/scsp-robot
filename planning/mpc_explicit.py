@@ -206,6 +206,19 @@ class MPCExplicit:
         self.acados_fallback_count = 0
         self.init_MPC()
 
+    def reset(self):
+        """Cold-start acados / IPOPT iterates between episodes."""
+        self._reset_acados_solver()
+        if hasattr(self, "nlp_w0_"):
+            self.nlp_w0_ = cs.DM.zeros(self.nlp_w0_.shape)
+        if hasattr(self, "nlp_lam_x0_"):
+            self.nlp_lam_x0_ = cs.DM.zeros(self.nlp_lam_x0_.shape)
+        if hasattr(self, "nlp_lam_g0_"):
+            self.nlp_lam_g0_ = cs.DM.zeros(self.nlp_lam_g0_.shape)
+        self.acados_solve_count = 0
+        self.acados_failure_count = 0
+        self.acados_fallback_count = 0
+
     def _cost_params(self, **kwargs):
         return pack_cost_params(self.cost_kind, self.param_, self.path_cost_fn, **kwargs)
 
@@ -686,6 +699,57 @@ class MPCExplicitIsaac(MPCExplicit):
 class MPCExplicitTiltedPush(MPCExplicit):
     def __init__(self, param):
         super().__init__(param, cost_kind="tilted_push")
+
+
+def _configure_explicit_layout(param, *, n_qpos, n_qvel, n_cmd, n_robot_qpos, cost_kind):
+    param.n_qpos_ = int(n_qpos)
+    param.n_qvel_ = int(n_qvel)
+    param.n_cmd_ = int(n_cmd)
+    param.n_robot_qpos_ = int(n_robot_qpos)
+    param.mpc_model = "explicit"
+    param.mpc_cost_kind = cost_kind
+    if getattr(param, "planner_solver_", None) not in {"acados", "ipopt"}:
+        param.planner_solver_ = "acados"
+    q = np.asarray(getattr(param, "Q", np.zeros((0, 0))), dtype=np.float32)
+    if q.shape != (param.n_qvel_, param.n_qvel_):
+        inertia = np.asarray(getattr(param, "obj_inertia_", np.identity(6)), dtype=np.float32).reshape(6, 6)
+        stiff = float(np.mean(np.diag(np.asarray(getattr(param, "robot_stiff_", np.eye(1))))))
+        param.robot_stiff_ = np.diag(param.n_cmd_ * [stiff]).astype(np.float32)
+        param.Q = np.zeros((param.n_qvel_, param.n_qvel_), dtype=np.float32)
+        param.Q[:6, :6] = inertia
+        param.Q[6:, 6:] = param.robot_stiff_
+    cmd_limit = float(getattr(param, "planner_cmd_limit", 0.05))
+    joint_limit = float(getattr(param, "planner_joint_delta_limit", 0.15))
+    if param.n_cmd_ == 6:
+        bound = np.full(6, cmd_limit, dtype=np.float32)
+    elif param.n_cmd_ == 14:
+        bound = np.full(14, joint_limit, dtype=np.float32)
+    else:
+        bound = np.full(param.n_cmd_, cmd_limit, dtype=np.float32)
+    param.mpc_u_lb_ = -bound
+    param.mpc_u_ub_ = bound
+
+
+class MPCExplicitEE(MPCExplicit):
+    """Dual-arm 3D fingertip-increment MPC (state 13, command 6)."""
+
+    def __init__(self, param, **kwargs):
+        _configure_explicit_layout(
+            param, n_qpos=13, n_qvel=12, n_cmd=6, n_robot_qpos=6, cost_kind="bigrasp"
+        )
+        kwargs.setdefault("cost_kind", "bigrasp")
+        super().__init__(param, **kwargs)
+
+
+class MPCExplicitJoint(MPCExplicit):
+    """Dual-arm 14-D joint-increment MPC (state obj+q, command Δq)."""
+
+    def __init__(self, param, **kwargs):
+        _configure_explicit_layout(
+            param, n_qpos=21, n_qvel=20, n_cmd=14, n_robot_qpos=14, cost_kind="bigrasp_joint"
+        )
+        kwargs.setdefault("cost_kind", "bigrasp_joint")
+        super().__init__(param, **kwargs)
 
 
 def planner_init_payload(args, param, trial_count, device=None):
