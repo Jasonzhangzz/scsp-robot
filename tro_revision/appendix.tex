@@ -21,101 +21,80 @@ The off-diagonal terms are not affected by choosing $D$, and so the minimization
 d_j^* = \arg \min_{d_j} |(\boldsymbol{W}_{ii})_{jj} - d_j|^2, \quad j = 1, \dots, n.
 \end{equation}
 It is immediate that the minimizer is $d_j^* = (\boldsymbol{W}_{ii})_{jj}$. 
-Hence \eqref{equ:max_decomposition} is the closest diagonal approximation in the Frobenius norm with a small regularization term for numerical stability.
+Hence $\operatorname{diag}(\boldsymbol{W}_{ii})$ is the closest diagonal approximation in the Frobenius norm. Equation~\eqref{equ:max_decomposition} adds a small regularization term for numerical stability; the regularized matrix is not the unconstrained Frobenius minimizer.
 
-\subsection{Local Motion-Prediction Accuracy of SCM}
-\label{app:scm_motion_accuracy}
+\subsection{Proof of Mechanical Structure and Task Consistency}
+\label{app:scm_task_consistency}
 
-We prove the local bound in Lemma~\ref{lem:scm_accuracy} by comparing
-the full regularized dual problem with the diagonal surrogate at the
-same state, robot contact input, and contact geometry. Let
-$\boldsymbol{\lambda}_{\mathrm{env}}$ and
-$\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ denote the corresponding
-solutions, let $\boldsymbol{E}:=\boldsymbol{W}_{\mathrm{env}}-\boldsymbol{D}$,
-and define $\|\boldsymbol{z}\|_A=(\boldsymbol{z}^{\top}A\boldsymbol{z})^{1/2}$.
-The geometry-dependent gain is
+\textit{Restoring reaction and object motion.}
+The diagonal surrogate dual objective is
 \begin{equation}
-    \Gamma_{\mathrm{env}}
-    :=\|M_o^{-1/2}\tilde J_{\mathrm{env}}^\top D^{-1/2}\|_2.
-    \label{eq:appB_geometry_gain}
+    \max_{\boldsymbol{\lambda}\geq0}
+    -\tfrac12\boldsymbol{\lambda}^{\top}\boldsymbol{D}\boldsymbol{\lambda}
+    -\boldsymbol{g}^{\top}\boldsymbol{\lambda}.
 \end{equation}
-
-The KKT conditions of the full and diagonal problems are, respectively,
+Because $\boldsymbol{D}\succ0$ is diagonal, the objective is strictly concave and separates into scalar problems. Its unique solution is
 \begin{equation}
-\begin{aligned}
-    &0\leq\boldsymbol{\lambda}_{\mathrm{env}}\perp
-      (\boldsymbol{W}_{\mathrm{env}}\boldsymbol{\lambda}_{\mathrm{env}}
-      +\boldsymbol{g}_{\mathrm{env}})\geq0,\\
-    &0\leq\hat{\boldsymbol{\lambda}}_{\mathrm{env}}\perp
-      (\boldsymbol{D}\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
-      +\boldsymbol{g}_{\mathrm{env}})\geq0.
-\end{aligned}
-\label{eq:appB_two_kkt}
+    \hat\lambda_j=\frac{\max(-g_j,0)}{D_{jj}}.
 \end{equation}
+The potential $\Psi(\boldsymbol{g})=\sum_j\max(-g_j,0)^2/(2D_{jj})$ is convex and continuously differentiable, with $-\partial\Psi/\partial g_j=\hat\lambda_j$. Hence the contact reaction vanishes for a nonnegative free-motion residual and grows linearly with its violation. In particular, for any two residuals,
+\begin{equation}
+    (\boldsymbol{g}_1-\boldsymbol{g}_2)^{\top}
+    (\hat{\boldsymbol{\lambda}}_1-\hat{\boldsymbol{\lambda}}_2)\leq0.
+\end{equation}
+This is monotonicity of a restoring reaction in constraint coordinates; it does not assert dissipation of the full discrete-time system or impose a friction cone on a three-vector force representation.
 
-The second relation is exactly the optimality condition of the
-strictly concave diagonal surrogate dual problem. Using the
-variational inequalities associated with the two complementarity
-systems, with $\Delta\boldsymbol{\lambda}=\hat{\boldsymbol{\lambda}}_{\mathrm{env}}-\boldsymbol{\lambda}_{\mathrm{env}}$, gives
+The SoftPlus implementation retains the restoring monotonicity since
+\begin{equation}
+    \frac{\partial\operatorname{sp}_{\gamma}(-g_j/D_{jj})}
+    {\partial(-g_j)}
+    =\frac{1}{D_{jj}(1+\exp(\gamma g_j/D_{jj}))}>0.
+\end{equation}
+It smooths the unilateral transition and is not the exact optimizer of the diagonal quadratic problem. The motion and score consistency statements apply to either implementation using its actual predictions.
+
+Subtracting the coupled and surrogate velocity updates proves~\eqref{eq:scm_wrench_consistency}. Thus errors in contact reactions affect object motion only through their resultant generalized reaction. In particular, reaction differences in the null space of $\tilde{\boldsymbol{J}}_{\mathrm{env}}^{\top}$ leave the object velocity unchanged. This does not assume that such cancellation always occurs.
+
+For exact force agreement, let $\boldsymbol{r}=\boldsymbol{W}_{\mathrm{env}}\hat{\boldsymbol{\lambda}}_{\mathrm{env}}+\boldsymbol{g}_{\mathrm{env}}$. The diagonal solution satisfies $(\boldsymbol{D}\hat{\boldsymbol{\lambda}}_{\mathrm{env}}+\boldsymbol{g}_{\mathrm{env}})_{\mathcal A}=0$ and $\hat{\boldsymbol{\lambda}}_{\mathrm{env},\mathcal A^c}=0$. Consequently,
 \begin{equation}
 \begin{aligned}
-    \|\Delta\boldsymbol{\lambda}\|_{D}^{2}
-    &\leq \Delta\boldsymbol{\lambda}^{\top}
-       \boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\\
-    &\leq \|\Delta\boldsymbol{\lambda}\|_{D}
-       \|D^{-1/2}\boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\|_2.
-\end{aligned}
-\label{eq:appB_force_accuracy}
-\end{equation}
-After cancelling the common factor (or treating the zero-error case
-separately), this proves
-$\|\Delta\boldsymbol{\lambda}\|_D\leq\delta_\lambda$ with
-$\delta_\lambda:=\|D^{-1/2}\boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\|_2$.
-
-The two velocity updates differ only through the environment reaction,
-so
-\begin{equation}
-    \hat{\boldsymbol{v}}^+-\boldsymbol{v}^+
-    =\frac{1}{h}M_o^{-1}\tilde J_{\mathrm{env}}^{\top}
-      \Delta\boldsymbol{\lambda}.
-\end{equation}
-Consequently,
-\begin{equation}
-    \|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{M_o}
-    \leq \frac{\Gamma_{\mathrm{env}}}{h}\delta_\lambda
-    =:\delta_v,
-    \qquad
-    \left|\|\hat{\boldsymbol{v}}^+\|_{M_o}
-    -\|\boldsymbol{v}^+\|_{M_o}\right|\leq\delta_v.
-    \label{eq:appB_motion_accuracy}
-\end{equation}
-
-For the direction bound, set $\boldsymbol{u}=M_o^{1/2}\boldsymbol{v}^+$,
-$\hat{\boldsymbol{u}}=M_o^{1/2}\hat{\boldsymbol{v}}^+$, and
-$a=\|\boldsymbol{u}\|_2$. If $a>\delta_v$, then
-$\|\hat{\boldsymbol{u}}-\boldsymbol{u}\|_2\leq\delta_v$ implies
-\begin{equation}
-\begin{aligned}
-    \boldsymbol{u}^{\top}\hat{\boldsymbol{u}}
-    &\geq a(a-\delta_v),\\
-    \|\hat{\boldsymbol{u}}\|_2&\leq a+\delta_v.
+    \boldsymbol{r}_{\mathcal A}
+    &=(\boldsymbol{E}\hat{\boldsymbol{\lambda}}_{\mathrm{env}})_{\mathcal A},\\
+    \boldsymbol{r}_{\mathcal A^c}
+    &=(\boldsymbol{g}+\boldsymbol{E}\hat{\boldsymbol{\lambda}}_{\mathrm{env}})_{\mathcal A^c}.
 \end{aligned}
 \end{equation}
-Therefore,
-\begin{equation}
-    \cos\theta_{M_o}
-    :=\frac{(\boldsymbol{v}^+)^{\top}M_o\hat{\boldsymbol{v}}^+}
-    {\|\boldsymbol{v}^+\|_{M_o}\|\hat{\boldsymbol{v}}^+\|_{M_o}}
-    \geq \frac{a-\delta_v}{a+\delta_v}.
-    \label{eq:appB_direction_consistency}
-\end{equation}
+Condition~\eqref{eq:scm_loaded_consistency} therefore gives $\boldsymbol{r}\geq0$ and $\hat{\boldsymbol{\lambda}}_{\mathrm{env}}^{\top}\boldsymbol{r}=0$, which are the coupled-model KKT conditions. For $\boldsymbol{W}_{\mathrm{env}}\succ0$, the reaction equals the unique coupled-model solution, and~\eqref{eq:scm_wrench_consistency} gives equal object velocities. This sufficient condition involves coupling under the current loading, rather than requiring every off-diagonal entry to vanish. For example, with $\boldsymbol{D}=\operatorname{diag}(\boldsymbol{W}_{\mathrm{env}})$ and a single active dual constraint, the active-row condition holds automatically; exact agreement then requires only that the remaining coupled-model residuals stay nonnegative. A single active dual constraint is distinct from a single physical contact, which may have several constraint directions. With additional diagonal regularization, $\boldsymbol{E}$ includes that difference and the same conditions must be checked explicitly.
 
-The terms in the bound depend on contact geometry, object inertia, and
-the current loading. The estimate is therefore local: it applies while
-the contact set is fixed and must be recomputed after a contact
-transition. In particular, the inequalities do not imply that SCM is
-acceptable at most time steps; that frequency is an empirical quantity
-reported in Section~\ref{sec:scm_evaluation}.
+\textit{Preservation of task-improving motion.}
+Set $\boldsymbol{u}=M_o^{1/2}\boldsymbol{d}$, $\hat{\boldsymbol{u}}=M_o^{1/2}\hat{\boldsymbol{d}}$, and $\boldsymbol{z}=M_o^{-1/2}\boldsymbol{q}$. The triangle inequality for angles between nonzero vectors gives
+\begin{equation}
+    \angle(-\boldsymbol{z},\boldsymbol{u})
+    \leq\angle(-\boldsymbol{z},\hat{\boldsymbol{u}})
+       +\angle(\hat{\boldsymbol{u}},\boldsymbol{u})
+    =\beta+\theta_d.
+\end{equation}
+If this sum is less than $\pi/2$, then
+\begin{equation}
+    \boldsymbol{q}^{\top}\boldsymbol{d}
+    =\boldsymbol{z}^{\top}\boldsymbol{u}
+    =-\|\boldsymbol{z}\|_2\|\boldsymbol{u}\|_2
+       \cos\angle(-\boldsymbol{z},\boldsymbol{u})<0.
+\end{equation}
+Thus $\boldsymbol{d}$ is a descent direction for the selected differentiable cost branch. A positive rescaling of $\boldsymbol{d}$ changes the rate of first-order improvement but not its sign. In local pose coordinates, differentiability gives
+\begin{equation}
+    \ell(\boldsymbol{x}_k+s\boldsymbol{d})
+    =\ell(\boldsymbol{x}_k)+s\boldsymbol{q}^{\top}\boldsymbol{d}+o(s),
+    \qquad s\downarrow0.
+\end{equation}
+Hence sufficiently short motion along this direction decreases the cost. A decrease at the chosen finite integration step additionally depends on cost curvature and step size. At a branch switch of~\eqref{equ:objectice_obj}, this differentiable-branch argument does not apply. The angle criterion concerns the total update direction $\boldsymbol{v}_k+\boldsymbol{v}^+$; in the quasi-static limit $\boldsymbol{v}_k=0$, it is precisely the direction criterion for $\boldsymbol{v}^+$.
+
+\textit{Preservation of contact selection.}
+For every $j\neq i^*$,
+\begin{equation}
+    \hat V_j-\hat V_{i^*}
+    =a(V_j-V_{i^*})+e_j-e_{i^*}.
+\end{equation}
+Condition~\eqref{eq:scm_selection_margin} makes each difference strictly positive, so $i^*$ is the unique SCM minimizer. The common offset cancels, and the common positive scale preserves ordering. No uniform small error in the absolute candidate scores is required. This result concerns the value functions of the compared model problems; when using numerically obtained candidate scores, solver error must also be included in $e_i$. Almost tied candidates have a small selection margin, so identical selection need not be robust even when model discrepancies are modest. The prevalence of the direction and selection conditions is assessed empirically rather than asserted by the lemma.
 
 \subsection{Proof of Lemma 4}
 \label{proof:lemma4}

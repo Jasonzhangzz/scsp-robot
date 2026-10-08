@@ -1,40 +1,51 @@
 \section{Evaluation of Surrogate Contact Model}
 \label{sec:scm_evaluation}
 
-\rev{This section evaluates the local approximation used by SCM before the system-level experiments.} SCM replaces the dense Delassus matrix $\boldsymbol{W}_{\text{env}}$ by its diagonal approximation and evaluates $\boldsymbol{\hat{\lambda}}_{\text{env}}$ in closed form under Assumptions~\ref{assumption:mode}--\ref{assumption:decoupling}. Lemma~\ref{lem:scm_accuracy} gives a conditional error bound, rather than a claim that SCM is accurate at a fixed fraction of all time steps. We therefore test the bound at every step, separate fixed-contact steps from contact transitions, and then test whether the resulting contact-selection signal is sufficient for closed-loop manipulation.
+SCM is used to provide object-motion predictions for contact selection. Lemma~\ref{lem:scm_task_consistency} establishes its restoring reaction structure and sufficient conditions for preserving task-improving motion and contact selection. Simulation comparisons assess how frequently these conditions hold and how closely its forces and velocities agree with coupled contact references. Following the simulation comparisons and closed-loop validation in~\cite{jin2024complementarity}, the assessment should examine both one-step prediction quality and the usefulness of the resulting contact priors for manipulation.
 
-We use the fingertip ground-rotation setup with the same $h=0.02$\,s, $\boldsymbol{M}_o$, and success condition~\eqref{eq:pose_success} as below. At each step, CSO selects the optimal candidate $\boldsymbol{\hat{p}}^*_{\text{r}}\in\mathcal{I}_{\text{avail}}$ and its best force $\boldsymbol{\hat{\lambda}}^*_{\text{r}}$, and SCM predicts $\boldsymbol{\hat{v}}^+$ and $\boldsymbol{\hat{\lambda}}_{\text{env}}$. The references receive the same state, robot force, contact Jacobian, gap, and inertia: the rigid-pyramid LCP is solved with Lemke's algorithm, while MuJoCo supplies an independent forward-dynamics reference. Following Lemma~\ref{lem:scm_accuracy} and Appendix~\ref{app:scm_motion_accuracy}, we log the bound terms $\delta_\lambda$ and $\delta_v$, the normalized bound $\delta_v/\|\boldsymbol{v}^+\|_{\boldsymbol{M}_o}$, the inertia-weighted direction error $\theta$, the relative magnitude gap, and the multiplier gap. We report these statistics separately for steps with an unchanged contact set and for contact-transition steps; the latter are outside the fixed-set lemma and are evaluated only as a robustness diagnostic. Each rollout then directly applies the CSO-optimal contact by tracking the predicted orientation and the goal-directed component of the predicted translation, without CPO or OSC.
+For a one-step comparison, SCM and a coupled contact reference should receive the same object state and robot contact input. Using the same contact geometry, gap, inertia, and regularization in the full dual problem~\eqref{eq:dual_problem} isolates the effect of diagonalization. A separate MuJoCo forward-dynamics comparison can assess the combined discrepancy from the surrogate dynamics, geometry approximation, and parameter mismatch. These comparisons answer different questions and should be reported separately.
 
-To make the phrase ``acceptable at most time steps'' testable, for prescribed tolerances $(\varepsilon_\theta,\varepsilon_m)$ we report the fixed-contact acceptance rate
+Let $\boldsymbol{v}_t^+$ and $\hat{\boldsymbol{v}}_t^+$ denote the reference and SCM object-velocity predictions, respectively, expressed in the same frame and over the same time step. Using $\|\boldsymbol{z}\|_{\boldsymbol{M}_o}=(\boldsymbol{z}^{\top}\boldsymbol{M}_o\boldsymbol{z})^{1/2}$, define the absolute and relative magnitude errors
+\begin{equation}
+\begin{aligned}
+    e_{m,t}&=\left|\|\hat{\boldsymbol{v}}_t^+\|_{\boldsymbol{M}_o}
+                   -\|\boldsymbol{v}_t^+\|_{\boldsymbol{M}_o}\right|,\\
+    e_{m,t}^{\mathrm{rel}}&=
+    \frac{e_{m,t}}{\max(\|\boldsymbol{v}_t^+\|_{\boldsymbol{M}_o},v_{\min})},
+\end{aligned}
+\label{eq:scm_magnitude_error}
+\end{equation}
+where $v_{\min}>0$ is a prescribed motion threshold. For predictions whose two weighted speeds exceed $v_{\min}$, the direction error is
+\begin{equation}
+    \theta_t=\arccos\left(
+    \frac{(\boldsymbol{v}_t^+)^{\top}\boldsymbol{M}_o\hat{\boldsymbol{v}}_t^+}
+    {\|\boldsymbol{v}_t^+\|_{\boldsymbol{M}_o}
+     \|\hat{\boldsymbol{v}}_t^+\|_{\boldsymbol{M}_o}}
+    \right).
+\label{eq:scm_direction_error}
+\end{equation}
+Direction is undefined for zero motion and sensitive to small perturbations near rest. Steps at which either prediction is below the motion threshold should therefore be assessed using absolute velocity error and agreement on motion versus rest, with their counts reported separately. Translational and angular velocity errors should also be reported separately in physical units to make the combined inertia-weighted metrics interpretable.
+
+To connect the comparisons to Lemma~\ref{lem:scm_task_consistency}, the assessment should also record the generalized environment reaction $\tilde{\boldsymbol{J}}_{\mathrm{env}}^{\top}\boldsymbol{\lambda}_{\mathrm{env}}$, the direction error $\theta_d$ of the total pose update, and the predicted task-descent margin $\pi/2-\beta$. The condition $\theta_d<\pi/2-\beta$ tests whether a predicted task-improving motion remains a descent direction under the reference model. At rest, where direction is undefined, force and absolute velocity comparisons remain appropriate.
+
+Since CSO selects among contacts, paired candidate evaluations should compare $V_i$ and $\hat V_i$ using the same sampled locations, force limits, objective, and horizon. Besides force and velocity errors, useful measures are candidate-order agreement, selected-contact agreement, and the reference-model score penalty $V_{\hat i}-\min_i V_i$, where $\hat i$ is selected by SCM. The score penalty distinguishes an inconsequential switch between nearly tied contacts from a materially worse selection. Coupled-model KKT checks from Appendix~\ref{app:scm_task_consistency} provide a separate diagnostic of force agreement at matched inputs. Numerical score comparisons should identify whether they use optimized values or fixed-input rollouts, and report solver convergence so that optimization failures are distinguishable from model discrepancy.
+
+For prescribed task tolerances $(\varepsilon_\theta,\varepsilon_m)$, the fraction of moving steps with acceptable magnitude and direction can be measured by
 \begin{equation}
     \hat r_{\mathrm{acc}}
-    =\frac{1}{|\mathcal{T}_{\mathrm{fixed}}|}
-    \sum_{t\in\mathcal{T}_{\mathrm{fixed}}}
+    =\frac{1}{|\mathcal{T}_{\mathrm{move}}|}
+    \sum_{t\in\mathcal{T}_{\mathrm{move}}}
     \mathbf{1}\!\left(
         \theta_t\leq\varepsilon_\theta,\;
-        \frac{|\|\hat{\boldsymbol{v}}_t^+\|_{\boldsymbol{M}_o}-\|\boldsymbol{v}_t^+\|_{\boldsymbol{M}_o}|}
-        {\max(\|\boldsymbol{v}_t^+\|_{\boldsymbol{M}_o},\varepsilon)}
-        \leq\varepsilon_m
+        e_{m,t}^{\mathrm{rel}}\leq\varepsilon_m
     \right),
+\label{eq:scm_acceptance_rate}
 \end{equation}
-where $\mathcal{T}_{\mathrm{fixed}}$ excludes contact-transition steps. We evaluate this rate over all objects and randomized loads, and report a confidence interval together with a sensitivity sweep over the tolerances. A majority-step claim is made only from this empirical statistic, never from Lemma~\ref{lem:scm_accuracy} alone.
+where $\mathcal{T}_{\mathrm{move}}$ contains the steps at which both weighted speeds exceed $v_{\min}$; the rate is undefined if this set is empty. Fixed-contact and contact-transition steps should be analyzed separately. A claim that SCM predictions are usually acceptable requires the chosen tolerances, sample counts, error distributions, and acceptance rates across objects and loads, including the motion-versus-rest assessment. Closed-loop task success provides complementary evidence that contact priors are useful, but does not by itself establish accurate velocity predictions or faithful open-loop trajectories.
 
-Table~\ref{tab:scm_eval} summarizes the results over repeated ContactDB objects. Against LCP, the median direction error is around $0.19$\,rad with magnitude and multiplier gaps at the $10^{-3}$--$10^{-2}$ scale; the larger errors are concentrated on a small number of contact-transition steps, as predicted by the scope of Lemma~\ref{lem:scm_accuracy}. The MuJoCo single-step gap is occasionally larger because its forward dynamics resolves the full body contact geometry, but the goal-directed motion trend is preserved. Every direct-apply trajectory satisfies~\eqref{eq:pose_success} within $160$ steps. This combination of a perturbation bound, two independent reference models, step-level transition accounting, and a direct-apply closed-loop test is the evidence used here for trusting SCM as a contact-selection surrogate; it does not establish global trajectory fidelity.
+% Prediction-error results must be added from verified rollout logs before
+% making a numerical accuracy claim or stating that errors are usually acceptable.
 
-\begin{table}[t]
-\centering
-\caption{One-step SCM comparison against the rigid LCP and success of direct-apply rollouts.}
-\label{tab:scm_eval}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Metric} & \textbf{Success} & \textbf{dir $\theta$} (rad) & \textbf{mag.\ gap} & \textbf{$\|d\boldsymbol{\lambda}\|_{\boldsymbol{D}}$} \\
-\midrule
-SCM vs.\ LCP (median) & --- & $0.19$ & $0.005$ & $0.05$ \\
-SCM vs.\ LCP (mean) & --- & $0.33$ & $0.029$ & $0.069$ \\
-Direct-apply rollout & $100\%$ & --- & --- & --- \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \section{Experiment: Nonprehensile Manipulation}
 \label{sec:experiment}
