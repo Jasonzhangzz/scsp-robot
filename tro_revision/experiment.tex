@@ -1,40 +1,30 @@
 \section{Evaluation of Surrogate Contact Model}
 \label{sec:scm_evaluation}
 
-\rev{This section evaluates the local approximation used by SCM before the system-level experiments.} SCM replaces the dense Delassus matrix $\boldsymbol{W}_{\text{env}}$ by its diagonal approximation and evaluates $\boldsymbol{\hat{\lambda}}_{\text{env}}$ in closed form under Assumptions~\ref{assumption:mode}--\ref{assumption:decoupling}. Lemma~\ref{lem:scm_accuracy} gives a conditional error bound, rather than a claim that SCM is accurate at a fixed fraction of all time steps. We therefore test the bound at every step, separate fixed-contact steps from contact transitions, and then test whether the resulting contact-selection signal is sufficient for closed-loop manipulation.
+To validate SCM as a viable approximate contact model, we compare it with higher-fidelity baselines: an LCP-based contact dynamics model solved using Lemke's algorithm and direct simulation in MuJoCo Warp (MJWarp), following the benchmark protocol in~\cite{borse2026comfree}. We select six objects used in our manipulation experiments: elephant, Stanford bunny, teapot, foam brick, rubber duck, and mug. Initial poses are randomized with yaw angles sampled over $[-\pi,\pi]$. We construct three contact states to represent conditions that can arise during flipping tasks: separation using airborne or upward-moving objects, sliding using tangential velocities and forces, and sticking using zero initial velocity and forces below the friction limit. Each model receives the same pose, velocity, and external wrench, with mass $0.15\,\mathrm{kg}$, friction coefficient $0.5$, and time step $0.002\,\mathrm{s}$. SCM uses $\tau=0.008\,\mathrm{s}$ and $\zeta=0.25$. We sample 100 inputs per object and state.
 
-We use the fingertip ground-rotation setup with the same $h=0.02$\,s, $\boldsymbol{M}_o$, and success condition~\eqref{eq:pose_success} as below. At each step, CSO selects the optimal candidate $\boldsymbol{\hat{p}}^*_{\text{r}}\in\mathcal{I}_{\text{avail}}$ and its best force $\boldsymbol{\hat{\lambda}}^*_{\text{r}}$, and SCM predicts $\boldsymbol{\hat{v}}^+$ and $\boldsymbol{\hat{\lambda}}_{\text{env}}$. The references receive the same state, robot force, contact Jacobian, gap, and inertia: the rigid-pyramid LCP is solved with Lemke's algorithm, while MuJoCo supplies an independent forward-dynamics reference. Following Lemma~\ref{lem:scm_accuracy} and Appendix~\ref{app:scm_motion_accuracy}, we log the bound terms $\delta_\lambda$ and $\delta_v$, the normalized bound $\delta_v/\|\boldsymbol{v}^+\|_{\boldsymbol{M}_o}$, the inertia-weighted direction error $\theta$, the relative magnitude gap, and the multiplier gap. We report these statistics separately for steps with an unchanged contact set and for contact-transition steps; the latter are outside the fixed-set lemma and are evaluated only as a robustness diagnostic. Each rollout then directly applies the CSO-optimal contact by tracking the predicted orientation and the goal-directed component of the predicted translation, without CPO or OSC.
+For each baseline $b$, we measure the absolute difference in maximum post-step penetration, $e_d=|d_{\max}^{\mathrm{SCM}}-d_{\max}^{(b)}|$, and the linear and angular velocity differences, $e_v=\|\boldsymbol{v}^{\mathrm{SCM}}-\boldsymbol{v}^{(b)}\|_2$ and $e_\omega=\|\boldsymbol{\omega}^{\mathrm{SCM}}-\boldsymbol{\omega}^{(b)}\|_2$, in a common frame. Table~\ref{tab:scm_lcp_accuracy} reports mean $\pm$ standard deviation over 600 inputs per state. Separation predictions agree to numerical precision, and penetration differences in sliding and sticking remain at the micrometer scale. SCM captures the dominant object motion trends in most tested cases, supporting its use as a reliable predictive model for CSO under the tested contact conditions.
 
-To make the phrase ``acceptable at most time steps'' testable, for prescribed tolerances $(\varepsilon_\theta,\varepsilon_m)$ we report the fixed-contact acceptance rate
-\begin{equation}
-    \hat r_{\mathrm{acc}}
-    =\frac{1}{|\mathcal{T}_{\mathrm{fixed}}|}
-    \sum_{t\in\mathcal{T}_{\mathrm{fixed}}}
-    \mathbf{1}\!\left(
-        \theta_t\leq\varepsilon_\theta,\;
-        \frac{|\|\hat{\boldsymbol{v}}_t^+\|_{\boldsymbol{M}_o}-\|\boldsymbol{v}_t^+\|_{\boldsymbol{M}_o}|}
-        {\max(\|\boldsymbol{v}_t^+\|_{\boldsymbol{M}_o},\varepsilon)}
-        \leq\varepsilon_m
-    \right),
-\end{equation}
-where $\mathcal{T}_{\mathrm{fixed}}$ excludes contact-transition steps. We evaluate this rate over all objects and randomized loads, and report a confidence interval together with a sensitivity sweep over the tolerances. A majority-step claim is made only from this empirical statistic, never from Lemma~\ref{lem:scm_accuracy} alone.
-
-Table~\ref{tab:scm_eval} summarizes the results over repeated ContactDB objects. Against LCP, the median direction error is around $0.19$\,rad with magnitude and multiplier gaps at the $10^{-3}$--$10^{-2}$ scale; the larger errors are concentrated on a small number of contact-transition steps, as predicted by the scope of Lemma~\ref{lem:scm_accuracy}. The MuJoCo single-step gap is occasionally larger because its forward dynamics resolves the full body contact geometry, but the goal-directed motion trend is preserved. Every direct-apply trajectory satisfies~\eqref{eq:pose_success} within $160$ steps. This combination of a perturbation bound, two independent reference models, step-level transition accounting, and a direct-apply closed-loop test is the evidence used here for trusting SCM as a contact-selection surrogate; it does not establish global trajectory fidelity.
-
-\begin{table}[t]
+% Data: examples/mpc/franka/scm/outputs/soft_scm_lcp_lemke_objects_20261009/
+\begin{table*}[t]
 \centering
-\caption{One-step SCM comparison against the rigid LCP and success of direct-apply rollouts.}
-\label{tab:scm_eval}
-\begin{tabular}{lcccc}
+\caption{Paired differences between SCM and each baseline (mean $\pm$ std; 600 inputs per mode). Separation velocity differences use nano-units to expose roundoff.}
+\label{tab:scm_lcp_accuracy}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{0.95}
+\begin{tabular}{@{}l*{9}{c}@{}}
 \toprule
-\textbf{Metric} & \textbf{Success} & \textbf{dir $\theta$} (rad) & \textbf{mag.\ gap} & \textbf{$\|d\boldsymbol{\lambda}\|_{\boldsymbol{D}}$} \\
+\multirow{2}{*}{Baseline} & \multicolumn{3}{c}{Separation} & \multicolumn{3}{c}{Sliding} & \multicolumn{3}{c}{Sticking} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
+ & $e_d$ ($\mu$m) & $e_v$ (nm/s) & $e_\omega$ (nrad/s) & $e_d$ ($\mu$m) & $e_v$ (mm/s) & $e_\omega$ (rad/s) & $e_d$ ($\mu$m) & $e_v$ (mm/s) & $e_\omega$ (rad/s) \\
 \midrule
-SCM vs.\ LCP (median) & --- & $0.19$ & $0.005$ & $0.05$ \\
-SCM vs.\ LCP (mean) & --- & $0.33$ & $0.029$ & $0.069$ \\
-Direct-apply rollout & $100\%$ & --- & --- & --- \\
+MJWarp & $0.00 \pm 0.00$ & $0.16 \pm 1.63$ & $8.68 \pm 11.12$ & $3.08 \pm 8.29$ & $91.51 \pm 59.98$ & $2.30 \pm 1.47$ & $10.29 \pm 9.83$ & $5.80 \pm 4.77$ & $0.13 \pm 0.13$ \\
+LCP & $0.00 \pm 0.00$ & $0.00 \pm 0.00$ & $0.00 \pm 0.00$ & $2.91 \pm 10.61$ & $187.69 \pm 102.18$ & $2.37 \pm 1.71$ & $22.93 \pm 10.58$ & $15.33 \pm 5.56$ & $0.35 \pm 0.20$ \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
+
 
 \section{Experiment: Nonprehensile Manipulation}
 \label{sec:experiment}
@@ -266,7 +256,7 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 
 The experimental results are shown in Fig. \ref{fig:results_panda}, Fig. \ref{fig:simulation_data}, and Table \ref{tab:all_data}. SCSP achieves a higher success rate than other model-based algorithms and outperforms DyWA on all objects except the torus. Additionally, SCSP achieved the shortest execution time, demonstrating that SCSP can generate correct contact locations through CSO, thereby efficiently minimizing the pose cost of the object. SCSP also achieved the smallest convergence position error and quaternion error. Furthermore, we observed that during experiments, DyWA tends to flip objects by pressing the edges of the top surface, whereas our method makes more comprehensive decisions regarding whether to lift the object by pushing the bottom or by pressing the top. Although many flipping tasks can be accomplished through pressing, for certain objects (such as elongated objects), the pressing approach requires applying substantial torque to the object and demands sufficiently high coefficients of friction. Based on our observations, the global contact selection mechanism in CSO enables SCSP to exhibit greater diversity in its manipulation behaviors compared with other methods, rather than converging to a single strategy. 
 
-In addition, we conducted two ablation studies. CF-MPC and A-MPC can be regarded as ablations of the contact selection strategy. CF-MPC performs contact planning without contact selection, whereas A-MPC replaces the physical reasoning of CSO-based contact planning with a simple prior. Compared with SCSP, both methods show a substantial decrease in success rate, indicating that reasonable contact selection is crucial for  complex 6D nonprehensile manipulation tasks. The w/o RS variant serves as an ablation of the ranking strategy. We observed that, since w/o RS fully follows the high-frequency output of CSO, it frequently interrupts ongoing manipulation and switches contact points, resulting in a significant drop in success rate and an increase in execution time. This suggests that it is necessary to comprehensively evaluate the contact locations produced by CSO and to balance smooth execution against the global optimality of the selected contact location.
+In addition, CF-MPC and A-MPC can be regarded as ablations of the contact selection strategy. CF-MPC performs contact planning without contact selection, whereas A-MPC replaces the physical reasoning of CSO-based contact planning with a simple prior. Compared with SCSP, both methods show a substantial decrease in success rate, indicating that reasonable contact selection is crucial for complex 6D nonprehensile manipulation tasks. The ranking strategy is evaluated separately below.
 
 We further validated the impact of different numbers of sampled candidate points on performance. As shown in Table \ref{tab:cso_sampling}, when the number of sampled points reaches 70, nearly the highest success rate is achieved with relatively low SCSP computation time. As the number of sampled points continues to increase, the success rate plateaus and computational efficiency deteriorates. This indicates that increasing the number of sampled points does not necessarily improve performance. There exists an optimal convergence value. For nonprehensile manipulation tasks, 70 to 100 sampled points are sufficient to characterize the geometric features of object geometries.
 
@@ -287,6 +277,80 @@ We further validated the impact of different numbers of sampled candidate points
 
 
 \subsection{Ablation Studies}
+
+\subsubsection{Functional Analysis of SCSP Components}
+\label{sec:component_ablation}
+CSO selects contact priors and CPO generates approach, relocation, and contact trajectories; their contributions are assessed by task success and execution time. Component diagnostics complement these outcomes: CSO cost maps and cost--rollout-reward associations measure prior quality; SCM's paired one-step prediction errors (Section~\ref{sec:scm_evaluation}) should be separated by contact mode, count, geometry, and task phase; RS uses paired advantages, switching counts, and reference-tracking time fractions. Robustness is characterized by failure categories: perception, contact estimation, slippage, saturation, and poor priors.
+
+Table~\ref{tab:scsp_component_ablation} specifies matched Franka rotation/flipping trials with identical seeds, goals, dynamics, solver, horizons, and rollout budgets. Pose-only CSO replaces the stable-pose-aware $\ell_{\mathrm{cso}}$ with $\ell_{\mathrm{pose}}$; random and nearest select uniformly or by minimum end-effector distance from the same feasible set, retaining candidate evaluation for RS. CPO without object-center attraction sets $w_{\mathrm{o}}=0$, retaining reference tracking and lift/place costs. Common contact-estimation perturbations test its role in establishing physical contact. The direct-trajectory variant solves the same dynamics-constrained problem using reference tracking, object-center attraction, control effort, and the unchanged terminal objective, without phase-dependent lift/place potentials. All variants retain CPO's terminal objective, guidance update schedule, and RS. Success includes all trials; execution time uses successful trials and must be interpreted jointly with success rate. Solving time is the mean wall-clock time per complete CSO--CPO planning update. Entries await experiments; the existing RS results are analyzed below.
+
+\begin{table*}[t]
+\centering
+\caption{SCSP component ablations on Franka. Results await experiments.}
+\label{tab:scsp_component_ablation}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}ll*{6}{c}@{}}
+\toprule
+\multirow{2}{*}{Variant} & \multirow{2}{*}{CSO guidance}
+& \multicolumn{3}{c}{Rotation} & \multicolumn{3}{c}{Flipping} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+& & \shortstack{Success\\rate} & \shortstack{Exec. time\\(s)} & \shortstack{Solving time\\(ms)}
+& \shortstack{Success\\rate} & \shortstack{Exec. time\\(s)} & \shortstack{Solving time\\(ms)} \\
+\midrule
+Full SCSP & Minimize $\ell_{\mathrm{cso}}$ & -- & -- & -- & -- & -- & -- \\
+CSO: pose-only & Minimize $\ell_{\mathrm{pose}}$ & -- & -- & -- & -- & -- & -- \\
+CSO: random & Uniform candidate & -- & -- & -- & -- & -- & -- \\
+CSO: nearest & Nearest candidate & -- & -- & -- & -- & -- & -- \\
+CPO: w/o object-center & Minimize $\ell_{\mathrm{cso}}$ & -- & -- & -- & -- & -- & -- \\
+CPO: direct traj. opt. & Minimize $\ell_{\mathrm{cso}}$ & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
+Table~\ref{tab:ranking_sensitivity} groups each parameter's low/high settings in one row; $T_i$ count control steps. Other parameters, trial seeds, paired-rollout states, and reward settings in~\eqref{eq:ranking_advantage} remain fixed. Reference usage is measured by the mean per-trial CSO step fraction $f_{\mathrm{CSO}}$, with $f_{\mathrm{near}}=1-f_{\mathrm{CSO}}$. Switches, reference usage, and paired advantages jointly assess sensitivity.
+
+\begin{table}[t]
+\centering
+\caption{RS sensitivity around $(\bar\rho,T_1,T_2,T_3)=(0.75,5,10,15)$. Each row groups low/high values of one parameter. $N_{\mathrm{sw}}$ and $\overline A$: mean $\pm$ std; $f_{\mathrm{CSO}}$: percentage. Unfilled entries follow low/high order.}
+\label{tab:ranking_sensitivity}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccc}
+\toprule
+Setting & $N_{\mathrm{sw}}$/trial & $f_{\mathrm{CSO}}$ & $\overline A_{\mathrm{RS}-\mathrm{CSO}}$ & $\overline A_{\mathrm{RS}-\mathrm{near}}$ \\
+\midrule
+Default & -- & -- & -- & -- \\
+$\bar\rho=0.60/0.90$ & -- / -- & -- / -- & -- / -- & -- / -- \\
+$T_1=4/6$ & -- / -- & -- / -- & -- / -- & -- / -- \\
+$T_2=8/12$ & -- / -- & -- / -- & -- / -- & -- / -- \\
+$T_3=12/18$ & -- / -- & -- / -- & -- / -- & -- / -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Contribution of the Ranking Strategy}
+\label{sec:ranking_ablation}
+The ranking strategy (RS) balances maintaining a useful contact against switching to the CSO-generated guidance. We compare SCSP with the w/o RS variant, which strictly follows this guidance. The existing Franka results in Table~\ref{tab:all_data} show that RS improves rotation and flipping success rates by 59 and 63 percentage points, respectively, while reducing the reported execution times by 4.20 and 3.36~s. This is consistent with the observation that directly following changing CSO guidance can interrupt ongoing manipulation.
+
+To assess individual ranking decisions, the counterfactual evaluation protocol restarts three rollouts from each saved RS-triggered state $s_t$: RS, strictly following $\hat{\boldsymbol{p}}_r^*$ (CSO), and always using $\boldsymbol{p}_{\mathrm{near}}$ (near). All branches restore the same simulator and controller state, goal, physical parameters, and random state, and use the same remaining rollout budget and success conditions in~\eqref{eq:pose_success}. We define
+\begin{equation}
+\begin{aligned}
+J^b &= \eta\gamma^{T_s^b}\,\mathbb{I}(\mathrm{success}),
+\quad b\in\{\mathrm{RS},\mathrm{CSO},\mathrm{near}\},\\
+A_{\mathrm{RS}-b} &= \frac{J^{\mathrm{RS}}-J^b}{|J^b|+\epsilon},
+\quad b\in\{\mathrm{CSO},\mathrm{near}\},
+\end{aligned}
+\label{eq:ranking_advantage}
+\end{equation}
+where $T_s^b$ is the number of control steps from $s_t$ to the first successful completion; failures receive zero reward. We use $\gamma=0.9$ per control step ($h=0.02$~s), $\eta=1$, and $\epsilon=10^{-12}$. The discounted terminal reward accounts for both success and completion efficiency without requiring monotonic pose-error reduction. We average advantages computed separately at each paired state and report the fraction with $A_{\mathrm{RS}-b}>0$, including double-failure ties in the denominator. Contact switching frequency is reported as the number of RS-triggered switches per original trial (mean $\pm$ sample standard deviation), including trials with no switches.
+
+% R5 Q1 specifies gamma but not eta or epsilon; the latter match the Python defaults.
+% Do not infer E[gamma^T I(success)] or paired advantages from aggregate success/time.
+The existing episode-level results do not determine the paired advantages or switching frequency. These additional statistics await counterfactual rollout data and are explicitly marked as pending in Table~\ref{tab:ranking_counterfactual}.
+
+% Regenerate with: python -m utils.ranking_metrics outcomes.json --latex tro_revision/ranking_counterfactual_table.tex
+\input{ranking_counterfactual_table}
 
 \subsection{Real-world Experiments}
 
@@ -406,10 +470,3 @@ Average CPO solving time (ms)  & $8.68 \pm 0.31$ \\
  \centerline{\includegraphics[width=\columnwidth]{figures/real_world_2.pdf}}
 \caption{Robustness validation of SCSP on surfaces with different friction. (a) Foam. (b) Cotton clothes.}\label{fig:real_world_disturbance}
 \end{figure}
-
-
-
-
-
-
-

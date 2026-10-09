@@ -9,6 +9,10 @@ import os
 import sys
 import ctypes
 import hashlib
+from models.soft_scm_contact import (
+    SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
+    normalize_contact_model, soft_scm_coefficients, inverse_diagonal_numpy, inverse_diagonal_cs,
+)
 from scipy.sparse.csgraph import dijkstra
 try:
     # The reference fingertip experiment samples mesh vertices.  Keep the
@@ -42,14 +46,15 @@ def _acados_codegen_cache_is_current(json_file, shared_file):
     except (OSError, ValueError, TypeError):
         return False
 
+from models.scm_parameters import (scaled_inverse_cs, scaled_inverse_numpy,
+    friction_jacobian_cs, friction_jacobian_numpy, response_cs, validate_theta)
+
+from planning.object_pose_cost import cost_config, object_cost_cs, object_cost_np, object_cost_torch
+
 class LambdaContactControlOptimizer:
-    # Smooth positive part used by all backends.  The contact projection is
-    # physically unilateral, but a hard max has an undefined derivative at
-    # zero and makes the acados SQP model disagree with its post-processing.
-    _positive_part_eps = 1e-12
 
     def __init__(self, mesh_path, obj_mass=0.01, arm_friction=0.9, 
-                 contact_stiffness=12.5, time_step=0.01, max_contacts=10, sample_num=70,
+                 contact_stiffness=0.2, time_step=0.01, max_contacts=10, sample_num=70,
                  pos_coef=1, ori_coef=0.0005, friction_reg_coef=0.0,
                  force_reg_coef=0.0,
                  max_contact_force=10.0,
@@ -64,12 +69,28 @@ class LambdaContactControlOptimizer:
                  obj_inertia=None,
                  dynamics_scale=None,
                  wrench_is_force=False,
-                 top_k=2):
+                 top_k=2, comfree_damping=0.001,
+                 contact_model='soft-scm',
+                 soft_scm_response_time=SOFT_SCM_RESPONSE_TIME,
+                 soft_scm_damping_ratio=SOFT_SCM_DAMPING_RATIO,
+                 soft_scm_regularization=SOFT_SCM_REGULARIZATION):
         # 系统参数
         self.m = obj_mass
         self.mu_arm_obj = arm_friction
-        self.K_contact = contact_stiffness
+        self.base_mu_arm_obj = float(arm_friction)
+        self.K_contact = float(contact_stiffness)
+        self.comfree_damping = float(comfree_damping)
+        if (not np.isfinite(self.K_contact) or not np.isfinite(self.comfree_damping)
+                or self.K_contact <= 0 or self.comfree_damping < 0):
+            raise ValueError("ComFree stiffness must be positive and damping nonnegative")
         self.h = time_step
+        self.contact_model = normalize_contact_model(contact_model)
+        self.soft_scm_response_time = float(soft_scm_response_time)
+        self.soft_scm_damping_ratio = float(soft_scm_damping_ratio)
+        self.soft_scm_regularization = float(soft_scm_regularization)
+        self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
+            self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio,
+            self.soft_scm_regularization)
         # Rollout receives a physical force from the fingertip PD loop.  The
         # legacy ideal-contact path historically supplied an impulse-like
         # lambda; retain that convention there for backwards compatibility.
@@ -94,6 +115,7 @@ class LambdaContactControlOptimizer:
         self.sample_geodesic = self._precompute_sample_geodesic()
 
         self.J_tilde = np.zeros([4 * self.max_contacts, 6])
+        self.env_phi = np.zeros(4 * self.max_contacts)
 
         # 构建系统刚度矩阵Q
         self.obj_inertia = np.eye(6)
@@ -127,6 +149,8 @@ class LambdaContactControlOptimizer:
         self.dynamics_condition_number = float(np.linalg.cond(mass_scaled))
         self.Q_inv = self.dynamics_scale @ np.linalg.inv(mass_scaled) @ self.dynamics_scale.T
 
+        self.base_Q_inv = self.Q_inv.copy()
+        self.scm_theta = np.zeros(6)
         self.pos_coef = pos_coef
         self.ori_coef = ori_coef
         # Penalize tangential (friction) force.  In the contact frame
@@ -290,7 +314,27 @@ class LambdaContactControlOptimizer:
                 print(f'acados contact solver unavailable; using IPOPT fallback: {exc}')
                 self.solver = 'ipopt'
 
-    def update_Jacobian(self, J_tilde=None):
+    def object_cost_config(self):
+        config = getattr(self, '_object_cost_config', None)
+        return cost_config(self.pos_coef, self.ori_coef) if config is None else config
+
+    def set_object_cost_config(self, config):
+        c = np.asarray(config, dtype=float).reshape(9)
+        self._object_cost_config = cost_config(*c[:3], body_axis=c[3:6], reference_up=c[6:9])
+
+    def set_scm_parameters(self, theta):
+        if self.contact_model != 'soft-scm':
+            raise ValueError('Online calibration requires soft-SCM')
+        self.scm_theta = validate_theta(theta)
+        if hasattr(self, "base_mu_arm_obj"):
+            self.mu_arm_obj = self.base_mu_arm_obj*np.exp(self.scm_theta[5])
+            self.max_normal_force = self.max_contact_force/np.sqrt(1+2*self.mu_arm_obj**2)
+        self.Q_inv = scaled_inverse_numpy(self.base_Q_inv, self.scm_theta)
+        self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
+            self.h, self.soft_scm_response_time*np.exp(self.scm_theta[4]),
+            self.soft_scm_damping_ratio, self.soft_scm_regularization)
+
+    def update_Jacobian(self, J_tilde=None, phi=None):
         required_rows = 4 * self.max_contacts
         """更新环境接触雅可比矩阵"""
         if J_tilde is None:
@@ -301,6 +345,14 @@ class LambdaContactControlOptimizer:
         valid_rows = min(J_tilde.shape[0], required_rows)
         padded_J_tilde[:valid_rows, :] = J_tilde[:valid_rows, :]
         self.J_tilde = padded_J_tilde
+        self.env_phi[:] = 0.0
+        if phi is not None:
+            gaps = np.asarray(phi, dtype=float).reshape(-1)
+            if gaps.size == (valid_rows + 3)//4:
+                gaps = np.repeat(gaps, 4)
+            if gaps.size < valid_rows or not np.isfinite(gaps).all():
+                raise ValueError("phi must contain one gap per contact or per constraint row")
+            self.env_phi[:valid_rows] = gaps[:valid_rows]
         return self.J_tilde
 
     def set_contact_switch_confidence(self, confidence):
@@ -795,20 +847,102 @@ class LambdaContactControlOptimizer:
             x_d, current_x, tau_o, p_arm=p_obj, v_last=v_last, sample_idx=idx)
 
     def compute_env_diag_inverse(self, J_tilde):
-        """
-        Return the reference environment stiffness matrix in block form.
+        """Frozen row weights in the historical stacked 4x4-block API.
 
-        The historical name is kept because the acados/Torch adapters use it
-        as their parameter hook; each 4-row contact block is K * I.
+        soft-SCM uses inverse diagonal Delassus; ComFree uses its prior row
+        masses. Zero Jacobian padding exerts no reaction in either model.
         """
-        J_tilde = np.asarray(J_tilde)
-        # The reference uses K = contact_stiffness * h times one identity
-        # over all environment-contact rows.  Keep the block-shaped return
-        # value required by the acados/Torch adapters, but encode that exact
-        # matrix so their dynamics are numerically identical.
-        del J_tilde
-        block = (self.K_contact * self.h) * np.eye(4)
-        return np.tile(block, (self.max_contacts, 1))
+        if getattr(self, 'contact_model', 'comfree') == 'soft-scm':
+            j = friction_jacobian_numpy(J_tilde, self.scm_theta) if hasattr(self, "scm_theta") else J_tilde
+            masses = inverse_diagonal_numpy(
+                j, self.Q_inv, self.soft_scm_regularization)
+        else:
+            from models.comfree_contact import reduced_row_masses
+            masses = reduced_row_masses(J_tilde, self.Q_inv, self.env_phi)
+        return np.vstack([np.diag(masses[4*i:4*i+4]) for i in range(self.max_contacts)])
+
+    def _contact_velocity_cs(self, smooth, jacobian, weights, phi, inverse=None, theta=None):
+        if self.contact_model == 'comfree':
+            return self._comfree_velocity_cs(smooth, jacobian, weights, phi)
+        inverse = cs.DM(self.Q_inv) if inverse is None else inverse
+        a, b = self.soft_scm_a, self.soft_scm_b
+        if theta is not None:
+            jacobian = friction_jacobian_cs(jacobian, theta)
+            a, b = response_cs(self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio, theta)
+            d = inverse_diagonal_cs(jacobian, inverse, self.soft_scm_regularization)
+            weights = cs.vertcat(*[cs.diag(d[4*i:4*i+4]) for i in range(self.max_contacts)])
+        velocity = smooth
+        for i in range(self.max_contacts):
+            sl = slice(4*i, 4*(i+1))
+            J = jacobian[sl, :]
+            residual = a * (J @ smooth) + b * phi[sl] / self.h
+            impulse = cs.fmax(-(weights[sl, :] @ residual), 0)
+            velocity = velocity + inverse @ J.T @ impulse
+        return velocity
+
+    def _contact_velocity_numpy(self, smooth, jacobian, weights, phi):
+        if self.contact_model == 'comfree':
+            return self._comfree_velocity_numpy(smooth, jacobian, weights, phi)
+        if hasattr(self, "scm_theta"):
+            jacobian = friction_jacobian_numpy(jacobian, self.scm_theta)
+        velocity = np.array(smooth, copy=True)
+        for i in range(self.max_contacts):
+            sl = slice(4*i, 4*(i+1))
+            J = jacobian[sl]
+            residual = self.soft_scm_a * (J @ smooth) + self.soft_scm_b * phi[sl] / self.h
+            impulse = np.maximum(-(weights[sl] @ residual), 0)
+            velocity += self.Q_inv @ J.T @ impulse
+        return velocity
+
+    def _contact_velocity_torch(self, smooth, jacobian, weights, phi, inverse):
+        if self.contact_model == 'comfree':
+            return self._comfree_velocity_torch(smooth, jacobian, weights, phi, inverse)
+        if hasattr(self, "scm_theta"):
+            blocks = jacobian.reshape(-1, 4, jacobian.shape[1])
+            normal = blocks.mean(dim=1, keepdim=True)
+            jacobian = (normal + float(np.exp(self.scm_theta[5]))*(blocks-normal)).reshape(jacobian.shape)
+        velocity = smooth
+        for i in range(self.max_contacts):
+            sl = slice(4*i, 4*(i+1))
+            J = jacobian[sl]
+            residual = self.soft_scm_a * (smooth @ J.T) + self.soft_scm_b * phi[sl] / self.h
+            impulse = torch.clamp(-(residual @ weights[sl].T), min=0)
+            velocity = velocity + impulse @ (J @ inverse.T)
+        return velocity
+
+    def _comfree_velocity_cs(self, smooth, jacobian, masses, phi):
+        velocity = smooth
+        for i in range(self.max_contacts):
+            sl = slice(4*i, 4*(i+1))
+            J = jacobian[sl, :]
+            speed = J @ smooth
+            acceleration = -(self.comfree_damping/self.h)*speed
+            acceleration -= (self.K_contact/self.h)*(self.h*speed + phi[sl])
+            force = cs.fmax(masses[sl, :] @ acceleration, 0)
+            velocity = velocity + self.h*cs.DM(self.Q_inv) @ J.T @ force
+        return velocity
+
+    def _comfree_velocity_numpy(self, smooth, jacobian, masses, phi):
+        velocity = np.array(smooth, copy=True)
+        for i in range(self.max_contacts):
+            sl = slice(4*i, 4*(i+1)); J = jacobian[sl]
+            speed = J @ smooth
+            acceleration = -(self.comfree_damping/self.h)*speed
+            acceleration -= (self.K_contact/self.h)*(self.h*speed + phi[sl])
+            force = np.maximum(masses[sl] @ acceleration, 0)
+            velocity += self.h*self.Q_inv @ J.T @ force
+        return velocity
+
+    def _comfree_velocity_torch(self, smooth, jacobian, masses, phi, inverse):
+        velocity = smooth
+        for i in range(self.max_contacts):
+            sl = slice(4*i, 4*(i+1)); J = jacobian[sl]
+            speed = smooth @ J.T
+            acceleration = -(self.comfree_damping/self.h)*speed
+            acceleration = acceleration - (self.K_contact/self.h)*(self.h*speed + phi[sl])
+            force = torch.clamp(acceleration @ masses[sl].T, min=0)
+            velocity = velocity + self.h*(force @ (J @ inverse.T))
+        return velocity
 
     def _precompile_optimization_function(self):
         """预编译优化函数 - 同时优化接触力和接触点位置"""
@@ -820,12 +954,16 @@ class LambdaContactControlOptimizer:
         v_last = opti.parameter(6)
         J_tilde = opti.parameter(4 * self.max_contacts, 6)
         D_inv = opti.parameter(4 * self.max_contacts, 4)
+        env_phi = opti.parameter(4 * self.max_contacts)
+        scm_theta = opti.parameter(6)
+        qi = scaled_inverse_cs(self.base_Q_inv, scm_theta) if self.contact_model == "soft-scm" else cs.DM(self.Q_inv)
         tau_o_np = opti.parameter(6)
         p_arm = opti.parameter(3)    # 接触点位置
         n_arm = opti.parameter(3)
         t1 = opti.parameter(3)
         t2 = opti.parameter(3)
         curr_ori_coef = opti.parameter(1)
+        object_config = opti.parameter(9)
         R_contact = cs.horzcat(n_arm, t1, t2)
 
         regularization_weight = opti.parameter()
@@ -850,43 +988,25 @@ class LambdaContactControlOptimizer:
         wrench_scale = self.h if self.wrench_is_force else 1.0
         b = self.h * tau_o_np + wrench_scale * cs.transpose(J_arm_world) @ (R_contact @ lam_arm)
         
-        # Environment response, matching the reference K J Q^{-1} b model.
-        Q_inv_mx = cs.MX(self.Q_inv)
-        Q_inv_b = Q_inv_mx @ b
-        # Q^{-1} b is the generalized velocity increment (the dual contact
-        # solve is formulated in impulse/velocity-increment coordinates).
-        # Integrate it over this optimizer period exactly once below.
-        v_plus = Q_inv_b
-
-        for i in range(self.max_contacts):
-            row_start = 4 * i
-            row_end = row_start + 4
-            J_tilde_i = J_tilde[row_start:row_end, :]
-            D_inv_i = D_inv[row_start:row_end, :]
-            J_tilde_i_Q_inv_b = J_tilde_i @ Q_inv_b
-            contact_force_i = -D_inv_i @ J_tilde_i_Q_inv_b
-            contact_force_i = 0.5 * (contact_force_i + cs.sqrt(
-                contact_force_i * contact_force_i + self._positive_part_eps))
-            v_plus += Q_inv_mx @ J_tilde_i.T @ contact_force_i
-
-        v_now = v_last + v_plus
+        if self.contact_model == "soft-scm":
+            v_now = self._contact_velocity_cs(v_last + qi @ b, J_tilde, D_inv, env_phi, qi, scm_theta)
+        else:
+            v_now = self._contact_velocity_cs(v_last + qi @ b, J_tilde, D_inv, env_phi)
 
         # 计算预测位姿x+
         x_plus = self.cs_qposInteg_(current_x, v_now)
         
         # 目标函数
-        position_error = x_plus[:3] - x_d[:3]
-        orientation_error = 1 - cs.dot(x_plus[3:7], x_d[3:7]) ** 2
         friction_cost = cs.sumsqr(lam_arm[1:3])
         force_cost = cs.sumsqr(lam_arm)
-        objective = (self.pos_coef * cs.sumsqr(position_error) +
-                     self.ori_coef * orientation_error +
+        objective = (object_cost_cs(x_plus, x_d, object_config) +
                      self.friction_reg_coef * friction_cost +
                      self.force_reg_coef * force_cost)
         opti.minimize(objective)
         
         # 摩擦锥约束
-        mu = self.mu_arm_obj
+        mu = self.base_mu_arm_obj*cs.exp(scm_theta[5]) if self.contact_model == "soft-scm" else self.mu_arm_obj
+        cap = self.max_contact_force/cs.sqrt(1+2*mu**2)
         opti.subject_to(lam_arm[1] <= mu * lam_arm[0])
         opti.subject_to(lam_arm[1] >= -mu * lam_arm[0])
         opti.subject_to(lam_arm[2] <= mu * lam_arm[0])
@@ -896,7 +1016,7 @@ class LambdaContactControlOptimizer:
         # and overshoot in the near-target regime.
         opti.subject_to(lam_arm[0] >= 1e-6)
         opti.subject_to(cs.sumsqr(lam_arm) <= self.max_contact_force ** 2)
-        opti.subject_to(lam_arm[0] <= self.max_normal_force)
+        opti.subject_to(lam_arm[0] <= cap)
 
         
         # IPOPT is the compiled fallback for the acados contact NLP.
@@ -912,9 +1032,9 @@ class LambdaContactControlOptimizer:
         # 构建优化函数
         self.optimization_fn = opti.to_function(
             'optimization_fn_joint',
-            [x_d, current_x, v_last, J_tilde, D_inv, tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef],
+            [x_d, current_x, v_last, J_tilde, D_inv, tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef, env_phi, scm_theta, object_config],
             [lam_arm, x_plus, objective],
-            ['x_d', 'current_x', 'v_last', 'J_tilde', 'D_inv', 'tau_o_np', 'n_arm', 't1', 't2', 'p_arm', 'curr_ori_coef'],
+            ['x_d', 'current_x', 'v_last', 'J_tilde', 'D_inv', 'tau_o_np', 'n_arm', 't1', 't2', 'p_arm', 'curr_ori_coef', 'env_phi', 'scm_theta', 'object_config'],
             ['lam_arm_opt', 'x_plus_opt', 'cost']
         )
 
@@ -1177,6 +1297,9 @@ class LambdaContactControlOptimizer:
         return geo
 
     def _solve_optimization(self, **kwargs):
+        kwargs.setdefault('object_config', self.object_cost_config())
+        kwargs.setdefault('env_phi', self.env_phi)
+        kwargs.setdefault('scm_theta', getattr(self, 'scm_theta', np.zeros(6)))
         if self.acados_solver is not None and self.solver not in ('ipopt', 'torch-lbfgs', 'torch-gn'):
             self.acados_solve_count += 1
             try:
@@ -1232,30 +1355,33 @@ class LambdaContactControlOptimizer:
         cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
         cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
         cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
-        prm = cs.vertcat(cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp)
+        cs_phi = cs.SX.sym('phi', 4*self.max_contacts)
+        scm_theta = cs.SX.sym('scm_theta', 6)
+        object_config = cs.SX.sym('object_config', 9)
+        prm = cs.vertcat(cs_phi, cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp, scm_theta, object_config)
         x = cs.SX.sym('x', 7); u = cs.SX.sym('u', 3)
         Jc = cs.SX.zeros(3, 6); Jc[:3, :3] = cs.SX.eye(3); Jc[0,4],Jc[0,5]=cs_cp[2],-cs_cp[1]; Jc[1,3],Jc[1,5]=-cs_cp[2],cs_cp[0]; Jc[2,3],Jc[2,4]=cs_cp[1],-cs_cp[0]
         wrench_scale = self.h if self.wrench_is_force else 1.0
-        Rct = cs.horzcat(cs_n, cs_t1, cs_t2); b = self.h*cs_tau + wrench_scale*cs.transpose(Jc) @ (Rct @ u); qinv = cs.DM(self.Q_inv); qib=qinv@b; vp=qib
-        for i in range(self.max_contacts):
-            sl=slice(4*i,4*(i+1)); Ji=cs_j[sl,:]; Di=cs_d[sl,:]; fi=cs.fmax(-Di@(Ji@qib),0); vp += qinv@cs.transpose(Ji)@fi
-        vn=cs_v+vp; quat=x[3:7]; H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
+        Rct = cs.horzcat(cs_n, cs_t1, cs_t2); b = self.h*cs_tau + wrench_scale*cs.transpose(Jc) @ (Rct @ u); qinv = scaled_inverse_cs(self.base_Q_inv, scm_theta) if self.contact_model == "soft-scm" else cs.DM(self.Q_inv); qib=qinv@b
+        vn = (self._contact_velocity_cs(cs_v+qib, cs_j, cs_d, cs_phi, qinv, scm_theta)
+              if self.contact_model == "soft-scm" else self._contact_velocity_cs(cs_v+qib, cs_j, cs_d, cs_phi))
+        quat=x[3:7]; H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
         qn=cs.vertcat(x[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
         # Terminal cost is on the terminal state ``x`` (qn after the
         # discrete transition).  Putting qn itself here is rejected because
         # a terminal cost may not depend on ``u``.
-        terminal_pos_cost = self.pos_coef * cs.sumsqr(x[:3] - cs_p[:3])
-        terminal_ori_cost = self.ori_coef * (1-cs.dot(x[3:7],cs_p[3:7])**2)
-        mass_key = hashlib.sha1(np.asarray(self.Q_inv, dtype='<f8').tobytes()).hexdigest()[:10]
+        mass_key = hashlib.sha1(np.r_[np.asarray(self.Q_inv).reshape(-1), self.h, self.K_contact, self.comfree_damping, self.soft_scm_response_time, self.soft_scm_damping_ratio, self.soft_scm_regularization, float(self.wrench_is_force), self.pos_coef, self.ori_coef, self.friction_reg_coef, self.force_reg_coef].astype('<f8').tobytes()).hexdigest()[:10]
         mu_key = int(round(float(self.mu_arm_obj) * 1000.0))
-        model=AcadosModel(); model.name=f'contact_lambda_acados_v10_dv_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
-        model.cost_expr_ext_cost = self.friction_reg_coef * cs.sumsqr(u[1:3])
-        model.cost_expr_ext_cost_e = terminal_pos_cost + terminal_ori_cost
+        contact_tag = self.contact_model.replace('-', '_')
+        model=AcadosModel(); model.name=f'contact_lambda_{contact_tag}_v16_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
+        model.cost_expr_ext_cost = self.friction_reg_coef * cs.sumsqr(u[1:3]) + self.force_reg_coef * cs.sumsqr(u)
+        model.cost_expr_ext_cost_e = object_cost_cs(x, cs_p, object_config)
         ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.cost.cost_type='EXTERNAL'; ocp.cost.cost_type_e='EXTERNAL';
-        mu = float(self.mu_arm_obj)
-        model.con_h_expr = cs.vertcat(u[0], u[1]-mu*u[0], -u[1]-mu*u[0], u[2]-mu*u[0], -u[2]-mu*u[0], cs.sumsqr(u))
+        mu = self.base_mu_arm_obj*cs.exp(scm_theta[5]) if self.contact_model == 'soft-scm' else float(self.mu_arm_obj)
+        cap = self.max_contact_force/cs.sqrt(1+2*mu**2)
+        model.con_h_expr = cs.vertcat(u[0]/cap, u[1]-mu*u[0], -u[1]-mu*u[0], u[2]-mu*u[0], -u[2]-mu*u[0], cs.sumsqr(u))
         ocp.constraints.lh = np.array([0.0, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, -ACADOS_INFTY, 0.0])
-        ocp.constraints.uh = np.array([self.max_normal_force, 0., 0., 0., 0., self.max_contact_force ** 2])
+        ocp.constraints.uh = np.array([1., 0., 0., 0., 0., self.max_contact_force ** 2])
         ocp.constraints.idxbx_0=np.arange(7); ocp.constraints.lbx_0=np.zeros(7); ocp.constraints.ubx_0=np.zeros(7)
         ocp.solver_options.N_horizon=1; ocp.solver_options.tf=float(self.h); ocp.solver_options.qp_solver='PARTIAL_CONDENSING_HPIPM'; ocp.solver_options.hessian_approx='EXACT'; ocp.solver_options.integrator_type='DISCRETE'; ocp.solver_options.nlp_solver_type='SQP_RTI'; ocp.solver_options.regularize_method='PROJECT'; ocp.solver_options.print_level=0
         d='/tmp/'+model.name+'_codegen'; os.makedirs(d,exist_ok=True); _set_acados_code_export_directory(ocp, d); jf=os.path.join(d,model.name+'.json'); so=os.path.join(d,'libacados_ocp_solver_'+model.name+'.so')
@@ -1265,7 +1391,7 @@ class LambdaContactControlOptimizer:
 
     def _solve_optimization_acados(self, **kwargs):
         solver=self.acados_solver; xcur=np.asarray(kwargs['current_x'],float).reshape(7)
-        p=np.concatenate([np.asarray(kwargs['x_d']).reshape(-1),
+        p=np.concatenate([np.asarray(kwargs['env_phi']).reshape(-1), np.asarray(kwargs['x_d']).reshape(-1),
                           np.asarray(kwargs['v_last']).reshape(-1),
                           np.asarray(kwargs['J_tilde']).reshape(-1,order='F'),
                           np.asarray(kwargs['D_inv']).reshape(-1,order='F'),
@@ -1273,7 +1399,8 @@ class LambdaContactControlOptimizer:
                           np.asarray(kwargs['n_arm']).reshape(-1),
                           np.asarray(kwargs['t1']).reshape(-1),
                           np.asarray(kwargs['t2']).reshape(-1),
-                          np.asarray(kwargs['p_arm']).reshape(-1)])
+                          np.asarray(kwargs['p_arm']).reshape(-1), np.asarray(kwargs.get('scm_theta', self.scm_theta)).reshape(-1),
+                          np.asarray(kwargs.get('object_config', self.object_cost_config())).reshape(9)])
         solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur)
         solver.set(0,'u',np.array([.01,0,0])); solver.set(0,'p',p)
         solver.set(1,'x',xcur); solver.set(1,'p',p)
@@ -1297,23 +1424,20 @@ class LambdaContactControlOptimizer:
         Rcontact=np.column_stack((kwargs['n_arm'], kwargs['t1'], kwargs['t2']))
         wrench_scale = self.h if self.wrench_is_force else 1.0
         b=self.h*np.asarray(kwargs['tau_o_np']).reshape(6)+wrench_scale*Jc.T@(Rcontact@lam)
-        qib=self.Q_inv@b; vplus=qib
+        qib=self.Q_inv@b
         Jenv=np.asarray(kwargs['J_tilde']); D=np.asarray(kwargs['D_inv'])
-        for i in range(self.max_contacts):
-            sl=slice(4*i,4*(i+1)); fi=np.maximum(-(D[sl]@(Jenv[sl]@qib)),0.0)
-            vplus += self.Q_inv@Jenv[sl].T@fi
-        vnow=np.asarray(kwargs['v_last']).reshape(6)+vplus
+        vnow = self._contact_velocity_numpy(np.asarray(kwargs['v_last']).reshape(6)+qib,
+                                              Jenv, D, np.asarray(kwargs['env_phi']))
         qnext=np.asarray(self.cs_qposInteg_(xcur,vnow)).reshape(7)
         if (not np.isfinite(lam).all() or lam[0] < -1e-5
                 or lam[0] > self.max_normal_force + 1e-3
                 or np.linalg.norm(lam) > self.max_contact_force + 1e-3):
             raise RuntimeError(f'invalid contact wrench returned: {lam}')
-        pos_err=qnext[:3]-np.asarray(kwargs['x_d'])[:3]
-        cost=float(self.pos_coef*np.dot(pos_err,pos_err)+self.ori_coef*(1-np.dot(qnext[3:7],np.asarray(kwargs['x_d'])[3:7])**2)+self.friction_reg_coef*np.dot(lam[1:3],lam[1:3])+self.force_reg_coef*np.dot(lam,lam))
+        cost=float(object_cost_np(qnext, kwargs['x_d'], kwargs.get('object_config', self.object_cost_config()))+self.friction_reg_coef*np.dot(lam[1:3],lam[1:3])+self.force_reg_coef*np.dot(lam,lam))
         return {'lam_arm_opt':lam,'x_plus_opt':qnext,'cost':cost}
 
     def _solve_optimization_torch(self, x_d, current_x, v_last, J_tilde, D_inv,
-                                  tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef):
+                                  tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef, env_phi=None, scm_theta=None, object_config=None):
         """Solve the single-contact problem with differentiable Torch L-BFGS.
 
         This mirrors ``_precompile_optimization_function``: the optimized
@@ -1330,6 +1454,7 @@ class LambdaContactControlOptimizer:
         t = lambda x: torch.as_tensor(np.asarray(x), device=dev, dtype=dt)
         xd, xc, vl = t(x_d).reshape(-1), t(current_x).reshape(-1), t(v_last).reshape(-1)
         Jenv, D = t(J_tilde), t(D_inv)
+        phi = t(self.env_phi if env_phi is None else env_phi)
         tau, n, tt1, tt2, p = map(t, (tau_o_np, n_arm, t1, t2, p_arm))
         qinv = t(self.Q_inv)
 
@@ -1357,14 +1482,7 @@ class LambdaContactControlOptimizer:
             wrench_scale = self.h if self.wrench_is_force else 1.0
             b = self.h * tau + wrench_scale * (Jc.T @ (Rcontact @ lam))
             qinv_b = qinv @ b
-            vplus = qinv_b
-            for i in range(self.max_contacts):
-                sl = slice(4 * i, 4 * (i + 1))
-                gap_impulse = -(D[sl] @ (Jenv[sl] @ qinv_b))
-                fi = 0.5 * (gap_impulse + torch.sqrt(
-                    gap_impulse * gap_impulse + self._positive_part_eps))
-                vplus = vplus + qinv @ Jenv[sl].T @ fi
-            vnow = vl + vplus
+            vnow = self._contact_velocity_torch(vl+qinv_b, Jenv, D, phi, qinv)
             quat = xc[3:7]
             Ht = torch.stack((
                 torch.stack((-quat[1], quat[0], quat[3], -quat[2])),
@@ -1374,12 +1492,9 @@ class LambdaContactControlOptimizer:
             qnext = torch.cat((xc[:3] + self.h * vnow[:3],
                                quat + 0.5 * self.h * (Ht @ vnow[3:6])))
             qnext = torch.cat((qnext[:3], qnext[3:7] / torch.linalg.vector_norm(qnext[3:7]).clamp_min(1e-8)))
-            pos_err = qnext[:3] - xd[:3]
-            ori_err = 1.0 - torch.dot(qnext[3:7], xd[3:7]) ** 2
             friction_cost = torch.sum(lam[1:] * lam[1:])
             force_cost = torch.sum(lam * lam)
-            cost = (self.pos_coef * torch.sum(pos_err * pos_err) +
-                    self.ori_coef * ori_err + self.friction_reg_coef * friction_cost +
+            cost = (object_cost_torch(qnext[:3], qnext[3:7], xd, self.object_cost_config() if object_config is None else object_config) + self.friction_reg_coef * friction_cost +
                     self.force_reg_coef * force_cost)
             return cost, lam, qnext
 
@@ -1415,6 +1530,7 @@ class LambdaContactControlOptimizer:
         t = lambda x: torch.as_tensor(np.asarray(x), device=dev, dtype=dt)
         xd, xc, vl = t(x_d).reshape(-1), t(current_x).reshape(-1), t(v_last).reshape(-1)
         Jenv, D = t(self.J_tilde), t(D_inv)
+        phi = t(self.env_phi)
         ids = np.asarray(visible_face_idx, dtype=np.int32).reshape(-1)
         n = t(self.normal[ids]); tt1 = t(self.t1[ids]); tt2 = t(self.t2[ids]); p = t(self.sample_point[ids])
         tau, qinv = t(tau_o).reshape(-1), t(self.Q_inv)
@@ -1442,15 +1558,7 @@ class LambdaContactControlOptimizer:
             wrench_scale = self.h if self.wrench_is_force else 1.0
             b = self.h * tau[None, :] + wrench_scale * torch.bmm(Jc.transpose(1, 2), wrench[:, :, None]).squeeze(-1)
             qinv_b = torch.matmul(b, qinv.T)
-            vplus = qinv_b
-            for i in range(self.max_contacts):
-                sl = slice(4 * i, 4 * (i + 1))
-                env_proj = torch.matmul(qinv_b, Jenv[sl].T)
-                gap_impulse = -torch.matmul(env_proj, D[sl].T)
-                fi = 0.5 * (gap_impulse + torch.sqrt(
-                    gap_impulse * gap_impulse + self._positive_part_eps))
-                vplus = vplus + torch.matmul(fi, Jenv[sl] @ qinv.T)
-            vnow = vplus + vl[None, :]
+            vnow = self._contact_velocity_torch(qinv_b+vl[None, :], Jenv, D, phi, qinv)
             quat = xc[3:7]
             Ht = torch.stack((
                 torch.stack((-quat[1], quat[0], quat[3], -quat[2])),
@@ -1460,12 +1568,9 @@ class LambdaContactControlOptimizer:
             qpos = xc[:3][None, :] + self.h * vnow[:, :3]
             qrot = quat[None, :] + 0.5 * self.h * torch.matmul(vnow[:, 3:6], Ht.T)
             qrot = qrot / torch.linalg.vector_norm(qrot, dim=1, keepdim=True).clamp_min(1e-8)
-            pos_err = qpos - xd[:3][None, :]
-            ori_err = 1.0 - torch.sum(qrot * xd[3:7][None, :], dim=1) ** 2
             friction_cost = torch.sum(lam[:, 1:] * lam[:, 1:], dim=1)
             force_cost = torch.sum(lam * lam, dim=1)
-            costs = (self.pos_coef * torch.sum(pos_err * pos_err, dim=1) +
-                     self.ori_coef * ori_err + self.friction_reg_coef * friction_cost +
+            costs = (object_cost_torch(qpos, qrot, xd, self.object_cost_config()) + self.friction_reg_coef * friction_cost +
                      self.force_reg_coef * force_cost)
             return costs, lam, torch.cat((qpos, qrot), dim=1)
 
@@ -1747,21 +1852,12 @@ class LambdaContactControlOptimizer:
         return out
 
     def _pose_cost(self, x, x_d):
-        """Lambda pose term: ``pos_coef||Δp||² + ori_coef·ori``."""
+        """Active object objective used for candidate reductions and ranking."""
         x = np.asarray(x, dtype=np.float64).reshape(-1)
         xd = np.asarray(x_d, dtype=np.float64).reshape(-1)
         if x.size < 7 or xd.size < 7 or not np.isfinite(x[:7]).all():
             return float('inf')
-        dpos = x[:3] - xd[:3]
-        qn = float(np.linalg.norm(x[3:7]))
-        qdn = float(np.linalg.norm(xd[3:7]))
-        if qn <= 1e-12 or qdn <= 1e-12:
-            return float('inf')
-        q = x[3:7] / qn
-        qd = xd[3:7] / qdn
-        ori = 1.0 - float(np.clip(np.dot(q, qd), -1.0, 1.0)) ** 2
-        return (float(self.pos_coef) * float(np.dot(dpos, dpos))
-                + float(self.ori_coef) * ori)
+        return object_cost_np(x, xd, self.object_cost_config())
 
     def _pose_cost_deltas(self, current_x, x_plus_buffer, x_d, raw_costs):
         """Cost reduction of applying each ``x_plus_opt`` to the current pose."""

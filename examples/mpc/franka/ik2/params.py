@@ -6,6 +6,10 @@ import trimesh
 from utils import rotations
 from planning.attract_function import compute_scalar_potential_and_gradient
 from planning.mlqp_point import LambdaContactControlOptimizer
+from models.soft_scm_contact import (
+    SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
+    normalize_contact_model, soft_scm_coefficients,
+)
 from examples.mpc.fingertips.test.params import canonical_object_meshes
 from planning.runtime_compat import resolve_solver_backend
 
@@ -161,6 +165,10 @@ def build_lambda_optimizer(param, args):
         torch_max_iter=getattr(args, "torch_max_iter", 100),
         obj_inertia=None,
         wrench_is_force=False,
+        contact_model=getattr(param, 'contact_model', 'soft-scm'),
+        soft_scm_response_time=getattr(param, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME),
+        soft_scm_damping_ratio=getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO),
+        soft_scm_regularization=getattr(param, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION),
         collision_hull=(bool(getattr(param, "collision_hull", True)) and not extracted),
     )
 
@@ -177,6 +185,9 @@ class ExplicitMPCParams:
         self.reject_dis = args.reject_dis
         self.pos_coef = float(getattr(args, "pos_coef", 500.0))
         self.ori_coef = float(getattr(args, "ori_coef", 20.0))
+        self.runtime_object_cost_ = bool(getattr(args, 'two_stage_object_cost', False))
+        if self.runtime_object_cost_ and (not np.isfinite(self.ori_coef) or self.ori_coef <= 0):
+            raise ValueError('two-stage object cost requires ori_coef > 0')
         self.smooth_contact_detour = bool(getattr(args, "ideal_contact_pose", False))
         self.detour_attract_coef = float(getattr(args, "detour_attract_coef", 80.0))
         self.detour_repel_coef = float(getattr(args, "detour_repel_coef", 40.0))
@@ -281,6 +292,11 @@ class ExplicitMPCParams:
         else:
             raise ValueError(f"Target type {target_type} not supported")
 
+        from planning.object_pose_cost import target_up_axis
+        self.object_up_axis_ = target_up_axis(self.target_q_)
+        self.flip_enter_angle_deg_ = float(getattr(args, 'flip_enter_angle_deg', 10.))
+        self.flip_stable_time_ = float(getattr(args, 'flip_stable_time', .3))
+
         init_tilt_q = _tilted_init_quaternion(args, yaw_angle)
         init_obj_quat_rand = _actor_quat_from_body(
             init_tilt_q, self.standing_q_, extracted
@@ -336,6 +352,17 @@ class ExplicitMPCParams:
         )
         self.gravity_ = np.array([0.00, 0.00, -9.8, 0.0, 0.0, 0.0])
         self.model_params = args.model_param
+        # This planner commands Cartesian displacements and Q_robot=K_robot,
+        # exactly as main. Using h*M^-1*f here shrinks dq by h^2 (=1/2500
+        # at h=.02) and makes the approaching arm crawl.
+        self.contact_dynamics = 'quasi-dynamic'
+        self.contact_model = normalize_contact_model(getattr(args, 'contact_model', 'soft-scm'))
+        self.online_scm_ = bool(getattr(args, 'online_scm', False) or getattr(args, 'scm_parameters', '') or getattr(args, 'scm_record_data', False)) and self.contact_model == 'soft-scm'
+        self.soft_scm_response_time = float(getattr(args, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME))
+        self.soft_scm_damping_ratio = float(getattr(args, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO))
+        self.soft_scm_regularization = float(getattr(args, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION))
+        soft_scm_coefficients(self.h_, self.soft_scm_response_time,
+                              self.soft_scm_damping_ratio, self.soft_scm_regularization)
 
         self.mpc_model = mpc_model
         requested_solver = getattr(
@@ -386,6 +413,10 @@ class ExplicitMPCParams:
         cost_param = cs.vvcat(
             [target_position, target_quaternion, phi_vec, jac_mat, verify_cost_param, virtual_point, contact_point]
         )
+        object_config = None
+        if getattr(self, 'runtime_object_cost_', False):
+            object_config = cs.SX.sym('object_config', 9)
+            cost_param = cs.vertcat(cost_param, object_config)
         if getattr(self, "smooth_contact_detour", False):
             base_cost = self._smooth_contact_detour_cost(x, virtual_point, contact_point)
             final_cost = (
@@ -440,6 +471,11 @@ class ExplicitMPCParams:
             )
             control_weight = 50.0
 
+        if object_config is not None:
+            from planning.object_pose_cost import object_cost_cs
+            final_cost = object_cost_cs(x[:7], cs.vertcat(target_position, target_quaternion), object_config)
+            if getattr(self, 'smooth_contact_detour', False):
+                final_cost += 20.0 * self.detour_attract_coef * cs.sumsqr(x[7:10] - virtual_point)
         path_cost_fn = cs.Function("path_cost_fn", [x, u, cost_param], [base_cost + control_weight * control_cost])
         final_cost_fn = cs.Function("final_cost_fn", [x, cost_param], [10 * final_cost])
         return path_cost_fn, final_cost_fn

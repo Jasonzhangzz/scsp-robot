@@ -1,0 +1,13 @@
+<mujoco model="falling_sliding_cube">
+  <option timestep="0.002" integrator="Euler" cone="pyramidal"/>
+  <default><geom friction="1 0.01 0.001" condim="3"/></default>
+  <visual><global azimuth="135" elevation="-25"/><headlight ambient=".4 .4 .4"/></visual>
+  <worldbody>
+    <light pos="0 0 3"/>
+    <geom name="floor" type="plane" size="3 3 .1" rgba=".25 .3 .4 1"/>
+    <body name="object" pos="0 0 .3">
+      <freejoint name="object_free"/>
+      <geom name="object" type="box" size=".1 .1 .1" mass="1" rgba=".45 .75 .2 1"/>
+    </body>
+  </worldbody>
+</mujoco>

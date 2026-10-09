@@ -431,6 +431,7 @@ def build_bimanual_scene_xml(
     mujoco_timestep=0.01,
     scene_output_path=GENERATED_SCENE_PATH,
     position_actuators=False,
+    support_noslip_iterations=0,
 ):
     panda_root = ET.parse(PANDA_XML_PATH).getroot()
 
@@ -442,6 +443,7 @@ def build_bimanual_scene_xml(
             {
                 "integrator": "implicitfast",
                 "impratio": "10",
+                "noslip_iterations": str(int(support_noslip_iterations)),
                 "timestep": f"{float(mujoco_timestep):.8f}",
             },
         )
@@ -542,7 +544,7 @@ def build_bimanual_scene_xml(
             "type": "box",
             "size": format_vec(pedestal_size),
             "material": "pedestal_mat",
-            "contype": "1",
+            "contype": "8",
             "conaffinity": "1",
             "friction": "1.0 0.08 0.01",
             "condim": "3",
@@ -574,6 +576,11 @@ def build_bimanual_scene_xml(
             "mesh": "object_mesh",
             "material": "obj_mat",
             "mass": f"{float(object_mass):.8f}",
+            # Arms and floor use this original mesh. Table support has
+            # separate convex pieces, avoiding a switching single-foot CCD
+            # manifold on the complete nonconvex mesh.
+            "contype": "2",
+            "conaffinity": "1",
             "condim": "6",
             "friction": f"{float(object_friction):.8f} 0.08 0.01",
             "solimp": "0.9 0.95 0.01",
@@ -582,6 +589,23 @@ def build_bimanual_scene_xml(
             "gap": "0.0",
         },
     )
+
+    from models.object_support_geometry import support_mesh_parts
+
+    for index, (vertices, faces) in enumerate(support_mesh_parts(mesh_path)):
+        name = f"object_support_{index}"
+        ET.SubElement(asset, "mesh", {
+            "name": name,
+            "vertex": " ".join(f"{value:.12g}" for value in vertices.reshape(-1)),
+            "face": " ".join(str(int(value)) for value in faces.reshape(-1)),
+            "scale": format_vec(mesh_scale),
+        })
+        ET.SubElement(obj_body, "geom", {
+            "name": name, "type": "mesh", "mesh": name, "mass": "0",
+            "group": "3", "rgba": "0 0 0 0", "contype": "8", "conaffinity": "8",
+            "condim": "6", "friction": f"{float(object_friction):.8f} 0.08 0.01",
+            "solimp": "0.9 0.95 0.01", "solref": "0.02 1.0", "margin": "0", "gap": "0",
+        })
 
     marker_specs = [
         ("obj_point", "1 1 0 1"),
@@ -826,10 +850,12 @@ class DualArmPlanOnceParams:
         self.planner_contact_tangent_scale_ = float(getattr(args, "planner_contact_tangent_scale", 0.015))
         self.planner_rotation_delta_limit_ = rotation_limit
         self.planner_cmd_limit = float(args.planner_cmd_limit)
+        self.adam_multistart_count = int(getattr(args, "adam_multistart_count", 2))
         self.adam_iters = int(getattr(args, "adam_iters", 40))
-        self.adam_lr = float(getattr(args, "adam_lr", 0.05))
+        self.adam_lr = float(getattr(args, "adam_lr", 0.0015))
         self.adam_horizon = int(getattr(args, "adam_horizon", 5))
         self.adam_knot_substeps = int(getattr(args, "adam_knot_substeps", 6))
+        self.retarget_ca_iters = int(getattr(args, "retarget_ca_iters", 20))
         self._squeeze_depth = float(getattr(args, "squeeze_depth", 0.0))
         self.planner_workspace_lower_ = (-1.0, -1.0, 0.0)
         self.planner_workspace_upper_ = (2.0, 1.0, 2.0)
@@ -851,29 +877,26 @@ class DualArmPlanOnceParams:
 
     def apply_planner_mode(self, mode: str):
         mode = str(mode).strip().lower()
-        if mode == "mpc_ee":
+        if mode in {"mpc_ee", "mppi_ee"}:
+            squeeze = min(float(getattr(self, "_squeeze_depth", 0.0)), TIP_RADIUS * 0.9)
+            self.adam_approach_offset_ = max(TIP_RADIUS - squeeze, 0.001)
+            self.planner_contact_gate_scale_ = max(float(self.planner_contact_gate_scale_), 0.02)
+            self.planner_force_tracking_weight_ = 0.0
+            self.planner_ee_position_weight_ = 160.0
+            self.planner_object_target_weight_ = 40.0
+            self.planner_object_lateral_weight_ = 40.0
+        if mode in {"mpc_ee", "mppi_ee"}:
             from planning.mpc_explicit_adam import configure_adam_layout
 
             configure_adam_layout(self)
+            if mode == "mppi_ee":
+                self.planner_solver_ = "mppi"
             self.robot_stiff_ = np.diag(self.n_cmd_ * [float(np.mean(np.diag(self.robot_stiff_)))]).astype(np.float32)
             self.Q = np.zeros((self.n_qvel_, self.n_qvel_), dtype=np.float32)
             self.Q[:6, :6] = self.obj_inertia_
             self.Q[6:, 6:] = self.robot_stiff_
-            # Assigned-contact gate: do not let the old 300/12 CLI defaults
-            # pull the object before both tips reach their own contacts.
-            self.planner_ee_position_weight_ = 160.0
-            self.planner_object_target_weight_ = 40.0
-            self.planner_object_lateral_weight_ = 40.0
-            # Predicted contact force is identically zero in the Warp rollout,
-            # so a nonzero force weight only raises the cost as the tips approach.
-            self.planner_force_tracking_weight_ = 0.0
-            squeeze = min(float(getattr(self, "_squeeze_depth", 0.0)), TIP_RADIUS * 0.9)
-            # Sphere center sits this far outside the surface point so the
-            # fingertip sphere touches instead of trying to occupy the surface.
-            self.adam_approach_offset_ = max(TIP_RADIUS - squeeze, 0.001)
-            self.planner_contact_gate_scale_ = max(float(self.planner_contact_gate_scale_), 0.02)
             self.adam_iters = int(getattr(self, "adam_iters", 40))
-            self.adam_lr = float(getattr(self, "adam_lr", 0.05))
+            self.adam_lr = float(getattr(self, "adam_lr", 0.0015))
             self.adam_horizon = int(getattr(self, "adam_horizon", 5))
             self.adam_knot_substeps = int(getattr(self, "adam_knot_substeps", 6))
             self.mpc_horizon_ = int(getattr(self, "adam_horizon", self.mpc_horizon_))
@@ -900,6 +923,7 @@ class DualArmPlanOnceParams:
 
 class BimanualPandaGrasper:
     def __init__(self, args):
+        resolve_control_timing(args)
         requested_ik_backend = str(getattr(args, "ik_backend", "mink")).strip().lower()
         if requested_ik_backend not in {"auto", "mink", "mujoco", "curobo"}:
             raise ValueError(f"Unsupported IK backend: {requested_ik_backend}")
@@ -921,7 +945,7 @@ class BimanualPandaGrasper:
         self.args = args
         self.planner_mode = resolve_planner_mode(args)
         self.planner_backend = self.planner_mode
-        self._position_control = self.planner_mode in {"mppi_joint", "mpc_joint", "mpc_ee"}
+        self._position_control = self.planner_mode in {"mppi_joint", "mpc_joint", "mpc_ee", "mppi_ee"}
         if self._use_curobo:
             logging.getLogger("curobo").setLevel(logging.WARNING)
         self.mesh_path = resolve_mesh_path(args.obj, args.mesh)
@@ -980,6 +1004,7 @@ class BimanualPandaGrasper:
             mujoco_timestep=args.mujoco_dt,
             scene_output_path=args.scene_output,
             position_actuators=self._position_control,
+            support_noslip_iterations=10 if self.planner_mode in {"mpc_ee", "mppi_ee"} else 0,
         )
 
         self.model = mujoco.MjModel.from_xml_path(str(self.scene_path))
@@ -987,7 +1012,7 @@ class BimanualPandaGrasper:
         self.data = mujoco.MjData(self.model)
         
         self.viewer = None
-        self._defer_viewer = self.planner_mode == "mpc_ee" and bool(getattr(args, "visualize", True))
+        self._defer_viewer = self.planner_mode in {"mpc_ee", "mppi_ee"} and bool(getattr(args, "visualize", True))
         if bool(getattr(args, "visualize", True)) and not self._defer_viewer:
             self._launch_viewer()
         elif not self._defer_viewer:
@@ -1036,13 +1061,31 @@ class BimanualPandaGrasper:
             scale_factors=tuple(self.mesh_scale.tolist()),
             **optimizer_support_kwargs,
         )
-        if self.planner_mode == "mpc_ee":
-            from planning.lambda_contact_warp import LambdaContactWarp
+        if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            from planning.lambda_contact_lm import LambdaContactBatchedLM
 
-            self.optimizer = LambdaContactWarp(
+            optimizer_kwargs.update(
+                contact_stiffness=args.comfree_stiffness,
+                comfree_damping=args.comfree_damping,
+                support_surface_point=self.support_surface_point,
+                support_surface_normal=self.support_surface_normal,
+                support_surface_clearance=args.ground_height_margin,
+            )
+            self.optimizer = LambdaContactBatchedLM(
                 tip_radius=TIP_RADIUS,
                 device=str(getattr(args, "mppi_device", None) or "cuda:0"),
-                adam_steps=int(getattr(args, "adam_steps", 25)),
+                lm_iterations=int(getattr(args, "lambda_lm_iters", 20)),
+                cone_half_angle_deg=float(getattr(args, "lambda_cone_half_angle", 45.0)),
+                quality_fraction=float(getattr(args, "lambda_quality_fraction", 0.015)),
+                max_per_arm=int(getattr(args, "lambda_max_per_arm", 32)),
+                switch_margin=float(getattr(args, "lambda_switch_margin", 0.002)),
+                max_mean_curvature=args.optimizer_max_region_mean_curvature,
+                max_point_curvature=args.optimizer_max_point_curvature,
+                curvature_penalty_weight=args.optimizer_curvature_penalty_weight,
+                body_sides=(getattr(args, "lambda_contact_region", "auto") == "body-sides" or
+                            (getattr(args, "lambda_contact_region", "auto") == "auto" and self.mesh_path.stem.lower() == "elephant")),
+                body_core_fraction=float(getattr(args, "lambda_body_core_fraction", 0.5)),
+                seed=0 if args.mppi_seed is None or int(args.mppi_seed) < 0 else int(args.mppi_seed),
                 **optimizer_kwargs,
             )
         else:
@@ -1062,6 +1105,8 @@ class BimanualPandaGrasper:
             * max(int(self.args.command_substeps), 1)
         )
         self.plan_params = DualArmPlanOnceParams(self.args, args.obj_mass)
+        self.plan_params.retarget_object_speed = float(args.retarget_object_speed)
+        self.plan_params.retarget_object_angular_speed = float(args.retarget_object_angular_speed)
         self.planner = None
         self.physical_planner = None
         self.spider_planner = None
@@ -1103,21 +1148,10 @@ class BimanualPandaGrasper:
                 **warp_kwargs,
             )
             self._arm_mppi = self.explicit_planner
-        elif planner_backend == "mppi_ee":
-            from planning.mppi_explicit import ExplicitEEMPPI
-
-            self.explicit_planner = ExplicitEEMPPI(
-                self.model,
-                self.data,
-                translation_limit=float(args.planner_cmd_limit),
-                rotation_limit=float(args.planner_rotation_delta_limit),
-                **warp_kwargs,
-            )
-            self._arm_mppi = self.explicit_planner
-        elif planner_backend == "mpc_ee":
+        elif planner_backend in {"mpc_ee", "mppi_ee"}:
             from models.dexforge_fast_step import DexForgeFastStep
             from models.dexforge_planner_scene import write_dexforge_planner_scene
-            from planning.mpc_explicit_adam import MPCExplicitEEAdam
+            from planning.dexforge_retarget import DexForgeRetargetingMPC
 
             self.plan_params.table_height = float(self.support_height_threshold)
             self.plan_params.tip_radius = float(TIP_RADIUS)
@@ -1125,23 +1159,25 @@ class BimanualPandaGrasper:
                 self.scene_path,
                 self.optimizer.cloud,
                 tip_radius=float(TIP_RADIUS),
+                mutual_arm_contacts=bool(getattr(args, "retarget_full_contact_dynamics", False)),
             )
             warp_device = str(getattr(args, "mppi_device", None) or "cuda:0")
             self.plan_params.mppi_device_ = warp_device
             print(f"DexForge planner scene: {planner_xml}")
-            print("Compiling DexForge Warp step + CUDA-graph Adam (first run JIT-compiles GPU kernels)...")
-            warp_model = DexForgeFastStep(planner_xml, device=warp_device)
+            fa_solver = "mppi" if planner_backend == "mppi_ee" else "adam"
+            print(f"Compiling DexForge Warp step + FA {fa_solver.upper()} (first run JIT-compiles GPU kernels)...")
+            warp_model = DexForgeFastStep(planner_xml, device=warp_device,
+                                          comfree_stiffness=args.comfree_stiffness,
+                                          comfree_damping=args.comfree_damping)
             warp_model.set_cloud(self.optimizer.cloud)
-            self.planner = MPCExplicitEEAdam(
-                self.plan_params,
-                cloud=self.optimizer.cloud,
-                warp_model=warp_model,
-            )
+            self.planner = DexForgeRetargetingMPC(self.plan_params, warp_model, solver=fa_solver)
             print(
-                f"Warp-graph Adam MPC: horizon={self.planner.horizon} "
+                f"DexForge singleton CA/FA MPC: horizon={self.planner.horizon} "
                 f"knot_substeps={getattr(self.planner, 'knot_substeps', 1)} "
-                f"iters={self.planner.iters} lr={self.planner.lr} u_limit={self.planner.u_limit}"
+                f"solver={fa_solver} iters={self.planner.iters} u_limit={self.planner.u_limit}"
             )
+            if fa_solver == "mppi":
+                print(f"FA MPPI samples={self.planner.num_samples} noise={self.plan_params.mppi_noise_sigma_} rad")
             if getattr(self, "_defer_viewer", False):
                 self._launch_viewer()
         elif planner_backend == "mpc_joint":
@@ -2175,6 +2211,7 @@ class BimanualPandaGrasper:
         virtual_offset=None,
         source="best",
         projection_vertex_indices=None,
+        preserve_assignment=False,
     ):
         object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
         object_rot = _project_to_rotation_matrix(object_rot)
@@ -2191,14 +2228,18 @@ class BimanualPandaGrasper:
             if prev_world.shape[0] == 2:
                 reference_points_world = prev_world
 
-        contact_points_local, normals_local, contact_points_world, order = self._ordered_contact_data(
-            contact_points_local,
-            normals_local,
-            object_pos,
-            object_rot,
-            reference_points_world=reference_points_world,
-            return_order=True,
-        )
+        if preserve_assignment:
+            contact_points_world = (object_rot @ contact_points_local.T).T + object_pos
+            order = np.arange(2, dtype=int)
+        else:
+            contact_points_local, normals_local, contact_points_world, order = self._ordered_contact_data(
+                contact_points_local,
+                normals_local,
+                object_pos,
+                object_rot,
+                reference_points_world=reference_points_world,
+                return_order=True,
+            )
         inward_normals_world = (object_rot @ normals_local.T).T
         outward_normals_world = -inward_normals_world
         virtual_points_world = self._offset_points_along_normals(
@@ -3620,9 +3661,7 @@ class BimanualPandaGrasper:
         )
 
     def get_planner_state(self):
-        if getattr(self, "planner_mode", "") == "mpc_ee":
-            return self.get_planner_state_joints()
-        if getattr(self, "planner_mode", "") in {"mppi_joint", "mpc_joint"}:
+        if getattr(self, "planner_mode", "") in {"mpc_ee", "mppi_ee", "mppi_joint", "mpc_joint"}:
             return self.get_planner_state_joints()
         return self.get_planner_state_poses()
 
@@ -3980,6 +4019,65 @@ class BimanualPandaGrasper:
         for _ in range(max(int(substeps), 1)):
             mujoco.mj_step(self.model, self.data)
         mujoco.mj_forward(self.model, self.data)
+
+    def step_joint_controls(self, controls):
+        """Execute FA's absolute position targets at the rollout physics rate."""
+        controls = np.asarray(controls, dtype=np.float64)
+        if controls.ndim != 2 or controls.shape[1] != 14 or not np.isfinite(controls).all():
+            raise ValueError("FA controls must be a finite (steps, 14) array")
+        actuator_ids = np.concatenate((self.left_arm.actuator_ids, self.right_arm.actuator_ids))
+        limits = self.model.actuator_ctrlrange[actuator_ids]
+        for control in controls:
+            self.data.ctrl[actuator_ids] = np.clip(control, limits[:, 0], limits[:, 1])
+            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_forward(self.model, self.data)
+
+    def _lambda_object_dynamics(self, object_rotation):
+        """Mass and external wrench in the measured free-joint coordinates.
+
+        The object origin may differ from its centre of mass. MuJoCo's full
+        block preserves that translation/rotation coupling and its bias force
+        includes gravity torque and the current gyroscopic terms.
+        """
+        mass = np.empty((self.model.nv, self.model.nv), dtype=np.float64)
+        try:
+            mujoco.mj_fullM(self.model, self.data, mass)
+        except TypeError:  # MuJoCo before the MjData overload.
+            mujoco.mj_fullM(self.model, mass, self.data.qM)
+        dofs = np.arange(self.obj_dof_adr, self.obj_dof_adr + 6)
+        external = np.asarray(
+            self.data.qfrc_passive[dofs] + self.data.qfrc_applied[dofs] - self.data.qfrc_bias[dofs],
+            dtype=np.float64,
+        )
+        # Lambda accepts a world-frame torque and converts it
+        # to the body-frame angular coordinates used by this mass block.
+        external[3:] = object_rotation @ external[3:]
+        return mass[np.ix_(dofs, dofs)], external
+
+    def _update_warp_lambda_contacts(self, object_pos, object_quat, object_rot, *, initial=False):
+        """Solve contact forces and select an assigned pair before CA/FA."""
+        tips_world = np.asarray([
+            self.get_tip_pose(self.left_arm)[0],
+            self.get_tip_pose(self.right_arm)[0],
+        ], dtype=np.float64)
+        object_inertia, external_wrench = self._lambda_object_dynamics(object_rot)
+        solve = self.optimizer.initialize_offline if initial else self.optimizer.update_contacts
+        points, normals, predicted_pose, cost, info = solve(
+            np.concatenate((self.object_target_pos, self.object_target_quat)),
+            np.concatenate((object_pos, object_quat)),
+            tips_world=tips_world,
+            object_inertia=object_inertia,
+            tau_o=external_wrench,
+            v_obj=np.asarray(self.data.qvel[self.obj_dof_adr:self.obj_dof_adr + 6]),
+            prediction_dt=float(self.model.opt.timestep) * self.planner.knot_substeps,
+        )
+        targets = self._build_contact_targets_from_local_contacts(
+            points, normals, object_pos, object_rot,
+            result=self.optimizer.last_grasp_result,
+            virtual_offset=float(self.args.planner_attract_offset),
+            source=info["source"], preserve_assignment=True,
+        )
+        return targets, predicted_pose, cost, info
 
     def _compute_arm_osc_torque(self, arm, remain, velocity, v_ref=None, k_task=600.0, d_task=40.0, force_limit=12.0):
         from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque, isaac_task_force
@@ -4372,13 +4470,7 @@ class BimanualPandaGrasper:
         return False, info
 
     def run(self):
-        """Run one receding-horizon MPPI loop for the complete grasp.
-
-        Contact geometry is solved in the object frame and held during normal
-        receding-horizon operation.  The physical rollout backend can request
-        a new lambda pair after bilateral contact is lost or the object drifts
-        materially; the analytic acc backend keeps its historical fixed pair.
-        """
+        """Run receding-horizon grasp control, with live lambda cones for CA/FA."""
         for planner in (
             self.planner,
             self.explicit_planner,
@@ -4391,13 +4483,16 @@ class BimanualPandaGrasper:
         object_pos, object_quat, object_rot = self.get_object_pose()
         touch_offset = TIP_RADIUS + float(self.args.touch_offset)
 
-        # LambdaContactControlOptimizer is intentionally called exactly once.
-        contact_targets = self._get_live_contact_targets(
-            object_pos,
-            object_rot,
-            previous_targets=None,
-            virtual_offset=float(self.args.planner_attract_offset),
-        )
+        if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            self.optimizer.reset()
+            contact_targets, x_plus_opt, _, lambda_info = self._update_warp_lambda_contacts(
+                object_pos, object_quat, object_rot, initial=True,
+            )
+        else:
+            contact_targets = self._get_live_contact_targets(
+                object_pos, object_rot, previous_targets=None,
+                virtual_offset=float(self.args.planner_attract_offset),
+            )
         contact_points_local = np.asarray(contact_targets["contact_points_local"], dtype=np.float64).reshape(2, 3)
         normals_local = np.asarray(contact_targets["normals_local"], dtype=np.float64).reshape(2, 3)
         self.contact_points_local = contact_points_local.copy()
@@ -4464,9 +4559,8 @@ class BimanualPandaGrasper:
             object_rot,
             center_offset=touch_offset,
         )
-        if self.planner_mode == "mpc_ee":
-            # DexForge plans joint ctrl from the current qpos; no IK seed.
-            print("Skipping touch IK; Adam MPC commands 14-D joints from the current configuration")
+        if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            print("ContactAware will compute the touch joint reference during each CA/FA cycle")
             _, left_fixed_rot = self.get_tip_pose(self.left_arm)
             _, right_fixed_rot = self.get_tip_pose(self.right_arm)
             left_fixed_rot = _project_to_rotation_matrix(left_fixed_rot)
@@ -4543,7 +4637,7 @@ class BimanualPandaGrasper:
                 f"knots={self._arm_mppi.num_knots} "
                 f"substeps={self._arm_mppi.substeps} device={self._arm_mppi.device}",
             )
-        elif self.planner_mode in {"mpc_ee", "mpc_joint"}:
+        elif self.planner_mode in {"mpc_ee", "mppi_ee", "mpc_joint"}:
             print(
                 f"Explicit MPC ({self.planner_mode}):",
                 f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
@@ -4555,13 +4649,13 @@ class BimanualPandaGrasper:
                 f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
                 f"horizon={self.plan_params.mpc_horizon_} samples={self.plan_params.mppi_samples_}",
             )
-        print("Fixed contact points local:\n", contact_points_local)
-        print("Fixed desired contact forces local:\n", desired_normal_forces_local)
+        print("Initial contact points local:\n", contact_points_local)
+        print("Initial desired contact forces local:\n", desired_normal_forces_local)
         print(
             f"Initial contact projection world:\n{contact_points_world}\n"
             f"target object pose: {object_target_pos} {object_target_quat}"
         )
-        if self.planner_mode != "mpc_ee":
+        if self.planner_mode not in {"mpc_ee", "mppi_ee"}:
             print(
                 f"IK orientation references: left_success={left_touch_ik.success} "
                 f"right_success={right_touch_ik.success}"
@@ -4571,6 +4665,7 @@ class BimanualPandaGrasper:
         last_info = {}
         telemetry = []
         measured_contact_mask = np.zeros(2, dtype=bool)
+        measured_force = np.zeros(2, dtype=np.float64)
         control_steps = max(int(getattr(self.args, "control_steps", 1600)), 1)
         sync_pos_tol = float(getattr(self.args, "planner_sync_pos_tol", self.args.planner_attract_tol))
         sync_rot_tol = float(getattr(self.args, "planner_sync_rot_tol", self.args.ik_rot_tol))
@@ -4593,7 +4688,22 @@ class BimanualPandaGrasper:
                 )
             # #endregion
             current_pos, current_quat, current_rot = self.get_object_pose()
-            if self.physical_planner is not None:
+            if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+                contact_targets, x_plus_opt, _, lambda_info = self._update_warp_lambda_contacts(
+                    current_pos, current_quat, current_rot,
+                )
+                contact_points_local = np.asarray(contact_targets["contact_points_local"], dtype=np.float64).reshape(2, 3)
+                normals_local = np.asarray(contact_targets["normals_local"], dtype=np.float64).reshape(2, 3)
+                desired_contact_forces_local = np.asarray(lambda_info["contact_forces_local"], dtype=np.float64).reshape(2, 3)
+                desired_normal_forces_local = np.asarray(lambda_info["force_vectors_local"], dtype=np.float64).reshape(2, 3)
+                desired_normal_thresholds = np.maximum(required_normal_force, desired_contact_forces_local[:, 0])
+                self.contact_points_local = contact_points_local.copy()
+                self.normals_local = normals_local.copy()
+                self.desired_contact_forces_local = desired_contact_forces_local.copy()
+                self.desired_force_vectors_local = desired_normal_forces_local.copy()
+                contact_targets["desired_force_vectors_local"] = desired_normal_forces_local.copy()
+                contact_pair = ContactPair.from_lambda_targets(contact_targets)
+            elif self.physical_planner is not None:
                 drifted = float(np.linalg.norm(current_pos - contact_replan_origin)) >= float(
                     getattr(self.args, "contact_replan_drift_m", 0.01)
                 )
@@ -4691,7 +4801,8 @@ class BimanualPandaGrasper:
                     object_target_quat,
                     approach_q=approach_q,
                 )
-            elif self.planner_mode == "mpc_ee":
+            elif self.planner_mode in {"mpc_ee", "mppi_ee"}:
+                # The live LM pair and predicted pose share this measured state.
                 planner_result = self.planner.plan_once(
                     object_target_pos,
                     object_target_quat,
@@ -4703,9 +4814,12 @@ class BimanualPandaGrasper:
                     normals_local=normals_local,
                     desired_force_local=desired_normal_forces_local,
                     approach_offset=float(getattr(self.plan_params, "adam_approach_offset_", TIP_RADIUS)),
+                    x_plus_opt=x_plus_opt,
                     qpos0=np.asarray(self.data.qpos, dtype=np.float32),
                     qvel0=np.asarray(self.data.qvel, dtype=np.float32),
+                    contact_established=bool(np.all(measured_contact_mask) and np.all(measured_force > 1.e-6)),
                 )
+                planner_result["lambda_prediction"] = lambda_info
                 self.plan_params.sol_guess_ = planner_result.get("sol_guess")
             elif self.planner_mode == "mpc_joint":
                 phi_vec, jac_mat = self._detect_planner_contacts()
@@ -4768,19 +4882,13 @@ class BimanualPandaGrasper:
             action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
             # The mask is applied again at the execution boundary so a ready
             # arm is exactly stationary even if a backend returns stale noise.
-            if self.planner_mode == "mppi_ee" and self.physical_planner is None:
-                action[:6] = 0.0 if hold_mask[0] else action[:6]
-                action[6:12] = 0.0 if hold_mask[1] else action[6:12]
             control_t0 = time.perf_counter()
             if self.planner_mode == "mppi_joint":
                 self.step_joint_delta(action, substeps=self._arm_mppi.substeps)
             elif self.planner_mode == "mpc_joint":
                 self.step_joint_delta(action, substeps=max(int(getattr(self.args, "spider_substeps", 1)), 1))
-            elif self.planner_mode == "mpc_ee":
-                self.step_joint_delta(
-                    action.reshape(14),
-                    substeps=max(int(getattr(self.planner, "knot_substeps", getattr(self.args, "adam_knot_substeps", 6))), 1),
-                )
+            elif self.planner_mode in {"mpc_ee", "mppi_ee"}:
+                self.step_joint_controls(planner_result["control_sequence"])
             elif self._arm_mppi is not None:
                 self.step_ee_pose_delta(action, hold_mask=hold_mask)
             elif self.physical_planner is not None:
@@ -4825,6 +4933,17 @@ class BimanualPandaGrasper:
             post_right_pos, post_right_rot = self.get_tip_pose(self.right_arm)
             post_left_pos_err = float(np.linalg.norm(post_left_pos - post_targets["left_tip_pos"]))
             post_right_pos_err = float(np.linalg.norm(post_right_pos - post_targets["right_tip_pos"]))
+            if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+                # FA tracks a body-local surface query against the lambda
+                # anchor, rather than the legacy touch-offset waypoint.
+                query_local = np.asarray(planner_result["query_local"]).reshape(2, 3)
+                anchors = contact_points_local @ quat_wxyz_to_mat(post_quat).T + post_pos
+                query_errors = []
+                for arm, local, anchor in zip((self.left_arm, self.right_arm), query_local, anchors):
+                    body = int(self.model.site_bodyid[arm.tip_site_id])
+                    query = self.data.xpos[body] + self.data.xmat[body].reshape(3, 3) @ local
+                    query_errors.append(float(np.linalg.norm(query - anchor)))
+                post_left_pos_err, post_right_pos_err = query_errors
             post_left_rot_err = float(np.linalg.norm(_rotation_error(post_left_rot, left_fixed_rot)))
             post_right_rot_err = float(np.linalg.norm(_rotation_error(post_right_rot, right_fixed_rot)))
             object_pos_error = float(np.linalg.norm(post_pos - object_target_pos))
@@ -4873,6 +4992,9 @@ class BimanualPandaGrasper:
                 "mppi_cost": planner_result.get("cost"),
                 "mppi_action": action.copy(),
                 "planner_backend": planner_result.get("solver_backend", "mppi_ee"),
+                "planner_diagnostics": self._copy_nested_value(planner_result.get("diagnostics")),
+                "retargeting": self._copy_nested_value(planner_result.get("retargeting")),
+                "lambda_prediction": self._copy_nested_value(planner_result.get("lambda_prediction")),
                 "object_pose": (post_pos.copy(), post_quat.copy()),
                 "object_target_pose": (object_target_pos.copy(), object_target_quat.copy()),
                 "object_position_error": object_pos_error,
@@ -4908,18 +5030,33 @@ class BimanualPandaGrasper:
                 "loop_wall_time": loop_wall_time,
             }
             telemetry.append(last_info)
-            if step_idx % report_stride == 0 or stable_steps == int(self.args.contact_stable_steps):
+            retargeting = planner_result.get("retargeting") or {}
+            if (step_idx % report_stride == 0 or stable_steps == int(self.args.contact_stable_steps)
+                    or (self.planner_mode in {"mpc_ee", "mppi_ee"} and step_idx < 20)):
                 print(
                     f"[{step_idx:04d}] cost={planner_result.get('cost', float('nan')):.4f} "
                     f"ready={ready_mask.astype(int).tolist()} hold={hold_mask.astype(int).tolist()} "
                     f"ee={post_left_pos_err:.4f}/{post_right_pos_err:.4f} "
+                    f"tip_z={post_left_pos[2]:.4f}/{post_right_pos[2]:.4f} "
+                    f"phase={retargeting.get('phase', 'control')} "
                     f"contacts={len(contacts['left'])}/{len(contacts['right'])} "
                     f"force={np.array2string(measured_force, precision=3)} "
                     f"dxy={np.array2string(post_pos[:2] - current_pos[:2], precision=5)} "
                     f"obj_err={object_pos_error:.4f} target_z={object_target_pos[2]:.4f} "
-                    f"plan={planner_wall_time*1000:.1f}ms ({(1.0/planner_wall_time) if planner_wall_time > 1e-6 else 0.0:.1f} Hz)"
+                    f"plan={planner_wall_time*1000:.1f}ms ({(1.0/planner_wall_time) if planner_wall_time > 1e-6 else 0.0:.1f} Hz)",
+                    flush=True,
                 )
                 if print_mppi_timing:
+                    fa_diagnostics = planner_result.get("diagnostics") or {}
+                    if fa_diagnostics.get("cost_components"):
+                        print("  fa_cost: " + " ".join(
+                            f"{key}={value:.3g}" for key, value in fa_diagnostics["cost_components"].items()
+                            if key not in {"trajectory", "total"}), flush=True)
+                    if "mean_cost" in fa_diagnostics:
+                        print(f"  fa_mppi: mean={fa_diagnostics['mean_cost']:.3g} "
+                              f"selected={fa_diagnostics['best_candidate_cost']:.3g} "
+                              f"selected_mean={fa_diagnostics['selected_mean']} "
+                              f"ESS={fa_diagnostics['effective_samples']:.1f}", flush=True)
                     print(
                         "  mppi_timing: "
                         f"plan={planner_wall_time:.4f}s ctrl={control_wall_time:.4f}s "
@@ -4972,6 +5109,20 @@ class BimanualPandaGrasper:
         }
 
 
+def resolve_control_timing(args):
+    """Use a stable Panda servo step while keeping 60 ms CA/FA knots."""
+    retarget = resolve_planner_mode(args) in {"mpc_ee", "mppi_ee"}
+    if getattr(args, "mujoco_dt", None) is None:
+        args.mujoco_dt = 0.01
+    if not np.isfinite(args.mujoco_dt) or args.mujoco_dt <= 0:
+        raise ValueError("mujoco_dt must be finite and positive")
+    if getattr(args, "adam_knot_substeps", None) is None:
+        args.adam_knot_substeps = max(1, round(0.06 / args.mujoco_dt)) if retarget else 6
+    if args.adam_knot_substeps < 1:
+        raise ValueError("adam_knot_substeps must be positive")
+    return args
+
+
 def build_argparser():
     parser = argparse.ArgumentParser(description="Dual Panda MuJoCo grasp demo driven by mlqp_point_v2, cuRobo IK, and plan_once tracking.")
     parser.add_argument("--obj", type=str, default="elephant", help="Object asset name in envs/assets/objects.")
@@ -4991,12 +5142,12 @@ def build_argparser():
         help="Friction coefficient passed to mlqp_point_v2 contact selection. Matches planning/mlqp_point_v2.py default.",
     )
     parser.add_argument("--object-friction", type=float, default=5.0, help="Sliding friction coefficient used by the MuJoCo object geom.")
-    parser.add_argument("--contact-stiffness", type=float, default=12.5, help="Contact stiffness passed to mlqp_point_v2.")
+    parser.add_argument("--contact-stiffness", type=float, default=12.5, help="Legacy ideal-contact compliance gain; Warp planners use --comfree-stiffness.")
     parser.add_argument(
         "--sample-num",
         type=int,
         default=70,
-        help="Surface samples used by mlqp_point_v2. Matches planning/mlqp_point_v2.py default.",
+        help="Low-curvature surface candidate count for CA/FA lambda LM; legacy optimizer surface samples in other modes.",
     )
     parser.add_argument(
         "--optimizer-use-support-filter",
@@ -5007,12 +5158,19 @@ def build_argparser():
     parser.add_argument("--optimizer-max-region-mean-curvature", type=float, default=0.12, help="Reject candidate contact regions whose mean curvature score exceeds this value.")
     parser.add_argument("--optimizer-max-point-curvature", type=float, default=0.25, help="Reject candidate contact regions that contain points above this curvature score.")
     parser.add_argument("--optimizer-curvature-penalty-weight", type=float, default=1.5, help="Quality penalty weight applied to higher-curvature regions in mlqp_point_v2.")
+    parser.add_argument("--lambda-lm-iters", type=int, default=20, help="Warp batched LM iterations for CA/FA contact-force candidates (--mpc/--mppi).")
+    parser.add_argument("--lambda-cone-half-angle", type=float, default=45.0, help="Online contact cone half angle in degrees, around each tip-to-geometric-centre direction.")
+    parser.add_argument("--lambda-quality-fraction", type=float, default=0.015, help="Maximum relative loss of pose-cost reduction versus the current offline/online reference.")
+    parser.add_argument("--lambda-max-per-arm", type=int, default=32, help="Closest admissible surface candidates per arm in the live cones; pairs are evaluated in parallel.")
+    parser.add_argument("--lambda-switch-margin", type=float, default=0.002, help="Keep a quality-eligible incumbent if its summed tip distance is within this many metres of the best pair.")
+    parser.add_argument("--lambda-contact-region", choices=("auto", "body-sides", "all"), default="auto", help="Restrict elephant candidates to the broad sides of its central body; auto enables this for elephant meshes.")
+    parser.add_argument("--lambda-body-core-fraction", type=float, default=0.5, help="Fraction of the longitudinal half extent eligible for body-side contacts, excluding the head and tail.")
     parser.add_argument(
         "--solver",
         type=str,
         choices=("acados", "ipopt"),
         default="acados",
-        help="Solver backend used by mlqp_point_v2 for force-closure and static-equilibrium optimization.",
+        help="Legacy mlqp_point_v2 backend in other modes; --mpc/--mppi lambda uses Warp batched LM.",
     )
     parser.add_argument(
         "--print-contact-timing",
@@ -5086,7 +5244,8 @@ def build_argparser():
     parser.add_argument("--ik-pos-weight", type=float, default=1.0, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
     parser.add_argument("--ik-rot-weight", type=float, default=0.35, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
     parser.add_argument("--curobo-robot-cfg", type=str, default="franka.yml", help="Robot config passed to cuRobo.")
-    parser.add_argument("--mujoco-dt", type=float, default=0.01, help="MuJoCo simulation timestep in seconds.")
+    parser.add_argument("--retarget-full-contact-dynamics", action="store_true", help="Also simulate arm/arm and arm/floor GS contacts in CA/FA rollouts; slower. CA constraints and FA inter-arm costs are always active.")
+    parser.add_argument("--mujoco-dt", type=float, default=None, help="MuJoCo physics timestep (default 0.01 s); CA/FA includes implicit servo velocity feedback.")
     parser.add_argument("--mj-steps-per-command", type=int, default=1, help="Number of MuJoCo steps executed after each MPC command.")
     parser.add_argument(
         "--physical-mppi-physics-steps",
@@ -5103,10 +5262,10 @@ def build_argparser():
     parser.add_argument("--planner-horizon", type=int, default=20, help="plan_once horizon length.")
     planner_mode = parser.add_mutually_exclusive_group()
     planner_mode.add_argument("--mppi", dest="planner_mode", action="store_const", const="mppi_ee", help="Alias for --mppi-ee.")
-    planner_mode.add_argument("--mppi-ee", dest="planner_mode", action="store_const", const="mppi_ee", help="Warp MPPI over dual-arm EE delta pose (default).")
+    planner_mode.add_argument("--mppi-ee", dest="planner_mode", action="store_const", const="mppi_ee", help="Singleton lambda -> DexForge CA/FA retargeting with FA solved by Warp MPPI (default).")
     planner_mode.add_argument("--mppi-joint", dest="planner_mode", action="store_const", const="mppi_joint", help="Warp MPPI over 14-D joint increments.")
     planner_mode.add_argument("--mpc", dest="planner_mode", action="store_const", const="mpc_ee", help="Alias for --mpc-ee.")
-    planner_mode.add_argument("--mpc-ee", dest="planner_mode", action="store_const", const="mpc_ee", help="Adam MPC over 14-D joint increments with DexForge Warp step.")
+    planner_mode.add_argument("--mpc-ee", dest="planner_mode", action="store_const", const="mpc_ee", help="Singleton lambda -> DexForge CA/FA retargeting with native Warp Adam.")
     planner_mode.add_argument("--mpc-joint", dest="planner_mode", action="store_const", const="mpc_joint", help="Acados explicit MPC over 14-D joint increments.")
     parser.add_argument(
         "--planner-solver",
@@ -5122,7 +5281,7 @@ def build_argparser():
         default=None,
         help="Legacy backend name. Prefer --mppi/--mpc. explicit_mjwp maps to --mppi-joint.",
     )
-    parser.add_argument("--planner-joint-delta-limit", type=float, default=0.15, help="Absolute joint-increment limit in radians for --mppi-joint and --mpc-joint.")
+    parser.add_argument("--planner-joint-delta-limit", type=float, default=0.15, help="Joint-increment limit in radians for FA and joint-space planners.")
     parser.add_argument("--spider-num-samples", type=int, default=128, help="Parallel MuJoCo Warp worlds used by SPIDER MPPI.")
     parser.add_argument("--spider-horizon", type=int, default=8, help="SPIDER control horizon. Rounded up to a multiple of --spider-knot-steps.")
     parser.add_argument("--spider-knot-steps", type=int, default=2, help="Interpolation factor from SPIDER control knots to the horizon.")
@@ -5131,8 +5290,8 @@ def build_argparser():
     parser.add_argument("--spider-beta", type=float, default=0.85, help="Per-iteration SPIDER noise decay.")
     parser.add_argument("--spider-noise", type=float, default=0.1, help="Joint-position knot noise in radians.")
     parser.add_argument("--spider-substeps", type=int, default=1, help="MuJoCo Warp / CPU steps executed for each sampled control. SPIDER uses one simulation step per horizon index.")
-    parser.add_argument("--comfree-stiffness", type=float, default=0.2, help="Closed-form contact stiffness used by --planner-backend explicit_mjwp.")
-    parser.add_argument("--comfree-damping", type=float, default=0.001, help="Closed-form contact damping used by --planner-backend explicit_mjwp.")
+    parser.add_argument("--comfree-stiffness", type=float, default=0.2, help="Dimensionless ASU ComFree stiffness for lambda, ADAM and MPPI.")
+    parser.add_argument("--comfree-damping", type=float, default=0.001, help="Dimensionless ASU ComFree damping for lambda, ADAM and MPPI.")
     parser.add_argument(
         "--planner-trajectory-path",
         type=str,
@@ -5179,16 +5338,20 @@ def build_argparser():
     parser.add_argument("--planner-object-inertia-pos", type=float, default=40.0, help="Translational object inertia weight used by plan_once.")
     parser.add_argument("--planner-object-inertia-rot", type=float, default=0.05, help="Rotational object inertia weight used by plan_once.")
     parser.add_argument("--planner-robot-stiffness", type=float, default=300.0, help="Cartesian point stiffness used by the plan_once robot model.")
-    parser.add_argument("--mppi-samples", type=int, default=256, help="Number of sampled trajectories used by plan_once.")
+    parser.add_argument("--mppi-samples", type=int, default=256, help="Number of sampled FA trajectories for --mppi (at least 2).")
     parser.add_argument("--mppi-iterations", type=int, default=4, help="Number of MPPI update iterations after warm start.")
     parser.add_argument("--adam-iters", type=int, default=40, help="Adam iterations for --mpc (DexForge n_iter).")
-    parser.add_argument("--adam-lr", type=float, default=0.05, help="Adam lr_max for --mpc. Warp cosine-decays it to 0.0015.")
-    parser.add_argument("--adam-horizon", type=int, default=5, help="Adam rollout horizon for --mpc (DexForge horizon).")
+    parser.add_argument("--adam-lr", type=float, default=0.0015, help="FA Adam lr_max for --mpc, matching DexForge; cosine-decays to 1e-5.")
+    parser.add_argument("--adam-horizon", type=int, default=5, help="FA rollout horizon for --mpc and --mppi (DexForge horizon).")
+    parser.add_argument("--retarget-ca-iters", type=int, default=20, help="Maximum contact-aware QP iterations per one-frame lambda reference.")
+    parser.add_argument("--adam-multistart-count", type=int, default=2, help="FA Adam starts: shifted warm trajectory plus fresh CA reference; scored with the same original FA objective.")
+    parser.add_argument("--retarget-object-speed", type=float, default=0.05, help="Maximum translation speed of the contacted object's CA/FA reference, in m/s.")
+    parser.add_argument("--retarget-object-angular-speed", type=float, default=0.5, help="Maximum angular speed of the contacted object's CA/FA reference, in rad/s.")
     parser.add_argument(
         "--adam-knot-substeps",
         type=int,
-        default=6,
-        help="Physics steps per Adam knot (DexForge knot_dt/mpc_dt).",
+        default=None,
+        help="Physics steps per FA control knot; automatically preserves a 0.06 s knot with the selected physics timestep.",
     )
     parser.add_argument(
         "--physical-mppi-samples",
@@ -5209,13 +5372,13 @@ def build_argparser():
         help="Initial physical MPPI iterations before the warm-start distribution is available.",
     )
     parser.add_argument("--mppi-init-iterations", type=int, default=8, help="Number of MPPI iterations used before a warm start exists.")
-    parser.add_argument("--mppi-lambda", type=float, default=1.0, help="MPPI temperature.")
-    parser.add_argument("--mppi-noise-sigma", type=float, default=0.005, help="Action noise sigma for MPPI.")
+    parser.add_argument("--mppi-lambda", type=float, default=1.0, help="MPPI temperature; FA uses DexForge's 1e-6 loss normalization.")
+    parser.add_argument("--mppi-noise-sigma", type=float, default=0.005, help="MPPI action noise sigma; radians for the FA joint targets in --mppi.")
     parser.add_argument("--mppi-noise-decay", type=float, default=0.85, help="Per-iteration MPPI noise decay.")
-    parser.add_argument("--mppi-elite-frac", type=float, default=0.1, help="Elite fraction used by MPPI weighting.")
+    parser.add_argument("--mppi-elite-frac", type=float, default=0.1, help="Elite fraction for legacy MPPI backends; FA --mppi weights all finite samples.")
     parser.add_argument("--mppi-seed", type=int, default=0, help="Random seed for reproducible MPPI rollouts; use a negative value to disable seeding.")
-    parser.add_argument("--mppi-device", type=str, default=None, help="Torch device used by MPPI, for example cpu or cuda:0.")
-    parser.add_argument("--mppi-use-torch-compile", action="store_true", help="Enable torch.compile for the MPPI kernels when available.")
+    parser.add_argument("--mppi-device", type=str, default=None, help="Planner device; FA --mpc/--mppi use CUDA, for example cuda:0.")
+    parser.add_argument("--mppi-use-torch-compile", action="store_true", help="Enable torch.compile for legacy Torch MPPI backends.")
     parser.add_argument("--print-mppi-timing", action="store_true", help="Print per-cycle MPPI, control, and bilateral-contact diagnostics.")
     parser.add_argument("--cartesian-stiffness-pos", type=float, default=500.0, help="Translational stiffness used by the Cartesian impedance controller.")
     parser.add_argument("--cartesian-stiffness-rot", type=float, default=50.0, help="Rotational stiffness used by the Cartesian impedance controller.")

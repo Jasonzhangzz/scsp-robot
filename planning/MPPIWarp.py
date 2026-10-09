@@ -959,7 +959,7 @@ def _apply_dwell_payload(param, args, dwell):
     )
     opt.note_contact_progress(
         progress_idx,
-        pos_err_now,
+        pos_err_now if dwell.get('progress_cost') is None else float(dwell['progress_cost']),
         active=dwell_active,
         gamma=float(args.contact_dwell_gamma),
         min_dwell_steps=int(args.contact_dwell_steps),

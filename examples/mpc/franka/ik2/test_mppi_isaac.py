@@ -1407,6 +1407,14 @@ def _apply_plan_result(param, env, result, curr_q, print_fn):
 
     _apply_opt_snapshot(param.lambda_optimizer, result.get("opt_snapshot"))
     policy = result["policy"]
+    if policy.get('object_cost_config') is not None:
+        from planning.object_pose_cost import cost_config
+        c = np.asarray(policy['object_cost_config'], dtype=float)
+        param.object_cost_config_ = c.copy()
+        q = np.asarray(curr_q)[3:7]
+        r = Rotation.from_quat(q[[1, 2, 3, 0]]).as_matrix()
+        param.lambda_optimizer.set_object_cost_config(cost_config(*c[:3],
+            body_axis=c[3:6], reference_up=r.T @ c[6:9]))
     print_fn(
         param, curr_q, policy, policy["value_info"], result["verify_cost"],
         result["verify_chatter"],
@@ -1431,15 +1439,31 @@ def _plan_from_obs(obs, dwell=None):
         "if_contact": bool(obs.get("if_contact", False)),
         "table_ground": float(obs["table_ground"]),
     }
+    for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active'):
+        if key in obs:
+            payload[key] = obs[key]
     for key in ("phi_vec", "jac_mat", "jac_mat_env"):
         if obs.get(key) is not None:
             payload[key] = np.asarray(obs[key], dtype=np.float64)
+    if obs.get("scm_transitions") is not None:
+        payload["scm_transitions"] = obs["scm_transitions"]
     if dwell is not None:
         payload["dwell"] = dwell
     return payload, np.asarray(obs["policy_q"], dtype=np.float32)
 
 
 def _pred_reduction_from_policy(param, curr_q, policy):
+    if policy.get('object_cost_config') is not None:
+        from planning.object_pose_cost import object_cost_np
+        target = np.r_[param.target_p_, param.target_q_]
+        config = policy['object_cost_config']
+        c_now = object_cost_np(curr_q[:7], target, config)
+        xp, info = policy.get('x_plus_opt'), policy.get('info')
+        reduction = None
+        if xp is not None and _x_plus_is_usable(xp, info):
+            pp, pq = _predicted_object_pose(curr_q[:7], xp)
+            reduction = c_now - object_cost_np(np.r_[pp, pq], target, config)
+        return c_now, reduction
     c_now_cost = _lambda_pose_cost(
         curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
         param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
@@ -1462,16 +1486,24 @@ def _dwell_payload(
     c_now_cost, pred_reduction, contact_distance, pos_err_now,
     curr_q=None, param=None,
 ):
+    if policy.get('execution_override', False):
+        return None
     if param is None:
         param = env.param_
     if curr_q is None:
         curr_q = env.get_policy_state()
     r_now = Rotation.from_quat([curr_q[4], curr_q[5], curr_q[6], curr_q[3]]).as_matrix()
-    c_after = _lambda_pose_cost(
-        curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
-        param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
-    )
+    if policy.get('object_cost_config') is not None:
+        from planning.object_pose_cost import object_cost_np
+        c_after = object_cost_np(curr_q[:7], np.r_[param.target_p_, param.target_q_], policy['object_cost_config'])
+    else:
+        c_after = _lambda_pose_cost(
+            curr_q[:3], curr_q[3:7], param.target_p_, param.target_q_,
+            param.lambda_optimizer.pos_coef, param.lambda_optimizer.ori_coef,
+        )
     return {
+        "object_cost_stage": policy.get('object_cost_stage'),
+        "progress_cost": (None if policy.get('object_progress_scale') is None else c_after / policy['object_progress_scale']),
         "tip_now": np.asarray(curr_q[7:10], dtype=float),
         "obj_pos": np.asarray(curr_q[:3], dtype=float),
         "r_now": np.asarray(r_now, dtype=float),

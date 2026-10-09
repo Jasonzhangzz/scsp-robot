@@ -6,130 +6,67 @@
 % Lemma 3: Non-conflict between l_place and l_pose
 %========================================================
 \subsection{Proof of Closest Approximation}\label{proof:closest_approximation}
-Let $\boldsymbol{W}_{ii} \in \mathbb{R}^{n \times n}$ be the original Delassus matrix. We seek a diagonal matrix $D = \operatorname{diag}(d_1, \dots, d_n)$ 
+Let $\boldsymbol{A}_{ii}=\boldsymbol{W}_{ii}-\boldsymbol{R}_{ii} \in \mathbb{R}^{n \times n}$ be the unregularized contact mobility matrix. We seek a diagonal matrix $D = \operatorname{diag}(d_1, \dots, d_n)$ 
 that minimizes the Frobenius norm of the approximation error:
 \begin{equation}
     \boldsymbol{D}^* = \arg \min_{\substack{\boldsymbol{D}}} 
-    \left\| \boldsymbol{W}_{ii} - \boldsymbol{D} \right\|_{\mathrm{F}}^2.
+    \left\| \boldsymbol{A}_{ii} - \boldsymbol{D} \right\|_{\mathrm{F}}^2.
 \end{equation}
 Expanding the Frobenius norm, we have
 \begin{equation}
-    \| \boldsymbol{W}_{ii} - \boldsymbol{D} \|_\text{F}^2 = \sum_{j \neq k} |(\boldsymbol{W}_{ii})_{jk}|^2 + \sum_{j=1}^{n} |(\boldsymbol{W}_{ii})_{jj} - d_j|^2.
+    \| \boldsymbol{A}_{ii} - \boldsymbol{D} \|_\text{F}^2 = \sum_{j \neq k} |(\boldsymbol{A}_{ii})_{jk}|^2 + \sum_{j=1}^{n} |(\boldsymbol{A}_{ii})_{jj} - d_j|^2.
 \end{equation}
 The off-diagonal terms are not affected by choosing $D$, and so the minimization reduces to independent scalar problems for each diagonal entry:
 \begin{equation}
-d_j^* = \arg \min_{d_j} |(\boldsymbol{W}_{ii})_{jj} - d_j|^2, \quad j = 1, \dots, n.
+d_j^* = \arg \min_{d_j} |(\boldsymbol{A}_{ii})_{jj} - d_j|^2, \quad j = 1, \dots, n.
 \end{equation}
-It is immediate that the minimizer is $d_j^* = (\boldsymbol{W}_{ii})_{jj}$. 
-Hence \eqref{equ:max_decomposition} is the closest diagonal approximation in the Frobenius norm with a small regularization term for numerical stability.
+It is immediate that the minimizer is $d_j^* = (\boldsymbol{A}_{ii})_{jj}$. 
+Hence $\operatorname{diag}(\boldsymbol{A}_{ii})$ is the closest diagonal approximation in the Frobenius norm. Equation~\eqref{equ:max_decomposition} adds $r\boldsymbol{I}$, matching the regularization in the coupled reference.
 
-\subsection{Local Motion-Prediction Accuracy of SCM}
-\label{app:scm_motion_accuracy}
+\subsection{Proof of Motion Approximation and Task Consistency}
+\label{app:scm_task_consistency}
 
-We prove the local bound in Lemma~\ref{lem:scm_accuracy} by comparing
-the full regularized dual problem with the diagonal surrogate at the
-same state, robot contact input, and contact geometry. Let
-$\boldsymbol{\lambda}_{\mathrm{env}}$ and
-$\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ denote the corresponding
-solutions, let $\boldsymbol{E}:=\boldsymbol{W}_{\mathrm{env}}-\boldsymbol{D}$,
-and define $\|\boldsymbol{z}\|_A=(\boldsymbol{z}^{\top}A\boldsymbol{z})^{1/2}$.
-The geometry-dependent gain is
-\begin{equation}
-    \Gamma_{\mathrm{env}}
-    :=\|M_o^{-1/2}\tilde J_{\mathrm{env}}^\top D^{-1/2}\|_2.
-    \label{eq:appB_geometry_gain}
-\end{equation}
+Compare one-step predictions with identical state, geometry, gaps, inertia, and robot input. Write $\boldsymbol{J}=\tilde{\boldsymbol{J}}_{\mathrm{env}}$, $\boldsymbol{W}=\boldsymbol{J}\boldsymbol{M}_o^{-1}\boldsymbol{J}^\top+\boldsymbol{R}$, $\boldsymbol{D}=\boldsymbol{D}_{\mathrm{env}}$, and $\boldsymbol{E}=\boldsymbol{W}-\boldsymbol{D}$. Let $\boldsymbol{\beta}$ solve the coupled reference with offset $\boldsymbol{g}=\boldsymbol{J}\boldsymbol{v}_{\mathrm{free}}+\tilde{\boldsymbol{\phi}}/h$, and let $\hat{\boldsymbol{\beta}}$ solve the diagonal problem with offset $\boldsymbol{s}=a\boldsymbol{J}\boldsymbol{v}_{\mathrm{free}}+b\tilde{\boldsymbol{\phi}}/h$. Set $\boldsymbol{\delta}=\hat{\boldsymbol{\beta}}-\boldsymbol{\beta}$.
 
-The KKT conditions of the full and diagonal problems are, respectively,
+Both problems are strictly convex quadratic programs on the nonnegative orthant. Their variational inequalities give
 \begin{equation}
 \begin{aligned}
-    &0\leq\boldsymbol{\lambda}_{\mathrm{env}}\perp
-      (\boldsymbol{W}_{\mathrm{env}}\boldsymbol{\lambda}_{\mathrm{env}}
-      +\boldsymbol{g}_{\mathrm{env}})\geq0,\\
-    &0\leq\hat{\boldsymbol{\lambda}}_{\mathrm{env}}\perp
-      (\boldsymbol{D}\hat{\boldsymbol{\lambda}}_{\mathrm{env}}
-      +\boldsymbol{g}_{\mathrm{env}})\geq0.
+\boldsymbol{\delta}^{\top}(\boldsymbol{W}\boldsymbol{\beta}+\boldsymbol{g})&\geq0,\\
+\boldsymbol{\delta}^{\top}(\boldsymbol{D}\hat{\boldsymbol{\beta}}+\boldsymbol{s})&\leq0.
 \end{aligned}
-\label{eq:appB_two_kkt}
 \end{equation}
-
-The second relation is exactly the optimality condition of the
-strictly concave diagonal surrogate dual problem. Using the
-variational inequalities associated with the two complementarity
-systems, with $\Delta\boldsymbol{\lambda}=\hat{\boldsymbol{\lambda}}_{\mathrm{env}}-\boldsymbol{\lambda}_{\mathrm{env}}$, gives
+Consequently, with $\Delta\boldsymbol{g}=\boldsymbol{g}-\boldsymbol{s}$,
 \begin{equation}
 \begin{aligned}
-    \|\Delta\boldsymbol{\lambda}\|_{D}^{2}
-    &\leq \Delta\boldsymbol{\lambda}^{\top}
-       \boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\\
-    &\leq \|\Delta\boldsymbol{\lambda}\|_{D}
-       \|D^{-1/2}\boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\|_2.
+\|\boldsymbol{\delta}\|_{\boldsymbol{W}}^2
+&\leq\boldsymbol{\delta}^{\top}(\boldsymbol{E}\hat{\boldsymbol{\beta}}+\Delta\boldsymbol{g})\\
+&\leq\|\boldsymbol{\delta}\|_{\boldsymbol{W}}
+\|\boldsymbol{E}\hat{\boldsymbol{\beta}}+\Delta\boldsymbol{g}\|_{\boldsymbol{W}^{-1}}.
 \end{aligned}
-\label{eq:appB_force_accuracy}
 \end{equation}
-After cancelling the common factor (or treating the zero-error case
-separately), this proves
-$\|\Delta\boldsymbol{\lambda}\|_D\leq\delta_\lambda$ with
-$\delta_\lambda:=\|D^{-1/2}\boldsymbol{E}\boldsymbol{\lambda}_{\mathrm{env}}\|_2$.
-
-The two velocity updates differ only through the environment reaction,
-so
+No agreement of active sets is required. Subtracting the impulse-based velocity updates gives
 \begin{equation}
-    \hat{\boldsymbol{v}}^+-\boldsymbol{v}^+
-    =\frac{1}{h}M_o^{-1}\tilde J_{\mathrm{env}}^{\top}
-      \Delta\boldsymbol{\lambda}.
+\boldsymbol{M}_o(\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+)
+=\boldsymbol{J}^{\top}\boldsymbol{\delta}.
+\label{eq:scm_wrench_consistency}
 \end{equation}
-Consequently,
-\begin{equation}
-    \|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{M_o}
-    \leq \frac{\Gamma_{\mathrm{env}}}{h}\delta_\lambda
-    =:\delta_v,
-    \qquad
-    \left|\|\hat{\boldsymbol{v}}^+\|_{M_o}
-    -\|\boldsymbol{v}^+\|_{M_o}\right|\leq\delta_v.
-    \label{eq:appB_motion_accuracy}
-\end{equation}
-
-For the direction bound, set $\boldsymbol{u}=M_o^{1/2}\boldsymbol{v}^+$,
-$\hat{\boldsymbol{u}}=M_o^{1/2}\hat{\boldsymbol{v}}^+$, and
-$a=\|\boldsymbol{u}\|_2$. If $a>\delta_v$, then
-$\|\hat{\boldsymbol{u}}-\boldsymbol{u}\|_2\leq\delta_v$ implies
+Since $\boldsymbol{R}\succeq0$,
 \begin{equation}
 \begin{aligned}
-    \boldsymbol{u}^{\top}\hat{\boldsymbol{u}}
-    &\geq a(a-\delta_v),\\
-    \|\hat{\boldsymbol{u}}\|_2&\leq a+\delta_v.
+\|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{\boldsymbol{M}_o}^2
+&=\boldsymbol{\delta}^{\top}(\boldsymbol{W}-\boldsymbol{R})\boldsymbol{\delta}\\
+&\leq\|\boldsymbol{\delta}\|_{\boldsymbol{W}}^2,
 \end{aligned}
 \end{equation}
-Therefore,
+which proves~\eqref{eq:scm_motion_error_bound}. Impulse units remove the former force-to-impulse scaling factor $1/h$.
+
+In local pose coordinates, weighted Cauchy--Schwarz gives
 \begin{equation}
-    \cos\theta_{M_o}
-    :=\frac{(\boldsymbol{v}^+)^{\top}M_o\hat{\boldsymbol{v}}^+}
-    {\|\boldsymbol{v}^+\|_{M_o}\|\hat{\boldsymbol{v}}^+\|_{M_o}}
-    \geq \frac{a-\delta_v}{a+\delta_v}.
-    \label{eq:appB_direction_consistency}
+\boldsymbol{q}^{\top}\boldsymbol{v}^+
+\leq\boldsymbol{q}^{\top}\hat{\boldsymbol{v}}^+
++\|\boldsymbol{q}\|_{\boldsymbol{M}_o^{-1}}\eta,
 \end{equation}
+which proves~\eqref{eq:scm_descent_condition}. This is a first-order descent statement on a differentiable objective branch; a decrease at a finite step also depends on step size and cost curvature. The Euler translation update additionally satisfies $\|\hat{\boldsymbol{p}}_{k+1}-\boldsymbol{p}_{k+1}\|_2=h\|\hat{\boldsymbol{v}}_{\mathrm{lin}}^+-\boldsymbol{v}_{\mathrm{lin}}^+\|_2$.
 
-The terms in the bound depend on contact geometry, object inertia, and
-the current loading. The estimate is therefore local: it applies while
-the contact set is fixed and must be recomputed after a contact
-transition. In particular, the inequalities do not imply that SCM is
-acceptable at most time steps; that frequency is an empirical quantity
-reported in Section~\ref{sec:scm_evaluation}.
+The bound relative to the hard coupled reference can be loose even when motion error is small: positive inactive-row offsets contribute to $\Delta\boldsymbol{g}$ without generating impulses, and nearly dependent contact rows make $\boldsymbol{W}^{-1}$ large. Moreover, motion depends on $\boldsymbol{J}^{\top}\boldsymbol{\delta}$, allowing impulse differences to cancel in generalized-wrench space. Geometry and parameter mismatch, contact transitions, and differences from simulator dynamics are outside these matched one-step bounds and are assessed empirically in Section~\ref{sec:scm_evaluation}.
 
-\subsection{Proof of Lemma 4}
-\label{proof:lemma4}
-Consider the lift-and-place cost 
-$\ell_{\text{lp}} = (1-\gamma) \, \ell_{\text{lift}} + \gamma\, \ell_{\text{place}}$. 
-We analyze the different cases of the switching parameter $\gamma$.
-
-\textbf{Case 1:} When $\gamma = 1$,
-$\ell_{\text{lp}} = \ell_{\text{place}}$. 
-The placing objective only guides the robot to reference points 
-$\boldsymbol{p}_{\text{ref}} \in \{\boldsymbol{\hat{p}}^*_{\text{r}}, \boldsymbol{p}_{\text{near}}\}$ 
-on the object, it does not obstruct the first-order improvement of the objective since $\boldsymbol{\hat{p}}^*_{\text{r}}$ and $\boldsymbol{p}_{\text{near}}$ is the optimal or an acceptable suboptimal solution returned by CSO for improving $\ell_{\text{obj}}$.
-
-\textbf{Case 2:} When $\gamma = 0$, $\ell_{\text{lp}} = \ell_{\text{lift}}$ and the lifting phase moves the end-effector away from the object to an intermediate pose 
-above the reference contact. Since CPO uses a short horizon, it is usually unable to reach $\mathcal{S}_{\text{contact}}$ while moving away from the object, and thus unable to obtain the gradient of $\ell_{\text{obj}}$. Therefore, $\ell_{\text{obj}}$ does not affect $\ell_{\text{lp}}$.
-
-Since $\ell_{\text{lp}}$ is a convex combination of lift and place costs, $\ell_{\text{lp}}$ and $\ell_{\text{obj}}$ are non-conflicting objectives.

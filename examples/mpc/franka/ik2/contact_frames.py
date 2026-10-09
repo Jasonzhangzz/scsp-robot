@@ -16,6 +16,17 @@ def contact_jacobian_body_frame(jacobian, body_mat):
     return jacobian
 
 
+def contact_jacobian_angular_body_frame(jacobian, body_mat):
+    """World linear / body angular velocity convention of ExplicitModel.
+
+    CSO instead uses contact_jacobian_body_frame, which transforms both blocks.
+    Preserve the input dtype used by the PhysX payload.
+    """
+    result = np.asarray(jacobian).copy()
+    result[:, 3:6] = result[:, 3:6] @ np.asarray(body_mat)
+    return result
+
+
 def clip_mpc_action(action, max_step=0.005):
     action = np.asarray(action, dtype=np.float64).reshape(3)
     limit = abs(float(max_step))

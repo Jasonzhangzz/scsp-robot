@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(current_dir)
@@ -56,7 +55,11 @@ def viewer_closed(env):
 def pack_state(env, seq, trial, contact_fields):
     force = getattr(env, "_last_osc_force", None)
     p_d = getattr(env, "_last_osc_pd", None)
+    linear_velocity, angular_velocity = env.get_object_velocity_world()
     return {
+        "sim_time": float(env.gym.get_sim_time(env.sim)),
+        "object_linear_velocity": linear_velocity,
+        "object_angular_velocity": angular_velocity,
         "seq": int(seq),
         "trial": int(trial),
         "policy_q": np.asarray(env.get_policy_state(), dtype=np.float32),
@@ -67,8 +70,11 @@ def pack_state(env, seq, trial, contact_fields):
         "osc_force": None if force is None else np.asarray(force, dtype=np.float32),
         "osc_pd": None if p_d is None else np.asarray(p_d, dtype=np.float32),
         "osc_near_press": bool(getattr(env, "_last_osc_near_press", False)),
+        "osc_upright_guard_active": bool(getattr(env, '_osc_upright_guard_active', False)),
+        "physics_pressure_releases": int(getattr(getattr(env, '_upright_execution_guard', None), 'releases', 0)),
         "policy_schedule": getattr(getattr(env, "_policy_schedule", None), "diagnostics", lambda: {})(),
         "runtime_profile": getattr(getattr(env, "runtime_profile_", None), "as_dict", lambda: {})(),
+        "scm_transitions": getattr(getattr(env, "_scm_recorder", None), "snapshot", lambda: [])(),
         **contact_fields,
     }
 
@@ -118,6 +124,8 @@ def apply_incoming(env, cmd, default_kind):
             press=None if cmd.get("press") is None else np.asarray(
                 cmd.get("press"), dtype=np.float64),
             path_blocked=cmd.get("path_blocked"),
+            release_pressure=bool(cmd.get("release_pressure", False)),
+            preserve_upright=bool(cmd.get("preserve_upright", False)),
         )
     else:
         action = np.asarray(cmd.get("action", np.zeros(7)), dtype=np.float32).reshape(7)
@@ -173,16 +181,80 @@ def open_env(args, trial_count):
         sim_device=args.sim_device,
         graphics_device_id=args.graphics_device_id,
     )
+    if param.contact_model == 'soft-scm' and (getattr(args, 'online_scm', False) or getattr(args, 'scm_record_data', False)):
+        from models.scm_online import ExecutionTransitionBuffer
+        env._scm_recorder = ExecutionTransitionBuffer(trial_count, env.sim_dt_)
     env.show_target_object_pose(param.target_p_, param.target_q_)
     table_ground = float(param.table_height) + float(args.ground_height_threshold)
     return env, contact, table_ground
+
+
+class SynchronousMPCBus:
+    """Run the existing MPC policy with exactly one physics interval per action."""
+
+    def __init__(self, args):
+        self.args = args
+        self.trial = int(getattr(args, "trial_start", 0))
+        self.trial_stop = self.trial + max(1, int(args.trial_num))
+        self.env = None
+        self.contact = None
+        self.table_ground = None
+        self.seq = 0
+        self.frames = 0
+        self.stopped = False
+
+    def wait_obs(self, timeout=180.0):
+        if self.stopped or self.trial >= self.trial_stop:
+            return {"cmd": "stop", "trial": self.trial}
+        if self.env is None:
+            self.env, self.contact, self.table_ground = open_env(self.args, self.trial)
+            self.env.hold_current_pose()
+            self.seq = 0
+            self.frames = 0
+        fields = refresh_contact(self.env, self.contact, self.table_ground)
+        recorder = getattr(self.env, '_scm_recorder', None)
+        if recorder is not None and recorder.pending is None:
+            recorder.begin(self.env.get_policy_state(), fields)
+        return pack_state(self.env, self.seq, self.trial, fields)
+
+    def publish_cmd(self, command):
+        control = command.get("cmd")
+        if control in {"stop", "end_trial"}:
+            self.close()
+            if control == "end_trial":
+                self.trial += 1
+            else:
+                self.stopped = True
+            return
+        if self.env is None:
+            raise RuntimeError("A synchronous observation is required before an action")
+        apply_incoming(self.env, command, "via")
+        count = max(1, int(round(POLICY_INTERVAL / self.env.sim_dt_)))
+        stride = viewer_draw_stride(self.env.sim_dt_, float(getattr(self.args, "viewer_hz", 60.0)))
+        for _ in range(count):
+            if viewer_closed(self.env) or getattr(self.env, "break_out_signal_", False):
+                break
+            self.frames += 1
+            draw = self.frames % stride == 0
+            self.env.step_control_frame(draw=draw, sync_realtime=False)
+            if draw:
+                self.env.sync_realtime()
+        recorder = getattr(self.env, '_scm_recorder', None)
+        if recorder is not None:
+            fields = refresh_contact(self.env, self.contact, self.table_ground)
+            recorder.finish(self.env.get_policy_state(), fields)
+        self.seq += 1
+
+    def close(self):
+        if self.env is not None:
+            self.env.close()
+            self.env = None
 
 
 def isaac_loop(bus, args, planner):
     trial_start = int(getattr(args, "trial_start", 0))
     trial_num = max(1, int(getattr(args, "trial_num", 1)))
     default_kind = "joint" if planner == "mppi" else "via"
-    contact_period = float(POLICY_INTERVAL)
     for trial_count in range(trial_start, trial_start + trial_num):
         env = None
         try:
@@ -194,7 +266,10 @@ def isaac_loop(bus, args, planner):
             seq = 0
             frames = 0
             last_contact = refresh_contact(env, contact, table_ground)
-            last_contact_t = time.monotonic()
+            recorder = getattr(env, '_scm_recorder', None)
+            if recorder is not None:
+                recorder.begin(env.get_policy_state(), last_contact)
+            policy_frames = max(1, int(round(POLICY_INTERVAL / env.sim_dt_)))
             bus.publish_obs(pack_state(env, seq, trial_count, last_contact))
             while True:
                 if viewer_closed(env) or getattr(env, "break_out_signal_", False):
@@ -216,13 +291,17 @@ def isaac_loop(bus, args, planner):
                 frames += 1
                 draw = (frames % draw_stride == 0)
                 env.step_control_frame(draw=draw, sync_realtime=False)
-                if not draw:
+                if draw:
+                    env.sync_realtime()
+                if frames % policy_frames != 0:
                     continue
-                env.sync_realtime()
-                now = time.monotonic()
-                if now - last_contact_t >= contact_period:
-                    last_contact = refresh_contact(env, contact, table_ground)
-                    last_contact_t = now
+                # Publish pose and contact geometry from the same physics
+                # frame. Rendering and wall-clock speed must not change the
+                # planner's 20 ms observation interval.
+                last_contact = refresh_contact(env, contact, table_ground)
+                if recorder is not None:
+                    recorder.finish(env.get_policy_state(), last_contact)
+                    recorder.begin(env.get_policy_state(), last_contact)
                 seq += 1
                 bus.publish_obs(pack_state(env, seq, trial_count, last_contact))
         finally:
@@ -261,6 +340,14 @@ def main():
         ),
         prefix="[isaac-runtime]",
     )
+    if args.planner == "mpc" and not getattr(args, "async_planner", True):
+        from examples.mpc.franka.ik2.test_mpc_isaac import run_mpc_planner
+        bus = SynchronousMPCBus(args)
+        try:
+            run_mpc_planner(bus, args)
+        finally:
+            bus.close()
+        return
     print(f"isaac pid={os.getpid()} planner={args.planner}", flush=True)
     bus, proc = start_planner(args, args.planner)
     try:

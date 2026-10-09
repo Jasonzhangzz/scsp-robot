@@ -8,3 +8,5 @@ warp-lang
 mujoco-warp
 trimesh
 pytest
+clarabel
+PyYAML

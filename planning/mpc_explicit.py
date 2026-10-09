@@ -116,47 +116,8 @@ def _load_acados():
     return AcadosModel, AcadosOcp, AcadosOcpSolver
 
 
-class CartesianExplicitIsaacModel:
-    def __init__(self, param):
-        self.param_ = param
-        self._init_utils()
-        self._init_model()
-
-    def _init_utils(self):
-        quat = cs.SX.sym("quat", 4)
-        h_q_body = cs.vertcat(
-            cs.horzcat(-quat[1], quat[0], quat[3], -quat[2]),
-            cs.horzcat(-quat[2], -quat[3], quat[0], quat[1]),
-            cs.horzcat(-quat[3], quat[2], -quat[1], quat[0]),
-        )
-        self.cs_qmat_body_fn_ = cs.Function("cs_qmat_body_fn_cart_isaac", [quat], [h_q_body.T])
-
-        qvel = cs.SX.sym("qvel", self.param_.n_qvel_)
-        qpos = cs.SX.sym("qpos", self.param_.n_qpos_)
-        next_obj_pos = qpos[0:3] + self.param_.h_ * qvel[0:3]
-        next_ee_pos = qpos[7:10] + self.param_.h_ * qvel[6:9]
-        next_obj_quat = qpos[3:7] + 0.5 * self.param_.h_ * self.cs_qmat_body_fn_(qpos[3:7]) @ qvel[3:6]
-        next_qpos = cs.vertcat(next_obj_pos, next_obj_quat, next_ee_pos)
-        self.cs_qposInteg_ = cs.Function("cs_qposInteg_cart_isaac", [qpos, qvel], [next_qpos])
-
-    def _init_model(self):
-        curr_q = cs.SX.sym("curr_q", self.param_.n_qpos_)
-        cmd = cs.SX.sym("cmd", self.param_.n_cmd_)
-        phi_vec = cs.SX.sym("phi_vec", self.param_.max_ncon_ * 4)
-        jac_mat = cs.SX.sym("jac_mat", self.param_.max_ncon_ * 4, self.param_.n_qvel_)
-        model_params = cs.SX.sym("sigma", 1)
-
-        b = cs.vertcat(cs.DM(self.param_.obj_mass_ * self.param_.gravity_), cs.DM(self.param_.robot_stiff_) @ cmd)
-        q_inv = np.linalg.inv(self.param_.Q)
-        raw_contact_force = -model_params @ (jac_mat @ q_inv @ b + phi_vec)
-        contact_force = cs.fmax(raw_contact_force, 0)
-        v = (q_inv @ b + q_inv @ jac_mat.T @ contact_force) / self.param_.h_
-        next_qpos = self.cs_qposInteg_(curr_q, v)
-        self.step_once_fn = cs.Function(
-            "step_once_cart_isaac",
-            [curr_q, cmd, phi_vec, jac_mat, model_params],
-            [next_qpos],
-        )
+class CartesianExplicitIsaacModel(ExplicitModel):
+    """Cartesian compatibility name; uses the configured contact predictor."""
 
 
 class MPCExplicit:
@@ -333,7 +294,19 @@ class MPCExplicit:
     def _plan_once_ipopt(self, curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub,
                          requested_solver="ipopt", fallback_reason=None):
         warm_start = self._prepare_sol_guess(sol_guess)
-        nlp_param = self.nlp_params_fn_(curr_x, phi_vec, jac_mat, cost_params, self.param_.model_params)
+        if sol_guess is None and getattr(self.param_, 'runtime_object_cost_', False):
+            # Zero quaternions in IPOPT's historical default iterate produce
+            # NaN dynamics derivatives. Start the staged objective from a
+            # feasible zero-action rollout, including normalized orientations.
+            state = np.asarray(curr_x, dtype=float)
+            rows = []
+            for _ in range(self.param_.mpc_horizon_):
+                zero = np.zeros(self.param_.n_cmd_)
+                state = np.asarray(self.model.prediction_fn(state, zero, phi_vec, jac_mat,
+                    self.model.runtime_parameters(self.param_.model_params))).reshape(-1)
+                rows.append(np.r_[zero, state])
+            warm_start = dict(warm_start, x0=np.concatenate(rows))
+        nlp_param = self.nlp_params_fn_(curr_x, phi_vec, jac_mat, cost_params, self.model.runtime_parameters(self.param_.model_params))
         nlp_lbw, nlp_ubw = self.nlp_bounds_fn_(u_lb, u_ub, self.param_.mpc_q_lb_, self.param_.mpc_q_ub_)
         raw_sol = self.ipopt_solver(
             x0=warm_start["x0"],
@@ -381,7 +354,7 @@ class MPCExplicit:
                 np.asarray(phi_vec, dtype=np.float64).reshape(-1),
                 np.asarray(jac_mat, dtype=np.float64).reshape(-1, order="F"),
                 np.asarray(cost_params, dtype=np.float64).reshape(-1),
-                np.asarray([float(self.param_.model_params)], dtype=np.float64),
+                np.asarray(self.model.runtime_parameters(self.param_.model_params), dtype=np.float64).reshape(-1),
             ]
         )
         u_guess = np.zeros((n, nu), dtype=np.float64)
@@ -434,6 +407,12 @@ class MPCExplicit:
 
         solve_status = _format_acados_status(0, sqp_iter=sqp_iter)
         stacked = np.column_stack([u_traj, x_traj[1:]]).reshape(-1)
+        reported_cost = 0.0
+        if getattr(self.param_, 'runtime_object_cost_', False):
+            reported_cost = float(self.final_cost_fn(x_traj[-1], cost_params))
+            for k in range(n):
+                state = x_traj[k + 1] if self.stage_cost_on_next else x_traj[k]
+                reported_cost += float(self.path_cost_fn(state, u_traj[k], cost_params))
         return dict(
             action=u_traj[0, :],
             u_traj=u_traj,
@@ -447,7 +426,7 @@ class MPCExplicit:
                 solver_backend="acados",
                 solve_status=solve_status,
             ),
-            cost_opt=np.asarray([0.0], dtype=np.float64),
+            cost_opt=np.asarray([reported_cost], dtype=np.float64),
             solve_status=solve_status,
             solver_backend="acados",
             requested_solver="acados",
@@ -483,12 +462,13 @@ class MPCExplicit:
             tolerance_change=1e-9,
             line_search_fn="strong_wolfe",
         )
-        Qinv = torch.as_tensor(np.linalg.inv(self.param_.Q), device=dev, dtype=dtype)
+        Qinv = torch.as_tensor(self.model.current_inverse(), device=dev, dtype=dtype)
         h = float(self.param_.h_)
         sigma = float(self.param_.model_params)
         target, quat = p[:3], p[3:7]
-        verify = p[-7]
-        virt, cp = p[-6:-3], p[-3:]
+        contact_params = p[:-9] if getattr(self.param_, 'runtime_object_cost_', False) else p
+        verify = contact_params[-7]
+        virt, cp = contact_params[-6:-3], contact_params[-3:]
 
         def closure():
             opt.zero_grad()
@@ -504,8 +484,8 @@ class MPCExplicit:
                     torch.as_tensor(self.param_.obj_mass_ * self.param_.gravity_, device=dev, dtype=dtype),
                     torch.as_tensor(self.param_.robot_stiff_, device=dev, dtype=dtype) @ u,
                 ))
-                cf = torch.clamp(-sigma * (jac @ Qinv @ b + phi), min=0)
-                v = (Qinv @ b + Qinv @ jac.T @ cf) / h
+                smooth = self.model.force_velocity_scale * (Qinv @ b)
+                v = self.model.contact_velocity_torch(smooth, jac, phi, Qinv, sigma)
                 qpred = torch.cat((
                     q[:3] + h * v[:3],
                     q[3:7] + 0.5 * h * torch.stack((
@@ -516,6 +496,7 @@ class MPCExplicit:
                     )),
                     q[-self.param_.n_robot_qpos_:] + h * v[-self.param_.n_robot_qpos_:],
                 ))
+                qpred = torch.cat((qpred[:3], qpred[3:7]/torch.linalg.vector_norm(qpred[3:7]).clamp_min(1e-8), qpred[7:]))
                 q = torch.clamp(qnext_var, qlb, qub)
                 J = J + 1e4 * torch.sum((q - qpred) ** 2) + (1 - verify) * (
                     self.param_.attract_coef * torch.log(torch.sum((q[7:10] - virt) ** 2) + 1e-3)
@@ -528,7 +509,11 @@ class MPCExplicit:
                     self.param_.contact_cost_param * torch.sum((q[:3] - q[7:10]) ** 2)
                     + (1 - self.param_.contact_cost_param) * torch.log(torch.sum((q[7:10] - cp) ** 2) + 1e-3)
                 ) + 50 * torch.sum(u * u)
-            J = J + 10 * (500 * torch.sum((q[:3] - target) ** 2) + 5 * (1 - torch.dot(q[3:7], quat) ** 2))
+            if getattr(self.param_, 'runtime_object_cost_', False):
+                from planning.object_pose_cost import object_cost_torch
+                J = J + 10 * object_cost_torch(q[:3], q[3:7], p[:7], p[-9:])
+            else:
+                J = J + 10 * (500 * torch.sum((q[:3] - target) ** 2) + 5 * (1 - torch.dot(q[3:7], quat) ** 2))
             J.backward()
             return J
 
@@ -558,15 +543,21 @@ class MPCExplicit:
         phi = cs.SX.sym("phi", self.param_.max_ncon_ * 4)
         jac = cs.SX.sym("jac", self.param_.max_ncon_ * 4, self.param_.n_qvel_)
         cp = cs.SX.sym("cp", self.path_cost_fn.size_in(2))
-        mp = cs.SX.sym("model_param", 1)
+        mp = cs.SX.sym("model_param", self.model.model_parameter_dim)
         x = cs.SX.sym("x", nx)
         u = cs.SX.sym("u", nu)
         p = cs.vvcat([phi, jac, cp, mp])
-        pred = self.model.step_once_fn(x, u, phi, jac, mp)
+        pred = self.model.prediction_fn(x, u, phi, jac, mp)
 
         model = AcadosModel()
-        cost_tag = "detour4" if getattr(self.param_, "smooth_contact_detour", False) else "v1"
-        model.name = f"mpc_explicit_{self.cost_kind}_{cost_tag}_h{n}_c{self.param_.max_ncon_}_x{nx}_u{nu}"
+        cost_tag = "staged1" if getattr(self.param_, "runtime_object_cost_", False) else "detour4" if getattr(self.param_, "smooth_contact_detour", False) else "v1"
+        import hashlib
+        if getattr(self.param_, 'runtime_object_cost_', False):
+            cost_key = hashlib.sha1((self.path_cost_fn.serialize() + self.final_cost_fn.serialize()).encode()).hexdigest()[:10]
+            cost_tag += '_' + cost_key
+        dynamics_key = hashlib.sha1(self.model.prediction_fn.serialize().encode()).hexdigest()[:10]
+        contact_tag = getattr(self.model, 'contact_model', 'explicit').replace('-', '_')
+        model.name = f"mpc_{contact_tag}_v3_{dynamics_key}_{self.cost_kind}_{cost_tag}_h{n}_c{self.param_.max_ncon_}_x{nx}_u{nu}"
         model.x, model.u, model.p = x, u, p
         model.disc_dyn_expr = pred
         if self.stage_cost_on_next:
@@ -619,7 +610,7 @@ class MPCExplicit:
         )
 
     def init_MPC(self):
-        model_params = cs.SX.sym("model_param", 1)
+        model_params = cs.SX.sym("model_param", self.model.model_parameter_dim)
         phi_vec = cs.SX.sym("phi_vec", self.param_.max_ncon_ * 4)
         jac_mat = cs.SX.sym("jac_mat", self.param_.max_ncon_ * 4, self.param_.n_qvel_)
         cost_params = cs.SX.sym("cost_params", self.path_cost_fn.size_in(2))
@@ -638,7 +629,7 @@ class MPCExplicit:
             lbw += [lbu]
             ubw += [ubu]
             w0 += [cs.DM.zeros(self.param_.n_cmd_)]
-            pred_q = self.model.step_once_fn(qk, uk, phi_vec, jac_mat, model_params)
+            pred_q = self.model.prediction_fn(qk, uk, phi_vec, jac_mat, model_params)
             if self.stage_cost_on_next:
                 j += self.path_cost_fn(pred_q, uk, cost_params)
             else:
@@ -803,11 +794,18 @@ def _build_mpc_planner_runtime(init):
     ):
         if key in init:
             setattr(param, key, init[key])
+    from planning.object_pose_cost import ObjectCostStages, target_up_axis
+    # Payload may override the generated target; derive the axis afterwards.
+    param.object_up_axis_ = target_up_axis(param.target_q_)
+    stages = ObjectCostStages(args, getattr(param, 'object_up_axis_', (0., 0., 1.)))
+    if stages.enabled:
+        param.object_cost_config_ = stages.config()
     mpc = MPCExplicit(param)
     mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
     via_step = getattr(args, "via_max_step", None)
     via_step = mpc_step if via_step is None else max(1e-4, float(via_step))
     via_lead = max(1e-4, float(getattr(args, "via_max_lead", via_step)))
+    from planning.franka_contact_motion import FrankaApproachVia, UprightRelease, bounded_step
     trackers = {
         "value_tracker": ContactValueTracker(
             tau=float(args.value_tau),
@@ -827,7 +825,7 @@ def _build_mpc_planner_runtime(init):
             eps=float(getattr(args, "model_cost_error_eps", 1e-6)),
             min_steps=int(getattr(args, "model_cost_error_min_steps", 3)),
         ),
-        "approach_via": SmoothedApproachVia(
+        "approach_via": FrankaApproachVia(
             rate=float(getattr(args, "via_smooth_rate", 0.05)),
             max_step=via_step,
             max_lead=via_lead,
@@ -837,6 +835,30 @@ def _build_mpc_planner_runtime(init):
         "sol_guess": None,
         "last_verify_cost": None,
     }
+    trackers['object_cost_stages'] = stages
+    trackers['upright_release'] = UprightRelease()
+    if param.contact_model == 'soft-scm' and (getattr(args, 'online_scm', False) or getattr(args, 'scm_record_data', False) or getattr(args, 'scm_parameters', '')):
+        from models.scm_online import OnlineSCMIdentifier
+        from pathlib import Path
+        import datetime
+        out = getattr(args, 'scm_learning_dir', '')
+        if not out:
+            out = 'examples/mpc/franka/scm/outputs/online_scm_' + datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        log = Path(out) / (str(args.obj)+'_trial_%03d'%trial_count) / 'learning.jsonl'
+        trackers['scm_identifier'] = OnlineSCMIdentifier(mpc.model,
+            min_samples=int(getattr(args,'scm_learning_min_samples',32)),
+            update_every=int(getattr(args,'scm_learning_update_every',32)), log_path=log)
+        identifier = trackers['scm_identifier']
+        checkpoint = getattr(args,'scm_parameters','')
+        if checkpoint:
+            # Mesh identity comes from the object-specific output directory;
+            # numeric convention/configuration compatibility is checked in load.
+            if Path(checkpoint).parent.name.split('_trial_')[0] != str(args.obj):
+                raise ValueError('SCM checkpoint belongs to a different object')
+            identifier.load(checkpoint)
+            mpc.model.set_scm_parameters(identifier.theta)
+            param.lambda_optimizer.set_scm_parameters(identifier.theta)
+        print('[online-scm] enabled=%s data=%s' % (bool(getattr(args,'online_scm',False)), log.parent))
     return args, param, mpc, trackers
 
 
@@ -873,8 +895,34 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     )
     from scipy.spatial.transform import Rotation
 
-    dwell = msg.get("dwell")
-    if dwell is not None:
+    identifier = trackers.get('scm_identifier')
+    if identifier is not None:
+        update = identifier.observe(msg.get('scm_transitions', []), learn=bool(getattr(args,'online_scm',False)))
+        if update is not None and update['accepted']:
+            mpc.model.set_scm_parameters(identifier.theta)
+            param.lambda_optimizer.set_scm_parameters(identifier.theta)
+        if update is not None:
+            print('[online-scm] samples=%d accepted=%s loss=%.4g->%.4g time=%.2fms scales=%s' %
+                  (update['samples'], update['accepted'], update['validation_loss_before'],
+                   update['validation_loss_after'], update['update_ms'], update['scales']))
+
+    from planning.object_pose_cost import reset_objective_history
+    stages = trackers.get('object_cost_stages')
+    changed = stages.update(msg) if stages is not None else False
+    if changed:
+        reset_objective_history(param.lambda_optimizer, mpc, trackers)
+        print('[object-cost] transition:', stages.diagnostics(), flush=True)
+    if stages is not None and stages.enabled:
+        param.object_cost_config_ = stages.config()
+        q = np.asarray(msg['policy_q'])
+        r = Rotation.from_quat([q[4], q[5], q[6], q[3]]).as_matrix()
+        param.lambda_optimizer.set_object_cost_config(stages.config(r))
+
+    dwell = None if msg.get("osc_upright_guard_active", False) else msg.get("dwell")
+    if msg.get("osc_upright_guard_active", False):
+        trackers["sol_guess"] = None
+    if (dwell is not None and not changed and
+            (stages is None or not stages.enabled or dwell.get('object_cost_stage') == stages.stage)):
         dwell = dict(dwell)
         dwell["model_cost_conf"] = trackers["model_cost_conf"]
         _apply_dwell_payload(param, args, dwell)
@@ -943,6 +991,17 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         policy["mpc_virtual_point"] = clamp_via_to_tip(tip, policy["mpc_virtual_point"], max_lead)
         policy["mpc_contact_point"] = clamp_via_to_tip(tip, policy["mpc_contact_point"], max_lead)
 
+    from planning.franka_contact_motion import bounded_step
+    release = trackers.get('upright_release')
+    if release is not None:
+        # Withdraw from the actually occupied surface, not from a newly ranked
+        # contact on the opposite face of the object.
+        samples = np.asarray(param.lambda_optimizer.sample_point)
+        local_tip = r_obj_to_world.T @ (tip - curr_q[:3])
+        nearest = int(np.argmin(np.linalg.norm(samples - local_tip, axis=1)))
+        surface = r_obj_to_world @ samples[nearest] + curr_q[:3]
+        policy['withdrawal_axis'] = tip - surface
+    release_goal = release.update(stages, msg, policy) if release is not None else None
     t1 = time.perf_counter()
     sol = mpc.plan_once(
         param.target_p_,
@@ -957,10 +1016,54 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     )
     plan_dt = time.perf_counter() - t1
     trackers["sol_guess"] = sol["sol_guess"]
+    execution_mode = 'contact'
+    if release_goal is not None:
+        execution_mode = 'settle'
+        action = bounded_step(tip, release_goal, max_lead)
+    elif release is not None and release.unsafe_prediction(stages, sol.get('rollout_q', [])):
+        execution_mode = 'upright_guard'
+        # Rejected predictions must not seed the next RTI iterate or continue
+        # applying the previous contact wrench in the executor.
+        action = np.zeros(3)
+    elif release is not None and (bool(value_info.get('path_blocked', False)) or (
+            not bool(msg.get('if_contact', False)) and
+            np.linalg.norm(tip - np.asarray(policy['p_arm_world'])) > .025)):
+        execution_mode = 'approach'
+        action = bounded_step(tip, policy['mpc_virtual_point'], max_lead)
+    else:
+        action = np.asarray(sol['action'], dtype=float).reshape(3)
+    if execution_mode != 'contact' or msg.get('osc_upright_guard_active', False):
+        trackers['sol_guess'] = None
+        policy['x_plus_opt'] = None
+        # Candidate force predictions no longer describe the executed action.
+        # Do not feed their gains into confidence/dwell on the next frame.
+        policy['execution_override'] = True
+    policy['preserve_upright'] = bool(stages is not None and stages.enabled and stages.stage == 'pose')
+    if policy['preserve_upright'] and execution_mode == 'contact':
+        # Gentle planar correction after standing; the flip-scale force is too
+        # large for this object's narrow support footprint.
+        action = bounded_step(np.zeros(3), action, min(max_lead, .001))
+    policy['release_pressure'] = execution_mode in ('settle', 'upright_guard')
+    policy['execution_mode'] = execution_mode
+    if policy['release_pressure']:
+        policy['mpc_virtual_point'] = tip + action
+        policy['mpc_contact_point'] = tip + action
+        policy['value_info']['via_phase'] = execution_mode
+        policy['value_info']['path_blocked'] = True
+        policy['verify_cost'] = verify_cost = 0.
+        trackers['arrived_hold'] = False
+        trackers['arrived_dest_idx'] = None
     policy["choose_dt"] = rank_dt
+    if stages is not None:
+        policy['object_cost_stage'] = stages.stage
+        policy['object_cost_config'] = stages.config() if stages.enabled else None
+        policy['object_progress_scale'] = stages.progress_scale() if stages.enabled else None
     return {
+        "object_cost_diagnostics": dict({} if stages is None else stages.diagnostics(),
+            pressure_releases=0 if release is None else release.releases,
+            upright_action_rejections=0 if release is None else release.rejected_tilts),
         "seq": None if msg.get("seq") is None else int(msg["seq"]),
-        "action": np.asarray(sol["action"], dtype=np.float64).reshape(3),
+        "action": np.asarray(action, dtype=np.float64).reshape(3),
         "sol_guess": sol["sol_guess"],
         "cost_opt": sol.get("cost_opt"),
         "policy": _pickle_safe(policy),
@@ -968,6 +1071,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "verify_chatter": bool(verify_chatter),
         "if_contact": bool(msg.get("if_contact", False)),
         "opt_snapshot": _opt_snapshot(param.lambda_optimizer),
+        "scm_identification": None if identifier is None else identifier.diagnostics(),
         "model_tightness": float(trackers["model_cost_conf"].tightness()),
         "model_accum": float(trackers["model_cost_conf"].accum),
         "rank_dt": float(rank_dt),

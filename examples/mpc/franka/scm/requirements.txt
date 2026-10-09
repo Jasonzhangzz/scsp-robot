@@ -1,0 +1,7 @@
+# Upstream ships its own matching MJWarp baseline; do not add the current PyPI mujoco-warp.
+comfree_warp @ git+https://github.com/asu-iris/comfree_warp.git@ba8b9969f5f7859d51b1f738f458f8d2f49be080
+mujoco==3.6.0
+warp-lang==1.16.0
+# QuantEcon v0.11.2 LCP modules are vendored with their MIT license.
+# Their NumPy/Numba dependencies are provided by the existing pi0 environment.
+# NumPy and MuJoCo's general dependencies are provided by the existing pi0 environment.

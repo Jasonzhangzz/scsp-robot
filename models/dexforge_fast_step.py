@@ -81,7 +81,7 @@ class DexForgeFastStep:
     n_planner_qvel = 20
     n_cmd = 14
 
-    def __init__(self, xml_path, device=None, contact_topk=1):
+    def __init__(self, xml_path, device=None, contact_topk=1, nworld=1, comfree_stiffness=0.2, comfree_damping=0.001):
         ensure_comfree_warp()
         for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
             os.environ.setdefault(key, "1")
@@ -104,18 +104,24 @@ class DexForgeFastStep:
         self.device_model, self.cpu_model = load_model(str(xml_path), device=self.device_name)
         configure_collision(self.device_model, CollisionConfig(contact_topk=int(contact_topk)))
         self.compiled = compile_fast_step(self.cpu_model, self.device_model)
-        self.workspace = allocate_workspace(self.compiled, 1)
+        from models.comfree_native import use_comfree_model
+        self.compiled = use_comfree_model(self.compiled, self.cpu_model,
+                                          stiffness=comfree_stiffness, damping=comfree_damping)
+        self.comfree_stiffness = float(comfree_stiffness)
+        self.comfree_damping = float(comfree_damping)
+        self.nworld = max(int(nworld), 1)
+        self.workspace = allocate_workspace(self.compiled, self.nworld)
         self.nq = int(self.cpu_model.nq)
         self.nv = int(self.cpu_model.nv)
         self.nu = int(self.cpu_model.nu)
         self.nbody = int(self.cpu_model.nbody)
         self._ids = self._resolve_ids()
-        self.qpos = wp.zeros((1, self.nq), dtype=float, device=self.device_name, requires_grad=True)
-        self.qvel = wp.zeros((1, self.nv), dtype=float, device=self.device_name, requires_grad=True)
-        self.ctrl = wp.zeros((1, self.nu), dtype=float, device=self.device_name, requires_grad=True)
-        self.force = wp.zeros((1, self.nv), dtype=float, device=self.device_name, requires_grad=True)
-        self.time = wp.zeros(1, dtype=float, device=self.device_name, requires_grad=True)
-        self.softness = wp.zeros(1, dtype=float, device=self.device_name, requires_grad=True)
+        self.qpos = wp.zeros((self.nworld, self.nq), dtype=float, device=self.device_name, requires_grad=True)
+        self.qvel = wp.zeros((self.nworld, self.nv), dtype=float, device=self.device_name, requires_grad=True)
+        self.ctrl = wp.zeros((self.nworld, self.nu), dtype=float, device=self.device_name, requires_grad=True)
+        self.force = wp.zeros((self.nworld, self.nv), dtype=float, device=self.device_name, requires_grad=True)
+        self.time = wp.zeros(self.nworld, dtype=float, device=self.device_name, requires_grad=True)
+        self.softness = wp.zeros(self.nworld, dtype=float, device=self.device_name, requires_grad=True)
         self._slots = []
         self._init_qpos = self.qpos
         self._init_qvel = self.qvel
@@ -248,17 +254,18 @@ class DexForgeFastStep:
         wp = self._wp
         base = self.compiled.base
         device = self.device_name
+        worlds = int(self.nworld)
         return StepCotangent(
-            wp.zeros((1, base.integration.position_count), dtype=float, device=device),
-            wp.zeros((1, base.integration.velocity_count), dtype=float, device=device),
-            wp.zeros((1, base.integration.velocity_count), dtype=float, device=device),
-            wp.zeros(1, dtype=float, device=device),
-            wp.zeros((1, base.integration.velocity_count), dtype=float, device=device),
-            wp.zeros((1, base.kinematics.body_count), dtype=wp.vec3, device=device),
-            wp.zeros((1, base.kinematics.body_count), dtype=wp.mat33, device=device),
-            wp.zeros((1, base.collision.contact_count), dtype=float, device=device),
-            wp.zeros((1, base.collision.contact_count), dtype=wp.vec3, device=device),
-            wp.zeros((1, base.collision.contact_count), dtype=wp.mat33, device=device),
+            wp.zeros((worlds, base.integration.position_count), dtype=float, device=device),
+            wp.zeros((worlds, base.integration.velocity_count), dtype=float, device=device),
+            wp.zeros((worlds, base.integration.velocity_count), dtype=float, device=device),
+            wp.zeros(worlds, dtype=float, device=device),
+            wp.zeros((worlds, base.integration.velocity_count), dtype=float, device=device),
+            wp.zeros((worlds, base.kinematics.body_count), dtype=wp.vec3, device=device),
+            wp.zeros((worlds, base.kinematics.body_count), dtype=wp.mat33, device=device),
+            wp.zeros((worlds, base.collision.contact_count), dtype=float, device=device),
+            wp.zeros((worlds, base.collision.contact_count), dtype=wp.vec3, device=device),
+            wp.zeros((worlds, base.collision.contact_count), dtype=wp.mat33, device=device),
         )
 
     def allocate_graph_chain(self, horizon):
@@ -288,17 +295,17 @@ class DexForgeFastStep:
         qpos = self._init_qpos
         qvel = self._init_qvel
         for _ in range(int(horizon) - len(self._slots)):
-            ctrl = wp.zeros((1, self.nu), dtype=float, device=self.device_name, requires_grad=True)
-            force = wp.zeros((1, self.nv), dtype=float, device=self.device_name, requires_grad=True)
-            time = wp.zeros(1, dtype=float, device=self.device_name, requires_grad=True)
-            softness = wp.zeros(1, dtype=float, device=self.device_name, requires_grad=True)
+            ctrl = wp.zeros((self.nworld, self.nu), dtype=float, device=self.device_name, requires_grad=True)
+            force = wp.zeros((self.nworld, self.nv), dtype=float, device=self.device_name, requires_grad=True)
+            time = wp.zeros(self.nworld, dtype=float, device=self.device_name, requires_grad=True)
+            softness = wp.zeros(self.nworld, dtype=float, device=self.device_name, requires_grad=True)
             dynamics = self._DynamicsInput()
             dynamics.qpos = qpos
             dynamics.qvel = qvel
             dynamics.ctrl = ctrl
             dynamics.qfrc_applied = force
             inputs = self._StepInput(dynamics, time, softness)
-            workspace = allocate_workspace(self.compiled, 1)
+            workspace = allocate_workspace(self.compiled, self.nworld)
             recorded = record(
                 self.compiled, inputs, workspace, freeze_frame_vjp=FREEZE_TANGENT_GAUGE_VJP
             )
@@ -320,9 +327,24 @@ class DexForgeFastStep:
         # #endregion
 
     def _assign_state(self, qpos, qvel, ctrl):
-        self.qpos.assign(np.asarray(qpos, dtype=np.float32).reshape(1, self.nq))
-        self.qvel.assign(np.asarray(qvel, dtype=np.float32).reshape(1, self.nv))
-        self.ctrl.assign(np.asarray(ctrl, dtype=np.float32).reshape(1, self.nu))
+        qpos = np.asarray(qpos, dtype=np.float32).reshape(-1, self.nq)
+        qvel = np.asarray(qvel, dtype=np.float32).reshape(-1, self.nv)
+        ctrl = np.asarray(ctrl, dtype=np.float32).reshape(-1, self.nu)
+        if qpos.shape[0] == 1 and self.nworld > 1:
+            qpos = np.repeat(qpos, self.nworld, axis=0)
+            qvel = np.repeat(qvel, self.nworld, axis=0)
+            ctrl = np.repeat(ctrl, self.nworld, axis=0)
+        self.qpos.assign(qpos.reshape(self.nworld, self.nq))
+        self.qvel.assign(qvel.reshape(self.nworld, self.nv))
+        self.ctrl.assign(ctrl.reshape(self.nworld, self.nu))
+        self.force.zero_()
+
+    def broadcast_state(self, qpos, qvel):
+        """Copy one MuJoCo state into every rollout world."""
+        qpos = np.asarray(qpos, dtype=np.float32).reshape(self.nq)
+        qvel = np.asarray(qvel, dtype=np.float32).reshape(self.nv)
+        self.qpos.assign(np.repeat(qpos.reshape(1, -1), self.nworld, axis=0))
+        self.qvel.assign(np.repeat(qvel.reshape(1, -1), self.nworld, axis=0))
         self.force.zero_()
 
     def extras_from_body(self, qpos, body_pos):
@@ -384,31 +406,20 @@ class DexForgeFastStep:
                 rec = ctx.recorded
                 result = rec.result
 
+                cotangent = model._allocate_cotangent()
                 def _seed(target, grad):
-                    if grad is None:
-                        host = np.zeros(np.asarray(target.numpy()).shape, dtype=np.float32)
-                    else:
-                        host = grad.detach().float().cpu().numpy()
-                    target.grad.assign(np.asarray(host, dtype=np.float32).reshape(target.shape))
+                    shape = np.asarray(target.numpy()).shape
+                    host = np.zeros(shape, dtype=np.float32) if grad is None else grad.detach().float().cpu().numpy()
+                    target.assign(np.asarray(host, dtype=np.float32).reshape(shape))
 
                 try:
-                    _seed(result.qpos, g_qpos)
-                    _seed(result.qvel, g_qvel)
-                    _seed(result.body_position, g_body)
-                    _seed(result.body_matrix, g_mat)
-                    _seed(result.contact_distance, g_dist)
-                    cotangent = StepCotangent(
-                        result.qpos.grad,
-                        result.qvel.grad,
-                        result.qacc.grad,
-                        result.time.grad,
-                        result.constraint_force.grad,
-                        result.body_position.grad,
-                        result.body_matrix.grad,
-                        result.contact_distance.grad,
-                        result.contact_position.grad,
-                        result.contact_frame.grad,
-                    )
+                    # Seeds must not alias result.grad: the native backward
+                    # clears those buffers before reading its cotangent.
+                    _seed(cotangent.qpos, g_qpos)
+                    _seed(cotangent.qvel, g_qvel)
+                    _seed(cotangent.body_position, g_body)
+                    _seed(cotangent.body_matrix, g_mat)
+                    _seed(cotangent.contact_distance, g_dist)
                     grads = backward(
                         BackwardCall(model.compiled, model._step_input(), model.workspace, rec, cotangent)
                     )
@@ -418,11 +429,8 @@ class DexForgeFastStep:
                         _wp_to_torch(grads.qvel, ctx.qpos_dev).reshape(model.nv),
                         _wp_to_torch(grads.ctrl, ctx.qpos_dev).reshape(model.nu),
                     )
-                except Exception:
-                    zeros_q = torch.zeros(model.nq, device=ctx.qpos_dev, dtype=torch.float32)
-                    zeros_v = torch.zeros(model.nv, device=ctx.qpos_dev, dtype=torch.float32)
-                    zeros_u = torch.zeros(model.nu, device=ctx.qpos_dev, dtype=torch.float32)
-                    return zeros_q, zeros_v, zeros_u
+                except Exception as exc:
+                    raise RuntimeError("ComFree native step backward failed") from exc
 
         return _Fn.apply(qpos, qvel, ctrl)
 
@@ -551,18 +559,11 @@ class DexForgeFastStep:
                             None if g_states is None else g_states[step],
                             None if g_capsules is None else g_capsules[step],
                         )
-                        cotangent = StepCotangent(
-                            result.qpos.grad,
-                            result.qvel.grad,
-                            result.qacc.grad,
-                            result.time.grad,
-                            result.constraint_force.grad,
-                            result.body_position.grad,
-                            result.body_matrix.grad,
-                            result.contact_distance.grad,
-                            result.contact_position.grad,
-                            result.contact_frame.grad,
-                        )
+                        cotangent = model._allocate_cotangent()
+                        for name in cotangent.__dataclass_fields__:
+                            wp_array = getattr(result, name).grad
+                            if wp_array is not None:
+                                model._wp.copy(getattr(cotangent, name), wp_array)
                         grads = backward(
                             BackwardCall(model.compiled, slot.inputs, slot.workspace, rec, cotangent)
                         )
@@ -571,8 +572,8 @@ class DexForgeFastStep:
                         g_qvel = _wp_to_torch(grads.qvel, ctx.device).reshape(model.nv)
                     model._wp.synchronize()
                     return torch.stack(list(reversed(g_ctrl)), dim=0)
-                except Exception:
-                    return torch.zeros(horizon, model.nu, device=ctx.device, dtype=torch.float32)
+                except Exception as exc:
+                    raise RuntimeError("ComFree native rollout backward failed") from exc
 
         return _HorizonFn.apply(ctrl_traj)
 

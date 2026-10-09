@@ -104,6 +104,125 @@ def ensure_kernels():
         g_cmd: wp.array2d(dtype=float)
         g_capsules: wp.array(dtype=wp.vec3, ndim=2)
 
+    @wp.func
+    def horizon_step_loss(
+        obj_pos: wp.vec3,
+        obj_quat: wp.vec4,
+        left: wp.vec3,
+        right: wp.vec3,
+        phi0: float,
+        phi1: float,
+        contact0: wp.vec3,
+        contact1: wp.vec3,
+        normal0: wp.vec3,
+        normal1: wp.vec3,
+        action: float,
+        smooth: float,
+        cap0: wp.vec3,
+        cap1: wp.vec3,
+        cap2: wp.vec3,
+        cap3: wp.vec3,
+        cap4: wp.vec3,
+        cap5: wp.vec3,
+        has_capsules: int,
+        has_object: int,
+        has_force: int,
+        force_cost: float,
+        target_pos: wp.vec3,
+        target_quat: wp.vec4,
+        step: int,
+        horizon: int,
+        w: Weights,
+    ) -> float:
+        out0 = -normal0
+        out1 = -normal1
+        t0 = contact0 + out0 * w.approach_offset
+        t1 = contact1 + out1 * w.approach_offset
+        mm = w.query_mm
+        assigned0 = wp.length_sq((left - t0) * mm)
+        assigned1 = wp.length_sq((right - t1) * mm)
+        attract = assigned0 + assigned1
+        swapped = wp.length_sq((left - t1) * mm) + wp.length_sq((right - t0) * mm)
+        swap = wp.max(attract - swapped, 0.0)
+        swap = swap * swap
+        d0 = wp.length(left - t0)
+        d1 = wp.length(right - t1)
+        gate_scale = wp.max(w.gate_scale, 1.0e-4)
+        g0 = _sigmoid((gate_scale - d0) / gate_scale)
+        g1 = _sigmoid((gate_scale - d1) / gate_scale)
+        both = g0 * g1
+        depth0 = wp.max(phi0 - w.target_phi, 0.0) * g0
+        depth1 = wp.max(phi1 - w.target_phi, 0.0) * g1
+        pen0 = wp.max(-phi0 - w.penetration_limit, 0.0)
+        pen1 = wp.max(-phi1 - w.penetration_limit, 0.0)
+        object_pos = float(0.0)
+        object_lat = float(0.0)
+        object_ori = float(0.0)
+        if has_object == 1:
+            object_pos = both * wp.length_sq(obj_pos - target_pos)
+            dxy = wp.vec2(obj_pos[0] - target_pos[0], obj_pos[1] - target_pos[1])
+            object_lat = both * wp.dot(dxy, dxy)
+            object_ori = both * (1.0 - wp.dot(obj_quat, target_quat) * wp.dot(obj_quat, target_quat))
+        left_progress = wp.dot(left - t0, -out0)
+        right_progress = wp.dot(right - t1, -out1)
+        sync = (left_progress - right_progress) * (left_progress - right_progress)
+        used_force = float(0.0)
+        if has_force == 1:
+            used_force = force_cost
+        tip_over = wp.max(w.tip_sep_min - wp.length(left - right), 0.0) * mm
+        inter_arm = float(0.0)
+        if has_capsules == 1:
+            r0 = w.capsule_radius
+            r1 = w.wrist_radius
+            r2 = w.tip_sphere_radius
+            for left_i in range(3):
+                a = cap0
+                ra = r0
+                if left_i == 1:
+                    a = cap1
+                    ra = r1
+                if left_i == 2:
+                    a = cap2
+                    ra = r2
+                for right_i in range(3):
+                    b = cap3
+                    rb = r0
+                    if right_i == 1:
+                        b = cap4
+                        rb = r1
+                    if right_i == 2:
+                        b = cap5
+                        rb = r2
+                    dist = wp.max(wp.length(a - b), 1.0e-8)
+                    over = wp.max(ra + rb + w.capsule_margin - dist, 0.0) * mm
+                    inter_arm += over * over
+            gap = _segment_distance(cap0, cap2, cap3, cap5)
+            cap_over = wp.max(2.0 * w.capsule_radius + w.capsule_margin - gap, 0.0) * mm
+            inter_arm += cap_over * cap_over
+        value = (
+            w.contact_attract * attract
+            + w.swap * swap
+            + w.contact_depth * (depth0 * depth0 + depth1 * depth1)
+            + w.penetration * (pen0 * pen0 + pen1 * pen1)
+            + w.object_position * object_pos
+            + w.object_lateral * object_lat
+            + w.object_orientation * object_ori
+            + w.action * action
+            + w.smooth * smooth
+            + w.sync * sync
+            + w.force * used_force
+            + w.inter_arm * inter_arm
+            + w.tip_sep * (tip_over * tip_over)
+        )
+        if step + 1 == horizon:
+            value += w.terminal * (
+                w.contact_attract * attract
+                + w.swap * swap
+                + w.object_position * object_pos
+                + w.object_orientation * object_ori
+            )
+        return value
+
     @wp.kernel(enable_backward=False)
     def evaluate_horizon(job: HorizonJob):
         step = wp.tid()
@@ -222,30 +341,53 @@ def ensure_kernels():
             )
             cap_over = wp.max(2.0 * w.capsule_radius + w.capsule_margin - gap, 0.0) * mm
             inter_arm += cap_over * cap_over
-        path = (
-            w.contact_attract * attract
-            + w.swap * swap
-            + w.contact_depth * contact_depth
-            + w.penetration * penetration
-            + w.object_position * object_pos
-            + w.object_lateral * object_lat
-            + w.object_orientation * object_ori
-            + w.action * action
-            + w.smooth * smooth
-            + w.sync * sync
-            + w.force * force_cost
-            + w.inter_arm * inter_arm
-            + w.tip_sep * (tip_sep * tip_sep)
+        zero = wp.vec3(0.0, 0.0, 0.0)
+        cap0 = zero
+        cap1 = zero
+        cap2 = zero
+        cap3 = zero
+        cap4 = zero
+        cap5 = zero
+        if job.has_capsules == 1:
+            cap0 = job.capsules[step, 0]
+            cap1 = job.capsules[step, 1]
+            cap2 = job.capsules[step, 2]
+            cap3 = job.capsules[step, 3]
+            cap4 = job.capsules[step, 4]
+            cap5 = job.capsules[step, 5]
+        wp.atomic_add(
+            job.loss,
+            0,
+            horizon_step_loss(
+                obj_pos,
+                obj_quat,
+                left,
+                right,
+                phi0,
+                phi1,
+                c0,
+                c1,
+                n0,
+                n1,
+                action,
+                smooth,
+                cap0,
+                cap1,
+                cap2,
+                cap3,
+                cap4,
+                cap5,
+                job.has_capsules,
+                job.flags[0],
+                job.flags[1],
+                force_cost,
+                target_pos,
+                target_quat,
+                step,
+                job.horizon,
+                w,
+            ),
         )
-        terminal = float(0.0)
-        if step + 1 == job.horizon:
-            terminal = w.terminal * (
-                w.contact_attract * attract
-                + w.swap * swap
-                + w.object_position * object_pos
-                + w.object_orientation * object_ori
-            )
-        wp.atomic_add(job.loss, 0, path + terminal)
 
         scale = 1.0
         if step + 1 == job.horizon:
@@ -554,14 +696,167 @@ def ensure_kernels():
             wp.vec3(0.0, 0.0, 0.0),
         )
 
+    @wp.struct
+    class BatchJob:
+        obj_pos: wp.array(dtype=wp.vec3, ndim=2)
+        obj_quat: wp.array(dtype=wp.vec4, ndim=2)
+        left: wp.array(dtype=wp.vec3, ndim=2)
+        right: wp.array(dtype=wp.vec3, ndim=2)
+        phi: wp.array3d(dtype=float)
+        capsules: wp.array(dtype=wp.vec3, ndim=3)
+        cmd: wp.array3d(dtype=float)
+        contact_local: wp.array(dtype=wp.vec3)
+        normal_local: wp.array(dtype=wp.vec3)
+        target_pos: wp.array(dtype=wp.vec3)
+        target_quat: wp.array(dtype=wp.vec4)
+        flags: wp.array(dtype=int)
+        has_capsules: int
+        cmd_dim: int
+        horizon: int
+        weights: Weights
+        loss: wp.array(dtype=float)
+
+    @wp.kernel(enable_backward=False)
+    def evaluate_batch(job: BatchJob):
+        world, step = wp.tid()
+        w = job.weights
+        obj_pos = job.obj_pos[world, step]
+        obj_quat = job.obj_quat[world, step]
+        left = job.left[world, step]
+        right = job.right[world, step]
+        c0 = _quat_rotate(obj_quat, job.contact_local[0]) + obj_pos
+        c1 = _quat_rotate(obj_quat, job.contact_local[1]) + obj_pos
+        n0 = _quat_rotate(obj_quat, job.normal_local[0])
+        n1 = _quat_rotate(obj_quat, job.normal_local[1])
+        action = float(0.0)
+        for index in range(job.cmd_dim):
+            action += job.cmd[world, step, index] * job.cmd[world, step, index]
+        smooth = float(0.0)
+        if step + 1 < job.horizon:
+            for index in range(job.cmd_dim):
+                diff = job.cmd[world, step + 1, index] - job.cmd[world, step, index]
+                smooth += diff * diff
+        zero = wp.vec3(0.0, 0.0, 0.0)
+        cap0 = zero
+        cap1 = zero
+        cap2 = zero
+        cap3 = zero
+        cap4 = zero
+        cap5 = zero
+        if job.has_capsules == 1:
+            cap0 = job.capsules[world, step, 0]
+            cap1 = job.capsules[world, step, 1]
+            cap2 = job.capsules[world, step, 2]
+            cap3 = job.capsules[world, step, 3]
+            cap4 = job.capsules[world, step, 4]
+            cap5 = job.capsules[world, step, 5]
+        wp.atomic_add(
+            job.loss,
+            world,
+            horizon_step_loss(
+                obj_pos,
+                obj_quat,
+                left,
+                right,
+                job.phi[world, step, 0],
+                job.phi[world, step, 1],
+                c0,
+                c1,
+                n0,
+                n1,
+                action,
+                smooth,
+                cap0,
+                cap1,
+                cap2,
+                cap3,
+                cap4,
+                cap5,
+                job.has_capsules,
+                job.flags[0],
+                job.flags[1],
+                0.0,
+                job.target_pos[0],
+                job.target_quat[0],
+                step,
+                job.horizon,
+                w,
+            ),
+        )
+
+    @wp.struct
+    class ExtractWorldJob:
+        qpos: wp.array2d(dtype=float)
+        body_pos: wp.array(dtype=wp.vec3, ndim=2)
+        body_mat: wp.array(dtype=wp.mat33, ndim=2)
+        contact_distance: wp.array2d(dtype=float)
+        contact_frame: wp.array(dtype=wp.mat33, ndim=2)
+        obj_qpos: int
+        left_tip: int
+        right_tip: int
+        left_forearm: int
+        right_forearm: int
+        left_wrist: int
+        right_wrist: int
+        left_off: wp.vec3
+        right_off: wp.vec3
+        left_row: int
+        right_row: int
+        step: int
+        obj_pos: wp.array(dtype=wp.vec3, ndim=2)
+        obj_quat: wp.array(dtype=wp.vec4, ndim=2)
+        left: wp.array(dtype=wp.vec3, ndim=2)
+        right: wp.array(dtype=wp.vec3, ndim=2)
+        capsules: wp.array(dtype=wp.vec3, ndim=3)
+        phi: wp.array3d(dtype=float)
+
+    @wp.kernel(enable_backward=False)
+    def extract_world(job: ExtractWorldJob):
+        world = wp.tid()
+        adr = job.obj_qpos
+        obj_pos = wp.vec3(job.qpos[world, adr], job.qpos[world, adr + 1], job.qpos[world, adr + 2])
+        obj_quat = wp.vec4(
+            job.qpos[world, adr + 3],
+            job.qpos[world, adr + 4],
+            job.qpos[world, adr + 5],
+            job.qpos[world, adr + 6],
+        )
+        left_mat = job.body_mat[world, job.left_tip]
+        right_mat = job.body_mat[world, job.right_tip]
+        left = job.body_pos[world, job.left_tip] + left_mat * job.left_off
+        right = job.body_pos[world, job.right_tip] + right_mat * job.right_off
+        step = job.step
+        job.obj_pos[world, step] = obj_pos
+        job.obj_quat[world, step] = obj_quat
+        job.left[world, step] = left
+        job.right[world, step] = right
+        job.capsules[world, step, 0] = job.body_pos[world, job.left_forearm]
+        job.capsules[world, step, 1] = job.body_pos[world, job.left_wrist]
+        job.capsules[world, step, 2] = left
+        job.capsules[world, step, 3] = job.body_pos[world, job.right_forearm]
+        job.capsules[world, step, 4] = job.body_pos[world, job.right_wrist]
+        job.capsules[world, step, 5] = right
+        phi0 = float(1.0)
+        phi1 = float(1.0)
+        if job.left_row >= 0:
+            phi0 = job.contact_distance[world, job.left_row]
+        if job.right_row >= 0:
+            phi1 = job.contact_distance[world, job.right_row]
+        job.phi[world, step, 0] = phi0
+        job.phi[world, step, 1] = phi1
+
     _KERNELS = SimpleNamespace(
         wp=wp,
         Weights=Weights,
         HorizonJob=HorizonJob,
+        BatchJob=BatchJob,
         ExtractJob=ExtractJob,
+        ExtractWorldJob=ExtractWorldJob,
         SeedJob=SeedJob,
         evaluate_horizon=evaluate_horizon,
+        evaluate_batch=evaluate_batch,
         extract_step=extract_step,
+        extract_world=extract_world,
         seed_cotangent=seed_cotangent,
         zero_vec3=zero_vec3,
         zero_vec3_2d=zero_vec3_2d,
@@ -708,3 +1003,61 @@ def evaluate_bigrasp_gs_cost_wp(states, extras, cmd_traj, context, weights, devi
     wp.launch(k.evaluate_horizon, dim=horizon, inputs=[job])
     wp.synchronize()
     return float(np.asarray(job.loss.numpy()).reshape(-1)[0])
+
+
+def evaluate_batched_cost_wp(states, extras, cmd_traj, context, weights, device="cpu"):
+    """World-batched twin of ``evaluate_bigrasp_gs_cost``. ``states`` is ``(world, horizon, 13)``."""
+    k = ensure_kernels()
+    wp = k.wp
+    if hasattr(states, "detach"):
+        states = states.detach().cpu().numpy()
+    states = np.asarray(states, dtype=np.float32)
+    if states.ndim == 2:
+        states = states.reshape(1, states.shape[0], states.shape[1])
+    worlds, horizon, _ = states.shape
+    if hasattr(cmd_traj, "detach"):
+        cmd_traj = cmd_traj.detach().cpu().numpy()
+    cmd = np.asarray(cmd_traj, dtype=np.float32)
+    if cmd.ndim == 2:
+        cmd = np.broadcast_to(cmd, (worlds, cmd.shape[0], cmd.shape[1])).copy()
+    phi = _as_np(extras["phi"], (worlds, horizon, 2))
+    contact = _as_np(context.get("contact_points_local"), (2, 3))
+    normals = context.get("normals_local")
+    if normals is None:
+        normals = np.array([[0.0, 0.0, -1.0], [0.0, 0.0, -1.0]], dtype=np.float32)
+    normals = _as_np(normals, (2, 3))
+    capsules = extras.get("capsules")
+    has_capsules = 0 if capsules is None else 1
+    if capsules is None:
+        capsules = np.zeros((worlds, horizon, 6, 3), dtype=np.float32)
+    else:
+        capsules = np.asarray(capsules, dtype=np.float32).reshape(worlds, horizon, 6, 3)
+    target_p = context.get("target_object_pos")
+    has_target = 1 if target_p is not None else 0
+    if target_p is None:
+        target_p = np.zeros(3, dtype=np.float32)
+        target_q = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    else:
+        target_p = _as_np(target_p, (3,))
+        target_q = _as_np(context.get("target_object_quat"), (4,))
+    job = k.BatchJob()
+    job.obj_pos = wp.array(states[:, :, 0:3], dtype=wp.vec3, device=device)
+    job.obj_quat = wp.array(states[:, :, 3:7], dtype=wp.vec4, device=device)
+    job.left = wp.array(states[:, :, 7:10], dtype=wp.vec3, device=device)
+    job.right = wp.array(states[:, :, 10:13], dtype=wp.vec3, device=device)
+    job.phi = wp.array(phi, dtype=float, device=device)
+    job.capsules = wp.array(capsules, dtype=wp.vec3, device=device)
+    job.cmd = wp.array(cmd, dtype=float, device=device)
+    job.contact_local = wp.array(contact, dtype=wp.vec3, device=device)
+    job.normal_local = wp.array(normals, dtype=wp.vec3, device=device)
+    job.target_pos = wp.array(target_p.reshape(1, 3), dtype=wp.vec3, device=device)
+    job.target_quat = wp.array(target_q.reshape(1, 4), dtype=wp.vec4, device=device)
+    job.flags = wp.array(np.array([has_target, 0], dtype=np.int32), dtype=int, device=device)
+    job.has_capsules = int(has_capsules)
+    job.cmd_dim = int(cmd.shape[-1])
+    job.horizon = int(horizon)
+    job.weights = weights_struct(weights)
+    job.loss = wp.zeros(worlds, dtype=float, device=device)
+    wp.launch(k.evaluate_batch, dim=(worlds, horizon), inputs=[job])
+    wp.synchronize()
+    return np.asarray(job.loss.numpy(), dtype=np.float64).reshape(worlds)

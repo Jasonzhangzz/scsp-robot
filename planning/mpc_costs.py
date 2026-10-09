@@ -172,6 +172,11 @@ def pack_cost_params(kind, param, path_cost_fn, **kwargs):
         compact = _pack_compact_pose_cost_params(param, **kwargs)
         if compact.size == expected:
             packed = compact
+        elif getattr(param, 'runtime_object_cost_', False):
+            from planning.object_pose_cost import param_cost_config
+            # The generic fingertip vector ends in legacy curr_ori_coef;
+            # ExplicitMPCParams has no such scalar in its cost signature.
+            packed = np.r_[packed[:-1], param_cost_config(param)]
     return _fit_cost_vector(packed, expected)
 
 

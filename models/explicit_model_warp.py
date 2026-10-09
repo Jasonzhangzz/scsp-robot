@@ -10,8 +10,9 @@ unilateral spring-damper from ``comfree_core``:
     f = max(efc_D * (-b * efc_vel - k * efc_penetration), 0)
     qfrc_constraint += J^T f
 
-``efc.pos`` / ``efc.D`` are the standard mjwarp equivalents of comfree's
-``efc_dist`` / ``efc_mass``.  Collision and integration stay on system
+Constraint impedance uses upstream's fixed 1 cm width. Contact row masses
+are recomputed from the bodies' translational inverse weights, omitting
+MuJoCo's friction/impratio multiplier as in the ASU model.  Collision and integration stay on system
 ``mujoco_warp``; only the constraint force is complementarity-free.
 
 Contact kernels are adapted from ``thirdparty/comfree_warp/comfree_warp/comfree_core``
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover - torch Adam path does not need Warp
 try:
     import mujoco_warp as mjwarp
     from mujoco_warp._src.warp_util import event_scope
+    from mujoco_warp._src.types import vec5
 except ImportError:  # pragma: no cover - public API fallback
     mjwarp = None
 
@@ -88,6 +90,45 @@ def _compute_qfrc_constraint(
 
 
 @wp.kernel
+def _contact_row_masses(
+    nefc: wp.array(dtype=int),
+    row_type: wp.array2d(dtype=int),
+    row_id: wp.array2d(dtype=int),
+    position: wp.array2d(dtype=float),
+    margin: wp.array2d(dtype=float),
+    geom: wp.array(dtype=wp.vec2i),
+    solimp: wp.array(dtype=vec5),
+    geom_bodyid: wp.array(dtype=int),
+    body_invweight: wp.array2d(dtype=wp.vec2),
+    mass: wp.array2d(dtype=float),
+):
+    world, row = wp.tid()
+    if row >= nefc[world]:
+        return
+    # mjCNSTR_CONTACT_FRICTIONLESS / PYRAMIDAL.
+    if row_type[world, row] != 5 and row_type[world, row] != 6:
+        return
+    contact = row_id[world, row]
+    bodies = geom[contact]
+    if bodies[0] < 0 or bodies[1] < 0:
+        return  # Flexible contacts are not used by these rigid-body planners.
+    model = world % body_invweight.shape[0]
+    weight = body_invweight[model, geom_bodyid[bodies[0]]][0]
+    weight += body_invweight[model, geom_bodyid[bodies[1]]][0]
+    imp_params = solimp[contact]
+    minimum = wp.clamp(imp_params[0], .0001, .9999)
+    maximum = wp.clamp(imp_params[1], .0001, .9999)
+    middle = wp.clamp(imp_params[3], .0001, .9999)
+    power = wp.max(imp_params[4], 1.0)
+    x = wp.abs(position[world, row]-margin[world, row])/.01
+    curve = wp.where(x < middle, wp.pow(x, power)/wp.pow(middle, power-1.0),
+                     1.0-wp.pow(1.0-x, power)/wp.pow(1.0-middle, power-1.0))
+    imp = wp.clamp(minimum+(maximum-minimum)*curve, minimum, maximum)
+    imp = wp.where(x > 1.0, maximum, imp)
+    mass[world, row] = 1.0/wp.max(weight*(1.0-imp)/imp, 1e-15)
+
+
+@wp.kernel
 def _compute_qfrc_total(
     qfrc_smooth: wp.array2d(dtype=float),
     qfrc_constraint: wp.array2d(dtype=float),
@@ -108,6 +149,8 @@ def attach_comfree_fields(model, data, comfree_stiffness=0.2, comfree_damping=0.
         model.comfree_damping = wp.array(
             np.atleast_1d(comfree_damping), dtype=wp.float32, device=device
         )
+    if not hasattr(data.efc, "efc_mass"):
+        data.efc.efc_mass = wp.zeros(data.efc.D.shape, dtype=float, device=device)
     if not hasattr(data, "qvel_smooth_pred"):
         data.qvel_smooth_pred = wp.zeros(data.qvel.shape, dtype=float, device=device)
     if not hasattr(data, "qfrc_total"):
@@ -118,6 +161,11 @@ def attach_comfree_fields(model, data, comfree_stiffness=0.2, comfree_damping=0.
 @event_scope
 def compute_qfrc_total(model, data):
     """Closed-form constraint forces, then ``qfrc_total = qfrc_smooth + qfrc_constraint``."""
+    wp.copy(data.efc.efc_mass, data.efc.D)
+    wp.launch(_contact_row_masses, dim=data.efc.pos.shape,
+              inputs=[data.nefc, data.efc.type, data.efc.id, data.efc.pos, data.efc.margin,
+                      data.contact.geom, data.contact.solimp, model.geom_bodyid, model.body_invweight0],
+              outputs=[data.efc.efc_mass])
     wp.launch(
         _advance_vel,
         dim=(data.nworld, model.nv),
@@ -133,7 +181,7 @@ def compute_qfrc_total(model, data):
             model.comfree_damping,
             data.efc.J,
             data.efc.pos,
-            data.efc.D,
+            data.efc.efc_mass,
             data.qvel_smooth_pred,
             model.nv,
             data.nefc,
@@ -228,6 +276,15 @@ class ExplicitModelWarp:
         wp.init()
         wp.set_device(self.device)
         self.model_wp = mjwarp.put_model(mj_model)
+        # Upstream fixes width in _efc_row, including limits/equalities.
+        # Set uploaded widths once; the CPU execution model is untouched.
+        for name in ("geom_solimp", "pair_solimp", "jnt_solimp", "eq_solimp", "tendon_solimp"):
+            if hasattr(self.model_wp, name):
+                field = getattr(self.model_wp, name)
+                values = field.numpy()
+                if values.size:
+                    values[..., 2] = .01
+                    field.assign(values)
         self.data_wp = self.make_data()
 
     def make_data(self):

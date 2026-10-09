@@ -250,6 +250,11 @@ class IsaacBus:
         return put_latest(self.obs_q, obs)
 
     def publish_cmd(self, cmd):
+        if isinstance(cmd, dict) and cmd.get("cmd") in {"end_trial", "stop"}:
+            # Episode transitions cannot be dropped by a latest-only feeder
+            # race; otherwise Isaac keeps running after the planner exits.
+            self.cmd_q.put(cmd, timeout=5.0)
+            return True
         return put_latest(self.cmd_q, cmd)
 
     def take_cmd(self):

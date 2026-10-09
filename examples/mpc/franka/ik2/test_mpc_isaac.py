@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import re
 import sys
@@ -68,6 +69,7 @@ from examples.mpc.franka.ik2.contact_frames import (
     osc_action_task_force as _osc_action_task_force,
     slew_mpc_action as _slew_mpc_action,
     planar_table_jacobians as _planar_table_jacobians,
+    contact_jacobian_angular_body_frame,
     press_normal_outward as _press_normal_outward,
     project_along_action as _project_along_action,
     remaining_along_action as _remaining_along_action,
@@ -76,6 +78,9 @@ from examples.mpc.franka.ik2.contact_frames import (
 )
 from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule, joint_hold_target
 from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
+from models.soft_scm_contact import (
+    SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
+)
 from examples.mpc.franka.ik2.physx_contact import (
     DEFAULT_CONTACT_OFFSET,
     contact_impulse,
@@ -86,6 +91,7 @@ from examples.mpc.franka.ik2.physx_contact import (
     physx_signed_gap,
 )
 from utils import metrics
+from utils.ranking_metrics import discounted_terminal_reward
 
 # DyWA used 12.5 ms; that only allowed ~2 OSC updates per 20 ms policy
 # step, so the arm finished a small fraction of each 5 mm increment.
@@ -129,7 +135,11 @@ ISAAC_VIA_MAX_STEP = 0.005
 ISAAC_VIA_MAX_LEAD = 0.005
 ISAAC_VIA_SMOOTH_RATE = 0.10
 ISAAC_ACTION_SLEW = 0.0025
-ISAAC_TABLE_CLEARANCE = 0.012
+# MPC increments also supply the contact PD wrench (K*u). A positive
+# fingertip-center clearance clips downward commands before PhysX contact
+# can transmit that wrench and can prevent flipping. Preserve main's press
+# behavior by default; an extra clearance remains available explicitly.
+ISAAC_TABLE_CLEARANCE = 0.0
 # Same keep-out as path_blocked / verify.  An extra 8 cm circle
 # sent the Franka tip 15 cm from the COM before it could drop.
 ISAAC_ORBIT_EXTRA = 0.0
@@ -803,8 +813,9 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
     def _simulate_once(self, sync_realtime=False, draw=True):
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
-        if draw:
-            self._contact_info_cache = None
+        # Contact determines damping and the press-force cap at every OSC
+        # update. Graphics cadence must not keep an old physical contact.
+        self._contact_info_cache = None
 
         graphics_stepped = False
         if draw and (self.viewer_ is not None or self.svg_screenshot_recorder_ is not None):
@@ -1017,9 +1028,10 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         jac_p = self._get_position_jacobian(q)
         vel = np.clip(jac_p @ qd, -2.0, 2.0)
         err = np.asarray(self.position_d - p_curr, dtype=np.float32).reshape(3)
+        # Only an active interval supplies K*u and its velocity reference.
+        # _last_mpc_action is slew history; replaying it after completion
+        # applies a stale wrench while the asynchronous planner is busy.
         action = getattr(self, "_mpc_action", None)
-        if action is None:
-            action = getattr(self, "_last_mpc_action", None)
         p0 = getattr(self, "_mpc_p0", None)
         blocked = bool(getattr(self, "_path_blocked", False))
         if action is not None and p0 is not None:
@@ -1056,7 +1068,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             )
         press = getattr(self, "_mpc_press", None)
         state_fn = getattr(self, "get_state", None)
-        obj = None if state_fn is None else np.asarray(state_fn()[:3], dtype=np.float64)
+        object_state = None if state_fn is None else np.asarray(state_fn(), dtype=np.float64)
+        obj = None if object_state is None else object_state[:3]
         near_press = _near_press_force_mode(in_contact, p_curr, press=press, obj=obj)
         force = _osc_action_task_force(
             force_track, force_contact, near_press,
@@ -1065,8 +1078,37 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 p_curr, press, fallback=contact_n),
             contact_limit=CONTACT_FORCE_LIMIT,
         )
+        guard_goal = None
+        self._osc_upright_guard_active = False
+        if bool(getattr(self.param_, 'runtime_object_cost_', False)) and object_state is not None:
+            from planning.franka_contact_motion import UprightExecutionGuard
+            guard = getattr(self, '_upright_execution_guard', None)
+            if guard is None:
+                guard = self._upright_execution_guard = UprightExecutionGuard(
+                    self.param_.object_up_axis_,
+                    getattr(self.param_, 'flip_enter_angle_deg_', 10.),
+                    getattr(self.param_, 'flip_stable_time_', .3))
+            _linear, angular = self.get_object_velocity_world()
+            guard_goal = guard.update(object_state, angular, p_curr, contact_n, in_contact,
+                float(self.gym.get_sim_time(self.sim)), bool(getattr(self, '_preserve_upright', False)))
+            self._osc_upright_guard_active = guard_goal is not None
+        releasing = bool(getattr(self, '_release_pressure', False)) or guard_goal is not None
+        if releasing:
+            from planning.franka_contact_motion import outward_release_force
+            release_err = err if guard_goal is None else guard_goal - p_curr
+            # Large outward braking is safe for unilateral contact. Limiting
+            # withdrawal to the pressing cap cannot stop the heavy arm in time.
+            force = _isaac_task_force(release_err, vel, v_ref=None,
+                k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
+                limit=FREE_SPACE_FORCE_LIMIT)
+            if in_contact:
+                force = outward_release_force(force, contact_n)
+        elif bool(getattr(self, '_preserve_upright', False)) and near_press:
+            force = self._clip_task_force(force, .25)
+        self._osc_effective_target = np.asarray(
+            self.position_d if guard_goal is None else guard_goal, dtype=np.float32).reshape(3).copy()
         self._last_osc_force = np.asarray(force, dtype=np.float32).reshape(3)
-        self._last_osc_pd = np.asarray(self.position_d, dtype=np.float32).reshape(3)
+        self._last_osc_pd = self._osc_effective_target.copy()
         self._last_osc_near_press = bool(near_press)
         tau_task = jac_p.T @ force
 
@@ -1179,6 +1221,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._mpc_press = None
         self._mpc_via = None
         self._path_blocked = False
+        self._release_pressure = False
+        self._preserve_upright = False
         self._mpc_t = 0.0
         self._mpc_T = POLICY_INTERVAL
         if hasattr(self, "_policy_schedule"):
@@ -1263,7 +1307,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._hold_i = 0
 
     def _start_via_action(self, via_pos, action=None, policy_dt=None,
-                          press=None, path_blocked=None):
+                          press=None, path_blocked=None, release_pressure=False, preserve_upright=False):
         """Start one admitted MPC action at a policy boundary."""
         p_curr, _ = self.get_end_effector_pos()
         p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
@@ -1286,7 +1330,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         target, increment = _clip_via_target(
             p_curr, via, action=action, max_step=max_step)
         increment = _slew_mpc_action(
-            getattr(self, "_last_mpc_action", None), increment, max_step,
+            None if release_pressure else getattr(self, "_last_mpc_action", None), increment, max_step,
             max_slew=max_slew,
         )
         floor_z = float(getattr(self.param_, "table_height", 0.35)) + float(
@@ -1307,6 +1351,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             press, dtype=np.float64).reshape(3)
         self._mpc_via = via.copy()
         self._path_blocked = bool(path_blocked)
+        self._release_pressure = bool(release_pressure)
+        self._preserve_upright = bool(preserve_upright)
         self.p_d, self._mpc_v_ref = _mpc_ball_trajectory(
             self._mpc_p0, self._mpc_action, 0.0, self._mpc_T
         )
@@ -1314,7 +1360,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
 
     def set_via_action(self, via_pos, action=None, policy_dt=None,
                        press=None, path_blocked=None, seq=None,
-                       submitted_at=None, planner_dt=None, solver_backend=None):
+                       submitted_at=None, planner_dt=None, solver_backend=None,
+                       release_pressure=False, preserve_upright=False):
         """Queue an action; never restart an in-progress policy interval."""
         p_curr, _ = self.get_end_effector_pos()
         p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
@@ -1337,6 +1384,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 "via": via,
                 "press": None if press is None else np.asarray(press, dtype=np.float64).reshape(3),
                 "path_blocked": path_blocked,
+                "release_pressure": bool(release_pressure),
+                "preserve_upright": bool(preserve_upright),
                 # The executor owns the cadence.  A planner's declared
                 # interval is metadata and must not stretch the physical
                 # trajectory.
@@ -1378,6 +1427,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 policy_dt=meta.get("policy_dt"),
                 press=meta.get("press"),
                 path_blocked=meta.get("path_blocked"),
+                release_pressure=meta.get("release_pressure", False),
+                preserve_upright=meta.get("preserve_upright", False),
             )
             self._advance_mpc_action_target()
         elif self._mpc_action is not None:
@@ -1392,11 +1443,14 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         )
         if self._mpc_action is None and self._policy_schedule.active is not None:
             self._policy_schedule.finish()
+        recorder = getattr(self, '_scm_recorder', None)
         tau = self._track_desired_pose(
             preserve_nullspace_target=True,
             sync_realtime=sync_realtime,
             draw=draw,
         )
+        if recorder is not None:
+            recorder.record_target(getattr(self, '_osc_effective_target', self.p_d))
         return tau
 
     def close(self):
@@ -1530,6 +1584,9 @@ class ContactIsaacCartesian:
             jac_mat_env[0:4, :6] = con_jac_body
             con_pos_list.append(np.asarray(con_pos_local, dtype=np.float32))
 
+        # ExplicitModel integrates a body-frame angular velocity, while the
+        # PhysX geometric Jacobian above was assembled in world coordinates.
+        jac_mat = contact_jacobian_angular_body_frame(jac_mat, r_obj_to_world)
         return phi_vec, jac_mat, con_pos_list, jac_mat_env, if_contact
 
 
@@ -2003,6 +2060,8 @@ def _print_rollout_step(
         except (IndexError, TypeError, ValueError):
             return None
 
+    if policy.get('object_cost_stage') is not None:
+        print('[object-cost] stage:', policy['object_cost_stage'])
     print(f"花费时间: {choose_dt:.4f}")
     raw_costs = getattr(param.lambda_optimizer, "last_candidate_raw_costs", None)
     if raw_costs is not None:
@@ -2059,6 +2118,41 @@ def _print_rollout_step(
 
 def _add_rollout_policy_args(parser):
     add_rollout_via_args(parser)
+    parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
+    parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
+    parser.set_defaults(two_stage_object_cost=True)
+    parser.add_argument('--flip-enter-angle-deg', type=float, default=10.)
+    parser.add_argument('--flip-exit-angle-deg', type=float, default=25.)
+    parser.add_argument('--flip-linear-speed', type=float, default=.02)
+    parser.add_argument('--flip-angular-speed', type=float, default=.25)
+    parser.add_argument('--flip-stable-time', type=float, default=.3)
+    parser.add_argument('--flip-fallback-time', type=float, default=.1)
+    parser.add_argument('--ranking-metric-gamma', type=float, default=0.9,
+                        help='Terminal reward discount per 20 ms policy step (TRO R5 Q1).')
+    parser.add_argument('--ranking-metric-eta', type=float, default=1.0,
+                        help='Positive terminal reward scale, fixed across comparisons.')
+    parser.add_argument('--ranking-metrics-jsonl', default='',
+                        help='Append whole-trial outcomes and terminal rewards to this JSONL file; '
+                             'paired counterfactual advantages require separate matched rollouts.')
+    parser.add_argument('--contact-model', choices=('soft-scm', 'comfree'), default='soft-scm',
+                        help='Contact predictor for both CSO ranking and explicit MPC.')
+    parser.add_argument('--soft-scm-response-time', type=float, default=SOFT_SCM_RESPONSE_TIME,
+                        help='Finite contact response time in seconds; default 0.05 (not MPC-calibrated).')
+    parser.add_argument('--soft-scm-damping-ratio', type=float, default=SOFT_SCM_DAMPING_RATIO)
+    parser.add_argument('--soft-scm-regularization', type=float, default=SOFT_SCM_REGULARIZATION,
+                        help='Positive diagonal Delassus regularization.')
+    parser.add_argument('--online-scm', dest='online_scm', action='store_true',
+                        help='Learn effective soft-SCM parameters from executed contact transitions.')
+    parser.add_argument('--no-online-scm', dest='online_scm', action='store_false')
+    parser.add_argument('--scm-record-data', action='store_true',
+                        help='Record contact transitions even with --no-online-scm for an ablation.')
+    parser.add_argument('--scm-learning-dir', default='',
+                        help='Directory for parameter/loss JSONL and transition NPZ (automatic when learning).')
+    parser.add_argument('--scm-parameters', default='',
+                        help='Load a compatible transitions.npz checkpoint; --no-online-scm freezes it.')
+    parser.add_argument('--scm-learning-min-samples', type=int, default=32)
+    parser.add_argument('--scm-learning-update-every', type=int, default=32)
+    parser.set_defaults(online_scm=True)
     parser.add_argument("--use-xml-texture", action="store_true")
     parser.add_argument("--headless", dest="headless", action="store_true")
     parser.add_argument("--viewer", dest="headless", action="store_false")
@@ -2086,7 +2180,8 @@ def _add_rollout_policy_args(parser):
         "--table-clearance",
         type=float,
         default=ISAAC_TABLE_CLEARANCE,
-        help="Minimum fingertip-center height above the table plane (m).",
+        help="Extra lower bound for the fingertip-center reference (m). "
+             "Default 0 preserves contact press; PhysX enforces sphere/table contact.",
     )
     parser.add_argument(
         "--target-type",
@@ -2174,6 +2269,12 @@ def run_mpc_planner(bus, args):
         raise ValueError(f"trial_start must be non-negative, got {args.trial_start}")
     if int(args.trial_num) <= 0:
         raise ValueError(f"trial_num must be positive, got {args.trial_num}")
+    metric_gamma = float(getattr(args, 'ranking_metric_gamma', 0.9))
+    metric_eta = float(getattr(args, 'ranking_metric_eta', 1.0))
+    discounted_terminal_reward(False, gamma=metric_gamma, eta=metric_eta)
+    metric_path = getattr(args, 'ranking_metrics_jsonl', '')
+    if metric_path:
+        os.makedirs(os.path.dirname(os.path.abspath(metric_path)), exist_ok=True)
     args.solver = resolve_solver_backend(getattr(args, "solver_backend", "auto"))
     print_runtime_profile(
         make_runtime_profile(
@@ -2227,6 +2328,7 @@ def run_mpc_planner(bus, args):
         verify_chatter = False
         last_result = None
         rollout_step = 0
+        trial_success = False
         consecutive_success_time = 0
         min_pos_err = float("inf")
         min_quat_err = float("inf")
@@ -2238,7 +2340,8 @@ def run_mpc_planner(bus, args):
         prev_quat_err = None
         edge_verdicts = []
 
-        while rollout_step < max_rollout_length:
+        # Check the observation after the final allowed action as well.
+        while rollout_step <= max_rollout_length:
             if obs.get("break_out") or obs.get("viewer_closed") or obs.get("cmd") == "stop":
                 viewer_quit = True
                 break
@@ -2247,16 +2350,33 @@ def run_mpc_planner(bus, args):
             quat_err_now = float(metrics.comp_quat_error(curr_q[3:7], param.target_q_))
             min_pos_err = min(min_pos_err, pos_err_now)
             min_quat_err = min(min_quat_err, quat_err_now)
-            if pos_err_now < success_pos_threshold and quat_err_now < success_quat_threshold:
+            stages = trackers.get('object_cost_stages')
+            # Process the terminal observation too, before declaring success.
+            # handle_mpc_request sees the same timestamp and cannot count it twice.
+            from planning.object_pose_cost import reset_objective_history
+            if stages is not None and stages.update(obs):
+                reset_objective_history(plan_param.lambda_optimizer, mpc, trackers)
+                policy = None
+                c_now_cost = pred_reduction = None
+                print('[object-cost] transition:', stages.diagnostics(), flush=True)
+            if stages is not None and rollout_step % 25 == 0:
+                print('[object-cost] state:', stages.diagnostics(), flush=True)
+            if stages is not None and stages.enabled:
+                plan_param.object_cost_config_ = stages.config()
+            if (pos_err_now <= success_pos_threshold and quat_err_now <= success_quat_threshold
+                    and (stages is None or not stages.enabled or stages.stage == 'pose')):
                 consecutive_success_time += 1
             else:
                 consecutive_success_time = 0
             if consecutive_success_time > consecutive_success_time_threshold:
+                trial_success = True
+                break
+            if rollout_step >= max_rollout_length:
                 break
 
             contact_distance = float(obs.get("contact_distance", float("inf")))
             dwell = None
-            if policy is not None:
+            if policy is not None and not bool(obs.get('osc_upright_guard_active', False)):
                 dwell = _dwell_payload(
                     None, args, None, policy, last_accept_p_arm, escape_on,
                     verify_chatter, c_now_cost, pred_reduction, contact_distance,
@@ -2347,6 +2467,8 @@ def run_mpc_planner(bus, args):
                 "submitted_at": time.monotonic(),
                 "solver_backend": result.get("solver_backend"),
                 "press": policy["p_arm_world"],
+                "release_pressure": bool(policy.get("release_pressure", False)),
+                "preserve_upright": bool(policy.get("preserve_upright", False)),
                 "path_blocked": bool((policy.get("value_info") or {}).get(
                     "path_blocked", False)),
                 "markers": {
@@ -2360,6 +2482,14 @@ def run_mpc_planner(bus, args):
                 viewer_quit = True
                 break
 
+        identifier = trackers.get('scm_identifier')
+        if identifier is not None:
+            if obs is not None:
+                identifier.observe(obs.get('scm_transitions', []), learn=False)
+            if identifier.log_path:
+                identifier.save(identifier.log_path.parent/'transitions.npz')
+            identifier.learning_enabled = bool(getattr(args,'online_scm',False))
+            print('[online-scm] final:', identifier.diagnostics())
         bus.publish_cmd({"cmd": "end_trial"})
         if last_result is not None:
             lambda_failures = int(last_result.get("lambda_failures", 0))
@@ -2387,12 +2517,31 @@ def run_mpc_planner(bus, args):
                 "pos_worse": worse_counts,
             })
         choose_arr = np.asarray(choose_times, dtype=np.float64) if choose_times else np.array([0.0])
-        print("trial_summary:", {
+        trial_summary = {
             "trial": trial_count,
             "mode": "mpc_planner",
-            "success": int(rollout_step < max_rollout_length),
+            "success": int(trial_success),
             "steps": rollout_step,
+            "completion_steps": rollout_step if trial_success else None,
+            "completion_time_s": (float(obs['sim_time']) - trackers['object_cost_stages'].start_time
+                if trial_success and obs is not None and obs.get('sim_time') is not None
+                and trackers.get('object_cost_stages') is not None
+                and trackers['object_cost_stages'].start_time is not None else None),
+            "terminal_reward": discounted_terminal_reward(
+                trial_success, rollout_step, gamma=metric_gamma, eta=metric_eta,
+            ),
+            "metric_gamma": metric_gamma,
+            "metric_eta": metric_eta,
+            "policy_interval_s": POLICY_INTERVAL,
+            "aborted": viewer_quit,
+            "reward_origin": "trial_start",
             "pose_applies": pose_apply_count,
+            "physics_pressure_releases": 0 if obs is None else int(obs.get('physics_pressure_releases', 0)),
+            "pressure_releases": 0 if trackers.get('upright_release') is None else trackers['upright_release'].releases,
+            "upright_action_rejections": 0 if trackers.get('upright_release') is None else trackers['upright_release'].rejected_tilts,
+            **({} if trackers.get('object_cost_stages') is None else trackers['object_cost_stages'].diagnostics()),
+            "lambda_failures": 0 if last_result is None else last_result.get('lambda_failures', 0),
+            "mpc_failures": 0 if last_result is None else last_result.get('mpc_failures', 0),
             "final_pos_err": None if pos_err_now is None else round(float(pos_err_now), 5),
             "final_quat_err": None if quat_err_now is None else round(float(quat_err_now), 5),
             "min_pos_err": None if not np.isfinite(min_pos_err) else round(float(min_pos_err), 5),
@@ -2400,8 +2549,12 @@ def run_mpc_planner(bus, args):
             "choose_dt_mean": round(float(np.mean(choose_arr)), 5),
             "choose_dt_max": round(float(np.max(choose_arr)), 5),
             "choose_dt_p95": round(float(np.percentile(choose_arr, 95)), 5),
-        })
-        success_rate += 1 if rollout_step < max_rollout_length else 0
+        }
+        print("trial_summary: " + repr(trial_summary))
+        if metric_path:
+            with open(metric_path, 'a', encoding='utf-8') as metric_file:
+                metric_file.write(json.dumps(trial_summary, allow_nan=False) + '\n')
+        success_rate += int(trial_success)
         if viewer_quit:
             break
 

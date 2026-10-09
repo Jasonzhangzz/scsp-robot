@@ -1,0 +1,25 @@
+{
+  "version": "0.11.2",
+  "files": {
+    "lcp_lemke.py": {
+      "sha256": "13d989289beb97b888420206a23c839937774ec33736fbd5cf5c186e9071283c",
+      "lines": 274,
+      "source": "https://raw.githubusercontent.com/QuantEcon/QuantEcon.py/v0.11.2/quantecon/optimize/lcp_lemke.py"
+    },
+    "pivoting.py": {
+      "sha256": "53c598a7033dcc74b0d5afeeea0917172a2ad08d49a0299a321044c522ea891b",
+      "lines": 172,
+      "source": "https://raw.githubusercontent.com/QuantEcon/QuantEcon.py/v0.11.2/quantecon/optimize/pivoting.py"
+    },
+    "linprog_simplex.py": {
+      "sha256": "b7ae45011b348cffcd6fa7394e87ec195b34b579acf985059f6f6446dcb70013",
+      "lines": 654,
+      "source": "https://raw.githubusercontent.com/QuantEcon/QuantEcon.py/v0.11.2/quantecon/optimize/linprog_simplex.py"
+    },
+    "LICENSE": {
+      "sha256": "7ee56278d51d7e2889ab2e6fe3903bc3367a59161c36d459209395bc547c4945",
+      "lines": 5,
+      "source": "https://raw.githubusercontent.com/QuantEcon/QuantEcon.py/v0.11.2/LICENSE"
+    }
+  }
+}

@@ -18,7 +18,7 @@ import numpy as np
 #   * soft support: temperature-weighted minimum over the cloud
 #     (smooth_contact.py uses a 1 mm complete-support field; softmax is the
 #     Adam-friendly equivalent that stays differentiable at sphere switches)
-#   * complementarity-free force: f = softplus(D (-b v - k pen))
+#   * complementarity-free force: f = max(D (-b/h v - k/h pen), 0)
 #     (native_adjoint/explicit_damp.py + annealed_contact.py / this file's
 #     closed-form spring-damper)
 #
@@ -101,9 +101,9 @@ def quat_integrate_wxyz(quat, omega, dt):
     w, x, y, z = quat.unbind(-1)
     # H_q_body.T @ omega, matching models/explicit_model.py
     dq0 = -x * omega[..., 0] - y * omega[..., 1] - z * omega[..., 2]
-    dq1 = w * omega[..., 0] + z * omega[..., 1] - y * omega[..., 2]
-    dq2 = -z * omega[..., 0] + w * omega[..., 1] + x * omega[..., 2]
-    dq3 = y * omega[..., 0] - x * omega[..., 1] + w * omega[..., 2]
+    dq1 = w * omega[..., 0] - z * omega[..., 1] + y * omega[..., 2]
+    dq2 = z * omega[..., 0] + w * omega[..., 1] - x * omega[..., 2]
+    dq3 = -y * omega[..., 0] + x * omega[..., 1] + w * omega[..., 2]
     next_q = quat + 0.5 * float(dt) * torch.stack((dq0, dq1, dq2, dq3), dim=-1)
     return quat_normalize_wxyz(next_q)
 
@@ -187,15 +187,19 @@ def transform_spheres(spheres_local, obj_pos, obj_quat):
     return torch.cat((world, radii.unsqueeze(-1)), dim=-1)
 
 
-def gs_contact_rows(phi, position, normal, obj_pos, tip, tip_jac_index):
+def gs_contact_rows(phi, position, normal, obj_pos, tip, tip_jac_index, obj_quat=None):
     """Build one normal-row Jacobian in the 12-D (object twist + two tips) space."""
     import torch
 
-    batch = phi.shape[:-1]
+    batch = normal.shape[:-1]
     jac = phi.new_zeros(*batch, 12)
     lever = position - obj_pos
     jac[..., 0:3] = normal
-    jac[..., 3:6] = torch.linalg.cross(lever, normal, dim=-1)
+    torque = torch.linalg.cross(lever, normal, dim=-1)
+    if obj_quat is not None:
+        conjugate = torch.cat((obj_quat[..., :1], -obj_quat[..., 1:]), dim=-1)
+        torque = quat_rotate_wxyz(conjugate, torque)
+    jac[..., 3:6] = torque
     start = 6 + int(tip_jac_index) * 3
     jac[..., start:start + 3] = -normal
     return phi, jac
@@ -211,16 +215,13 @@ def table_contact_row(obj_pos, table_z, support_radius):
 
 
 def comfree_normal_force(phi, jac, v_pred, stiffness, damping, timestep, mass_scale=1.0):
-    """Closed-form unilateral spring-damper from DexForge / ExplicitModelWarp."""
+    """Official ComFree normal row law; mass_scale is the row mass."""
     import torch
-    import torch.nn.functional as F
+    from models.comfree_contact import row_acceleration
+    speed = torch.sum(jac * v_pred, dim=-1)
+    raw = mass_scale * row_acceleration(speed, phi, timestep, stiffness, damping)
+    return torch.where(phi < 0, torch.clamp(raw, min=0), torch.zeros_like(raw))
 
-    efc_vel = torch.sum(jac * v_pred, dim=-1)
-    penetration = efc_vel * float(timestep) + phi
-    raw = float(mass_scale) * (
-        -float(damping) * efc_vel - float(stiffness) * penetration
-    )
-    return F.softplus(raw * GS_SOFTPLUS_BETA) / GS_SOFTPLUS_BETA
 
 
 class ComfreeGSModel:
@@ -244,8 +245,8 @@ class ComfreeGSModel:
         obj_inertia_pos=50.0,
         obj_inertia_rot=0.05,
         robot_stiffness=8.0,
-        contact_stiffness=12.5,
-        contact_damping=0.05,
+        contact_stiffness=0.2,
+        contact_damping=0.001,
         timestep=0.01,
         tip_radius=TIP_QUERY_RADIUS,
         table_z=None,
@@ -314,7 +315,7 @@ class ComfreeGSModel:
             "spheres_world": spheres,
         }
 
-    def step(self, state, cmd):
+    def step(self, state, cmd, velocity=None):
         import torch
 
         state = _as_tensor(state, self.device)
@@ -329,11 +330,21 @@ class ComfreeGSModel:
         bias = bias.clone()
         bias[..., 0:3] = self.obj_mass * self.gravity
         bias[..., 6:12] = self.robot_stiff * cmd
-        v_nc = torch.linalg.solve(self.Q, bias) / self.timestep
+        v_nc = self.timestep * torch.linalg.solve(self.Q, bias)
+        if velocity is not None:
+            v_nc = v_nc + velocity
         # #region agent log
         _dbg("comfree_gs_torch.py:step", "after v_nc", {"v_nc": [float(x) for x in v_nc.detach().reshape(-1)[:6]], "cmd": [float(x) for x in cmd.detach().reshape(-1)]})
         # #endregion
 
+        inverse = torch.linalg.inv(self.Q)
+        object_invweight = torch.trace(inverse[:3, :3])/3
+        robot_invweight = torch.trace(inverse[6:9, 6:9])/3
+        def mass_for(phi, weight):
+            x = (phi.abs()/0.01).clamp(max=1)
+            curve = torch.where(x < .5, 2*x*x, 1-2*(1-x)**2)
+            imp = .9+.05*curve
+            return imp / (weight*(1-imp))
         force_vel = torch.zeros_like(v_nc)
         contact_force = []
         for idx in range(2):
@@ -344,10 +355,11 @@ class ComfreeGSModel:
                 contacts["normal"][..., idx, :],
                 obj_pos,
                 (left_tip, right_tip)[idx],
-                idx,
+                idx, obj_quat=obj_quat,
             )[1]
             force = comfree_normal_force(
-                phi, jac, v_nc, self.contact_stiffness, self.contact_damping, self.timestep
+                phi, jac, v_nc, self.contact_stiffness, self.contact_damping, self.timestep,
+                mass_for(phi, object_invweight+robot_invweight)
             )
             contact_force.append(force)
             force_vel = force_vel + jac * force.unsqueeze(-1)
@@ -358,13 +370,14 @@ class ComfreeGSModel:
         if self.table_z is not None:
             phi_t, jac_t = table_contact_row(obj_pos, self.table_z, self.support_radius)
             table_force = comfree_normal_force(
-                phi_t, jac_t, v_nc, self.contact_stiffness, self.contact_damping, self.timestep
+                phi_t, jac_t, v_nc, self.contact_stiffness, self.contact_damping, self.timestep,
+                mass_for(phi_t, object_invweight)
             )
             force_vel = force_vel + jac_t * table_force.unsqueeze(-1)
         # #region agent log
         _dbg("comfree_gs_torch.py:step", "after table force", {"force_vel": list(force_vel.shape), "has_table_force": table_force is not None}, hypothesis_id="E")
         # #endregion
-        v = v_nc + torch.linalg.solve(self.Q, force_vel) / self.timestep
+        v = v_nc + self.timestep * torch.linalg.solve(self.Q, force_vel)
         # #region agent log
         _dbg("comfree_gs_torch.py:step", "after v_matmul", {"v": list(v.shape)}, hypothesis_id="E")
         # #endregion
@@ -393,11 +406,13 @@ class ComfreeGSModel:
         states = []
         extras = []
         current = state
+        velocity = None
         for step in range(horizon):
             # #region agent log
             _dbg("comfree_gs_torch.py:rollout", "step enter", {"step": int(step)})
             # #endregion
-            current, extra = self.step(current, cmd_traj[..., step, :])
+            current, extra = self.step(current, cmd_traj[..., step, :], velocity=velocity)
+            velocity = extra["velocity"]
             states.append(current)
             extras.append(extra)
         return torch.stack(states, dim=-2), extras
