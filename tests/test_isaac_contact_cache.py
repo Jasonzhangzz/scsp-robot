@@ -26,6 +26,55 @@ def _osc_contact_methods():
     return namespace
 
 
+def test_osc_restores_object_pose_and_velocity_after_tensor_warmup():
+    root = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/ik2'
+    base_source = root / 'test_mppi_isaac.py'
+    base_tree = ast.parse(base_source.read_text())
+    base = next(n for n in base_tree.body if isinstance(n, ast.ClassDef)
+                and n.name == 'IsaacFrankaSimulator')
+    helper = next(n for n in base.body if isinstance(n, ast.FunctionDef)
+                  and n.name == '_reset_object_pose')
+    scope = {'np': np, 'gymapi': SimpleNamespace(STATE_ALL=0)}
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), str(base_source), 'exec'), scope)
+    states = dict(pose=dict(p=[None], r=[None]),
+                  vel=dict(linear=[None], angular=[None]))
+    expected = np.array([.4, .1, .39, .5, -.5, .5, -.5])
+
+    class Base:
+        _reset_object_pose = scope['_reset_object_pose']
+
+        def reset_mj_env(self):
+            # Tensor warmup advances an uncontrolled object.
+            states['pose']['p'][0] = (.1, .1, .1)
+            states['pose']['r'][0] = (0., 0., 0., 1.)
+            states['vel']['linear'][0] = (1., 2., 3.)
+            states['vel']['angular'][0] = (4., 5., 6.)
+
+    source = root / 'test_mpc_isaac.py'
+    tree = ast.parse(source.read_text())
+    osc = next(n for n in tree.body if isinstance(n, ast.ClassDef)
+               and n.name == 'IsaacFrankaOSCSimulator')
+    reset = next(n for n in osc.body if isinstance(n, ast.FunctionDef) and n.name == 'reset_mj_env')
+    osc.body = [reset]
+    scope['IsaacFrankaSimulator'] = Base
+    exec(compile(ast.Module(body=[osc], type_ignores=[]), str(source), 'exec'), scope)
+    env = scope['IsaacFrankaOSCSimulator']()
+    env.param_ = SimpleNamespace(init_obj_qpos_=expected)
+    env.gym = SimpleNamespace(get_actor_rigid_body_states=lambda *_: states,
+                             set_actor_rigid_body_states=lambda *_: None)
+    env.env, env.obj_actor = object(), object()
+    env._place_fingertip_for_rollout = lambda: None
+    observed = []
+    env._sync_desired_pose_with_current = lambda: observed.append(states['pose']['p'][0])
+    env.get_current_joint_position = lambda: np.zeros(7)
+    env._clear_mpc_action = lambda: None
+    env.reset_mj_env()
+    np.testing.assert_allclose(observed[0], expected[:3])
+    np.testing.assert_allclose(states['pose']['r'][0], expected[[4,5,6,3]])
+    np.testing.assert_allclose(states['vel']['linear'][0], 0.)
+    np.testing.assert_allclose(states['vel']['angular'][0], 0.)
+
+
 @pytest.mark.parametrize("draw", [False, True])
 def test_osc_observes_contact_entry_and_exit_between_physics_frames(draw):
     methods = _osc_contact_methods()
@@ -81,7 +130,8 @@ def test_default_contact_press_keeps_downward_pd_command(clearance, expected_z):
 
 
 @pytest.mark.parametrize("draw_stride", [1, 8, 17])
-def test_async_observations_share_pose_contact_frame_and_physics_cadence(draw_stride):
+@pytest.mark.parametrize("startup_waits", [0, 5])
+def test_async_observations_share_pose_contact_frame_and_physics_cadence(draw_stride, startup_waits):
     source = Path(__file__).resolve().parents[1] / "examples/mpc/franka/ik2/run.py"
     tree = ast.parse(source.read_text())
     loop = next(node for node in tree.body
@@ -98,9 +148,12 @@ def test_async_observations_share_pose_contact_frame_and_physics_cadence(draw_st
     env.step_control_frame = step
     env.hold_current_pose = lambda: None
     env.sync_realtime = lambda: None
+    rendered_frames = []
+    env.render_current_state = lambda: rendered_frames.append(env.frame)
     env.close = lambda: setattr(env, "closed", True)
     published = []
-    bus = SimpleNamespace(publish_obs=published.append, take_cmd=lambda: None)
+    commands = iter([None] * startup_waits + [{"kind": "via"}])
+    bus = SimpleNamespace(publish_obs=published.append, take_cmd=lambda: next(commands, None))
     scope = {
         "POLICY_INTERVAL": 0.02,
         "open_env": lambda *_: (env, object(), 0.362),
@@ -110,12 +163,14 @@ def test_async_observations_share_pose_contact_frame_and_physics_cadence(draw_st
         "viewer_closed": lambda *_: False,
         "viewer_draw_stride": lambda *_: draw_stride,
         "apply_incoming": lambda *_: "ok",
+        "time": SimpleNamespace(sleep=lambda _: None),
     }
     exec(compile(ast.Module(body=[loop], type_ignores=[]), str(source), "exec"), scope)
     scope["isaac_loop"](bus, SimpleNamespace(trial_num=1), "mpc")
     observations = [obs for obs in published if "pose_frame" in obs]
     assert [obs["pose_frame"] for obs in observations] == [0, 10, 20]
     assert all(obs["pose_frame"] == obs["contact_frame"] for obs in observations)
+    assert rendered_frames == [0] * startup_waits
     assert env.closed
 
 

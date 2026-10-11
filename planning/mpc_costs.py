@@ -151,6 +151,31 @@ def _fit_cost_vector(value, expected_dim):
     return value
 
 
+def cpo_stage_weights(contact_cost_param, variant="full"):
+    """Object-center weight, reference-tracking weight, and lift/place gating.
+
+    ``full`` keeps the authored mix and the ranking trigger that switches
+    lift and place. ``no_object_center`` zeros the object-center weight and
+    keeps reference tracking inside that same gate. ``direct`` always applies
+    reference tracking and object-center attraction, with no phase-dependent
+    lift/place potential.
+    """
+    name = str(variant or "full")
+    center = float(contact_cost_param)
+    if not np.isfinite(center):
+        raise ValueError("contact_cost_param must be finite")
+    if name == "no_object_center":
+        return 0.0, 1.0, True
+    if name == "direct":
+        reference = 1.0 if center >= 1.0 - 1e-12 else max(0.0, 1.0 - center)
+        return max(center, 0.0), reference, False
+    if name != "full":
+        raise ValueError("cpo variant must be full, no_object_center, or direct")
+    if center > 0.0:
+        return center, 1.0 - center, True
+    return 0.0, 1.0, True
+
+
 def pack_cost_params(kind, param, path_cost_fn, **kwargs):
     kind = infer_cost_kind(param, kind)
     expected = int(np.prod(path_cost_fn.size_in(2)))
@@ -173,10 +198,15 @@ def pack_cost_params(kind, param, path_cost_fn, **kwargs):
         if compact.size == expected:
             packed = compact
         elif getattr(param, 'runtime_object_cost_', False):
-            from planning.object_pose_cost import param_cost_config
+            from planning.object_pose_cost import param_cost_config, extended_cost_config
             # The generic fingertip vector ends in legacy curr_ori_coef;
             # ExplicitMPCParams has no such scalar in its cost signature.
-            packed = np.r_[packed[:-1], param_cost_config(param)]
+            reference = kwargs.get('contact_reference')
+            if reference is None:
+                reference = np.r_[_as_vec(kwargs.get('target_p'), 3),
+                                  [1., 0., 0., 0.] if kwargs.get('target_q') is None
+                                  else _as_vec(kwargs['target_q'], 4)]
+            packed = np.r_[packed[:-1], _as_vec(reference, 7), extended_cost_config(param_cost_config(param))]
     return _fit_cost_vector(packed, expected)
 
 

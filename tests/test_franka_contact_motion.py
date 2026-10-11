@@ -3,23 +3,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import pytest
 
-from planning.franka_contact_motion import FrankaApproachVia, UprightRelease, bounded_step
-from planning.object_pose_cost import ObjectCostStages
-
-
-def make_obs(t, tilt=0, tip=(.08, 0, .05), angular=0):
-    q = Rotation.from_euler('y', tilt, degrees=True).as_quat()[[3, 0, 1, 2]]
-    return dict(sim_time=t, policy_q=np.r_[[0., 0., .04], q, tip],
-                object_linear_velocity=np.zeros(3), object_angular_velocity=[0, angular, 0])
-
-
-def stages():
-    return ObjectCostStages(SimpleNamespace(two_stage_object_cost=True, pos_coef=500, ori_coef=20))
-
-
-def policy():
-    return dict(p_arm_surface_world=np.array([.06, 0, .05]),
-                p_arm_track_world=np.array([.07, 0, .05]))
+from planning.franka_contact_motion import FrankaApproachVia, SurfaceNormalApproachVia, bounded_step
 
 
 def test_opposite_face_has_finite_lift_cross_drop_route_without_orbit():
@@ -57,72 +41,55 @@ def test_crossing_target_is_latched_against_candidate_ranking_churn():
     assert via.goal is None and via.via is None
 
 
-def test_near_upright_withdrawal_waits_for_real_stability_and_uses_fixed_goal():
-    stage, release = stages(), UprightRelease()
-    first = make_obs(0, tilt=5, angular=1)
-    stage.update(first)
-    goal = release.update(stage, first, policy())
-    assert stage.stage == 'flip'  # high velocity cannot complete the flip
-    assert goal[0] > first['policy_q'][7] and goal[2] >= first['policy_q'][9]
-    for t in [.1, .2]:
-        current = make_obs(t, tilt=5, tip=(.09, 0, .05))
-        stage.update(current)
-        np.testing.assert_allclose(release.update(stage, current, policy()), goal)
-    current = make_obs(.4, tilt=5)
-    assert stage.update(current) and stage.stage == 'pose'
-    np.testing.assert_allclose(release.update(stage, current, policy()), goal)
-    assert release.update(stage, make_obs(.71, tilt=5), policy()) is None
-    assert release.releases == 1
-
-
-def test_lost_upright_condition_releases_settle_latch_to_resume_flip():
-    stage, release = stages(), UprightRelease()
-    stage.update(make_obs(0, tilt=5))
-    assert release.update(stage, make_obs(0, tilt=5), policy()) is not None
-    stage.update(make_obs(.1, tilt=16))
-    assert release.update(stage, make_obs(.1, tilt=16), policy()) is None
-    assert release.goal is None and stage.stage == 'flip'
-
-
-def test_pose_guard_rejects_tipping_but_accepts_yaw_and_small_corrective_tilt():
-    stage, release = stages(), UprightRelease()
-    stage.update(make_obs(0, tilt=2)); stage.update(make_obs(.3, tilt=2))
-    assert stage.stage == 'pose'
-    assert release.unsafe_prediction(stage, [make_obs(.4, tilt=30)['policy_q']])
-    upright = make_obs(.4, tilt=3)['policy_q']
-    upright[3:7] = Rotation.from_euler('zy', [130, 3], degrees=True).as_quat()[[3, 0, 1, 2]]
-    assert not release.unsafe_prediction(stage, [upright])
-    assert release.rejected_tilts == 1
-    stage.enabled = False
-    assert release.update(stage, make_obs(.4), policy()) is None
-    assert not release.unsafe_prediction(stage, [make_obs(.4, tilt=60)['policy_q']])
-
-
-def test_step_is_bounded_and_zero_at_fixed_withdrawal_goal():
+def test_step_is_bounded_and_zero_at_goal():
     np.testing.assert_allclose(bounded_step([0, 0, 0], [1, 0, 0], .005), [.005, 0, 0])
     np.testing.assert_allclose(bounded_step([.1, 0, 0], [.1, 0, 0], .005), 0)
 
 
-def test_withdrawal_uses_occupied_surface_even_when_candidate_is_opposite():
-    stage, release = stages(), UprightRelease()
-    current = make_obs(0, tilt=5, tip=(-.08, 0, .05))
-    stage.update(current)
-    target = policy()
-    target['withdrawal_axis'] = [-1., 0., 0.]
-    goal = release.update(stage, current, target)
-    assert goal[0] < current['policy_q'][7]
+def test_recessed_patch_is_reached_from_outward_standoff():
+    via = SurfaceNormalApproachVia(floor_z=.012)
+    tip, obj = np.array([-.08, 0., .04]), np.array([0., 0., .04])
+    surface, track = np.array([.05, 0., .04]), np.array([.06, 0., .04])
+    press = np.array([.0595, 0., .04])
+    phases = []
+    for i in range(160):
+        _, point, phase = via.update(tip, obj, surface, track, .08, .09, False, press)
+        phases.append(phase)
+        assert np.linalg.norm(point-tip) <= .005+1e-12
+        if phase == 'normal':
+            assert point[0] < tip[0]
+            # The entry tolerance permits a small lateral tracking error;
+            # the last leg must predominantly follow the outward-normal axis.
+            assert abs(point[2]-tip[2]) < abs(point[0]-tip[0])
+        tip = point
+        if np.linalg.norm(tip-press) < .003:
+            break
+    assert i < 120 and 'normal' in phases
 
 
-def test_measured_tilt_growth_withdraws_before_fallback_angle():
-    stage, release = stages(), UprightRelease()
-    stage.update(make_obs(0)); stage.update(make_obs(.3))
-    release.last_stage = 'pose'
-    assert release.update(stage, make_obs(.4), policy()) is None
-    current = make_obs(.42, tilt=4)
-    stage.update(current)
-    assert release.update(stage, current, policy()) is not None
-    assert stage.stage == 'pose' and stage.fallbacks == 0
-    assert release.until == pytest.approx(.72)
+def test_completed_normal_approach_latch_allows_a_new_destination():
+    via = SurfaceNormalApproachVia(floor_z=.012)
+    obj, old = np.array([0., 0., .04]), np.array([.06, 0., .04])
+    via.press_goal, via.anchor = old.copy(), obj.copy()
+    via.entry, via.normal_approach = old+np.array([.035, 0., 0.]), True
+    surface, track = np.array([0., .05, .04]), np.array([0., .06, .04])
+    _, point, _ = via.update(old, obj, surface, track, .08, .09, False, track)
+    np.testing.assert_allclose(via.press_goal, track)
+    assert not via.normal_approach
+    assert np.linalg.norm(point-old) > .001
+
+
+def test_normal_approach_preserves_a_reached_moving_patch_and_clears_floor():
+    via = SurfaceNormalApproachVia(floor_z=.362)
+    obj = np.array([0., 0., .4])
+    surface, track = np.array([.05, 0., .37]), np.array([.056, 0., .362])
+    tip = np.array([.1, 0., .45])
+    via.update(tip, obj, surface, track, .43, .09, False, track)
+    assert via.entry[2] >= .362
+    tip = track+np.array([.002, 0., 0.])
+    blocked, point, _ = via.update(tip, obj, surface, track, .43, .09, True, track)
+    assert not blocked
+    np.testing.assert_allclose(point, track)
 
 
 def osc_stub():
@@ -152,7 +119,7 @@ def osc_stub():
     sim._mpc_press = np.array([.4, 0, .4])
     sim._path_blocked = False
     sim.param_ = SimpleNamespace(mpc_u_ub_=.005, isaac_via_max_step_=.005,
-                                isaac_action_slew_=.0025, table_height=.35)
+                                isaac_action_slew_=.0025, table_height=.35, contact_force_limit_=.8)
     sim.R_d_hold = np.eye(3)
     return sim
 
@@ -170,8 +137,34 @@ def test_pose_contact_cap_is_applied_at_actual_osc_wrench():
     sim = osc_stub()
     sim._preserve_upright = True
     sim._compute_osc_torques()
-    # Pose stage keeps the 0.8 N contact cap. A 0.25 N cap cannot track a 5 mm step.
+    # A configured small cap applies in either objective stage.
     assert np.linalg.norm(sim._last_osc_force) == pytest.approx(.8)
+
+
+@pytest.mark.parametrize('limit,expected', [(.8, .8), (10., 3.)])
+def test_contact_pressure_uses_configured_cap_and_actual_cartesian_stiffness(limit, expected):
+    sim = osc_stub()
+    sim.param_.contact_force_limit_ = limit
+    sim._compute_osc_torques()
+    assert sim._last_osc_force[0] == pytest.approx(expected)
+    np.testing.assert_allclose(sim._last_osc_force[1:], 0., atol=1e-8)
+
+
+@pytest.mark.parametrize('tip_z,press_allowed', [(.364, True), (.361, False)])
+def test_downward_pressure_is_not_disabled_three_millimetres_above_floor(tip_z, press_allowed):
+    sim = osc_stub()
+    tip = np.array([.4, 0., tip_z])
+    sim.get_end_effector_pos = lambda: (tip, np.eye(3))
+    sim._mpc_action = np.array([0., 0., -.005])
+    sim._mpc_p0 = tip
+    sim._mpc_press = tip
+    sim.position_d = tip + sim._mpc_action
+    sim.param_.table_clearance_ = .012
+    sim._compute_osc_torques()
+    if press_allowed:
+        assert sim._last_osc_force[2] < 0.
+    else:
+        assert sim._last_osc_force[2] >= 0.
 
 
 def test_release_bypasses_slew_of_previous_inward_press():
@@ -181,15 +174,6 @@ def test_release_bypasses_slew_of_previous_inward_press():
     assert sim._mpc_action[0] < 0
     assert sim._release_pressure
     assert np.linalg.norm(sim._mpc_action) <= .005 + 1e-8
-
-
-@pytest.mark.parametrize('invalid', [{'policy_q': np.zeros(10)}, make_obs(float('nan'))])
-def test_missing_or_nonfinite_time_interrupts_release_without_crashing(invalid):
-    stage, release = stages(), UprightRelease()
-    stage.update(make_obs(0, tilt=5))
-    assert release.update(stage, make_obs(0, tilt=5), policy()) is not None
-    assert release.update(stage, invalid, policy()) is None
-    assert release.goal is None and release.last_time is None
 
 
 def test_completed_action_keeps_developer_velocity_reference():
@@ -216,31 +200,6 @@ def test_completed_free_space_action_holds_without_stale_feedforward():
     np.testing.assert_allclose(sim._last_osc_force, 0, atol=1e-8)
 
 
-def test_physics_guard_reacts_before_next_planner_observation():
-    from planning.franka_contact_motion import UprightExecutionGuard
-    guard = UprightExecutionGuard([0., 0, 1])
-    current = make_obs(0, tilt=4)
-    tip = current['policy_q'][7:10]
-    goal = guard.update(current['policy_q'][:7], [0, 1., 0], tip, [1., 0, 0], True, 0., True)
-    assert goal is not None and goal[0] > tip[0]
-    # Same goal persists on the next 2 ms physics frame, even without a new plan.
-    np.testing.assert_allclose(guard.update(current['policy_q'][:7], [0, 0, 0], tip+.001,
-        None, False, .002, True), goal)
-    assert guard.releases == 1
-    assert guard.update(current['policy_q'][:7], [0, 0, 0], goal, None, False, .31, True) is None
-
-
-def test_physics_guard_ignores_world_yaw_and_uses_target_derived_axis():
-    from planning.franka_contact_motion import UprightExecutionGuard
-    from planning.object_pose_cost import target_up_axis
-    # The goal has local +X, rather than +Z, pointing up.
-    target = Rotation.from_euler('y', -90, degrees=True).as_quat()[[3, 0, 1, 2]]
-    guard = UprightExecutionGuard(target_up_axis(target))
-    current = np.r_[np.zeros(3), target]
-    assert guard.update(current, [0, 0, 3], [.1, 0, .1], [1, 0, 0], True, 0., True) is None
-    assert guard.update(current, [0, 0, 0], [.1, 0, .1], [1, 0, 0], True, .002, False) is not None
-
-
 def test_outward_release_can_brake_without_normal_press_or_tangential_drag():
     from planning.franka_contact_motion import outward_release_force
     np.testing.assert_allclose(outward_release_force([6., 4, 2], [1., 0, 0]), [6., 0, 0])
@@ -248,7 +207,7 @@ def test_outward_release_can_brake_without_normal_press_or_tangential_drag():
     np.testing.assert_allclose(outward_release_force([6., 4, 2], None), 0)
 
 
-def test_actual_osc_uses_target_axis_and_outward_braking_above_press_cap():
+def test_actual_osc_executes_planned_action_without_tilt_withdrawal():
     from planning.object_pose_cost import target_up_axis
     sim = osc_stub()
     target = Rotation.from_euler('y', -90, degrees=True).as_quat()[[3,0,1,2]]
@@ -263,22 +222,11 @@ def test_actual_osc_uses_target_axis_and_outward_braking_above_press_cap():
     sim._mpc_action = np.array([-.005, 0, 0])
     sim._mpc_p0 = np.array([.405, 0, .4])
     sim._compute_osc_torques()
-    assert sim._osc_upright_guard_active
-    assert sim._last_osc_force[0] > .25
+    assert not sim._osc_upright_guard_active
+    assert sim._last_osc_force[0] < 0
+    assert np.linalg.norm(sim._last_osc_force) == pytest.approx(.8)
     np.testing.assert_allclose(sim._last_osc_force[1:], 0, atol=1e-8)
-    assert sim._osc_effective_target[0] > sim.position_d[0]
-
-
-def test_planner_release_does_not_lock_static_intermediate_tilt_forever():
-    stage, release = stages(), UprightRelease()
-    stage.update(make_obs(0)); stage.update(make_obs(.3))
-    stage.update(make_obs(.4, tilt=15))
-    release.last_stage = 'pose'
-    release.last_time, release.last_angle = .39, 15.
-    assert release.update(stage, make_obs(.4, tilt=15), policy()) is None
-    assert release.update(stage, make_obs(.5, tilt=15), policy()) is None
-    stage.update(make_obs(.52, tilt=16))
-    assert release.update(stage, make_obs(.52, tilt=16), policy()) is not None
+    np.testing.assert_allclose(sim._osc_effective_target, sim.position_d)
 
 
 @pytest.mark.parametrize('blocked', [False, True])
@@ -286,15 +234,12 @@ def test_real_pose_contact_tracks_the_five_millimetre_step(blocked):
     sim = osc_stub()
     sim._preserve_upright = True
     sim._path_blocked = blocked
+    sim.position_d = np.array([.405, 0., .4])
     sim._mpc_press = np.array([.45, .1, .4])  # 11 cm from an actual touch
     sim._compute_osc_torques()
     assert sim._last_osc_near_press
-    # Contact still uses the 0.8 N press. A blocked transit keeps the
-    # 0.25 m/s velocity reference (D * v_ref = 10 N) instead of crawling.
-    if blocked:
-        assert np.linalg.norm(sim._last_osc_force) == pytest.approx(10., abs=1e-2)
-    else:
-        assert np.linalg.norm(sim._last_osc_force) == pytest.approx(.8, abs=1e-3)
+    # A travel waypoint cannot bypass the force cap at a real touch.
+    assert np.linalg.norm(sim._last_osc_force) == pytest.approx(.8, abs=1e-3)
 
 
 def test_pose_approach_does_not_brake_before_physical_touch():

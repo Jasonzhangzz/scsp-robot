@@ -166,7 +166,7 @@ def main():
                  '--obj',args.obj,'--trial_num',str(args.trials),'--max_rollout_length',str(args.steps),
                  '--trial-start',str(args.trial_start),'--scm-learning-dir',str(out/mode),
                  '--async-planner' if args.async_planner else '--sync-planner',
-                 '--online-scm' if mode=='online' else '--no-online-scm','--scm-record-data']
+                 '--adaptive' if mode=='online' else '--no-adaptive','--scm-record-data']
             if args.headless:cmd.append('--headless')
             cmd+=extra;commands[mode]=cmd
             print('Running',mode,'log:',out/(mode+'.log'),flush=True)

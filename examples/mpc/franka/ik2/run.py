@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(current_dir)
@@ -19,8 +20,9 @@ sys.path.insert(0, parent_dir)
 
 # gymdeps refuses to load if torch is already imported.  params -> mlqp_point
 # imports torch, so isaacgym must come first.
-from isaacgym import gymapi, gymtorch  # noqa: F401
-import torch  # noqa: F401
+if os.environ.get("SCSP_PLANNER_ONLY") != "1":
+    from isaacgym import gymapi, gymtorch  # noqa: F401
+    import torch  # noqa: F401
 import numpy as np
 
 from examples.mpc.franka.ik2.isaac_bus import (
@@ -90,6 +92,8 @@ def refresh_contact(env, contact, table_ground):
         "env_phi": np.asarray(payload['env_phi'], dtype=np.float64),
         "if_contact": bool(if_contact),
         "actual_contact": payload.get("actual_contact"),
+        "fingertip_linear_velocity": payload.get("fingertip_linear_velocity"),
+        "executed_action": payload.get("executed_action"),
         "contact_distance": float(contact_distance),
         "table_ground": float(table_ground),
     }
@@ -273,6 +277,7 @@ def isaac_loop(bus, args, planner):
                 recorder.begin(env.get_policy_state(), last_contact)
             policy_frames = max(1, int(round(POLICY_INTERVAL / env.sim_dt_)))
             bus.publish_obs(pack_state(env, seq, trial_count, last_contact))
+            started = False
             while True:
                 if viewer_closed(env) or getattr(env, "break_out_signal_", False):
                     bus.publish_obs({
@@ -285,11 +290,21 @@ def isaac_loop(bus, args, planner):
                     env._simulate_once(draw=True)
                     env.sync_realtime()
                     continue
-                status = apply_incoming(env, bus.take_cmd(), default_kind)
+                cmd = bus.take_cmd()
+                status = apply_incoming(env, cmd, default_kind)
                 if status == "stop":
                     return
                 if status == "end_trial":
                     break
+                if cmd is not None:
+                    started = True
+                if not started:
+                    # Solver construction/ranking can take seconds. Let the
+                    # planner act on the published start before gravity can
+                    # finish the flip during that startup latency.
+                    env.render_current_state()
+                    time.sleep(1.0 / max(1.0, float(getattr(args, "viewer_hz", 60.0))))
+                    continue
                 frames += 1
                 draw = (frames % draw_stride == 0)
                 # #region agent log

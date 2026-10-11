@@ -12,6 +12,7 @@ import time
 import casadi as cs
 import numpy as np
 from models.scm_parameters import SCM_LOG_LOWER, SCM_LOG_UPPER, SCM_PARAMETER_NAMES
+from models.soft_scm_contact import GROUPED_CONTACT_VERSION
 
 
 class ExecutionTransitionBuffer:
@@ -236,7 +237,8 @@ class OnlineSCMIdentifier:
                             mu=self.model.param_.mu_object_, obj_mass=self.model.param_.obj_mass_,
                             robot_stiff=self.model.param_.robot_stiff_, gravity=self.model.param_.gravity_,
                             contact_dynamics=self.model.contact_dynamics,
-                            grouped_contact_response=bool(getattr(self.model, 'grouped_contact_response', False)))
+                            grouped_contact_response=bool(getattr(self.model, 'grouped_contact_response', False)),
+                            grouped_contact_version=GROUPED_CONTACT_VERSION if getattr(self.model, 'grouped_contact_response', False) else 0)
         metadata = dict(parameter_names=list(SCM_PARAMETER_NAMES), theta=self.theta.tolist(),
                         scales=dict(zip(SCM_PARAMETER_NAMES,np.exp(self.theta).tolist())),
                         accepted_samples=self.accepted_samples, accepted_updates=self.accepted_updates,
@@ -258,6 +260,8 @@ class OnlineSCMIdentifier:
             saved_grouped = bool(data['grouped_contact_response']) if 'grouped_contact_response' in data else False
             if saved_grouped != bool(getattr(self.model, 'grouped_contact_response', False)):
                 raise ValueError('SCM checkpoint has incompatible contact response')
+            if saved_grouped and ('grouped_contact_version' not in data or int(data['grouped_contact_version']) != GROUPED_CONTACT_VERSION):
+                raise ValueError('SCM checkpoint has incompatible coupled contact response version')
             self.theta = validate_theta(data['theta'])
 
     def diagnostics(self):

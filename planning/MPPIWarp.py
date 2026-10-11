@@ -897,8 +897,9 @@ def _apply_dwell_payload(param, args, dwell):
     c_now_cost = dwell.get("c_now_cost")
     pred_reduction = dwell.get("pred_reduction")
     c_after = dwell.get("c_after")
-    if model_cost_conf is not None and c_now_cost is not None and dwell.get("post_physical"):
-        if _should_observe_model_cost(opt.has_delta_span(), getattr(opt, "last_pose_cost_now", None)):
+    if model_cost_conf is not None and c_now_cost is not None and (dwell.get("post_physical") or dwell.get("model_prediction_available")):
+        if (dwell.get('model_prediction_available') and dwell.get('model_feedback_scale')
+                or _should_observe_model_cost(opt.has_delta_span(), getattr(opt, 'last_pose_cost_now', None))):
             pred_delta = pred_reduction
             if pred_delta is None or not np.isfinite(float(pred_delta)):
                 pred_delta = getattr(opt, "last_best_delta", None)
@@ -910,13 +911,19 @@ def _apply_dwell_payload(param, args, dwell):
                 model_cost_conf.observe_unusable_prediction()
             else:
                 act_reduction = float(c_now_cost) - float(c_after)
-                pred_n = opt.normalize_cost_delta(pred_delta)
-                act_n = opt.normalize_cost_delta(act_reduction)
+                scale = dwell.get('model_feedback_scale')
+                if scale is not None and float(scale) > 0:
+                    pred_n, act_n = float(pred_delta)/float(scale), act_reduction/float(scale)
+                else:
+                    pred_n = opt.normalize_cost_delta(pred_delta)
+                    act_n = opt.normalize_cost_delta(act_reduction)
                 if pred_n is None or act_n is None:
                     model_cost_conf.observe_unusable_prediction()
                 else:
                     model_cost_conf.observe(pred_n, act_n)
 
+    if dwell.get('execution_mode') == 'approach':
+        return  # Observe fall prediction, without assigning travel to a contact patch.
     tip_now = np.asarray(dwell["tip_now"], dtype=float)
     obj_pos = np.asarray(dwell["obj_pos"], dtype=float)
     r_now = np.asarray(dwell["r_now"], dtype=float).reshape(3, 3)
@@ -957,13 +964,20 @@ def _apply_dwell_payload(param, args, dwell):
     dwell_active, dwell_dead = _protect_destination_dwell(
         opt, progress_idx, dest_idx, dwell_active, dwell_dead
     )
+    if dwell.get('model_prediction_available') and post_physical:
+        # Made contact must earn progress even when its sparse sample is the
+        # current destination. Arrival is not evidence of a useful wrench.
+        progress_idx = getattr(opt, 'last_executed_idx', progress_idx)
+        dwell_active = True
+        dwell_dead = False
+        dest_protected = False
     opt.note_contact_progress(
         progress_idx,
         pos_err_now if dwell.get('progress_cost') is None else float(dwell['progress_cost']),
         active=dwell_active,
         gamma=float(args.contact_dwell_gamma),
         min_dwell_steps=int(args.contact_dwell_steps),
-        improve_eps=0.002,
+        improve_eps=0.001 if dwell.get('progress_cost') is not None else 0.002,
         dead_increment=dwell_dead,
         merge_radius=0.03,
         block_radius=0.03,

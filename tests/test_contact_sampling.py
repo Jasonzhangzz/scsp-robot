@@ -72,3 +72,60 @@ def test_sampling_drops_a_cone_tip():
         assert np.min(np.linalg.norm(pts - tip[None, :], axis=1)) > 0.12
     finally:
         os.remove(path)
+
+
+def test_surface_sampling_covers_all_faces_of_an_unsubdivided_box():
+    # Vertex-only eligibility has no face interiors on this common mesh.
+    path = _write_mesh(trimesh.creation.box(extents=[.10, .06, .04]))
+    try:
+        pp = ProjectionPoint(path, surface_sampling=True)
+        np.random.seed(104)
+        frames = pp.sample_surface_with_normals(70)
+        assert len(frames['points']) == 70
+        directions = np.unique(np.round(frames['normals'], 6), axis=0)
+        assert len(directions) == 6
+        assert np.max(frames['curvature']) < .25
+        # Samples are on actual facets, and not all forced onto their corners.
+        _, distance, _ = trimesh.proximity.closest_point(pp.scaled_mesh, frames['points'])
+        assert np.max(distance) < 1e-8
+        assert np.any(np.linalg.norm(frames['points'][:, :2], axis=1) < .025)
+    finally:
+        os.remove(path)
+
+
+def test_surface_projection_does_not_snap_flat_face_to_a_vertex():
+    path = _write_mesh(trimesh.creation.box(extents=[.10, .06, .04]))
+    try:
+        pp = ProjectionPoint(path, surface_sampling=True)
+        point, n, t1, t2, _ = pp.project_surface([.011, -.007, .03])
+        np.testing.assert_allclose(point, [.011, -.007, .02], atol=1e-8)
+        np.testing.assert_allclose(n, [0., 0., -1.], atol=1e-12)
+        np.testing.assert_allclose(np.stack([n, t1, t2]) @ np.stack([n, t1, t2]).T, np.eye(3), atol=1e-12)
+    finally:
+        os.remove(path)
+
+
+def test_compound_sampler_rejects_buried_caps_and_keeps_cavity_walls(tmp_path):
+    # Three boxes form a U cross-section with a gap wide enough for a 1 cm tip.
+    parts = []
+    for i, (extents, centre) in enumerate([
+        ([.06, .06, .01], [0., 0., -.025]),
+        ([.01, .06, .06], [-.025, 0., 0.]),
+        ([.01, .06, .06], [.025, 0., 0.]),
+    ]):
+        mesh = trimesh.creation.box(extents=extents)
+        mesh.apply_translation(centre)
+        path = tmp_path / ('part%d.stl' % i)
+        mesh.export(str(path)); parts.append(str(path))
+    pp = ProjectionPoint(parts[0], surface_sampling=True, collision_part_paths=parts)
+    np.random.seed(104)
+    frames = pp.sample_surface_with_normals(70, fingertip_radius=.01)
+    points, outward = frames['points'], -frames['normals']
+    for part in pp.collision_parts:
+        probe = points+5e-5*outward
+        planes = probe @ part.face_normals.T - np.sum(part.face_normals*part.triangles_center, axis=1)
+        assert np.all(np.max(planes, axis=1) >= -1e-7)
+        _, distance, _ = trimesh.proximity.closest_point(part, points+.01*outward)
+        assert np.min(distance) >= .01-5e-5
+    assert np.any((outward[:, 0] > .9) & (points[:, 0] < -.019))
+    assert np.any((outward[:, 0] < -.9) & (points[:, 0] > .019))

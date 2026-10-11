@@ -49,7 +49,8 @@ def _acados_codegen_cache_is_current(json_file, shared_file):
 from models.scm_parameters import (scaled_inverse_cs, scaled_inverse_numpy,
     friction_jacobian_cs, friction_jacobian_numpy, response_cs, validate_theta)
 
-from planning.object_pose_cost import cost_config, object_cost_cs, object_cost_np, object_cost_torch
+from planning.object_pose_cost import (cost_config, object_cost_cs, object_cost_np, object_cost_torch,
+                                       extended_cost_config, OBJECT_COST_CONFIG_SIZE)
 
 class LambdaContactControlOptimizer:
 
@@ -74,7 +75,8 @@ class LambdaContactControlOptimizer:
                  soft_scm_response_time=SOFT_SCM_RESPONSE_TIME,
                  soft_scm_damping_ratio=SOFT_SCM_DAMPING_RATIO,
                  soft_scm_regularization=SOFT_SCM_REGULARIZATION,
-                 contact_dynamics=None, grouped_contact_response=False, robot_stiffness=None):
+                 contact_dynamics=None, grouped_contact_response=False, robot_stiffness=None,
+                 surface_sampling=False, collision_part_paths=None, fingertip_radius=.01):
         # 系统参数
         self.m = obj_mass
         self.mu_arm_obj = arm_friction
@@ -110,20 +112,25 @@ class LambdaContactControlOptimizer:
         self.max_contacts = max_contacts
         self.pp = ProjectionPoint(mesh_path, scale_factors,
                                   collision_hull=collision_hull,
-                                  normal_stability_cos=normal_stability_cos)
+                                  normal_stability_cos=normal_stability_cos,
+                                  surface_sampling=surface_sampling,
+                                  collision_part_paths=collision_part_paths)
 
         self.sample_num = sample_num
         self.top_k = max(1, int(top_k))
-        # Match the reference optimizer: uniformly/farthest sampled vertices
-        # with their vertex normals, rather than face-center candidates.
-        self.sampling_frame = self.pp.sample_vertices_with_normals(num_samples=self.sample_num)
+        if surface_sampling:
+            self.sampling_frame = self.pp.sample_surface_with_normals(
+                self.sample_num, fingertip_radius=float(fingertip_radius))
+        else:
+            self.sampling_frame = self.pp.sample_vertices_with_normals(num_samples=self.sample_num)
         self.sample_point = self.sampling_frame['points']
         self.normal = self.sampling_frame['normals']
         self.t1 = self.sampling_frame['tangent1']
         self.t2 = self.sampling_frame['tangent2']
-        self.sample_vertex_indices = np.asarray([
-            int(self.pp.project_point_to_mesh(point)[0]) for point in self.sample_point
-        ], dtype=np.int32)
+        # These indices are graph anchors only. Surface positions and normals
+        # must never be replaced by the nearest mesh vertex.
+        self.sample_vertex_indices = np.asarray(
+            self.pp.kdtree.query(self.sample_point)[1], dtype=np.int32)
         self.sample_geodesic = self._precompute_sample_geodesic()
 
         self.J_tilde = np.zeros([4 * self.max_contacts, 6])
@@ -291,21 +298,13 @@ class LambdaContactControlOptimizer:
         self._rank_score_values = None
         self.rank_score_ema_rate = 0.35
         self.last_candidate_delta_norms = None
-        # Sample-neighborhood curvature.  Worst-neighbour disagreement
-        # flags a dihedral; mean disagreement flags a true corner/tip.
-        # Ranking drops only the conjunction so a flat side face that
-        # merely sees one crease neighbour stays eligible.  Using the
-        # max alone deleted ~half the elephant samples and left only
-        # belly/back flats whose x_plus cannot improve pose.
-        self.curvature_neighbor_k = 8
+        # Local mesh curvature is independent of sparse FPS sample spacing.
         self.region_max_point_curvature = 0.25
         self.region_max_mean_curvature = 0.10
         self.point_curvature = self._estimate_point_curvature()
         if self._drop_crease_samples():
-            self.sample_vertex_indices = np.asarray([
-                int(self.pp.project_point_to_mesh(point)[0])
-                for point in self.sample_point
-            ], dtype=np.int32)
+            self.sample_vertex_indices = np.asarray(
+                self.pp.kdtree.query(self.sample_point)[1], dtype=np.int32)
             self.sample_geodesic = self._precompute_sample_geodesic()
         # Temporary blacklist for patches that were reached without yielding
         # contact or pose progress.  This prevents immediate re-selection of
@@ -328,11 +327,11 @@ class LambdaContactControlOptimizer:
 
     def object_cost_config(self):
         config = getattr(self, '_object_cost_config', None)
-        return cost_config(self.pos_coef, self.ori_coef) if config is None else config
+        return extended_cost_config(cost_config(self.pos_coef, self.ori_coef)) if config is None else config
 
     def set_object_cost_config(self, config):
-        c = np.asarray(config, dtype=float).reshape(9)
-        self._object_cost_config = cost_config(*c[:3], body_axis=c[3:6], reference_up=c[6:9])
+        c = extended_cost_config(config)
+        self._object_cost_config = np.r_[cost_config(*c[:3], body_axis=c[3:6], reference_up=c[6:9]), c[9:]]
 
     def set_scm_parameters(self, theta):
         if self.contact_model != 'soft-scm':
@@ -569,31 +568,14 @@ class LambdaContactControlOptimizer:
                 count, int(self._blocked_contact_indices.get(key, 0)))
 
     def _estimate_point_curvature(self):
-        """Worst-neighbour normal change; high at creases and sharp tips.
-
-        ``0.5 * (1 - n·n_k)`` is 0 on a flat patch and 0.5 when a neighbour
-        is orthogonal.  Using the mean of those terms lets a foot/leg
-        junction hide among same-face samples; the max does not.
-        """
-        n_samples = int(len(self.sample_point))
-        if n_samples <= 1:
-            return np.zeros((n_samples,), dtype=np.float64)
-        from scipy.spatial import cKDTree
-        query_k = min(n_samples, self.curvature_neighbor_k + 1)
-        _, neighbor_idx = cKDTree(self.sample_point).query(self.sample_point, k=query_k)
-        neighbor_idx = np.asarray(neighbor_idx, dtype=int)
-        if neighbor_idx.ndim == 1:
-            neighbor_idx = neighbor_idx.reshape(-1, 1)
-        if neighbor_idx.shape[1] <= 1:
-            return np.zeros((n_samples,), dtype=np.float64)
-        neighbor_idx = neighbor_idx[:, 1:]
-        neighbor_normals = self.normal[neighbor_idx]
-        ref_normals = self.normal[:, None, :]
-        normal_dot = np.clip(np.sum(ref_normals * neighbor_normals, axis=2), -1.0, 1.0)
-        disagreement = 0.5 * (1.0 - normal_dot)
-        self.point_curvature_mean = np.asarray(
-            np.mean(disagreement, axis=1), dtype=np.float64)
-        return np.asarray(np.max(disagreement, axis=1), dtype=np.float64)
+        """Use incident mesh faces, never other sparse ranking samples."""
+        frame = self.sampling_frame
+        if 'curvature' in frame:
+            self.point_curvature_mean = np.asarray(frame['curvature_mean']).copy()
+            return np.asarray(frame['curvature']).copy()
+        ids = self.sample_vertex_indices
+        self.point_curvature_mean = np.asarray(self.pp.vertex_curvature_mean)[ids].copy()
+        return np.asarray(self.pp.vertex_curvature)[ids].copy()
 
     def _high_curvature_mask(self, ids=None):
         """True on corners / junctions, False on flat faces near a crease.
@@ -620,14 +602,7 @@ class LambdaContactControlOptimizer:
         return high_max & (mean[ids] > mean_thr)
 
     def _destination_crease_mask(self, ids=None):
-        """True on a sharp tip/foot that must not own ``best_contact``.
-
-        Ranking keeps high-max / low-mean faces in the pool so a useful
-        flank next to a crease can still be pressed.  The yellow
-        destination cannot sit on the crease itself: table-J at the COM
-        overstates the lever arm of a foot tip, and nearby-topk then
-        sticks ``best_contact`` there for the whole trial.
-        """
+        """A genuine local mesh crease must not own ``best_contact``."""
         n = int(len(np.asarray(self.point_curvature).reshape(-1)))
         if ids is None:
             ids = np.arange(n, dtype=np.int32)
@@ -673,8 +648,14 @@ class LambdaContactControlOptimizer:
     def _delta_near_tie(self, winner_delta, alt_delta, quality_frac=0.015):
         """True when ``alt`` is close enough that table-J noise can flip them."""
         if not np.isfinite(winner_delta) or not np.isfinite(alt_delta):
-            return True
-        margin = max(float(quality_frac) * max(abs(float(winner_delta)), 1e-3), 1e-3)
+            return False
+        # An absolute 1e-3 treats zero/negative progress as equivalent to a
+        # useful small reduction. Keep the tolerance in active cost units.
+        current_cost = abs(float(getattr(self, 'last_pose_cost_now', 0.0) or 0.0))
+        if not np.isfinite(current_cost):
+            current_cost = 0.0
+        margin = max(float(quality_frac) * abs(float(winner_delta)),
+                     1e-6 * current_cost, 1e-12)
         return float(alt_delta) >= float(winner_delta) - margin
 
     def _prefer_stable_ranking_local(self, ids, costs, finite_mask, local_idx):
@@ -768,7 +749,8 @@ class LambdaContactControlOptimizer:
                 high_curv = self._high_curvature_mask(ids)
                 if np.any(keep & ~high_curv):
                     keep &= ~high_curv
-            stability = getattr(self.pp, 'vertex_normal_stability', None)
+            stability = (None if getattr(self.pp, 'surface_sampling', False)
+                         else getattr(self.pp, 'vertex_normal_stability', None))
             if stability is not None and self.sample_vertex_indices is not None:
                 vertex_idx = self.sample_vertex_indices[ids]
                 valid = (vertex_idx >= 0) & (vertex_idx < len(stability))
@@ -881,7 +863,7 @@ class LambdaContactControlOptimizer:
             masses = reduced_row_masses(J_tilde, self.Q_inv, self.env_phi)
         return np.vstack([np.diag(masses[4*i:4*i+4]) for i in range(self.max_contacts)])
 
-    def _arm_velocity_cs(self, velocity, tau, force, point, frame, env_j, phi, inverse, theta):
+    def _arm_velocity_cs(self, velocity, tau, force, point, frame, env_j, phi, inverse, theta, arm_gap=0., full_velocity=False):
         """Predict the driven fingertip contact using MPC's nine-DoF mobility.
 
         The decision is an actuator wrench, not a wrench applied directly to
@@ -900,8 +882,9 @@ class LambdaContactControlOptimizer:
         pyramid = cs.vertcat((n+mu*t1).T, (n+mu*t2).T, (n-mu*t1).T, (n-mu*t2).T)
         j = cs.vertcat(cs.horzcat(env_j, cs.DM.zeros(env_j.size1(), 3)), pyramid@relative)
         a, b = response_cs(self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio, theta)
-        return grouped_contact_velocity_cs(free, j, cs.vertcat(phi, cs.DM.zeros(4)),
-            qi, self.h, a, b, self.soft_scm_regularization)[:6]
+        result = grouped_contact_velocity_cs(free, j, cs.vertcat(phi, cs.repmat(arm_gap,4,1)),
+            qi, self.h, a, b, self.soft_scm_regularization)
+        return result if full_velocity else result[:6]
 
     def _arm_velocity_numpy(self, velocity, tau, force, point, frame, env_j, phi):
         from models.soft_scm_contact import grouped_contact_velocity_numpy
@@ -1050,7 +1033,7 @@ class LambdaContactControlOptimizer:
         t1 = opti.parameter(3)
         t2 = opti.parameter(3)
         curr_ori_coef = opti.parameter(1)
-        object_config = opti.parameter(9)
+        object_config = opti.parameter(OBJECT_COST_CONFIG_SIZE)
         force_limit = opti.parameter()
         R_contact = cs.horzcat(n_arm, t1, t2)
 
@@ -1108,8 +1091,9 @@ class LambdaContactControlOptimizer:
         opti.subject_to(lam_arm[0] >= 1e-6)
         opti.subject_to(cs.sumsqr(lam_arm) <= force_limit ** 2)
         opti.subject_to(lam_arm[0] <= cap)
+        if self.robot_stiffness is not None:
+            opti.set_initial(lam_arm, [.9 * self.max_normal_force, 0., 0.])
 
-        
         # IPOPT is the compiled fallback for the acados contact NLP.
         p_opts = {"print_time": False, "jit": False}
         s_opts = {
@@ -1183,6 +1167,12 @@ class LambdaContactControlOptimizer:
 
         anchor_sample_idx = self._resolve_anchor_sample_idx(contact_anchor_local, contact_anchor_idx)
         prev_sample_idx = self.last_selected_idx if self.last_selected_idx is not None else anchor_sample_idx
+        guided_local = self._ablation_guidance_local(ids, finite_mask)
+        if guided_local is not None:
+            # Random / nearest replace the cost argmin. Candidate costs stay
+            # stored so the ranking strategy can still score the feasible set.
+            return self._finish_guided_candidate(
+                ids, costs, force_buffer, guided_local, finite_costs, prev_sample_idx)
         transition_costs = np.zeros_like(costs, dtype=np.float64)
         if anchor_sample_idx is not None:
             anchor_geo = self.sample_geodesic[anchor_sample_idx, ids]
@@ -1383,7 +1373,14 @@ class LambdaContactControlOptimizer:
         for i, vertex_idx in enumerate(self.sample_vertex_indices):
             dist = dijkstra(self.pp.graph, directed=False, indices=int(vertex_idx))
             geo[i, :] = np.asarray(dist[self.sample_vertex_indices], dtype=np.float64)
-        geo[np.isnan(geo)] = np.inf
+        direct = np.linalg.norm(self.sample_point[:, None, :] - self.sample_point[None, :, :], axis=2)
+        offset = np.linalg.norm(self.sample_point-self.pp.vertices[self.sample_vertex_indices], axis=1)
+        geo += offset[:, None] + offset[None, :]
+        # Separate convex pieces may overlap without sharing sampled vertices.
+        # Keep a finite, conservative travel penalty in that case: infinity
+        # would prevent all contact switches across decomposition boundaries.
+        geo[~np.isfinite(geo)] = 4.*direct[~np.isfinite(geo)]
+        geo = np.maximum(geo, direct)
         np.fill_diagonal(geo, 0.0)
         return geo
 
@@ -1449,7 +1446,7 @@ class LambdaContactControlOptimizer:
         cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
         cs_phi = cs.SX.sym('phi', 4*self.max_contacts)
         scm_theta = cs.SX.sym('scm_theta', 6)
-        object_config = cs.SX.sym('object_config', 9)
+        object_config = cs.SX.sym('object_config', OBJECT_COST_CONFIG_SIZE)
         force_limit = cs.SX.sym('force_limit')
         prm = cs.vertcat(cs_phi, cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp, scm_theta, object_config, force_limit)
         x = cs.SX.sym('x', 7); u = cs.SX.sym('u', 3)
@@ -1462,13 +1459,16 @@ class LambdaContactControlOptimizer:
             vn = self._arm_velocity_cs(cs_v, cs_tau, Rct@u, cs_cp, Rct, cs_j, cs_phi, qinv, scm_theta)
         quat=x[3:7]; H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
         qn=cs.vertcat(x[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
+        self._acados_candidate_fn = cs.Function('contact_candidate', [x, u, prm],
+            [qn, object_cost_cs(qn, cs_p, object_config)
+             + self.friction_reg_coef * cs.sumsqr(u[1:3]) + self.force_reg_coef * cs.sumsqr(u)])
         # Terminal cost is on the terminal state ``x`` (qn after the
         # discrete transition).  Putting qn itself here is rejected because
         # a terminal cost may not depend on ``u``.
         mass_key = hashlib.sha1(np.r_[np.asarray(self.Q_inv).reshape(-1), self.h, self.K_contact, self.comfree_damping, self.soft_scm_response_time, self.soft_scm_damping_ratio, self.soft_scm_regularization, float(self.wrench_is_force), self.gravity_velocity_scale, self.wrench_velocity_scale, float(self.grouped_contact_response), self.robot_stiffness or 0., self.pos_coef, self.ori_coef, self.friction_reg_coef, self.force_reg_coef].astype('<f8').tobytes()).hexdigest()[:10]
         mu_key = int(round(float(self.mu_arm_obj) * 1000.0))
         contact_tag = self.contact_model.replace('-', '_')
-        model=AcadosModel(); model.name=f'contact_lambda_{contact_tag}_v21_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
+        model=AcadosModel(); model.name=f'contact_lambda_{contact_tag}_v24_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
         model.cost_expr_ext_cost = self.friction_reg_coef * cs.sumsqr(u[1:3]) + self.force_reg_coef * cs.sumsqr(u)
         model.cost_expr_ext_cost_e = object_cost_cs(x, cs_p, object_config)
         ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.parameter_values[-1]=self.max_contact_force; ocp.cost.cost_type='EXTERNAL'; ocp.cost.cost_type_e='EXTERNAL';
@@ -1496,10 +1496,16 @@ class LambdaContactControlOptimizer:
                           np.asarray(kwargs['t1']).reshape(-1),
                           np.asarray(kwargs['t2']).reshape(-1),
                           np.asarray(kwargs['p_arm']).reshape(-1), np.asarray(kwargs.get('scm_theta', self.scm_theta)).reshape(-1),
-                          np.asarray(kwargs.get('object_config', self.object_cost_config())).reshape(9),
+                          extended_cost_config(kwargs.get('object_config', self.object_cost_config())),
                           [kwargs.get('force_limit', self.max_contact_force)]])
         solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur)
-        solver.set(0,'u',np.array([.01,0,0])); solver.set(0,'p',p)
+        initial_normal = .01
+        if self.robot_stiffness is not None:
+            # A near-zero command can remain on the disengaged branch of the
+            # coupled unilateral contact map. RTI then sees no pressure gain.
+            # Seed inside the feasible force cone so it can optimize a press.
+            initial_normal = .9 * float(kwargs.get('force_limit', self.max_contact_force)) / np.sqrt(1 + 2*self.mu_arm_obj**2)
+        solver.set(0,'u',np.array([initial_normal,0,0])); solver.set(0,'p',p)
         solver.set(1,'x',xcur); solver.set(1,'p',p)
         from planning.acados_env import quiet_acados_stderr
         with quiet_acados_stderr():
@@ -1514,27 +1520,13 @@ class LambdaContactControlOptimizer:
         fn = float(np.clip(lam[0], 0.0, normal_cap))
         ft = np.clip(lam[1:3], -self.mu_arm_obj * fn, self.mu_arm_obj * fn)
         lam = np.asarray([fn, ft[0], ft[1]], dtype=float)
-        cp=np.asarray(kwargs['p_arm'], dtype=float).reshape(3)
-        Jc=np.zeros((3, 6), dtype=float); Jc[:, :3] = np.eye(3)
-        Jc[0, 4], Jc[0, 5] = cp[2], -cp[1]
-        Jc[1, 3], Jc[1, 5] = -cp[2], cp[0]
-        Jc[2, 3], Jc[2, 4] = cp[1], -cp[0]
-        Rcontact=np.column_stack((kwargs['n_arm'], kwargs['t1'], kwargs['t2']))
-        wrench_scale = self.wrench_velocity_scale
-        b=self.gravity_velocity_scale*np.asarray(kwargs['tau_o_np']).reshape(6)+wrench_scale*Jc.T@(Rcontact@lam)
-        qib=self.Q_inv@b
-        Jenv=np.asarray(kwargs['J_tilde']); D=np.asarray(kwargs['D_inv'])
-        vnow = self._contact_velocity_numpy(np.asarray(kwargs['v_last']).reshape(6)+qib,
-                                              Jenv, D, np.asarray(kwargs['env_phi']))
-        if self.robot_stiffness is not None:
-            vnow = self._arm_velocity_numpy(np.asarray(kwargs['v_last']).reshape(6),
-                np.asarray(kwargs['tau_o_np']).reshape(6), Rcontact@lam, cp, Rcontact, Jenv, np.asarray(kwargs['env_phi']))
-        qnext=np.asarray(self.cs_qposInteg_(xcur,vnow)).reshape(7)
-        if (not np.isfinite(lam).all() or lam[0] < -1e-5
-                or lam[0] > normal_cap + 1e-3
-                or np.linalg.norm(lam) > kwargs.get('force_limit', self.max_contact_force) + 1e-3):
-            raise RuntimeError(f'invalid contact wrench returned: {lam}')
-        cost=float(object_cost_np(qnext, kwargs['x_d'], kwargs.get('object_config', self.object_cost_config()))+self.friction_reg_coef*np.dot(lam[1:3],lam[1:3])+self.force_reg_coef*np.dot(lam,lam))
+        # Report the prediction of the feasible RTI control. Do not replace
+        # it with a seed/zero-pressure action based on a second one-step cost
+        # comparison: that override also changes the contact ranking.
+        qnext, cost = self._acados_candidate_fn(xcur, lam, p)
+        qnext, cost = np.asarray(qnext).reshape(7), float(cost)
+        if not np.isfinite(qnext).all() or not np.isfinite(cost):
+            raise FloatingPointError('non-finite contact prediction')
         return {'lam_arm_opt':lam,'x_plus_opt':qnext,'cost':cost}
 
     def _solve_optimization_torch(self, x_d, current_x, v_last, J_tilde, D_inv,
@@ -1568,8 +1560,9 @@ class LambdaContactControlOptimizer:
         Rcontact = torch.stack((n, tt1, tt2), dim=1)
 
         normal_cap = (self.max_contact_force if force_limit is None else float(force_limit)) / np.sqrt(1 + 2*self.mu_arm_obj**2)
-        # Initialize near the IPOPT initial guess fn=.01, ft=0.
-        fn0 = (0.01 - 1e-6) / (normal_cap - 1e-6)
+        # Match the active-contact initial guess used by the native solvers.
+        initial_normal = .9 * normal_cap if self.robot_stiffness is not None else .01
+        fn0 = (initial_normal - 1e-6) / (normal_cap - 1e-6)
         fn0 = float(np.clip(fn0, 1e-4, 1.0 - 1e-4))
         z0 = torch.zeros(3, device=dev, dtype=dt)
         z0[0] = torch.log(torch.tensor(fn0 / (1.0 - fn0), device=dev, dtype=dt))
@@ -1647,7 +1640,8 @@ class LambdaContactControlOptimizer:
         Jc[:, 2, 3], Jc[:, 2, 4] = p[:, 1], -p[:, 0]
         Rcontact = torch.stack((n, tt1, tt2), dim=2)
 
-        fn0 = (0.01 - 0.001) / (self.max_normal_force - 0.001)
+        initial_normal = .9 * self.max_normal_force if self.robot_stiffness is not None else .01
+        fn0 = (initial_normal - 1e-6) / (self.max_normal_force - 1e-6)
         fn0 = float(np.clip(fn0, 1e-4, 1.0 - 1e-4))
         z = torch.nn.Parameter(torch.zeros((count, 3), device=dev, dtype=dt))
         z.data[:, 0] = torch.log(torch.tensor(fn0 / (1.0 - fn0), device=dev, dtype=dt))
@@ -1756,8 +1750,7 @@ class LambdaContactControlOptimizer:
             normal_obj_local = -n
             self.last_executed_idx = idx
         else:
-            closest_idx, n, t1, t2  = self.pp.project_point_to_mesh(p_arm)
-            p_obj_local = self.pp.scaled_mesh.vertices[closest_idx]
+            p_obj_local, n, t1, t2, _ = self.pp.project_surface(p_arm)
             normal_obj_local = -np.asarray(n)
         if (contact_point_local is None) != (contact_normal_inward is None):
             raise ValueError('observed contact needs both point and inward normal')
@@ -2310,6 +2303,53 @@ class LambdaContactControlOptimizer:
         self.last_topk_ids = self.last_candidate_ids[order[:k]] if k else np.zeros(0, dtype=np.int32)
         self.last_topk_costs = self.last_candidate_costs[order[:k]] if k else np.zeros(0, dtype=np.float64)
 
+    def _ablation_guidance_local(self, ids, finite_mask):
+        """Index into ``ids`` for random or nearest guidance, else None."""
+        mode = str(getattr(self, 'cso_guidance', 'cso'))
+        if mode not in ('random', 'nearest'):
+            return None
+        local = np.flatnonzero(np.asarray(finite_mask, dtype=bool).reshape(-1))
+        if local.size == 0:
+            return None
+        if mode == 'nearest':
+            query = getattr(self, 'rank_query_local', None)
+            if query is None:
+                return None
+            chosen_ids = np.asarray(ids, dtype=np.int32).reshape(-1)[local]
+            points = np.asarray(self.sample_point, dtype=np.float64)[chosen_ids]
+            dist = np.linalg.norm(
+                points - np.asarray(query, dtype=np.float64).reshape(1, 3), axis=1)
+            return int(local[int(np.argmin(dist))])
+        rng = getattr(self, '_cso_rng', None)
+        if rng is None:
+            rng = np.random.default_rng(0)
+            self._cso_rng = rng
+        return int(local[int(rng.integers(int(local.size)))])
+
+    def _finish_guided_candidate(self, ids, costs, force_buffer, chosen_local,
+                                 finite_costs, prev_sample_idx):
+        ids = np.asarray(ids, dtype=np.int32).reshape(-1)
+        costs = np.asarray(costs, dtype=np.float64).reshape(-1)
+        chosen_local = int(chosen_local)
+        chosen_idx = int(ids[chosen_local])
+        self.last_global_idx = chosen_idx
+        self.last_global_total_cost = float(costs[chosen_local])
+        self.last_switch_required = bool(
+            prev_sample_idx is not None and int(prev_sample_idx) != chosen_idx)
+        self._pending_selected_idx = None
+        self._pending_selected_count = 0
+        self.last_best_idx = chosen_idx
+        if force_buffer is None:
+            self.last_best_force = None
+        else:
+            self.last_best_force = np.asarray(force_buffer[chosen_local], dtype=np.float32)
+        self.last_selected_local = np.asarray(self.sample_point[chosen_idx], dtype=np.float32)
+        self.last_selected_idx = chosen_idx
+        self.last_transition_cost = 0.0
+        self.last_selected_total_cost = float(costs[chosen_local])
+        finite_costs = np.asarray(finite_costs, dtype=np.float64).reshape(-1)
+        return chosen_idx, float(np.min(finite_costs)), float(np.max(finite_costs)), chosen_local
+
     def choose_nearby_topk_idx(self, query_local, k=None, quality_frac=0.015):
         """Prefer a nearer runner-up only if it is almost as improving.
 
@@ -2318,6 +2358,11 @@ class LambdaContactControlOptimizer:
         runner-ups by pose-cost reduction ``ΔC`` instead, and never
         replace a stable destination with a crease tip.
         """
+        if str(getattr(self, 'cso_guidance', 'cso')) in ('random', 'nearest'):
+            idx = getattr(self, 'last_selected_idx', None)
+            if idx is None:
+                idx = getattr(self, 'last_global_idx', None)
+            return None if idx is None else int(idx)
         ids = np.asarray(getattr(self, 'last_topk_ids', []), dtype=np.int32).reshape(-1)
         if ids.size == 0:
             return None
@@ -2357,8 +2402,9 @@ class LambdaContactControlOptimizer:
         ok = np.zeros(take, dtype=bool)
         ok[0] = True
         if take > 1:
-            margin = max(float(quality_frac) * max(abs(best), 1e-3), 1e-3)
-            ok[1:] = np.isfinite(deltas[1:]) & (deltas[1:] >= best - margin) & ~crease[1:]
+            ok[1:] = np.array([
+                self._delta_near_tie(best, delta, quality_frac)
+                for delta in deltas[1:]]) & ~crease[1:]
         query = np.asarray(query_local, dtype=np.float64).reshape(3)
         pts = np.asarray(self.sample_point[ids], dtype=np.float64)
         dist = np.linalg.norm(pts - query[None, :], axis=1)

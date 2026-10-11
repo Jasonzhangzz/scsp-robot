@@ -3,8 +3,11 @@
 p = max(-D^-1 (a J v_free + b phi/h), 0),
 D = diag(J M^-1 J.T) + r I, v_next = v_free + M^-1 J.T p.
 The coefficients follow an implicitly discretized, decoupled spring-damper
-row with response time tau and damping ratio zeta. This is not a coupled
-implicit contact solve. Geometry and D are frozen within each prediction.
+row with response time tau and damping ratio zeta. Grouped contacts use
+bounded block Gauss-Seidel sweeps so fingertip pressure and support reactions
+are coupled. Geometry stays frozen within each prediction.
+Grouped contacts use a full closing-speed bias for positive gaps, so
+unreachable contact cannot transmit speculative support forces.
 """
 import numpy as np
 
@@ -56,61 +59,104 @@ def inverse_diagonal_torch(jacobian, inverse_mass, regularization):
                        1.0 / (diagonal + regularization), 0.0)
 
 
-def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regularization):
-    """One unilateral normal and one Coulomb disk per four-row contact.
+# Fixed sweeps keep the contact map differentiable for NLP/RTI backends.
+# Subtract each block's old impulse before updating it: applying the isolated
+# contact response repeatedly would incorrectly stiffen a single contact.
+GROUPED_CONTACT_SWEEPS = 8
+GROUPED_CONTACT_VERSION = 3
 
-    The rows encode n+mu*t1, n+mu*t2, n-mu*t1, n-mu*t2.
-    Applying four independent normal reactions to this pyramid duplicates
-    support. Recover the physical basis and project its tangential impulse
-    smoothly into the disk bounded by the single normal impulse. Padding stays zero.
-    """
+
+def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regularization):
+    """Coupled unilateral normals and Coulomb disks, one per pyramid block."""
     import casadi as cs
-    velocity = smooth
+    blocks = []
     for start in range(0, int(jacobian.size1()), 4):
         j = jacobian[start:start+4, :]
         n = cs.sum1(j)/4
         t = cs.vertcat((j[0, :]-j[2, :])/2, (j[1, :]-j[3, :])/2)
         mu = cs.sqrt(cs.sumsqr(t[0, :3]) + 1e-20)
         t = t/cs.fmax(mu, 1e-10)
-        normal = cs.fmax(-(a*(n@smooth) + b*cs.sum1(phi[start:start+4])/4/h)
-                         / (n@inverse@n.T + regularization), 0)
-        tangent = -a*(t@smooth)/(cs.sum2((t@inverse)*t) + regularization)
-        cap = mu*normal
-        tangent *= cap/cs.sqrt(cap*cap + cs.sumsqr(tangent) + 1e-12)
-        velocity += inverse@(n.T*normal + t.T@tangent)
+        mn, mt = inverse@n.T, inverse@t.T
+        dn = (n@mn + regularization)/a
+        dt = (cs.sum2((t@inverse)*t) + regularization)/a
+        gap = cs.sum1(phi[start:start+4])/4
+        # A positive gap must close within this prediction step before the
+        # contact can transmit force. Using b/a (<1) there let a separated
+        # finger provide speculative support several steps before impact.
+        bias = cs.if_else(gap > 0, gap, b/a*gap)/h
+        blocks.append((n, t, mu, mn, mt, dn, dt, bias))
+    velocity = smooth
+    impulses = [(0, cs.DM.zeros(2)) for _ in blocks]
+    for _ in range(GROUPED_CONTACT_SWEEPS):
+        for i, (n,t,mu,mn,mt,dn,dt,bias) in enumerate(blocks):
+            old_n, old_t = impulses[i]
+            free = velocity - mn*old_n - mt@old_t
+            normal = cs.fmax(-(n@free + bias)/dn, 0)
+            supported = free + mn*normal
+            tangent = -(t@supported)/dt
+            cap = mu*normal
+            tangent *= cap/cs.sqrt(cap*cap + cs.sumsqr(tangent) + 1e-12)
+            velocity = supported + mt@tangent
+            impulses[i] = (normal, tangent)
     return velocity
 
 
 def grouped_contact_velocity_numpy(smooth, jacobian, phi, inverse, h, a, b, regularization):
-    velocity = np.array(smooth, dtype=float, copy=True)
+    blocks = []
     for start in range(0, jacobian.shape[0], 4):
         j = jacobian[start:start+4]
         n = j.mean(axis=0)
         t = np.stack([(j[0]-j[2])/2, (j[1]-j[3])/2])
         mu = np.linalg.norm(t[0, :3])
         t /= max(mu, 1e-10)
-        normal = max(-(a*np.dot(n, smooth) + b*np.mean(phi[start:start+4])/h)
-                     / (n@inverse@n + regularization), 0.)
-        tangent = -a*(smooth@t.T)/(np.sum((t@inverse)*t, axis=1) + regularization)
-        cap = mu*np.asarray(normal)[..., None]
-        tangent *= cap/np.sqrt(cap*cap + np.sum(tangent*tangent, axis=-1, keepdims=True) + 1e-12)
-        velocity += (normal[..., None]*n if np.ndim(normal) else normal*n)@inverse.T + tangent@(t@inverse.T)
+        mn, mt = inverse@n, t@inverse.T
+        dn = (n@mn + regularization)/a
+        dt = (np.sum((t@inverse)*t, axis=1) + regularization)/a
+        gap = np.mean(phi[start:start+4])
+        bias = (gap if gap > 0 else b/a*gap)/h
+        blocks.append((n,t,mu,mn,mt,dn,dt,bias))
+    velocity = np.array(smooth, dtype=float, copy=True)
+    impulses = [(np.zeros(velocity.shape[:-1]), np.zeros(velocity.shape[:-1]+(2,))) for _ in blocks]
+    for _ in range(GROUPED_CONTACT_SWEEPS):
+        for i, (n,t,mu,mn,mt,dn,dt,bias) in enumerate(blocks):
+            old_n, old_t = impulses[i]
+            free = velocity - old_n[...,None]*mn - old_t@mt
+            normal = np.maximum(-(free@n + bias)/dn, 0.)
+            supported = free + normal[...,None]*mn
+            tangent = -(supported@t.T)/dt
+            cap = mu*normal[...,None]
+            tangent *= cap/np.sqrt(cap*cap + np.sum(tangent*tangent, axis=-1, keepdims=True) + 1e-12)
+            velocity = supported + tangent@mt
+            impulses[i] = (normal, tangent)
     return velocity
 
 
 def grouped_contact_velocity_torch(smooth, jacobian, phi, inverse, h, a, b, regularization):
     import torch
-    velocity = smooth
+    blocks = []
     for start in range(0, jacobian.shape[0], 4):
         j = jacobian[start:start+4]
         n = j.mean(dim=0)
         t = torch.stack([(j[0]-j[2])/2, (j[1]-j[3])/2])
         mu = torch.linalg.vector_norm(t[0, :3])
         t = t/mu.clamp_min(1e-10)
-        normal = torch.clamp(-(a*(smooth@n) + b*phi[start:start+4].mean()/h)
-                              / (n@inverse@n + regularization), min=0)
-        tangent = -a*(smooth@t.T)/(torch.sum((t@inverse)*t, dim=1) + regularization)
-        cap = mu*normal[..., None]
-        tangent = tangent*cap/torch.sqrt(cap*cap + torch.sum(tangent*tangent, dim=-1, keepdim=True) + 1e-12)
-        velocity = velocity + normal[..., None]*(inverse@n) + tangent@(t@inverse.T)
+        mn, mt = inverse@n, t@inverse.T
+        dn = (n@mn + regularization)/a
+        dt = (torch.sum((t@inverse)*t, dim=1) + regularization)/a
+        gap = phi[start:start+4].mean()
+        bias = torch.where(gap > 0, gap, b/a*gap)/h
+        blocks.append((n,t,mu,mn,mt,dn,dt,bias))
+    velocity = smooth
+    impulses = [(smooth.new_zeros(smooth.shape[:-1]), smooth.new_zeros(smooth.shape[:-1]+(2,))) for _ in blocks]
+    for _ in range(GROUPED_CONTACT_SWEEPS):
+        for i, (n,t,mu,mn,mt,dn,dt,bias) in enumerate(blocks):
+            old_n, old_t = impulses[i]
+            free = velocity - old_n[...,None]*mn - old_t@mt
+            normal = torch.clamp(-(free@n + bias)/dn, min=0)
+            supported = free + normal[...,None]*mn
+            tangent = -(supported@t.T)/dt
+            cap = mu*normal[...,None]
+            tangent = tangent*cap/torch.sqrt(cap*cap + torch.sum(tangent*tangent, dim=-1, keepdim=True) + 1e-12)
+            velocity = supported + tangent@mt
+            impulses[i] = (normal, tangent)
     return velocity

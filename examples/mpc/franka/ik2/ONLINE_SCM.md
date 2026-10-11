@@ -48,15 +48,15 @@ MPC 的参数输入变为 `[sigma; theta]`。CSO 的阻抗、恢复系数、环�
 
 ## 运行
 
-使用现有 acc 环境；默认可视化弹窗和异步规划，在线辨识默认开启：
+使用现有 acc 环境；默认可视化弹窗和异步规划，在线辨识默认关闭，添加 `--adaptive` 才启用：
 
 ```bash
 conda activate acc
 export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-python examples/mpc/franka/ik2/test_mpc_isaac.py --obj elephant --online-scm
+python examples/mpc/franka/ik2/test_mpc_isaac.py --obj elephant --adaptive
 ```
 
-关闭参数更新：`--no-online-scm`。固定模型也保存数据：再加 `--scm-record-data`。指定输出目录：`--scm-learning-dir PATH`。改变更新间隔：`--scm-learning-min-samples`、`--scm-learning-update-every`。
+默认运行不创建在线辨识器，也不采集辨识数据。`--no-adaptive` 可显式关闭参数更新；旧参数 `--online-scm` / `--no-online-scm` 保留为兼容别名。固定模型也保存数据：加 `--scm-record-data`，该参数不会启用辨识更新。指定输出目录：`--scm-learning-dir PATH`。改变更新间隔：`--scm-learning-min-samples`、`--scm-learning-update-every`。
 
 每个物体/试验输出 `learning.jsonl`、`transitions.npz` 和 `parameters.json`。NPZ 保存初末状态、实际输入、几何、学习前对新样本的预测、同状态的固定先验预测、当时参数和模型配置。每个试验结束保存；中途强行终止仍可保留已写入的更新 JSONL。单试验从先验重新开始，避免不同随机化物理条件间混用参数。
 
@@ -64,10 +64,10 @@ python examples/mpc/franka/ik2/test_mpc_isaac.py --obj elephant --online-scm
 
 ```bash
 python examples/mpc/franka/ik2/test_mpc_isaac.py --obj elephant \
-  --scm-parameters PATH/elephant_trial_000/transitions.npz --no-online-scm
+  --scm-parameters PATH/elephant_trial_000/transitions.npz
 ```
 
-检查点加载会校验物体目录、时间步、基准 Q、mu、tau、zeta、机器人刚度、重力质量与动力学约定。该命令冻结已学参数；去掉 `--no-online-scm` 可继续更新。
+检查点加载会校验物体目录、时间步、基准 Q、mu、tau、zeta、机器人刚度、重力质量与动力学约定。该命令冻结已学参数；添加 `--adaptive` 可继续更新。
 
 成对测试入口（默认弹窗，下面显式关闭）：
 

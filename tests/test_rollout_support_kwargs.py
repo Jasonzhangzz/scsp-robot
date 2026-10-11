@@ -405,4 +405,4 @@ def test_two_stage_cost_does_not_shrink_cartesian_step(monkeypatch):
     assert "u_lb" not in captured["plan_kwargs"]
     assert np.linalg.norm(result["action"]) == pytest.approx(0.005)
     # The contact-force limit stays. Only the Cartesian box is gone.
-    assert captured["force_limit"] == pytest.approx(0.8)
+    assert captured["force_limit"] == pytest.approx(3.0)

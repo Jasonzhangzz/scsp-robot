@@ -177,6 +177,8 @@ def build_cached_solver(ocp, json_file, shared_file):
     """
     import fcntl
     import json
+    import subprocess
+    import time
     from pathlib import Path
     from acados_template import AcadosOcpSolver
     if hasattr(ocp, 'name'):
@@ -184,7 +186,11 @@ def build_cached_solver(ocp, json_file, shared_file):
     directory = Path(json_file).parent
     directory.mkdir(parents=True, exist_ok=True)
     with (directory/'.codegen.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print('[acados] waiting for solver cache: %s' % ocp.model.name, flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
         current = False
         try:
             data = json.loads(Path(json_file).read_text())
@@ -194,5 +200,36 @@ def build_cached_solver(ocp, json_file, shared_file):
                        and data.get('name', ocp.model.name) == ocp.model.name)
         except (OSError, ValueError, TypeError):
             pass
-        return AcadosOcpSolver(ocp, json_file=str(json_file), generate=not current,
-                               build=not current, verbose=False)
+        if not current:
+            started = time.perf_counter()
+            print('[acados] generating solver: %s' % ocp.model.name, flush=True)
+            AcadosOcpSolver.generate(ocp, json_file=str(json_file))
+            makefile = directory / 'Makefile'
+            if os.name != 'nt' and makefile.is_file():
+                # Unrolled SCM Hessians can contain megabytes of scalar C.
+                # GCC's optimizer spends minutes on these files at -O2.
+                # Keep the normal flags for small functions and the solver;
+                # only skip optimization on the oversized generated maps.
+                large_sources = sorted(p for p in directory.rglob('*.c')
+                                       if p.stat().st_size >= 1024*1024)
+                if large_sources:
+                    with makefile.open('a') as handle:
+                        handle.write('\n# Bound cold-start time for large CasADi maps.\n')
+                        for source in large_sources:
+                            target = source.relative_to(directory).with_suffix('.o')
+                            handle.write('%s: CFLAGS += -O0\n' % target.as_posix())
+                print('[acados] compiling solver (%d large maps); log: %s' %
+                      (len(large_sources), directory / 'build.log'), flush=True)
+                with (directory / 'build.log').open('w') as output:
+                    result = subprocess.run(
+                        ['make', '-j2', 'ocp_shared_lib'], cwd=str(directory),
+                        stdout=output, stderr=subprocess.STDOUT)
+                if result.returncode:
+                    raise RuntimeError('acados compilation failed; see %s' %
+                                       (directory / 'build.log'))
+            else:
+                AcadosOcpSolver.build(str(directory), verbose=False)
+            print('[acados] solver ready in %.2fs' %
+                  (time.perf_counter() - started), flush=True)
+        return AcadosOcpSolver(ocp, json_file=str(json_file), generate=False,
+                               build=False, verbose=False)

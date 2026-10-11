@@ -445,46 +445,57 @@ def test_nearby_topk_keeps_a_clearly_better_far_face():
     assert int(got) == 1
 
 
-def test_point_curvature_uses_worst_neighbor_on_a_crease():
+@pytest.mark.parametrize('winner,runner_up', [(8e-4, 1e-4), (8e-4, -1e-4), (8e-7, 1e-7)])
+def test_small_pose_reductions_do_not_become_proximity_ties(winner, runner_up):
     opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
-    opt.curvature_neighbor_k = 4
-    # Four samples on one face and one just across a 90° dihedral.
-    opt.sample_point = np.array([
-        [0.00, 0.00, 0.00],
-        [0.01, 0.00, 0.00],
-        [0.00, 0.01, 0.00],
-        [-0.01, 0.00, 0.00],
-        [0.00, 0.00, 0.01],
-        [0.20, 0.00, 0.00],
-        [0.21, 0.00, 0.00],
-        [0.20, 0.01, 0.00],
-        [0.19, 0.00, 0.00],
-    ], dtype=np.float64)
-    opt.normal = np.array([
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0],
-    ], dtype=np.float64)
+    opt.top_k = 2
+    opt.sample_point = np.array([[.05, .03, .03], [.01, .03, .03]])
+    opt.last_topk_ids = np.array([0, 1])
+    opt.last_candidate_ids = np.array([0, 1])
+    opt.last_candidate_deltas = np.array([winner, runner_up])
+    opt.last_pose_cost_now = 10. * winner
+    assert not opt._delta_near_tie(winner, runner_up)
+    assert opt.choose_nearby_topk_idx(opt.sample_point[1]) == 0
+
+
+def test_small_true_near_tie_still_allows_nearer_patch():
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.top_k = 2
+    opt.sample_point = np.array([[.05, .03, .03], [.01, .03, .03]])
+    opt.last_topk_ids = np.array([0, 1])
+    opt.last_candidate_ids = np.array([0, 1])
+    opt.last_candidate_deltas = np.array([8e-4, 7.95e-4])
+    opt.last_pose_cost_now = .008
+    assert opt.choose_nearby_topk_idx(opt.sample_point[1]) == 1
+    assert not opt._delta_near_tie(8e-4, np.nan)
+
+
+def test_point_curvature_uses_local_mesh_edges_not_sparse_other_faces(tmp_path):
+    import trimesh
+    from planning.project_point import ProjectionPoint
+    path = tmp_path / 'box.stl'
+    trimesh.creation.box(extents=[.10, .06, .04]).export(str(path))
+    pp = ProjectionPoint(str(path), surface_sampling=True)
+    # Opposite/perpendicular face interiors have different normals, but zero
+    # local curvature. Only the last point lies next to a real mesh crease.
+    points = np.array([[0., 0., .02], [.05, 0., 0.],
+                       [-.05, 0., 0.], [0., .03, 0.], [.0495, .0295, .02]])
+    _, _, faces = trimesh.proximity.closest_point(pp.scaled_mesh, points)
+    maximum, mean = pp.surface_curvature(points, faces)
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.sampling_frame = dict(curvature=maximum, curvature_mean=mean)
+    opt.sample_point = points
+    opt.pp = pp
+    opt.sample_vertex_indices = pp.kdtree.query(points)[1]
     curv = opt._estimate_point_curvature()
-    # Mean of the four neighbours is 0.125 and would pass a 0.25 gate;
-    # the orthogonal neighbour must still mark the junction as sharp.
-    assert float(opt.point_curvature_mean[0]) == pytest.approx(0.125)
-    assert float(curv[0]) == pytest.approx(0.5)
+    np.testing.assert_allclose(curv[:4], 0., atol=1e-12)
+    assert curv[4] == pytest.approx(.5)
     opt.point_curvature = curv
-    opt.region_max_point_curvature = 0.25
-    opt.region_max_mean_curvature = 0.10
-    opt.sample_vertex_indices = np.arange(len(curv), dtype=np.int32)
-    opt.pp = type('P', (), {'vertex_normal_stability': None})()
-    kept = set(int(i) for i in opt.filter_rankable_indices(np.arange(len(curv))))
-    assert 0 not in kept
-    assert 4 not in kept
-    assert 5 in kept
+    opt.region_max_point_curvature = .25
+    opt.region_max_mean_curvature = .10
+    kept = set(opt.filter_rankable_indices(np.arange(len(points))))
+    assert kept == {0, 1, 2, 3}
+
 
 
 def test_crease_samples_are_removed_from_the_contact_set():

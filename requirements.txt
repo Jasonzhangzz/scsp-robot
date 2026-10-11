@@ -5,6 +5,9 @@ numpy
 scipy
 casadi
 trimesh
+# Concave mug/duck collision parts and triangle-surface proximity queries.
+coacd
+rtree
 tqdm
 matplotlib
 jax

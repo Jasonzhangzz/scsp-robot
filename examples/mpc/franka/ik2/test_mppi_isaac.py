@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+from pathlib import Path
 import os
 import re
 import shutil
@@ -24,6 +25,24 @@ POSE_AXIS_LENGTH = 0.08
 POSE_AXIS_RADIUS = 0.003
 POSE_AXIS_CENTER_RADIUS = 0.009
 HIDDEN_GHOST_POSITION = np.array([0.0, 0.0, -10.0], dtype=np.float32)
+
+
+def _write_asset_text_atomic(path, content):
+    """Publish complete shared assets when independent rollouts start together."""
+    try:
+        with open(path, "r", encoding="ascii") as handle:
+            if handle.read() == content:
+                return
+    except FileNotFoundError:
+        pass
+    fd, pending = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            handle.write(content)
+        os.replace(pending, path)
+    finally:
+        if os.path.exists(pending):
+            os.unlink(pending)
 
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +72,6 @@ from examples.mpc.fingertips.test.test_0902 import (
     _predicted_object_pose,
     _x_plus_is_usable,
 )
-from planning.MPPIExplicit import _franka_fk_T_jax
 from examples.mpc.franka.ik2.contact_frames import (
     _contact_jacobian_np as _contact_jacobian,
     tangent_basis_from_normal as _tangent_basis_from_normal,
@@ -234,6 +252,7 @@ class IsaacFrankaSimulator:
             visual_mesh_path,
             mass=float(getattr(self.param_, "sim_obj_mass_", getattr(self.param_, "obj_mass_", 0.01))),
             inertia_diag=getattr(self.param_, "sim_obj_inertia_diag_", None),
+            collision_mesh_paths=getattr(self.param_, 'collision_mesh_paths_', None),
         )
         obj_opts = gymapi.AssetOptions()
         obj_opts.density = 200.0
@@ -459,7 +478,8 @@ class IsaacFrankaSimulator:
         )
 
     @staticmethod
-    def _prepare_mesh_urdf_assets(repo_root, mesh_path, visual_mesh_path=None, mass=0.01, inertia_diag=None):
+    def _prepare_mesh_urdf_assets(repo_root, mesh_path, visual_mesh_path=None, mass=0.01, inertia_diag=None,
+                                  collision_mesh_paths=None):
         if mesh_path is None:
             raise ValueError("param.mesh_path_ is required for Isaac object asset loading")
 
@@ -472,15 +492,19 @@ class IsaacFrankaSimulator:
 
         collision_abs = _abs_mesh(mesh_path)
         visual_abs = _abs_mesh(visual_mesh_path or mesh_path)
+        part_paths = [_abs_mesh(path) for path in (collision_mesh_paths or [collision_abs])]
 
         with open(collision_abs, "rb") as collision_file:
             collision_bytes = collision_file.read()
         with open(visual_abs, "rb") as visual_file:
             visual_bytes = visual_file.read()
+        part_bytes = [Path(path).read_bytes() for path in part_paths]
         cache_key = hashlib.sha256(
             b"\0".join((
                 collision_bytes,
                 visual_bytes,
+                b'compound-collision-v1',
+                *part_bytes,
                 repr((float(mass), None if inertia_diag is None else tuple(np.asarray(inertia_diag).reshape(3)))).encode("ascii"),
             ))
         ).hexdigest()[:24]
@@ -492,6 +516,15 @@ class IsaacFrankaSimulator:
         collision_rel = "obj_mesh_collision.stl"
         shutil.copy2(visual_abs, os.path.join(mesh_asset_root, visual_rel))
         shutil.copy2(collision_abs, os.path.join(mesh_asset_root, collision_rel))
+        collision_elements = []
+        for index, part in enumerate(part_paths):
+            relative = 'obj_collision_%03d.stl' % index
+            shutil.copy2(part, os.path.join(mesh_asset_root, relative))
+            collision_elements.append('''    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="%s" scale="1 1 1"/></geometry>
+    </collision>''' % relative)
+        collision_xml = '\n'.join(collision_elements)
         mesh_scale = "1 1 1"
         obj_urdf_rel = "obj_mesh_dynamic.urdf"
         obj_urdf_abs = os.path.join(mesh_asset_root, obj_urdf_rel)
@@ -519,12 +552,7 @@ class IsaacFrankaSimulator:
         <color rgba="0.2 0.6 1.0 1.0"/>
       </material>
     </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="{collision_rel}" scale="{mesh_scale}"/>
-      </geometry>
-    </collision>
+{collision_xml}
   </link>
 </robot>
 """
@@ -543,10 +571,8 @@ class IsaacFrankaSimulator:
   </link>
 </robot>
 """
-        with open(obj_urdf_abs, "w", encoding="ascii") as f:
-            f.write(obj_urdf)
-        with open(target_urdf_abs, "w", encoding="ascii") as f:
-            f.write(ghost_urdf)
+        _write_asset_text_atomic(obj_urdf_abs, obj_urdf)
+        _write_asset_text_atomic(target_urdf_abs, ghost_urdf)
 
         return obj_urdf_rel, target_urdf_rel, mesh_asset_root
 
@@ -582,8 +608,7 @@ class IsaacFrankaSimulator:
   </link>
 </robot>
 """
-        with open(marker_urdf_abs, "w", encoding="ascii") as f:
-            f.write(marker_urdf)
+        _write_asset_text_atomic(marker_urdf_abs, marker_urdf)
 
         return marker_urdf_rel, marker_asset_root
 
@@ -638,8 +663,7 @@ class IsaacFrankaSimulator:
   </link>
 </robot>
 """
-        with open(pose_axes_urdf_abs, "w", encoding="ascii") as f:
-            f.write(pose_axes_urdf)
+        _write_asset_text_atomic(pose_axes_urdf_abs, pose_axes_urdf)
 
         return pose_axes_urdf_rel, marker_asset_root
 
@@ -895,8 +919,8 @@ class IsaacFrankaSimulator:
             self.gym.draw_viewer(self.viewer_, self.sim, True)
             self.gym.sync_frame_time(self.sim)
 
-    def reset_mj_env(self):
-        # reset object pose according to params.py random init
+    def _reset_object_pose(self):
+        """Restore the parameter pose and zero physical object velocity."""
         obj_state = self.gym.get_actor_rigid_body_states(self.env, self.obj_actor, gymapi.STATE_ALL)
         init_obj = np.array(self.param_.init_obj_qpos_, dtype=np.float32)
         obj_state["pose"]["p"][0] = (float(init_obj[0]), float(init_obj[1]), float(init_obj[2]))
@@ -906,6 +930,8 @@ class IsaacFrankaSimulator:
         obj_state["vel"]["angular"][0] = (0.0, 0.0, 0.0)
         self.gym.set_actor_rigid_body_states(self.env, self.obj_actor, obj_state, gymapi.STATE_ALL)
 
+    def reset_mj_env(self):
+        self._reset_object_pose()
         dof_states = self.gym.get_actor_dof_states(self.env, self.franka_actor, gymapi.STATE_ALL)
         dof_states["pos"][:] = 0.0
         dof_states["vel"][:] = 0.0
@@ -1011,6 +1037,7 @@ class IsaacFrankaSimulator:
     def draw_rollout_lines(self, rollout_q):
         if self.viewer_ is None:
             return
+        from planning.MPPIExplicit import _franka_fk_T_jax
         self.gym.clear_lines(self.viewer_)
         if rollout_q is None:
             return
@@ -1050,6 +1077,7 @@ class IsaacFrankaSimulator:
         return np.hstack([obj_pos, obj_quat_wxyz, q]).astype(np.float32)
 
     def get_end_effector_pos(self):
+        from planning.MPPIExplicit import _franka_fk_T_jax
         q = self.get_current_joint_position()
         T = np.array(_franka_fk_T_jax(q), dtype=np.float32)
         p = T[:3, 3]
@@ -1394,9 +1422,17 @@ def _plan_payload(env, contact, table_ground, dwell=None):
         "jac_mat_env": np.asarray(jac_mat_env, dtype=np.float64),
         "env_phi": np.asarray(getattr(contact, 'env_phi', np.zeros(jac_mat_env.shape[0])), dtype=np.float64),
         "if_contact": bool(if_contact),
-        "actual_contact": measured if if_contact else None,
+        # A speculative PhysX patch still carries real measured geometry.
+        # Runtime MPC closes its positive gap through dynamics; dropping it
+        # here would force approach/contact toggling before the planner sees it.
+        "actual_contact": measured if if_contact or getattr(env.param_, 'runtime_object_cost_', False) else None,
         "table_ground": float(table_ground),
     }
+    if hasattr(env, 'get_fingertip_velocity_world'):
+        payload['fingertip_linear_velocity'] = env.get_fingertip_velocity_world()
+    executed = getattr(env, '_last_mpc_action', None)
+    if executed is not None:
+        payload['executed_action'] = np.asarray(executed, dtype=np.float64).copy()
     if dwell is not None:
         payload["dwell"] = dwell
     if measured is None:
@@ -1412,23 +1448,31 @@ def _apply_plan_result(param, env, result, curr_q, print_fn):
     _apply_opt_snapshot(param.lambda_optimizer, result.get("opt_snapshot"))
     policy = result["policy"]
     if policy.get('object_cost_config') is not None:
-        from planning.object_pose_cost import cost_config
         c = np.asarray(policy['object_cost_config'], dtype=float)
         param.object_cost_config_ = c.copy()
         q = np.asarray(curr_q)[3:7]
         r = Rotation.from_quat(q[[1, 2, 3, 0]]).as_matrix()
-        param.lambda_optimizer.set_object_cost_config(cost_config(*c[:3],
-            body_axis=c[3:6], reference_up=r.T @ c[6:9]))
+        local_config = c.copy()
+        local_config[6:9] = r.T @ c[6:9]
+        param.lambda_optimizer.set_object_cost_config(local_config)
     print_fn(
         param, curr_q, policy, policy["value_info"], result["verify_cost"],
         result["verify_chatter"],
         _ConfView(result["model_tightness"], result["model_accum"]),
-        None, None, result.get("if_contact", False), policy["escape_on"],
+        policy.get("pred_dcost_prev"), policy.get("act_dcost_prev"), result.get("if_contact", False), policy["escape_on"],
     )
-    print(
-        "rank_dt:", round(float(result["rank_dt"]), 4),
-        "plan_dt:", round(float(result.get("plan_dt", result.get("mppi_dt", 0.0))), 4),
-    )
+    if "total_dt" in result:
+        print("rank_dt:", round(float(result["rank_dt"]), 4),
+              "plan_dt:", round(float(result["plan_dt"]), 4),
+              "online_dt:", round(float(result["online_dt"]), 4),
+              "total_dt:", round(float(result["total_dt"]), 4),
+              "backend:", result.get("solver_backend"),
+              "mpc_fallbacks:", result.get("mpc_fallbacks", 0))
+    else:
+        print(
+            "rank_dt:", round(float(result["rank_dt"]), 4),
+            "plan_dt:", round(float(result.get("plan_dt", result.get("mppi_dt", 0.0))), 4),
+        )
     if env is not None:
         env.show_target(policy["mpc_virtual_point"])
         env.show_best_contact(policy["best_contact_world"])
@@ -1443,7 +1487,7 @@ def _plan_from_obs(obs, dwell=None):
         "if_contact": bool(obs.get("if_contact", False)),
         "table_ground": float(obs["table_ground"]),
     }
-    for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active', 'actual_contact'):
+    for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active', 'actual_contact', 'fingertip_linear_velocity', 'executed_action'):
         if key in obs:
             payload[key] = obs[key]
     for key in ("phi_vec", "jac_mat", "jac_mat_env", "env_phi"):
@@ -1464,7 +1508,12 @@ def _pred_reduction_from_policy(param, curr_q, policy):
         c_now = object_cost_np(curr_q[:7], target, config)
         xp, info = policy.get('x_plus_opt'), policy.get('info')
         reduction = None
-        if xp is not None and _x_plus_is_usable(xp, info):
+        executed = policy.get('execution_object_pose_world')
+        if executed is not None:
+            predicted_cost = object_cost_np(np.asarray(executed), target, config)
+            if np.isfinite(predicted_cost):
+                reduction = c_now - predicted_cost
+        elif xp is not None and _x_plus_is_usable(xp, info):
             pp, pq = _predicted_object_pose(curr_q[:7], xp)
             reduction = c_now - object_cost_np(np.r_[pp, pq], target, config)
         return c_now, reduction
@@ -1490,7 +1539,7 @@ def _dwell_payload(
     c_now_cost, pred_reduction, contact_distance, pos_err_now,
     curr_q=None, param=None,
 ):
-    if policy.get('execution_override', False):
+    if policy.get('execution_override', False) and policy.get('execution_object_pose_world') is None:
         return None
     if param is None:
         param = env.param_
@@ -1507,6 +1556,9 @@ def _dwell_payload(
         )
     return {
         "object_cost_stage": policy.get('object_cost_stage'),
+        "execution_mode": policy.get('execution_mode'),
+        "model_feedback_scale": policy.get('object_feedback_scale'),
+        "model_prediction_available": policy.get('execution_object_pose_world') is not None,
         "progress_cost": (None if policy.get('object_progress_scale') is None else c_after / policy['object_progress_scale']),
         "tip_now": np.asarray(curr_q[7:10], dtype=float),
         "obj_pos": np.asarray(curr_q[:3], dtype=float),

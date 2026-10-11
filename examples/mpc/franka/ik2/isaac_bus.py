@@ -296,10 +296,23 @@ def mpc_planner_entry(cmd_q, obs_q, ready_q, init):
     planner_worker(cmd_q, obs_q, ready_q, init)
 
 
-def _start_process(target, args, ready_q, timeout):
+def _start_process(target, args, ready_q, timeout, planner_only=False):
     ctx = mp.get_context("spawn")
     proc = ctx.Process(target=target, args=args, daemon=True)
-    proc.start()
+    # spawn imports the main module before entering the target function.
+    # Set this in the inherited environment so a planner does not load Gym
+    # or build gymtorch while importing run.py as __mp_main__.
+    previous = os.environ.get("SCSP_PLANNER_ONLY")
+    try:
+        if planner_only:
+            os.environ["SCSP_PLANNER_ONLY"] = "1"
+        proc.start()
+    finally:
+        if planner_only:
+            if previous is None:
+                os.environ.pop("SCSP_PLANNER_ONLY", None)
+            else:
+                os.environ["SCSP_PLANNER_ONLY"] = previous
     ready = ready_q.get(timeout=timeout)
     if not ready.get("ok", False):
         proc.join(timeout=2.0)
@@ -319,7 +332,8 @@ def start_planner(args, planner, timeout=180.0):
     ctx, cmd_q, obs_q, ready_q = make_queues()
     init = {"args": pickle_args(args), "planner": planner}
     entry = mppi_planner_entry if planner == "mppi" else mpc_planner_entry
-    proc = _start_process(entry, (cmd_q, obs_q, ready_q, init), ready_q, timeout)
+    proc = _start_process(entry, (cmd_q, obs_q, ready_q, init), ready_q, timeout,
+                          planner_only=True)
     return IsaacBus(cmd_q, obs_q), proc
 
 

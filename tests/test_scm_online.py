@@ -182,6 +182,23 @@ def test_checkpoint_rejects_changed_contact_grouping(tmp_path):
         learner.load(path)
 
 
+def test_checkpoint_rejects_old_uncoupled_grouped_response(tmp_path):
+    model, samples = fixture()
+    model.grouped_contact_response = True
+    learner = OnlineSCMIdentifier(model)
+    learner.add(samples[0])
+    path = tmp_path/'transitions.npz'
+    learner.save(path)
+    # A new checkpoint is compatible, but a previously grouped, independently
+    # evaluated contact response has different pressure/support dynamics.
+    learner.load(path)
+    with np.load(path, allow_pickle=False) as data:
+        old = {k: data[k] for k in data.files if k != 'grouped_contact_version'}
+    np.savez_compressed(path, **old)
+    with pytest.raises(ValueError, match='coupled contact response version'):
+        learner.load(path)
+
+
 def test_driven_contact_prediction_matches_backends_with_learned_parameters():
     opt=LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
     opt.contact_model='soft-scm'; opt.h=.02; opt.max_contacts=1

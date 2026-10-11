@@ -12,7 +12,9 @@ from models.soft_scm_contact import (
     normalize_contact_model, soft_scm_coefficients,
 )
 from examples.mpc.fingertips.test.params import canonical_object_meshes
+from models.object_collision_mesh import decomposed_collision_mesh
 from planning.runtime_compat import resolve_solver_backend
+from planning.contact_limits import contact_force_limit, contact_command_force_limit
 
 # Legacy yaw sampler's factorization; physical standing is handled separately.
 _GOAL_GEOM_Q = np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], dtype=np.float64)
@@ -33,19 +35,23 @@ def add_via_init_pose_args(parser):
     return parser
 
 
-def _tilted_init_quaternion(args, yaw_angle):
+def _tilted_init_quaternion(args, yaw_angle, target_type="rotation"):
     yaw = float(np.asarray(yaw_angle, dtype=np.float64).reshape(-1)[0])
-    pitch_angle = 0.0
-    roll_angle = 0.0
+    tilt = np.pi / 2 if target_type == "ground-rotation" else 0.0
+    axis_angle = 0.0
     if getattr(args, "random_init_tilt", False):
-        max_tilt = np.deg2rad(max(0.0, float(getattr(args, "init_tilt_deg", 65.0))))
-        min_tilt = np.deg2rad(max(0.0, float(getattr(args, "init_tilt_min_deg", 0.0))))
-        min_tilt = min(min_tilt, max_tilt)
+        max_deg = float(getattr(args, "init_tilt_deg", 90.0))
+        min_deg = float(getattr(args, "init_tilt_min_deg", 90.0))
+        if not np.isfinite([min_deg, max_deg]).all() or not 0 <= min_deg <= max_deg <= 180:
+            raise ValueError("initial tilt requires 0 <= init_tilt_min_deg <= init_tilt_deg <= 180")
+        min_tilt, max_tilt = np.deg2rad([min_deg, max_deg])
         tilt = np.sqrt(min_tilt ** 2 + np.random.rand() * (max_tilt ** 2 - min_tilt ** 2))
         axis_angle = 2.0 * np.pi * np.random.rand()
-        pitch_angle = float(tilt * np.cos(axis_angle))
-        roll_angle = float(tilt * np.sin(axis_angle))
-    return rotations.rpy_to_quaternion(np.hstack([yaw, pitch_angle, roll_angle]))
+    # A single horizontal-axis rotation gives the requested physical tilt.
+    # Splitting it into Euler pitch/roll changes the actual inclination.
+    tilt_q = rotations.angle_dir_to_quat(tilt, [np.sin(axis_angle), np.cos(axis_angle), 0.0])
+    yaw_q = rotations.rpy_to_quaternion([yaw, 0.0, 0.0])
+    return rotations.quaternion_multiply(yaw_q, tilt_q)
 
 
 def _quat_wxyz_to_R(quat_wxyz):
@@ -163,21 +169,20 @@ def build_lambda_optimizer(param, args):
     runtime_cost = bool(getattr(param, 'runtime_object_cost_', False))
     grouped_response = bool(getattr(param, 'grouped_contact_response_', False))
     extracted = bool(getattr(param, "_collision_mesh_extracted", False))
-    return LambdaContactControlOptimizer(
+    opt = LambdaContactControlOptimizer(
         mesh_path=param.mesh_path_,
         obj_mass=float(getattr(param, "lambda_obj_mass_", 0.01)),
         arm_friction=param.mu_object_,
         contact_stiffness=param.model_params,
         time_step=(param.h_ if runtime_cost else getattr(param, 'lambda_h_', .05)),
-        max_contacts=1 if grouped_response else 10,
+        max_contacts=4 if grouped_response else 10,
         sample_num=args.sample_num,
         top_k=getattr(args, "top_k", 2),
         pos_coef=args.pos_coef,
         ori_coef=args.ori_coef,
         friction_reg_coef=getattr(args, "friction_reg_coef", 0.0),
         force_reg_coef=getattr(args, "force_reg_coef", 0.01),
-        max_contact_force=(min(float(getattr(args, 'max_contact_force', 10.)), .8)
-                           if runtime_cost else float(getattr(args, 'max_contact_force', 10.))),
+        max_contact_force=(contact_command_force_limit(args, 600.) if runtime_cost else contact_force_limit(args)),
         contact_switch_radius=getattr(args, "contact_switch_radius", 0.03),
         contact_switch_margin_ratio=getattr(args, "contact_switch_margin_ratio", 0.2),
         contact_switch_margin_abs=getattr(args, "contact_switch_margin_abs", 1e-3),
@@ -197,12 +202,26 @@ def build_lambda_optimizer(param, args):
         soft_scm_damping_ratio=getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO),
         soft_scm_regularization=getattr(param, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION),
         collision_hull=(bool(getattr(param, "collision_hull", True)) and not extracted),
+        surface_sampling=getattr(param, 'contact_sampling_', 'vertices') == 'surface',
+        collision_part_paths=getattr(param, 'collision_mesh_paths_', None),
     )
+    guidance = str(getattr(args, "cso_guidance", "cso"))
+    if guidance not in ("cso", "pose", "random", "nearest"):
+        raise ValueError("cso_guidance must be cso, pose, random, or nearest")
+    opt.cso_guidance = guidance
+    # One stream per trial so random guidance is reproducible across matched runs.
+    opt._cso_rng = np.random.default_rng(int(getattr(param, "trial_seed_", 0)))
+    return opt
 
 
 class ExplicitMPCParams:
     def __init__(self, args, rand_seed=1, target_type="ground-rotation", mpc_model="explicit"):
         self.contact_cost_param = float(args.contact_cost_param)
+        self.cpo_variant = str(getattr(args, "cpo_variant", "full"))
+        if self.cpo_variant not in ("full", "no_object_center", "direct"):
+            raise ValueError("cpo_variant must be full, no_object_center, or direct")
+        self.cpo_direct_trajectory = self.cpo_variant == "direct"
+        self.trial_seed_ = int(rand_seed)
         self.attract_coef = float(args.attract_coef)
         self.field_cost_weight = 0.05
         self.quadratic_contact_track = False
@@ -235,6 +254,12 @@ class ExplicitMPCParams:
         # Use one authored, version-independent convex hull so ranking,
         # PhysX, and the pose metric share the same object frame.
         self._collision_mesh_extracted = False
+        self.collision_mesh_paths_ = []
+        geometry = getattr(args, 'collision_geometry', 'auto')
+        if geometry not in ('auto', 'hull', 'decomposed'):
+            raise ValueError('collision_geometry must be auto, hull, or decomposed')
+        use_parts = (geometry == 'decomposed' or
+                     (geometry == 'auto' and args.obj in ('mug', 'rubber_duck')))
         if self.collision_hull:
             # Do not consume MuJoCo's compiled mesh arrays here.  Their frame
             # and centering conventions differ between MuJoCo releases and
@@ -243,6 +268,14 @@ class ExplicitMPCParams:
                 self.source_mesh_path_, self.model_path_
             )
             self._collision_mesh_extracted = True
+            if use_parts:
+                self.mesh_path_, self.collision_mesh_paths_ = decomposed_collision_mesh(
+                    self.visual_mesh_path_)
+        self.collision_geometry_ = 'decomposed' if self.collision_mesh_paths_ else 'hull'
+        sampling = getattr(args, 'contact_sampling', 'auto')
+        if sampling not in ('auto', 'surface', 'vertices'):
+            raise ValueError('contact_sampling must be auto, surface, or vertices')
+        self.contact_sampling_ = ('surface' if args.obj in ('mug', 'rubber_duck') else 'vertices') if sampling == 'auto' else sampling
         try:
             mesh = trimesh.load_mesh(self.mesh_path_, process=False)
             self.object_vertices_ = np.asarray(mesh.vertices, dtype=np.float64).copy()
@@ -316,7 +349,7 @@ class ExplicitMPCParams:
         self.flip_enter_angle_deg_ = float(getattr(args, 'flip_enter_angle_deg', 10.))
         self.flip_stable_time_ = float(getattr(args, 'flip_stable_time', .3))
 
-        init_tilt_q = _tilted_init_quaternion(args, yaw_angle)
+        init_tilt_q = _tilted_init_quaternion(args, yaw_angle, target_type)
         init_obj_quat_rand = rotations.quaternion_multiply(init_tilt_q, self.standing_q_)
         init_height = _supported_mesh_height(
             init_obj_quat_rand, self.object_vertices_, self.table_height, clearance=0.002)
@@ -432,9 +465,34 @@ class ExplicitMPCParams:
         )
         object_config = None
         if getattr(self, 'runtime_object_cost_', False):
-            object_config = cs.SX.sym('object_config', 9)
-            cost_param = cs.vertcat(cost_param, object_config)
-        if getattr(self, "smooth_contact_detour", False):
+            from planning.object_pose_cost import OBJECT_COST_CONFIG_SIZE
+            object_config = cs.SX.sym('object_config', OBJECT_COST_CONFIG_SIZE)
+            contact_reference = cs.SX.sym('contact_reference', 7)
+            cost_param = cs.vertcat(cost_param, contact_reference, object_config)
+            from models.contact_geometry import attached_point_cs
+            # Approach is a world path; contact tracking follows the predicted
+            # object pose instead of pulling the finger toward a stale point.
+            contact_point = attached_point_cs(x, contact_reference, contact_point)
+        from planning.mpc_costs import cpo_stage_weights
+        center_w, ref_w, phased = cpo_stage_weights(
+            getattr(self, "contact_cost_param", 0.0), getattr(self, "cpo_variant", "full"))
+        if not phased:
+            # Direct trajectory optimization keeps reference tracking and
+            # object-center attraction on every stage. The ranking trigger
+            # does not switch in a lift or place potential.
+            contact_point_cost = (
+                cs.sumsqr(x[7:10] - contact_point)
+                if getattr(self, "quadratic_contact_track", False)
+                else self.log_barrier_function(x, contact_point)
+            )
+            base_cost = self.contact_coef * (
+                center_w * contact_cost + ref_w * contact_point_cost)
+            final_cost = (
+                float(getattr(self, "pos_coef", 500.0)) * position_cost
+                + float(getattr(self, "ori_coef", 20.0)) * quaternion_cost
+            )
+            control_weight = 50.0
+        elif getattr(self, "smooth_contact_detour", False):
             base_cost = self._smooth_contact_detour_cost(x, virtual_point, contact_point)
             final_cost = (
                 500 * position_cost
@@ -472,14 +530,10 @@ class ExplicitMPCParams:
                 if getattr(self, "quadratic_contact_track", False)
                 else self.log_barrier_function(x, contact_point)
             )
-            press_cost = contact_point_cost
-            if float(getattr(self, "contact_cost_param", 0.0)) > 0.0 and not getattr(
-                self, "rollout_press_patch", False
-            ):
-                press_cost = (
-                    self.contact_cost_param * contact_cost
-                    + (1 - self.contact_cost_param) * contact_point_cost
-                )
+            if getattr(self, "rollout_press_patch", False):
+                press_cost = contact_point_cost
+            else:
+                press_cost = center_w * contact_cost + ref_w * contact_point_cost
             base_cost = (1 - verify_cost_param) * attract_cost + self.contact_coef * verify_cost_param * press_cost
             # Lambda pose: pos_coef||Δp||² + ori_coef(1 − q·q*)².
             final_cost = (
@@ -491,7 +545,10 @@ class ExplicitMPCParams:
         if object_config is not None:
             from planning.object_pose_cost import object_cost_cs
             final_cost = object_cost_cs(x[:7], cs.vertcat(target_position, target_quaternion), object_config)
-            if getattr(self, 'smooth_contact_detour', False):
+            # Score the whole predicted trajectory: terminal-only tracking
+            # neither prices intermediate tipping nor rewards early progress.
+            base_cost += final_cost
+            if phased and getattr(self, 'smooth_contact_detour', False):
                 final_cost += 20.0 * self.detour_attract_coef * cs.sumsqr(x[7:10] - virtual_point)
         path_cost_fn = cs.Function("path_cost_fn", [x, u, cost_param], [base_cost + control_weight * control_cost])
         final_cost_fn = cs.Function("final_cost_fn", [x, cost_param], [10 * final_cost])

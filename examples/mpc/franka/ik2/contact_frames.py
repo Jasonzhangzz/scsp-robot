@@ -252,16 +252,12 @@ def osc_action_task_force(
     """Pick the OSC wrench from the MPC increment, not a via-pose PD.
 
     Free space finishes the increment along ``u``.  A made or nearby
-    press uses the ball law ``F = K u − D v``.  A blocked orbit still
-    follows that increment; it does not strip inward to break contact.
+    press uses the ball law ``F = K u − D v`` and the configured cap,
+    including during a blocked transit when it touches the object.
     """
     force_along = np.asarray(force_along_action, dtype=np.float32).reshape(3)
     force_contact = np.asarray(force_contact, dtype=np.float32).reshape(3)
     limit = abs(float(contact_limit))
-    if bool(path_blocked):
-        # Follow the increment.  Stripping the inward part was an
-        # explicit "leave this graze" rule and made contacts one-frame.
-        return force_along.copy()
     if not bool(near_press):
         return force_along.copy()
     force = force_contact
@@ -279,7 +275,7 @@ def mpc_action_track_accel(e_p, e_v, policy_dt=0.02):
     return (wn * wn * e_p + 2.0 * wn * e_v).astype(np.float32)
 
 
-# Only the last centimetre uses the 0.8 N press scale.  The old 3 cm
+# Only the last centimetre uses the configured contact-force cap.  The old 3 cm
 # window braked a 0.125 m/s approach: D*v = 5 N against K*u = 1.5 N,
 # then the contact cap left the tip crawling toward best_contact.
 NEAR_PRESS_SWITCH = 0.010
@@ -287,7 +283,7 @@ NEAR_PRESS_SWITCH = 0.010
 
 def near_press_force_mode(in_contact, tip, press=None, obj=None, obj_radius=0.06,
                           near=NEAR_PRESS_SWITCH):
-    """True when OSC must use the ball press scale, not the 40 N air cap.
+    """True when OSC must use the contact cap instead of free-space tracking.
 
     The Isaac table's near edge is at x=0.2 and the object starts at
     x=0.30--0.40.  A free-space punch into the far face shoves the
@@ -467,6 +463,38 @@ def planar_support_jacobians(obj_pos, r_obj_to_world, support_point, support_nor
     con_jac_body = contact_jacobian_body_frame(con_jac[:, :6], r_obj_to_world)
     con_pos_local = (np.asarray(r_obj_to_world, dtype=np.float64).T @ r_obj).astype(np.float32)
     return con_jac, con_jac_body, con_pos_local, dist
+
+
+def mesh_table_contact_points(obj_pos, rotation, vertices, contact_band=.001, max_points=4):
+    """Separated points on the lowest collision-mesh patch, in world space.
+
+    Keep the support lever arms: replacing the patch by the COM projection
+    loses the pivot that converts an off-center downward press into rotation.
+    """
+    world = np.asarray(vertices, dtype=float) @ np.asarray(rotation).T + np.asarray(obj_pos)
+    lowest = float(world[:, 2].min())
+    cloud = world[world[:, 2] <= lowest + float(contact_band)]
+    selected = [int(np.argmin(cloud[:, 2]))]
+    distances = np.linalg.norm(cloud[:, :2] - cloud[selected[0], :2], axis=1)
+    while len(selected) < min(int(max_points), len(cloud)):
+        idx = int(np.argmax(distances))
+        if distances[idx] < .002:
+            break
+        selected.append(idx)
+        distances = np.minimum(distances, np.linalg.norm(cloud[:, :2] - cloud[idx, :2], axis=1))
+    return cloud[selected]
+
+
+def support_patch_jacobians(obj_pos, rotation, point_world, nv, mu):
+    """World/body Jacobians at an actual support point, with its moment arm."""
+    lever = np.asarray(point_world) - np.asarray(obj_pos)
+    relative = np.zeros((3, int(nv)))
+    relative[:, :3] = np.eye(3)
+    relative[:, 3:6] = -_skew(lever)
+    n, t1, t2 = tangent_basis_from_normal([0., 0., 1.])
+    world = _contact_jacobian_np(n, t1, t2, relative, mu)
+    body = contact_jacobian_body_frame(world[:, :6], rotation)
+    return world, body
 
 
 def gravity_accel_with_support(gravity_world3, support_normal=None):

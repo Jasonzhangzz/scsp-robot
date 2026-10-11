@@ -149,6 +149,22 @@ def test_feedback_and_payload_use_active_object_cost(monkeypatch):
     assert payload['dwell']['object_cost_stage'] == 'flip'
 
 
+def test_confidence_scores_executed_mpc_prediction_instead_of_ideal_lambda(monkeypatch):
+    monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
+    from examples.mpc.franka.ik2.test_mppi_isaac import _pred_reduction_from_policy
+    config = cost_config(500, 0, 20)
+    current = np.r_[[.3, .1, .4], quat([60, 0, 0]), [.2, .1, .4]]
+    target = np.r_[[.4, .1, .4], quat([0, 0, 0])]
+    executed = np.r_[[.32, .1, .4], quat([50, 0, 0])]
+    param = SimpleNamespace(target_p_=target[:3], target_q_=target[3:])
+    policy = dict(object_cost_config=config, execution_object_pose_world=executed,
+        x_plus_opt=np.array([0., 0., 0., 1., 0., 0., 0.]),
+        info=dict(control_input=np.ones(3), solver_failed=False))
+    now, reduction = _pred_reduction_from_policy(param, current, policy)
+    assert now == pytest.approx(object_cost_np(current[:7], target, config))
+    assert reduction == pytest.approx(now - object_cost_np(executed, target, config))
+
+
 def test_mpc_runtime_parameters_and_disabled_signature():
     from examples.mpc.franka.ik2.params import ExplicitMPCParams
     from planning.mpc_costs import pack_cost_params
@@ -160,14 +176,14 @@ def test_mpc_runtime_parameters_and_disabled_signature():
     path, final = p.init_cost_fns()
     pose = np.r_[[.3, .2, .4], quat([25, 0, 75])]
     target = np.r_[[.4, .1, .38], quat([0, 0, -50])]
-    for c in [cost_config(0, 0, 20), cost_config(500, 20)]:
+    for c in [cost_config(0, 0, 20), cost_config(500, 20), cost_config(500, 20, 20)]:
         p.object_cost_config_ = c
         packed = pack_cost_params('param', p, path, target_p=target[:3], target_q=target[3:])
-        np.testing.assert_allclose(packed[-9:], c)
+        np.testing.assert_allclose(packed[-12:], np.r_[c, [0.,0.,0.]])
         assert float(final(np.r_[pose, [.2, .2, .4]], packed)) == pytest.approx(10 * object_cost_np(pose, target, c), abs=1e-8)
     p.runtime_object_cost_ = False
     legacy_path, _ = p.init_cost_fns()
-    assert path.size_in(2)[0] == legacy_path.size_in(2)[0] + 9
+    assert path.size_in(2)[0] == legacy_path.size_in(2)[0] + 7 + 12
 
 
 @pytest.mark.parametrize('backend', ['ipopt', 'acados', 'torch-lbfgs'])
@@ -191,7 +207,7 @@ def test_lambda_solver_switches_without_rebuild(tmp_path, backend, monkeypatch):
         tau_o_np=np.zeros(6), n_arm=[1., 0, 0], t1=[0., 1, 0], t2=[0., 0, 1],
         p_arm=[0., 0, .03], curr_ori_coef=1.)
     results = []
-    for c in [cost_config(0, 0, 20), cost_config(500, 20)]:
+    for c in [cost_config(0, 0, 20), cost_config(500, 20), cost_config(500, 20, 20)]:
         opt.set_object_cost_config(c)
         result = opt._solve_optimization(**common)
         assert result is not None
@@ -237,10 +253,10 @@ def test_mpc_solver_uses_runtime_cost_without_rebuild(backend):
             assert result['solve_status'] == 'Solve_Succeeded'
         params = mpc._cost_params(target_p=p.target_p_, target_q=p.target_q_, phi_vec=phi,
                                   jac_mat=jac, virtual_point=current[7:], contact_point=current[7:])
-        trajectory = np.asarray(result['sol_guess']['x0']).reshape(5, 13)
-        expected = float(mpc.final_cost_fn(trajectory[-1, 3:], params))
-        states = np.vstack([current, trajectory[:-1, 3:]])
-        expected += sum(float(mpc.path_cost_fn(x, u, params)) for x, u in zip(states, trajectory[:, :3]))
+        trajectory = np.asarray(result['sol_guess']['x0']).reshape(5, 3+mpc.param_.n_qpos_)
+        expected = float(mpc._terminal_cost(trajectory[-1, 3:], params))
+        states = np.vstack([mpc.observation_state(current), trajectory[:-1, 3:]])
+        expected += sum(float(mpc._path_cost(x, u, params)) for x, u in zip(states, trajectory[:, :3]))
         assert float(np.asarray(result['cost_opt']).reshape(-1)[0]) == pytest.approx(expected, abs=1e-6)
         values.append(expected)
     assert mpc.acados_solver_ is solver
@@ -306,18 +322,18 @@ def test_target_pose_defines_upright_family_independently_of_object_axis(target_
 
 
 def test_flip_stage_weights_position_and_up_then_restores_full_pose():
-    stage = ObjectCostStages(args())
+    stage = ObjectCostStages(args(obj='stanford_bunny2'))
     np.testing.assert_allclose(stage.config()[:3], [500., 0., 20.])
     target = np.r_[[.3, .1, .4], quat([0, 0, 65])]
     standing = np.r_[target[:3], quat([0, 0, -80])]
     displaced = standing.copy(); displaced[0] += .1
     assert object_cost_np(standing, target, stage.config()) == pytest.approx(0.)
-    assert object_cost_np(displaced, target, stage.config()) == pytest.approx(5.)
+    assert object_cost_np(displaced, target, stage.config()) == pytest.approx(.2)
     assert stage.progress_scale() == pytest.approx(20.2)
     stage.update(obs(0)); assert stage.update(obs(.3))
-    np.testing.assert_allclose(stage.config()[:3], [500., 20., 0.])
+    np.testing.assert_allclose(stage.config()[:3], [500., 20., 20.])
     assert object_cost_np(standing, target, stage.config()) > 0.
-    assert stage.progress_scale() == pytest.approx(.5)
+    assert stage.progress_scale() == pytest.approx(.8)
 
 
 @pytest.mark.parametrize('backend', ['ipopt', 'acados', 'torch-lbfgs'])

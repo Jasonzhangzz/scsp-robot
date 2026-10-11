@@ -10,7 +10,8 @@ class ProjectionPoint:
                  collision_hull=False, normal_stability_cos=0.90,
                  normal_stability_k=16,
                  max_vertex_curvature=0.25,
-                 max_vertex_mean_curvature=0.10):
+                 max_vertex_mean_curvature=0.10,
+                 surface_sampling=False, collision_part_paths=None):
         self.mesh_path = mesh_path
         self.scale_factors = scale_factors  # Default scaling factors
         # MuJoCo uses a convex collision representation for mesh geoms while
@@ -19,6 +20,9 @@ class ProjectionPoint:
         # projection so a candidate can never lie on a concavity that the
         # simulator collision model cannot reach.
         self.collision_hull = bool(collision_hull)
+        self.surface_sampling = bool(surface_sampling)
+        self.collision_part_paths = list(collision_part_paths or [])
+        self.collision_parts = []
         # Contact candidates at very sharp tips (trunk/tail/ear ends) have a
         # rapidly changing normal.  A point contact there is ill-conditioned
         # and often leaves the spherical fingertip hovering.  Filter such
@@ -128,7 +132,16 @@ class ProjectionPoint:
         ])
         self.source_mesh = manipuland_mesh.copy()
         self.source_mesh.apply_transform(matrix)
-        if self.collision_hull:
+        if self.collision_part_paths:
+            self.collision_parts = []
+            for path in self.collision_part_paths:
+                part = trimesh.load_mesh(path)
+                part.apply_transform(matrix)
+                self.collision_parts.append(part)
+            # Keep each part's face order, including its internal caps. The
+            # surface sampler rejects buried faces and obstructed tip centres.
+            self.scaled_mesh = trimesh.util.concatenate(self.collision_parts)
+        elif self.collision_hull:
             # ``convex_hull`` returns a watertight triangular mesh with the
             # outward face winding used by MuJoCo's mesh collision path.
             # Keep this separate from the visual/source mesh for diagnostics.
@@ -186,6 +199,122 @@ class ProjectionPoint:
         for face_idx, face in enumerate(self.faces):
             for vertex_idx in face:
                 self.vertex_to_face[vertex_idx].append(face_idx)
+        self._face_neighbours = [[] for _ in range(len(self.faces))]
+        for pair, edge in zip(self.scaled_mesh.face_adjacency,
+                              self.scaled_mesh.face_adjacency_edges):
+            a, b = map(int, pair)
+            disagreement = .5 * (1. - np.clip(
+                np.dot(self.face_normals[a], self.face_normals[b]), -1., 1.))
+            endpoints = self.vertices[edge]
+            self._face_neighbours[a].append((endpoints, disagreement))
+            self._face_neighbours[b].append((endpoints, disagreement))
+
+    def surface_curvature(self, points, face_indices, radius=.002):
+        """Normal changes across incident mesh edges within a metric radius.
+
+        Ranking samples are deliberately sparse. Their nearest neighbours
+        are unrelated to local curvature, especially on boxes and cup walls.
+        """
+        maximum = np.zeros(len(points), dtype=np.float64)
+        mean = np.zeros(len(points), dtype=np.float64)
+        for i, (point, face) in enumerate(zip(points, face_indices)):
+            changes = []
+            for (a, b), change in self._face_neighbours[int(face)]:
+                edge = b-a
+                t = np.clip(np.dot(point-a, edge) / max(np.dot(edge, edge), 1e-20), 0., 1.)
+                if np.linalg.norm(point-(a+t*edge)) <= radius:
+                    changes.append(change)
+            if changes:
+                maximum[i], mean[i] = max(changes), np.mean(changes)
+        return maximum, mean
+
+    @staticmethod
+    def _normal_frames(inward_normals):
+        normals = np.asarray(inward_normals, dtype=np.float64).reshape(-1, 3)
+        normals = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+        reference = np.tile([1., 0., 0.], (len(normals), 1))
+        reference[np.abs(normals[:, 0]) > .9] = [0., 1., 0.]
+        tangent = reference - np.sum(reference*normals, axis=1, keepdims=True)*normals
+        tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-12)
+        return normals, tangent, np.cross(normals, tangent)
+
+    def _accessible_surface_mask(self, points, outward_normals, fingertip_radius):
+        """Reject compound-internal caps and contacts blocked by another part."""
+        keep = np.ones(len(points), dtype=bool)
+        probe = points + 5e-5*outward_normals
+        centres = points + float(fingertip_radius)*outward_normals
+        for part in self.collision_parts:
+            normals = np.asarray(part.face_normals)
+            offsets = np.sum(normals*part.triangles_center, axis=1)
+            # A small outward probe must be outside the union of all solids.
+            buried = np.max(probe @ normals.T - offsets, axis=1) < -1e-7
+            keep &= ~buried
+            if fingertip_radius <= 0:
+                continue
+            separation = np.max(centres @ normals.T - offsets, axis=1)
+            keep &= separation > 0.
+            near = np.flatnonzero(keep & (separation < fingertip_radius-5e-5))
+            if near.size:
+                _, distances, _ = trimesh.proximity.closest_point(part, centres[near])
+                keep[near] &= distances >= fingertip_radius-5e-5
+        return keep
+
+    def sample_surface_with_normals(self, num_samples, strategy='farthest_point',
+                                    fingertip_radius=0.):
+        """Area samples followed by FPS, including large facet interiors.
+
+        Mesh topology and fingertip clearance determine eligibility before
+        FPS, so changing the requested sample count cannot change curvature.
+        """
+        num_samples = int(num_samples)
+        if num_samples < 1:
+            raise ValueError('num_samples must be positive')
+        if not np.isfinite(fingertip_radius) or fingertip_radius < 0:
+            raise ValueError('fingertip_radius must be finite and nonnegative')
+        count = max(2048, 50*num_samples)
+        points, face_ids = trimesh.sample.sample_surface(self.scaled_mesh, count)
+        outward = self.face_normals[face_ids]
+        maximum, mean = self.surface_curvature(points, face_ids)
+        keep = ~((maximum > self.max_vertex_curvature)
+                 & (mean > self.max_vertex_mean_curvature))
+        keep &= self._accessible_surface_mask(points, outward, fingertip_radius)
+        points, face_ids, outward = points[keep], face_ids[keep], outward[keep]
+        maximum, mean = maximum[keep], mean[keep]
+        if len(points) < num_samples:
+            raise ValueError('Insufficient accessible collision surface for contact sampling')
+        if strategy == 'random':
+            selected = np.random.choice(len(points), num_samples, replace=False)
+        elif strategy in ('farthest_point', 'poisson_disk'):
+            selected = np.empty(num_samples, dtype=int)
+            selected[0] = np.random.randint(len(points))
+            distances = np.full(len(points), np.inf)
+            # Nearby opposite sides of a thin wall must both get coverage.
+            normal_scale = min(.006, .05*np.linalg.norm(self.scaled_mesh.extents))
+            for i in range(1, num_samples):
+                last = selected[i-1]
+                metric = np.sum((points-points[last])**2, axis=1)
+                metric += normal_scale**2*np.sum((outward-outward[last])**2, axis=1)
+                distances = np.minimum(distances, metric)
+                distances[selected[:i]] = -1.
+                selected[i] = np.argmax(distances)
+        else:
+            raise ValueError('Unknown sampling strategy: %s' % strategy)
+        normals, t1, t2 = self._normal_frames(-outward[selected])
+        return dict(points=points[selected], normals=normals, tangent1=t1, tangent2=t2,
+                    face_indices=face_ids[selected], curvature=maximum[selected],
+                    curvature_mean=mean[selected])
+
+    def project_surface(self, point):
+        """Closest triangle surface and sphere-contact frame, without vertex snapping."""
+        point = np.asarray(point, dtype=np.float64).reshape(1, 3)
+        closest, distance, face_ids = trimesh.proximity.closest_point(self.scaled_mesh, point)
+        outward = self.face_normals[face_ids[0]].copy()
+        delta = point[0]-closest[0]
+        # At a convex edge, the sphere normal lies in the edge normal cone.
+        if distance[0] > 1e-9 and np.dot(delta, outward) > 0:
+            outward = delta/distance[0]
+        n, t1, t2 = self._normal_frames(-outward)
+        return closest[0], n[0], t1[0], t2[0], int(face_ids[0])
 
     def project_point_to_mesh(self, point, contact_patch=None):
         """Find the closest point on the mesh and return its index and normal."""
@@ -271,6 +400,16 @@ class ProjectionPoint:
             self.load_and_scale_mesh()
 
         edges = self.scaled_mesh.edges_unique
+        if self.collision_parts:
+            # CoACD parts share physical cut boundaries but separate vertex
+            # indices. Stitch coincident/nearby cut vertices for surface
+            # travel distances; do not connect opposite walls of a cavity.
+            owner = np.repeat(np.arange(len(self.collision_parts)),
+                              [len(part.vertices) for part in self.collision_parts])
+            pairs = np.asarray(list(self.kdtree.query_pairs(.001)), dtype=int).reshape(-1, 2)
+            if len(pairs):
+                pairs = pairs[owner[pairs[:, 0]] != owner[pairs[:, 1]]]
+                edges = np.vstack([edges, pairs])
         if len(edges) == 0:
             raise ValueError("Mesh has no edges.")
 
@@ -444,6 +583,8 @@ class ProjectionPoint:
         return candidate_vertices[np.asarray(sample_indices, dtype=int)]
 
     def sample_vertices_with_normals(self, num_samples, strategy='farthest_point'):
+        if self.surface_sampling:
+            return self.sample_surface_with_normals(num_samples, strategy)
         sample_indices = self.sample_vertices(num_samples, strategy, return_indices=True)
         points = np.array(self.vertices[sample_indices])
         frames = {

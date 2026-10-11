@@ -278,6 +278,8 @@ We further validated the impact of different numbers of sampled candidate points
 
 \subsection{Ablation Studies}
 
+We further evaluated the effectiveness of each component in SCSP by conducting extensive ablation studies under the same experimental setup as in Section VI-B. In particular, we focused on comparing the ranking strategy and different contact guidance strategies.
+
 \subsubsection{Functional Analysis of SCSP Components}
 \label{sec:component_ablation}
 CSO selects contact priors and CPO generates approach, relocation, and contact trajectories; their contributions are assessed by task success and execution time. Component diagnostics complement these outcomes: CSO cost maps and cost--rollout-reward associations measure prior quality; SCM's paired one-step prediction errors (Section~\ref{sec:scm_evaluation}) should be separated by contact mode, count, geometry, and task phase; RS uses paired advantages, switching counts, and reference-tracking time fractions. Robustness is characterized by failure categories: perception, contact estimation, slippage, saturation, and poor priors.
@@ -290,20 +292,18 @@ Table~\ref{tab:scsp_component_ablation} specifies matched Franka rotation/flippi
 \label{tab:scsp_component_ablation}
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}ll*{6}{c}@{}}
+\renewcommand{\arraystretch}{0.9}
+% A1: CSO pose-only; A2: CSO random; A3: CSO nearest;
+% A4: CPO without object-center attraction; A5: CPO direct trajectory optimization.
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l*{12}{c}@{}}
 \toprule
-\multirow{2}{*}{Variant} & \multirow{2}{*}{CSO guidance}
-& \multicolumn{3}{c}{Rotation} & \multicolumn{3}{c}{Flipping} \\
-\cmidrule(lr){3-5}\cmidrule(lr){6-8}
-& & \shortstack{Success\\rate} & \shortstack{Exec. time\\(s)} & \shortstack{Solving time\\(ms)}
-& \shortstack{Success\\rate} & \shortstack{Exec. time\\(s)} & \shortstack{Solving time\\(ms)} \\
+\multirow{2}{*}{Metric} & \multicolumn{6}{c}{Rotation} & \multicolumn{6}{c}{Flipping} \\
+\cmidrule(lr){2-7}\cmidrule(lr){8-13}
+& SCSP & A1 & A2 & A3 & A4 & A5 & SCSP & A1 & A2 & A3 & A4 & A5 \\
 \midrule
-Full SCSP & Minimize $\ell_{\mathrm{cso}}$ & -- & -- & -- & -- & -- & -- \\
-CSO: pose-only & Minimize $\ell_{\mathrm{pose}}$ & -- & -- & -- & -- & -- & -- \\
-CSO: random & Uniform candidate & -- & -- & -- & -- & -- & -- \\
-CSO: nearest & Nearest candidate & -- & -- & -- & -- & -- & -- \\
-CPO: w/o object-center & Minimize $\ell_{\mathrm{cso}}$ & -- & -- & -- & -- & -- & -- \\
-CPO: direct traj. opt. & Minimize $\ell_{\mathrm{cso}}$ & -- & -- & -- & -- & -- & -- \\
+Success rate & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+Execution time (s) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+Planning time (ms) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular*}
 \end{table*}

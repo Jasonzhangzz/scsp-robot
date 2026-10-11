@@ -1,12 +1,59 @@
 """Rollout dwell must charge a stuck patch, not every sample the ball grazes."""
 
 import numpy as np
+from types import SimpleNamespace
 
 from examples.mpc.fingertips.test.test_0902 import (
     ContactValueTracker,
     _rollout_dwell_assignment,
 )
 from planning.mlqp_point import LambdaContactControlOptimizer
+
+
+def test_arrival_keeps_guided_patch_index_and_cached_prediction_together():
+    from examples.mpc.fingertips.test.test_0902 import (
+        compute_rollout_contact_via, ModelCostConfidence, SmoothedApproachVia,
+    )
+    points = np.array([[.05, 0., .02], [-.05, 0., .02]])
+    normals = np.array([[-1., 0., 0.], [1., 0., 0.]])
+    predictions = [np.array([.01, 0., 0., 1., 0., 0., 0.]),
+                   np.array([.02, 0., 0., 1., 0., 0., 0.])]
+    forces = [np.array([.1, 0., 0.]), np.array([.2, 0., 0.])]
+    opt = SimpleNamespace(
+        sample_point=points, normal=normals,
+        sample_geodesic=np.array([[0., .1], [.1, 0.]]),
+        last_global_idx=1, last_selected_idx=None, last_executed_idx=None,
+        last_best_x_plus=predictions[1], last_best_force=forces[1], last_best_cost=0.,
+        last_global_total_cost=0., last_candidate_ids=np.array([0, 1]),
+        last_candidate_costs=np.array([.01, 0.]), last_candidate_x_plus=predictions,
+        last_candidate_forces=forces, contact_switch_radius=.03,
+        contact_switch_confidence=1., mu_arm_obj=.5,
+        update_Jacobian=lambda *a, **kw: None,
+        get_availble_point_idx=lambda *a, **kw: np.array([0, 1]),
+        filter_rankable_indices=lambda ids: ids,
+        choose_contact_points=lambda *a, **kw: (points[1], normals[1], 0., .01, 1),
+        choose_nearby_topk_idx=lambda _: 0,
+        pose_delta_for_sample=lambda idx: .099 if idx == 0 else .1,
+    )
+    def resolve(*a, **kw):
+        opt.last_executed_idx = 0
+        return points[0], -normals[0], predictions[0], .01, {
+            'control_input': forces[0], 'solver_failed': False}
+    opt.resolve_executed_contact = resolve
+    param = SimpleNamespace(lambda_optimizer=opt, target_p_=np.array([.4, .1, .4]),
+                            target_q_=np.array([1., 0., 0., 0.]))
+    args = SimpleNamespace(ground_height_threshold=.012, ideal_contact_surface_margin=-.0005)
+    tip = param.target_p_ + points[0] - .0095 * normals[0]
+    result = compute_rollout_contact_via(param, args, np.r_[param.target_p_, param.target_q_, tip],
+        np.eye(3), np.zeros(6), np.zeros((40, 6)), .01, ContactValueTracker(),
+        ModelCostConfidence(), SmoothedApproachVia(), False, None, floor_ground=.362, floor_z=.35)
+    assert result['arrived_at_best']
+    assert result['best_contact_idx'] == opt.last_executed_idx == 0
+    assert opt.last_global_idx == 1
+    np.testing.assert_allclose(result['best_contact_world'], param.target_p_ + points[0])
+    np.testing.assert_allclose(result['x_plus_opt'], predictions[0])
+    np.testing.assert_allclose(opt.last_executed_x_plus, predictions[0])
+    np.testing.assert_allclose(result['info']['control_input'], forces[0])
 
 
 class _FakeOpt:
