@@ -823,6 +823,8 @@ class IsaacFrankaSimulator:
             if body1 == obj_idx:
                 normal = -normal
             cpos = self._contact_world_pos(c, body0, body1, pose_cache)
+            from examples.mpc.franka.ik2.physx_contact import object_outward_normal
+            normal = object_outward_normal(normal, tip_pos, cpos)
             dist = physx_signed_gap(contact_overlap(c), cpos, tip_pos, normal, radius)
             if dist < best_sep:
                 best_sep = dist
@@ -1382,6 +1384,7 @@ def _plan_payload(env, contact, table_ground, dwell=None):
     curr_q = env.get_policy_state()
     full_q = env.get_state()
     phi_vec, jac_mat, _con, jac_mat_env, if_contact = contact.detect_once(env)
+    measured = contact.get_actual_fingertip_contact()
     payload = {
         "cmd": "plan",
         "policy_q": np.asarray(curr_q, dtype=np.float32),
@@ -1389,12 +1392,13 @@ def _plan_payload(env, contact, table_ground, dwell=None):
         "phi_vec": np.asarray(phi_vec, dtype=np.float64),
         "jac_mat": np.asarray(jac_mat, dtype=np.float64),
         "jac_mat_env": np.asarray(jac_mat_env, dtype=np.float64),
+        "env_phi": np.asarray(getattr(contact, 'env_phi', np.zeros(jac_mat_env.shape[0])), dtype=np.float64),
         "if_contact": bool(if_contact),
+        "actual_contact": measured if if_contact else None,
         "table_ground": float(table_ground),
     }
     if dwell is not None:
         payload["dwell"] = dwell
-    measured = contact.get_actual_fingertip_contact()
     if measured is None:
         contact_distance = float("inf")
     else:
@@ -1439,10 +1443,10 @@ def _plan_from_obs(obs, dwell=None):
         "if_contact": bool(obs.get("if_contact", False)),
         "table_ground": float(obs["table_ground"]),
     }
-    for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active'):
+    for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active', 'actual_contact'):
         if key in obs:
             payload[key] = obs[key]
-    for key in ("phi_vec", "jac_mat", "jac_mat_env"):
+    for key in ("phi_vec", "jac_mat", "jac_mat_env", "env_phi"):
         if obs.get(key) is not None:
             payload[key] = np.asarray(obs[key], dtype=np.float64)
     if obs.get("scm_transitions") is not None:

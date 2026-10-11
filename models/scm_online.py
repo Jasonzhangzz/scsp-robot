@@ -235,7 +235,8 @@ class OnlineSCMIdentifier:
                             zeta=self.model.soft_scm_damping_ratio,
                             mu=self.model.param_.mu_object_, obj_mass=self.model.param_.obj_mass_,
                             robot_stiff=self.model.param_.robot_stiff_, gravity=self.model.param_.gravity_,
-                            contact_dynamics=self.model.contact_dynamics)
+                            contact_dynamics=self.model.contact_dynamics,
+                            grouped_contact_response=bool(getattr(self.model, 'grouped_contact_response', False)))
         metadata = dict(parameter_names=list(SCM_PARAMETER_NAMES), theta=self.theta.tolist(),
                         scales=dict(zip(SCM_PARAMETER_NAMES,np.exp(self.theta).tolist())),
                         accepted_samples=self.accepted_samples, accepted_updates=self.accepted_updates,
@@ -254,6 +255,9 @@ class OnlineSCMIdentifier:
                     raise ValueError('SCM checkpoint has incompatible '+key)
             if str(data['contact_dynamics']) != self.model.contact_dynamics:
                 raise ValueError('SCM checkpoint has incompatible dynamics convention')
+            saved_grouped = bool(data['grouped_contact_response']) if 'grouped_contact_response' in data else False
+            if saved_grouped != bool(getattr(self.model, 'grouped_contact_response', False)):
+                raise ValueError('SCM checkpoint has incompatible contact response')
             self.theta = validate_theta(data['theta'])
 
     def diagnostics(self):

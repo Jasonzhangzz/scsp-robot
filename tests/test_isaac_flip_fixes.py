@@ -1,6 +1,7 @@
 """Isaac flip fixes: OSC press cap, table plane, raised-table ranking."""
 
 import numpy as np
+import pytest
 from scipy.spatial.transform import Rotation
 
 from examples.mpc.fingertips.test.test_0902 import (
@@ -30,6 +31,7 @@ from examples.mpc.franka.ik2.contact_frames import (
 )
 from examples.mpc.franka.ik2.params import (
     _actor_quat_from_body,
+    _actor_standing_quat_wxyz,
     _box_inertia_diag,
     _ground_rotation_target_q,
     _source_standing_quat_wxyz,
@@ -101,8 +103,8 @@ def test_near_press_uses_contact_scale_before_physx_touch():
     # Orbiting far from press must keep the air-force budget.
     assert not near_press_force_mode(
         False, np.array([0.30, 0.10, 0.42]), press=press)
-    # A graze centimetres from the patch must keep walking, not crawl.
-    assert not near_press_force_mode(
+    # A real contact on another patch must still use the contact budget.
+    assert near_press_force_mode(
         True, tip, press=np.array([0.48, 0.10, 0.37]))
     n_out = press_normal_outward(tip, press)
     punched = contact_aware_task_force(
@@ -191,15 +193,15 @@ def test_planar_table_jacobian_is_a_single_world_up_constraint():
     assert np.allclose(local, [-0.025, 0.0, 0.0], atol=1e-5)
 
 
-def test_source_standing_quat_matches_xml_geom_plus_90y():
-    geom = _xml_obj_geom_quat_wxyz("envs/xmls/env_fingertips_foam_brick.xml")
-    standing = _source_standing_quat_wxyz("envs/xmls/env_fingertips_foam_brick.xml")
-    assert np.allclose(standing, geom, atol=1e-8)
-    rot = Rotation.from_quat([standing[1], standing[2], standing[3], standing[0]]).as_matrix()
-    # XML +90 Y sends authored +X to world -Z (feet down).  Ry(-90) inverts it.
-    assert np.allclose(rot @ np.array([1.0, 0.0, 0.0]), [0.0, 0.0, -1.0], atol=1e-6)
-    upside_down = rotations.rpy_to_quaternion(np.array([0.0, -0.5 * np.pi, 0.0]))
-    assert float(np.abs(np.dot(standing, upside_down))) < 0.1
+def test_standing_pose_undoes_baked_xml_geom_rotation():
+    model = "envs/xmls/env_fingertips_foam_brick.xml"
+    geom = _xml_obj_geom_quat_wxyz(model)
+    np.testing.assert_allclose(_source_standing_quat_wxyz(model), [1., 0., 0., 0.])
+    standing = _actor_standing_quat_wxyz(model, True)
+    net = rotations.quaternion_multiply(standing, geom)
+    assert np.abs(net[0]) == pytest.approx(1., abs=1e-8)
+    rot = Rotation.from_quat(standing[[1, 2, 3, 0]]).as_matrix()
+    np.testing.assert_allclose(rot @ [1., 0., 0.], [0., 0., 1.], atol=1e-8)
 
 
 def test_ground_rotation_target_matches_fingertips_0902():

@@ -126,6 +126,10 @@ def test_measured_tilt_growth_withdraws_before_fallback_angle():
 
 
 def osc_stub():
+    import os
+    # Skip the native Isaac import. These stubs never step PhysX, and a
+    # prior test may already have imported torch.
+    os.environ["SCSP_PLANNER_ONLY"] = "1"
     from examples.mpc.franka.ik2.test_mpc_isaac import IsaacFrankaOSCSimulator
     sim = IsaacFrankaOSCSimulator.__new__(IsaacFrankaOSCSimulator)
     sim._refresh_osc_tensors = lambda: None
@@ -166,7 +170,8 @@ def test_pose_contact_cap_is_applied_at_actual_osc_wrench():
     sim = osc_stub()
     sim._preserve_upright = True
     sim._compute_osc_torques()
-    assert np.linalg.norm(sim._last_osc_force) == pytest.approx(.25)
+    # Pose stage keeps the 0.8 N contact cap. A 0.25 N cap cannot track a 5 mm step.
+    assert np.linalg.norm(sim._last_osc_force) == pytest.approx(.8)
 
 
 def test_release_bypasses_slew_of_previous_inward_press():
@@ -187,25 +192,24 @@ def test_missing_or_nonfinite_time_interrupts_release_without_crashing(invalid):
     assert release.goal is None and release.last_time is None
 
 
-def test_completed_action_does_not_replay_old_wrench_or_velocity_reference():
+def test_completed_action_keeps_developer_velocity_reference():
     sim = osc_stub()
     sim._mpc_action = None
+    sim._fingertip_contact_info = lambda: (False, None)
+    sim._mpc_press = None
+    sim.get_state = lambda: np.r_[np.zeros(3), [1., 0, 0, 0], np.zeros(7)]
     sim._compute_osc_torques()
-    np.testing.assert_allclose(sim._last_osc_force, 0, atol=1e-8)
-    # A held target can still correct displacement; its wrench is position PD,
-    # independent of the direction/magnitude of the finished increment.
-    sim.position_d = np.array([.399, 0, .4])
-    sim._compute_osc_torques()
-    force = sim._last_osc_force.copy()
-    assert force[0] < 0
-    sim._last_mpc_action = np.array([0, .005, 0])
-    sim._compute_osc_torques()
-    np.testing.assert_allclose(sim._last_osc_force, force, atol=1e-8)
+    # 5 mm / 20 ms is 0.25 m/s. D * v_ref = 10 N, so the arm does not stop
+    # while the next plan is still in flight.
+    assert sim._last_osc_force[0] == pytest.approx(10., abs=1e-3)
+    np.testing.assert_allclose(sim._last_osc_force[1:], 0, atol=1e-6)
 
 
 def test_completed_free_space_action_holds_without_stale_feedforward():
     sim = osc_stub()
     sim._mpc_action = None
+    sim._last_mpc_action = None
+    sim._mpc_p0 = None
     sim._fingertip_contact_info = lambda: (False, np.array([1., 0, 0]))
     sim._mpc_press = None
     sim._compute_osc_torques()
@@ -263,3 +267,69 @@ def test_actual_osc_uses_target_axis_and_outward_braking_above_press_cap():
     assert sim._last_osc_force[0] > .25
     np.testing.assert_allclose(sim._last_osc_force[1:], 0, atol=1e-8)
     assert sim._osc_effective_target[0] > sim.position_d[0]
+
+
+def test_planner_release_does_not_lock_static_intermediate_tilt_forever():
+    stage, release = stages(), UprightRelease()
+    stage.update(make_obs(0)); stage.update(make_obs(.3))
+    stage.update(make_obs(.4, tilt=15))
+    release.last_stage = 'pose'
+    release.last_time, release.last_angle = .39, 15.
+    assert release.update(stage, make_obs(.4, tilt=15), policy()) is None
+    assert release.update(stage, make_obs(.5, tilt=15), policy()) is None
+    stage.update(make_obs(.52, tilt=16))
+    assert release.update(stage, make_obs(.52, tilt=16), policy()) is not None
+
+
+@pytest.mark.parametrize('blocked', [False, True])
+def test_real_pose_contact_tracks_the_five_millimetre_step(blocked):
+    sim = osc_stub()
+    sim._preserve_upright = True
+    sim._path_blocked = blocked
+    sim._mpc_press = np.array([.45, .1, .4])  # 11 cm from an actual touch
+    sim._compute_osc_torques()
+    assert sim._last_osc_near_press
+    # Contact still uses the 0.8 N press. A blocked transit keeps the
+    # 0.25 m/s velocity reference (D * v_ref = 10 N) instead of crawling.
+    if blocked:
+        assert np.linalg.norm(sim._last_osc_force) == pytest.approx(10., abs=1e-2)
+    else:
+        assert np.linalg.norm(sim._last_osc_force) == pytest.approx(.8, abs=1e-3)
+
+
+def test_pose_approach_does_not_brake_before_physical_touch():
+    sim = osc_stub()
+    sim._preserve_upright = True
+    sim._fingertip_contact_info = lambda: (False, None)
+    sim._mpc_press = np.array([.45, .1, .4])
+    sim.param_.runtime_object_cost_ = True
+    sim.param_.object_hull_normals_ = np.r_[np.eye(3), -np.eye(3)]
+    sim.param_.object_hull_offsets_ = np.array([.011]*6)
+    sim.get_object_velocity_world = lambda: (np.zeros(3), np.zeros(3))
+    sim.get_state = lambda: np.r_[[.2, 0, .2], [1., 0, 0, 0], np.zeros(7)]
+    sim.param_.object_up_axis_ = np.array([0., 0., 1.])
+    sim.gym = SimpleNamespace(get_sim_time=lambda _: 1.)
+    sim.sim = None
+    sim._compute_osc_torques()
+    assert not sim._last_osc_near_press
+    assert np.linalg.norm(sim._last_osc_force) > 2.
+
+
+def test_sphere_contact_gap_derivative_predicts_press_and_release_correctly():
+    from examples.mpc.franka.ik2.physx_contact import object_outward_normal
+    from examples.mpc.franka.ik2.contact_frames import _contact_jacobian_np, tangent_basis_from_normal
+    tip, point = np.array([.05,0,0]), np.array([.04,0,0])
+    for raw in [[1,0,0],[-1,0,0]]:
+        n_out = object_outward_normal(raw, tip, point)
+        np.testing.assert_allclose(n_out,[1,0,0])
+        obj_minus_tip = np.c_[np.eye(3),np.zeros((3,3)),-np.eye(3)]
+        n,t1,t2 = tangent_basis_from_normal(-n_out)
+        jac = _contact_jacobian_np(n,t1,t2,obj_minus_tip,.5)
+        press = np.r_[np.zeros(6),[-.1,0,0]]
+        assert (jac@press).mean() == pytest.approx(-.1)
+        assert (jac@(-press)).mean() == pytest.approx(.1)
+        from models.soft_scm_contact import grouped_contact_velocity_numpy, soft_scm_coefficients
+        a,b = soft_scm_coefficients(.02)
+        qi = np.diag([.02]*3+[20.]*3+[1/600]*3)
+        after = grouped_contact_velocity_numpy(press,jac,np.zeros(4),qi,.02,a,b,1e-8)
+        assert after[0] < 0  # pressing the right face moves the object left

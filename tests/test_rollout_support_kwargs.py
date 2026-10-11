@@ -245,6 +245,7 @@ def test_handle_mpc_request_survives_old_via(monkeypatch):
         _acados_init_error = ""
 
         def plan_once(self, *args, **kwargs):
+            captured["plan_kwargs"] = dict(kwargs)
             return {
                 "action": np.array([0.01, 0.0, 0.0]),
                 "sol_guess": None,
@@ -286,3 +287,122 @@ def test_handle_mpc_request_survives_old_via(monkeypatch):
     assert captured["floor_ground"] == 0.412
     assert np.allclose(result["action"], [0.01, 0.0, 0.0])
     assert result["verify_cost"] == pytest.approx(1.25)
+    assert "u_ub" not in captured["plan_kwargs"]
+    assert "u_lb" not in captured["plan_kwargs"]
+
+
+def test_two_stage_cost_does_not_shrink_cartesian_step(monkeypatch):
+    """Object cost may limit contact force. It must not box the arm step under 1 mm."""
+    import planning.mpc_explicit as mpc_explicit
+    from examples.mpc.franka.ik2 import contact_frames
+
+    captured = {}
+
+    def old_via(*args, floor_ground=0.012, floor_z=0.0):
+        return {
+            "arrived_hold": False,
+            "arrived_dest_idx": None,
+            "verify_cost": 1.25,
+            "mpc_virtual_point": np.array([0.45, 0.0, 0.36]),
+            "mpc_contact_point": np.array([0.46, 0.0, 0.36]),
+            "value_info": {"path_blocked": False},
+            "p_arm_world": np.array([0.46, 0.0, 0.36]),
+        }
+
+    fake_0902 = types.ModuleType("examples.mpc.fingertips.test.test_0902")
+    fake_0902.compute_rollout_contact_via = old_via
+    fake_0902._verify_is_chatter = lambda prev, cur: False
+    monkeypatch.setitem(sys.modules, "examples.mpc.fingertips.test.test_0902", fake_0902)
+    fake_mppi = types.ModuleType("planning.MPPIWarp")
+    fake_mppi._apply_dwell_payload = lambda *a, **k: None
+    fake_mppi._opt_snapshot = lambda opt: {}
+    fake_mppi._pickle_safe = lambda value: value
+    fake_mppi.clamp_via_to_tip = lambda tip, pt, lead: pt
+    monkeypatch.setitem(sys.modules, "planning.MPPIWarp", fake_mppi)
+    monkeypatch.setattr(contact_frames, "gravity_wrench_object_frame", lambda *a, **k: np.zeros(6))
+
+    class _Opt:
+        m = 0.2
+        acados_failure_count = 0
+        acados_solve_count = 0
+        sample_point = np.zeros((1, 3))
+
+        def set_object_cost_config(self, config):
+            return None
+
+        def set_contact_force_limit(self, limit):
+            captured["force_limit"] = float(limit)
+
+    class _Param:
+        table_height = 0.4
+        gravity_ = np.array([0.0, 0.0, -9.8])
+        lambda_optimizer = _Opt()
+        target_p_ = np.zeros(3)
+        target_q_ = np.array([1.0, 0.0, 0.0, 0.0])
+        max_ncon_ = 10
+        n_qvel_ = 9
+        mu_object_ = 0.5
+        lambda_obj_mass_ = 0.2
+        mpc_u_lb_ = -0.005
+        mpc_u_ub_ = 0.005
+
+    class _Mpc:
+        acados_failure_count = 0
+        acados_solve_count = 0
+        _acados_init_error = ""
+
+        def plan_once(self, *args, **kwargs):
+            captured["plan_kwargs"] = dict(kwargs)
+            return {"action": np.array([0.005, 0.0, 0.0]), "sol_guess": None, "cost_opt": 0.0, "rollout_q": []}
+
+    class _Stages:
+        enabled = True
+        stage = "flip"
+
+        def update(self, msg):
+            return False
+
+        def config(self, *args):
+            return np.zeros(6)
+
+        def diagnostics(self):
+            return {}
+
+        def progress_scale(self):
+            return 1.0
+
+    class _Conf:
+        accum = 0.0
+
+        def tightness(self):
+            return 0.0
+
+    args = types.SimpleNamespace(via_max_lead=0.005, mpc_step_limit=0.005, max_contact_force=10.0)
+    trackers = {
+        "value_tracker": object(),
+        "model_cost_conf": _Conf(),
+        "approach_via": object(),
+        "arrived_hold": False,
+        "arrived_dest_idx": None,
+        "sol_guess": None,
+        "last_verify_cost": None,
+        "object_cost_stages": _Stages(),
+    }
+    msg = {
+        "policy_q": np.array([0.45, 0.0, 0.42, 1.0, 0.0, 0.0, 0.0, 0.40, 0.0, 0.41], dtype=np.float32),
+        "table_ground": 0.412,
+        "floor_z": 0.4,
+        "support_point": None,
+        "support_normal": None,
+        "jac_mat_env": np.zeros((40, 9)),
+        "phi_vec": np.ones(40),
+        "jac_mat": np.zeros((40, 9)),
+        "if_contact": True,
+        "sim_time": 0.0,
+    }
+    result = mpc_explicit.handle_mpc_request(args, _Param(), _Mpc(), trackers, msg)
+    assert "u_ub" not in captured["plan_kwargs"]
+    assert "u_lb" not in captured["plan_kwargs"]
+    assert np.linalg.norm(result["action"]) == pytest.approx(0.005)
+    # The contact-force limit stays. Only the Cartesian box is gone.
+    assert captured["force_limit"] == pytest.approx(0.8)

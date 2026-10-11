@@ -112,14 +112,14 @@ class ObjectCostStages:
         self.angle = self.linear_speed = self.angular_speed = None
 
     def config(self, reference_rotation=None):
-        weights = (0, 0, self.ori_weight) if self.stage == 'flip' else (self.pos_weight, self.ori_weight, 0)
+        weights = (self.pos_weight, 0, self.ori_weight) if self.stage == 'flip' else (self.pos_weight, self.ori_weight, 0)
         up = np.array([0., 0., 1.])
         if reference_rotation is not None:
             up = np.asarray(reference_rotation).T @ up
         return cost_config(*weights, body_axis=self.body_axis, reference_up=up)
 
     def progress_scale(self):
-        return self.ori_weight if self.stage == 'flip' else max(self.pos_weight * .02**2 + self.ori_weight * .015, 1e-12)
+        return max(self.pos_weight * .02**2 + self.ori_weight * (1. if self.stage == 'flip' else .015), 1e-12)
 
     def update(self, obs):
         """Return whether objective changed. Never count wall clock or duplicate frames."""
@@ -169,7 +169,10 @@ class ObjectCostStages:
         return True
 
     def diagnostics(self):
-        return dict(object_cost_stage=self.stage, object_target_up_axis=self.body_axis.tolist(),
+        config = self.config()
+        return dict(object_cost_stage=self.stage,
+                    object_cost_weights=config[:3].tolist(),
+                    object_target_up_axis=self.body_axis.tolist(),
                     object_tilt_deg=self.angle,
                     object_linear_speed=self.linear_speed, object_angular_speed=self.angular_speed,
                     first_stable_flip_time_s=self.first_flip_time,

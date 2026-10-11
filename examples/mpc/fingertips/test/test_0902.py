@@ -1350,7 +1350,10 @@ def compute_rollout_contact_via(
         [r_obj_to_world.T @ (param.target_p_ - curr_q[:3]), target_quat_local])
     current_pose_eval = np.array([0., 0., 0., 1., 0., 0., 0.])
 
-    param.lambda_optimizer.update_Jacobian(jac_mat_env)
+    param.lambda_optimizer.update_Jacobian(jac_mat_env, phi=getattr(param, 'lambda_env_phi_', None))
+    actual_contact = getattr(param, 'lambda_actual_contact_', None)
+    object_cost_stage = getattr(param, 'object_cost_stage_', None)
+    post_flip_pose = object_cost_stage == 'pose'
     visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
         curr_q[0:3], r_obj_to_world, param.target_p_, args.ground_height_threshold,
         viewpoint_local=None, heading_filter=False, floor_z=floor_z,
@@ -1363,11 +1366,33 @@ def compute_rollout_contact_via(
     blocked = getattr(param.lambda_optimizer, '_blocked_contact_indices', {})
     visible_point_idx = np.asarray(visible_point_idx, dtype=np.int32)
     incumbents = [int(idx) for idx in (last_idx, last_exec_idx) if idx is not None]
-    param.lambda_optimizer.lock_contact_patch = bool(
+    lock_from_tracker = bool(
         value_tracker.contact_active and
         value_tracker._holding_p_arm and
         param.lambda_optimizer.contact_switch_confidence >= (1.0 - 1e-9) and
         any(idx in visible_point_idx and idx not in blocked for idx in incumbents))
+
+    # Once the object is upright, a real PhysX contact is the authority for
+    # the occupied patch.  Ranking can still report a slightly cheaper
+    # neighbouring sample, but changing the press target while touching is
+    # exactly the chatter that drags the object across the table.  The lock
+    # is released automatically when contact disappears or the incumbent is
+    # no longer a reachable sample.
+    actual_contact_idx = None
+    if actual_contact is not None:
+        try:
+            actual_point_local = r_obj_to_world.T @ (
+                np.asarray(actual_contact['point_world'], dtype=float).reshape(3)
+                - curr_q[:3])
+            actual_contact_idx = _nearest_sample_idx(
+                param.lambda_optimizer, actual_point_local)
+        except (KeyError, TypeError, ValueError):
+            actual_contact_idx = None
+    pose_contact_lock = bool(
+        post_flip_pose and actual_contact_idx is not None and
+        (actual_contact_idx in visible_point_idx) and
+        (actual_contact_idx not in blocked))
+    param.lambda_optimizer.lock_contact_patch = bool(lock_from_tracker or pose_contact_lock)
 
     start_time = time.time()
     rank_anchor_local = None
@@ -1406,7 +1431,26 @@ def compute_rollout_contact_via(
     reference_error = min(reference_candidates) if reference_candidates else None
     choose_dt = time.time() - start_time
 
-    guide_idx = param.lambda_optimizer.choose_nearby_topk_idx(current_tip_local)
+    if pose_contact_lock or (post_flip_pose and lock_from_tracker):
+        # Prefer the measured sample, and keep a nearby previous sample when
+        # contact-point projection jitters by one mesh vertex.  A genuinely
+        # displaced contact (beyond the switch radius) is allowed through.
+        guide_idx = int(actual_contact_idx) if actual_contact_idx is not None else (
+            getattr(param.lambda_optimizer, 'last_executed_idx', None)
+            or getattr(param.lambda_optimizer, 'last_selected_idx', None))
+        previous_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+        if (actual_contact_idx is not None and previous_idx is not None
+                and int(previous_idx) in visible_point_idx
+                and int(previous_idx) not in blocked):
+            try:
+                if float(param.lambda_optimizer.sample_geodesic[
+                        int(previous_idx), int(actual_contact_idx)]) <= float(
+                            param.lambda_optimizer.contact_switch_radius):
+                    guide_idx = int(previous_idx)
+            except (AttributeError, IndexError, TypeError, ValueError):
+                pass
+    else:
+        guide_idx = param.lambda_optimizer.choose_nearby_topk_idx(current_tip_local)
     if guide_idx is None:
         guide_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
     if guide_idx is not None:
@@ -1431,6 +1475,29 @@ def compute_rollout_contact_via(
         v_last=None,
         sphere_radius=max(1e-4, float(fingertip_radius) +
                           float(args.ideal_contact_surface_margin)))
+    if actual_contact is not None:
+        point_local = r_obj_to_world.T @ (np.asarray(actual_contact['point_world']) - curr_q[:3])
+        inward_local = -r_obj_to_world.T @ np.asarray(actual_contact['normal_world'])
+        actual_idx = actual_contact_idx if actual_contact_idx is not None else _nearest_sample_idx(
+            param.lambda_optimizer, point_local)
+        if post_flip_pose and int(actual_idx) in visible_point_idx and int(actual_idx) not in blocked:
+            previous_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+            if (previous_idx is not None and int(previous_idx) in visible_point_idx
+                    and int(previous_idx) not in blocked):
+                try:
+                    if float(param.lambda_optimizer.sample_geodesic[
+                            int(previous_idx), int(actual_idx)]) <= float(
+                                param.lambda_optimizer.contact_switch_radius):
+                        actual_idx = int(previous_idx)
+                except (AttributeError, IndexError, TypeError, ValueError):
+                    pass
+        # Keep the execution state aligned with the measured patch.  Without
+        # this, the next cycle locks one sample but the current cycle solves
+        # at another, making the marker and press point disagree.
+        param.lambda_optimizer.last_executed_idx = int(actual_idx)
+        p_arm_local, p_arm_normal_out, x_plus_opt, error, info = param.lambda_optimizer.optimize_control_input(
+            target_pose_eval, current_pose_eval, gravity, p_arm=point_local, sample_idx=actual_idx,
+            contact_point_local=point_local, contact_normal_inward=inward_local)
     p_arm_surface_world = r_obj_to_world @ p_arm_local + curr_q[:3]
     p_arm_inward_local = -np.asarray(p_arm_normal_out, dtype=np.float64)
     p_arm_inward_world = r_obj_to_world @ p_arm_inward_local
@@ -1472,7 +1539,7 @@ def compute_rollout_contact_via(
         arrived_at_best = False
         arrived_hold = False
         arrived_dest_idx = None
-    if arrived_at_best and best_idx is not None:
+    if arrived_at_best and best_idx is not None and actual_contact is None:
         param.lambda_optimizer.last_executed_idx = int(best_idx)
         param.lambda_optimizer.last_executed_x_plus = cached_x_plus
         param.lambda_optimizer.last_executed_cost = cached_cost
@@ -1511,11 +1578,15 @@ def compute_rollout_contact_via(
     hold_occupied = _should_hold_occupied_contact(
         param.lambda_optimizer, curr_q[7:10], curr_q[:3],
         best_contact_world, occupied_idx, best_idx=best_idx)
+    # In the stable pose phase, a made contact is already the executed patch;
+    # do not let a one-frame value/solver rejection replace it with the raw
+    # global winner on the same planning cycle.
+    hold_occupied = bool(hold_occupied or (post_flip_pose and actual_contact is not None))
     if (not value_info['accept_p_arm']) and not hold_occupied:
         p_arm_world = best_contact_track_world
         p_arm_track_world = best_contact_track_world
         p_arm_surface_world = best_contact_world
-        x_plus_opt = cached_x_plus
+        x_plus_opt = cached_x_plus if actual_contact is None else None
         error = float(cached_cost) if cached_cost is not None else float(min_error)
         info = {
             'control_input': cached_force if cached_force is not None else np.zeros(3),
@@ -1543,6 +1614,9 @@ def compute_rollout_contact_via(
         or (align_info['ok'] and near_patch))
     verify_now, q_dist = value_tracker.update_verify(
         dist_exec=dist_to_exec, tightness=model_tightness)
+    value_info['using_observed_contact'] = actual_contact is not None
+    value_info['actual_contact_idx'] = actual_contact_idx
+    value_info['contact_patch_locked'] = bool(param.lambda_optimizer.lock_contact_patch)
     value_info['occupied_idx'] = occupied_idx
     value_info['on_target'] = on_verify_target
     value_info['arrived_at_best'] = bool(arrived_at_best)
@@ -1764,7 +1838,7 @@ def main(args=None):
             current_pose_eval = np.array([0., 0., 0., 1., 0., 0., 0.])
             current_tip_local = R_obj_to_world.T @ (curr_q[7:10] - curr_q[:3])
 
-            param.lambda_optimizer.update_Jacobian(jac_mat_env)
+            param.lambda_optimizer.update_Jacobian(jac_mat_env, phi=getattr(param, 'lambda_env_phi_', None))
             # Lambda ranks every sampled surface point whose fingertip
             # centre would clear the table.  Visibility / heading gates are
             # MPC travel heuristics and must not shrink the contact set.

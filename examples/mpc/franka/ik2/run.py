@@ -87,7 +87,9 @@ def refresh_contact(env, contact, table_ground):
         "phi_vec": np.asarray(payload["phi_vec"], dtype=np.float64),
         "jac_mat": np.asarray(payload["jac_mat"], dtype=np.float64),
         "jac_mat_env": np.asarray(payload["jac_mat_env"], dtype=np.float64),
+        "env_phi": np.asarray(payload['env_phi'], dtype=np.float64),
         "if_contact": bool(if_contact),
+        "actual_contact": payload.get("actual_contact"),
         "contact_distance": float(contact_distance),
         "table_ground": float(table_ground),
     }
@@ -290,9 +292,46 @@ def isaac_loop(bus, args, planner):
                     break
                 frames += 1
                 draw = (frames % draw_stride == 0)
+                # #region agent log
+                import time as _time
+                _t0 = _time.perf_counter()
+                # #endregion
                 env.step_control_frame(draw=draw, sync_realtime=False)
+                # #region agent log
+                _step_ms = (_time.perf_counter() - _t0) * 1000.0
+                _sync_ms = 0.0
+                # #endregion
                 if draw:
+                    # #region agent log
+                    _ts = _time.perf_counter()
+                    # #endregion
                     env.sync_realtime()
+                    # #region agent log
+                    _sync_ms = (_time.perf_counter() - _ts) * 1000.0
+                    # #endregion
+                # #region agent log
+                try:
+                    if frames % 25 == 0:
+                        import json as _json
+                        _payload = {
+                            "sessionId": "252d5a",
+                            "hypothesisId": "D",
+                            "location": "run.py:isaac_loop",
+                            "message": "frame_cost",
+                            "timestamp": int(_time.time() * 1000),
+                            "data": {
+                                "frames": int(frames),
+                                "draw": bool(draw),
+                                "step_ms": round(float(_step_ms), 2),
+                                "sync_ms": round(float(_sync_ms), 2),
+                                "draw_stride": int(draw_stride),
+                            },
+                        }
+                        with open("/home/zz/scsp-robot/.cursor/debug-252d5a.log", "a", encoding="utf-8") as _f:
+                            _f.write(_json.dumps(_payload) + "\n")
+                except Exception:
+                    pass
+                # #endregion
                 if frames % policy_frames != 0:
                     continue
                 # Publish pose and contact geometry from the same physics

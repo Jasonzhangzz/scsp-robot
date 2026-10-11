@@ -296,11 +296,13 @@ def near_press_force_mode(in_contact, tip, press=None, obj=None, obj_radius=0.06
     tip is still centimetres from best_contact is a visible crawl.
     """
     tip = np.asarray(tip, dtype=np.float64).reshape(3)
+    # Real contact can be on another patch than the current ranked target.
+    # Never let target distance promote a touching arm to the air-force mode.
+    if bool(in_contact):
+        return True
     if press is not None:
         press = np.asarray(press, dtype=np.float64).reshape(3)
         return float(np.linalg.norm(tip - press)) <= float(near)
-    if bool(in_contact):
-        return True
     if obj is not None:
         obj = np.asarray(obj, dtype=np.float64).reshape(3)
         gap = float(np.linalg.norm(tip - obj)) - max(float(obj_radius), 1e-6)

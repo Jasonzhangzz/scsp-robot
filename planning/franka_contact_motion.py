@@ -89,7 +89,7 @@ class UprightRelease:
         if stages.angle is not None:
             self.last_time, self.last_angle = t, stages.angle
         tipping = (stages.stage == 'pose' and stages.angle is not None and
-                   (stages.angle > stages.enter_angle or
+                   ((stages.angle > stages.enter_angle and tilt_rate > 1.) or
                     (stages.angle > 2. and tilt_rate > 15.)))
         if tipping:
             self.until = t + stages.enter_hold

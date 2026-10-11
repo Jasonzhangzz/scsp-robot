@@ -169,3 +169,36 @@ def test_benchmark_parses_summary_interleaved_with_native_stderr(tmp_path):
     assert report['aggregate']['fixed']['successes']==1
     assert report['aggregate']['online']['trials']==1
     assert [r['mode'] for r in report['trials']]==['fixed','online']
+
+
+def test_checkpoint_rejects_changed_contact_grouping(tmp_path):
+    model, samples = fixture()
+    learner = OnlineSCMIdentifier(model)
+    learner.add(samples[0])
+    path = tmp_path/'transitions.npz'
+    learner.save(path)
+    model.grouped_contact_response = True
+    with pytest.raises(ValueError, match='contact response'):
+        learner.load(path)
+
+
+def test_driven_contact_prediction_matches_backends_with_learned_parameters():
+    opt=LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.contact_model='soft-scm'; opt.h=.02; opt.max_contacts=1
+    opt.base_Q_inv=opt.Q_inv=np.diag([.02]*3+[20.]*3)
+    opt.base_mu_arm_obj=.5; opt.max_contact_force=.25
+    opt.robot_stiffness=600.; opt.gravity_velocity_scale=1/opt.h
+    opt.soft_scm_response_time=.05; opt.soft_scm_damping_ratio=1.; opt.soft_scm_regularization=1e-8
+    theta=np.log([1.4,.7,1.3,1.1,1.5,.6]); opt.set_scm_parameters(theta)
+    n,t1,t2=np.eye(3)[2],np.eye(3)[0],np.eye(3)[1]
+    j=np.c_[np.stack([n+.5*t1,n+.5*t2,n-.5*t1,n-.5*t2]),np.zeros((4,3))]
+    velocity=np.zeros(6); tau=np.array([0.,0.,-.098,0.,0.,0.])
+    force=np.array([-.1,.03,.01]); point=np.array([.03,0.,.02]); frame=np.diag([-1.,1.,-1.]); phi=np.zeros(4)
+    expected=opt._arm_velocity_numpy(velocity,tau,force,point,frame,j,phi)
+    th=cs.SX.sym('theta',6)
+    result=opt._arm_velocity_cs(cs.DM(velocity),cs.DM(tau),cs.DM(force),cs.DM(point),cs.DM(frame),cs.DM(j),cs.DM(phi),scaled_inverse_cs(opt.base_Q_inv,th),th)
+    fn=cs.Function('learned_driven_contact',[th],[result])
+    np.testing.assert_allclose(np.asarray(fn(theta)).ravel(),expected,atol=1e-12)
+    tensor=lambda value:torch.tensor(value,dtype=torch.float64)
+    actual=opt._arm_velocity_torch(*map(tensor,[velocity,tau,force,point,frame,j,phi,opt.Q_inv]))
+    np.testing.assert_allclose(actual.numpy(),expected,atol=1e-12)

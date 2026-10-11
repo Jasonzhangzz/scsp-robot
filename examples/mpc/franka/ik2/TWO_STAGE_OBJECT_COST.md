@@ -3,8 +3,9 @@
 `test_mpc_isaac.py` 对所有物体默认启用两阶段；MPPI、其它调用共享
 lambda 类的程序仍采用原目标。位置目标和最终四元数目标不变。
 
-阶段 `flip` 使用 `ori_coef * (1 - dot(R(q)*a_target, world_up)) / 2`，
-忽略位置和 yaw；阶段 `pose` 恢复
+阶段 `flip` 使用
+`pos_coef * ||p-p_target||² + ori_coef * (1 - dot(R(q)*a_target, world_up)) / 2`，
+保留位置权重，朝上误差替代完整旋转误差，世界 yaw 自由；阶段 `pose` 恢复
 `pos_coef * ||p-p_target||² + ori_coef * (1-(q·q_target)²)`。
 MPC 保留 10 倍终端系数，接触和动作正则不变。执行层另有下述撤压和站立保护。
 
@@ -16,6 +17,22 @@ target pose，standing transform 已由目标位姿/网格配置体现，不额�
 lambda 在当前观测的物体局部坐标系求解，因此它使用
 `R_current.T * world_up` 作参考方向。三个权重和两根轴通过运行时参数送入求解器，切换阶段不
 重建求解器。acados 缓存区分新目标及符号 cost，避免复用旧二进制。
+
+## 目标姿态与网格坐标系
+
+已检查的七个 source STL 均以 +Z 朝上站立。piggy_bank、mug、teapot、
+rubber_duck、foam_brick 的 XML 将 +90° Y 旋转烘焙进 canonical actor
+网格，因此它们的 actor 局部 +X 朝上才是站立姿态；elephant 和 bunny
+的 actor 则仍为 +Z 朝上。生成 target 和初始倾斜姿态时会补偿这次
+网格旋转，世界 yaw 仍按原分布抽样。未烘焙的 raw 网格直接使用 source
+站立方向，不重复应用 XML 旋转。
+
+目标高度由目标旋转下的碰撞网格最低顶点计算，使最低点落在桌面上，
+替代统一的“桌面 + 3 cm”。初始状态使用同一几何计算并留 2 mm 间隙。
+
+[2026-10-10 目标姿态检查](../scm/outputs/target_pose_audit_20261010/REPORT.md)
+包含七个物体的物理落稳验证。此前闭环报告使用了修复前的目标，
+不代表本次修复后的控制表现。
 
 ## 开关和稳定条件
 
@@ -42,7 +59,7 @@ python examples/mpc/franka/ik2/test_mpc_isaac.py --obj stanford_bunny2
 
 切换时重置排序/接触选择历史、收益归一化、停滞、verify/confidence、
 失败接触屏蔽、via 路径和 MPC warm start；保留几何、动力学及已学习 SCM 参数。
-跨阶段的预测与实际收益不比较。停滞分数在 flip 阶段除以 `ori_coef`，
+跨阶段的预测与实际收益不比较。停滞分数在 flip 阶段除以 `pos_coef*0.02² + ori_coef`，
 在 pose 阶段除以 `pos_coef*0.02² + ori_coef*0.015`。
 
 最终任务成功要求当前处于 pose 阶段且满足原有位置 ≤0.02 m、四元数
@@ -91,8 +108,10 @@ OSC 使用位置保持/撤开控制，清除旧按压位移的 slew 影响，避
 `_last_mpc_action` 仅供下一条动作的 slew 限制使用，不再重放上一条
 位移的 `K*u` 按压力或非零速度参考。这样异步规划延迟不会延长按压。
 
-pose 阶段接触位移限制为每步 1 mm，实际近接触 OSC 力限制为 0.25 N。
-实测倾角超过进入阈值，或倾角 >2° 且以 >15°/s 上升时，立即撤压并
+pose 阶段接触动作的每个分量在求解前限制为 `0.25 / (600*sqrt(3))` m，
+使预测动作落在实际 OSC 的 0.25 N 力上限内；flip 阶段对应 0.8 N。
+不再先按大动作求解、再缩小执行动作。近物体任意表面时也应用近接触限幅。
+实测倾角超过进入阈值且以 >1°/s 上升，或倾角 >2° 且以 >15°/s 上升时，立即撤压并
 等待 0.3 秒；原 25°/0.1 秒回退规则仍生效。预测轨迹超过
 `min(fallback_angle, max(enter_angle, current_angle+2°))` 的动作不执行。
 这些保护不改变完整位姿 cost，位置与 yaw 仍在第二阶段优化。
@@ -108,3 +127,29 @@ pose 阶段接触位移限制为每步 1 mm，实际近接触 OSC 力限制为 0
 限制。世界 yaw 不触发倾倒保护。`physics_pressure_releases` 记录执行端
 的撤压次数，在线 SCM 记录实际撤开目标；执行保护覆盖动作时跳过
 该帧候选力预测的 confidence/dwell 更新。
+
+## 接触预测与执行的一致性（2026-10-10）
+
+此 MPC 入口的 lambda 使用 MPC 的 20 ms 时间步长、物体 mobility 和
+600 N/m 末端刚度。lambda 决策为末端驱动力，先经过末端与物体的
+单边接触和摩擦响应，避免把无法实现的切向力直接作用于物体。
+NumPy、CasADi、Torch 使用同一定义，力上限在 acados/IPOPT 中为运行时参数。
+
+此入口将每组四条摩擦金字塔方向合并为一个法向反力和两个切向反力，
+避免四次重复计算支撑力；切向力采用平滑的 Coulomb 圆盘限制。
+该选择仅对本入口的 soft-scm 启用，旧 SCM 参数文件不能载入此模型。
+桌面 gap 使用旋转后碰撞网格的最低点，lambda 与 MPC 接收同一 gap。
+桌面支撑仍采用一个合力接触近似，尚未建模完整支撑足迹。
+
+物体—末端相对 Jacobian 使用朝内法线，使末端向内运动对应 gap 减小。
+PhysX 法向统一指向末端，不依赖刚体排列。采样点用于选择下一接触位置；
+已经接触时，当前接触预测使用同一观测帧的实测点和法向，并随同步/异步
+消息一起传递。只有实测 gap ≤0 才进入接触控制；尚未接触时保持几何接近。
+
+进入 `pose` 阶段后，若存在实测接触，实测点最近的 mesh patch 会被锁存为执行 patch；相邻采样点的投影抖动不会再通过 top-k 引导覆盖该锁。只有接触消失或实际接触移动超过 `contact_switch_radius` 才允许换 patch。日志中的 `actual_contact_idx`、`patch_locked` 可用于核对实测点与执行点是否一致。
+
+acados 缓存标识包含上述模型配置，生成过程用文件锁串行化，防止仿真和
+规划进程并发生成同一个共享库。阶段切换和限幅更新不重建求解器。
+
+本轮闭环结果与仍存在的收敛问题见
+[接触修复验证报告](../scm/outputs/post_flip_contact_20261010/REPORT.md)。

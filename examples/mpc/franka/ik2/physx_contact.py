@@ -106,3 +106,15 @@ def physx_signed_gap(overlap, cpos, tip_pos, normal_obj_to_other, radius,
         if axial > 0.0 and radial > 0.0:
             return min(radial, axial)
     return radial
+
+
+def object_outward_normal(normal, tip, point):
+    """Orient a sphere contact normal from object surface toward the tip.
+
+    PhysX body ordering must not change gap derivatives or withdrawal signs.
+    """
+    n = np.asarray(normal, dtype=np.float64).reshape(3)
+    n = n/max(np.linalg.norm(n), 1e-10)
+    if tip is not None and point is not None and np.dot(n, np.asarray(tip)-np.asarray(point)) < 0:
+        n = -n
+    return n.astype(np.float32)

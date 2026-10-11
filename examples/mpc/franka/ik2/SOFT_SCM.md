@@ -16,9 +16,8 @@ python examples/mpc/franka/ik2/test_mpc_isaac.py
 - `--soft-scm-response-time 0.05`：接触响应时间，秒。
 - `--soft-scm-damping-ratio 1.0`：阻尼比。
 - `--soft-scm-regularization 1e-8`：正的对角 Delassus 正则项。
-- `--table-clearance 0`（默认）：取消额外的指尖中心高度裕量；PhysX
-  处理实际球体与桌面的碰撞。12 mm 的参考高度限制会裁掉下压 PD 输入，
-  因而不能当作不影响任务的执行保护。
+- `--table-clearance 0.012`（默认）：给 10 mm 指尖球心保留 2 mm 的桌面
+  裕量，避免 OSC 追踪延迟时穿入桌面；需要贴桌接触时可显式传入更小值。
 - `--sync-planner`：真正执行“规划一次、推进 10 个 2 ms 物理步”，用于
   排除异步反馈延迟；默认仍为异步和可视化。
 

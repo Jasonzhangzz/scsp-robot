@@ -190,3 +190,42 @@ def test_episode_end_is_delivered_after_an_occupied_action_queue():
     finally:
         peer.join(timeout=2.0)
     assert received == [{"kind": "via"}, {"cmd": "end_trial"}]
+
+
+@pytest.mark.parametrize('gap,physical', [(.0005,False),(-.0005,True)])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_contact_observation_uses_surface_gap_and_inward_object_jacobian(gap, physical, reverse):
+    from scipy.spatial.transform import Rotation
+    from examples.mpc.franka.ik2 import physx_contact as pc
+    from examples.mpc.franka.ik2 import contact_frames as cf
+    source = Path(__file__).resolve().parents[1]/'examples/mpc/franka/ik2/test_mpc_isaac.py'
+    tree = ast.parse(source.read_text())
+    cls = next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='ContactIsaacCartesian')
+    ns = dict(np=np, Rotation=Rotation, **{k:getattr(pc,k) for k in
+        ['end_effector_position','fingertip_radius','fingertip_body_index','contact_overlap','contact_impulse','physx_signed_gap','DEFAULT_CONTACT_OFFSET']})
+    ns.update(_tangent_basis_from_normal=cf.tangent_basis_from_normal,
+        _contact_jacobian=cf._contact_jacobian_np, _planar_table_jacobians=cf.planar_table_jacobians,
+        contact_jacobian_angular_body_frame=cf.contact_jacobian_angular_body_frame)
+    exec(compile(ast.Module(body=[cls],type_ignores=[]),str(source),'exec'),ns)
+    p=SimpleNamespace(n_qvel_=9,max_ncon_=10,mu_object_=.5,table_height=.35,
+        object_vertices_=np.array([[0,0,-.04],[0,0,.04]]))
+    obj=np.array([.4,0,.39]); surface=obj+np.array([.04,0,0]); tip=surface+np.array([.01+gap,0,0])
+    row=np.array((max(0.,-gap),0.),dtype=[('initial_overlap',float),('lambda',float)])
+    normal=np.array([-1.,0,0]) if reverse else np.array([1.,0,0])
+    skew=lambda x: np.array([[0,-x[2],x[1]],[x[2],0,-x[0]],[-x[1],x[0],0]])
+    env=SimpleNamespace(param_=p, obj_body_idx=1,table_body_idx=2,tip_body_idx=3,env=object(),
+        get_state=lambda:np.r_[obj,[1,0,0,0],tip], get_end_effector_pos=lambda:(tip,None),
+        gym=SimpleNamespace(get_env_rigid_contacts=lambda _: [row]),
+        _contact_bodies=lambda _: (3,1) if reverse else (1,3),
+        _contact_sep_normal=lambda _: (gap,not physical,normal),
+        _contact_world_pos=lambda *_:surface, _skew=skew)
+    detector=ns['ContactIsaacCartesian'](p)
+    phi,j,_,env_j,has_contact=detector.detect_once(env)
+    assert has_contact is physical
+    assert phi[0] == pytest.approx(gap,abs=1e-7)
+    # Closing from the right (negative tip X) has a negative gap rate.
+    assert np.mean(j[:4],axis=0)[6] == pytest.approx(1.)
+    np.testing.assert_allclose(detector.get_actual_fingertip_contact()['normal_world'],[1,0,0])
+    assert detector.env_phi[0] == pytest.approx(0.,abs=1e-7)
+    assert phi[4] == pytest.approx(detector.env_phi[0])
+    assert np.mean(env_j[:4],axis=0)[2] == pytest.approx(1.)

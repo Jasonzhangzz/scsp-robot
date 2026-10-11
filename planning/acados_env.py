@@ -166,3 +166,33 @@ class quiet_acados_stderr:
         os.dup2(self._fd, 2)
         os.close(self._fd)
         return False
+
+
+def build_cached_solver(ocp, json_file, shared_file):
+    """Serialize code generation shared by the simulator and planner workers.
+
+    Current acados-template assigns a hash to an unnamed OCP. Use the model's
+    existing version/configuration identity so both workers load the same
+    library, then publish/load it while holding an inter-process cache lock.
+    """
+    import fcntl
+    import json
+    from pathlib import Path
+    from acados_template import AcadosOcpSolver
+    if hasattr(ocp, 'name'):
+        ocp.name = ocp.model.name
+    directory = Path(json_file).parent
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory/'.codegen.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        current = False
+        try:
+            data = json.loads(Path(json_file).read_text())
+            options = data.get('code_gen_options', data)
+            current = (Path(shared_file).is_file()
+                       and all(k in options for k in ('acados_lib_path', 'code_export_directory'))
+                       and data.get('name', ocp.model.name) == ocp.model.name)
+        except (OSError, ValueError, TypeError):
+            pass
+        return AcadosOcpSolver(ocp, json_file=str(json_file), generate=not current,
+                               build=not current, verbose=False)

@@ -141,9 +141,10 @@ def test_feedback_and_payload_use_active_object_cost(monkeypatch):
         .01, 99., curr_q=current, param=p)
     assert dwell['c_after'] == pytest.approx(now)
     assert dwell['progress_cost'] == pytest.approx(now / 20)
-    physical_obs = dict(obs(.5), table_ground=.35)
+    physical_obs = dict(obs(.5), table_ground=.35, actual_contact=dict(point_world=[.1,.2,.3],normal_world=[1,0,0]))
     payload, _ = _plan_from_obs(physical_obs, dwell)
     assert payload['sim_time'] == .5
+    assert payload['actual_contact'] == physical_obs['actual_contact']
     assert payload['object_angular_velocity'] == [0, 0, 0]
     assert payload['dwell']['object_cost_stage'] == 'flip'
 
@@ -302,3 +303,128 @@ def test_target_pose_defines_upright_family_independently_of_object_axis(target_
     # A half turn around a world horizontal axis inverts the target-up axis.
     inverted = (Rotation.from_euler('x', 180, degrees=True) * Rotation.from_quat(target_q[[1,2,3,0]])).as_quat()[[3,0,1,2]]
     assert object_cost_np(np.r_[np.zeros(3), inverted], target, c) == pytest.approx(20)
+
+
+def test_flip_stage_weights_position_and_up_then_restores_full_pose():
+    stage = ObjectCostStages(args())
+    np.testing.assert_allclose(stage.config()[:3], [500., 0., 20.])
+    target = np.r_[[.3, .1, .4], quat([0, 0, 65])]
+    standing = np.r_[target[:3], quat([0, 0, -80])]
+    displaced = standing.copy(); displaced[0] += .1
+    assert object_cost_np(standing, target, stage.config()) == pytest.approx(0.)
+    assert object_cost_np(displaced, target, stage.config()) == pytest.approx(5.)
+    assert stage.progress_scale() == pytest.approx(20.2)
+    stage.update(obs(0)); assert stage.update(obs(.3))
+    np.testing.assert_allclose(stage.config()[:3], [500., 20., 0.])
+    assert object_cost_np(standing, target, stage.config()) > 0.
+    assert stage.progress_scale() == pytest.approx(.5)
+
+
+@pytest.mark.parametrize('backend', ['ipopt', 'acados', 'torch-lbfgs'])
+@pytest.mark.parametrize('grouped,drive_robot', [(False,False),(True,False),(True,True)])
+def test_runtime_force_cap_and_quasi_prediction_match_mpc(tmp_path, backend, monkeypatch, grouped, drive_robot):
+    import trimesh
+    from planning.mlqp_point import LambdaContactControlOptimizer
+    from models.explicit_model import ExplicitModel
+    if backend == 'torch-lbfgs':
+        import torch
+        monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
+    mesh = tmp_path/'box.stl'
+    trimesh.creation.box(extents=[.08]*3).export(str(mesh))
+    opt = LambdaContactControlOptimizer(str(mesh), solver=backend, sample_num=8,
+        pos_coef=500, ori_coef=20, time_step=.02, force_reg_coef=.01,
+        max_contact_force=.8, contact_dynamics='quasi-dynamic', wrench_is_force=True,
+        grouped_contact_response=grouped, robot_stiffness=600. if drive_robot else None)
+    solver_id = id(opt.acados_solver)
+    if backend == 'acados':
+        assert opt.acados_solver is not None, opt.acados_error
+    current = np.r_[np.zeros(3), [1., 0, 0, 0]]
+    target = np.r_[[.2, 0, 0], [1., 0, 0, 0]]
+    opt.set_object_cost_config(cost_config(500, 20))
+    j = np.zeros((40, 6))
+    tau = np.zeros(6)
+    if grouped:
+        from examples.mpc.franka.ik2.contact_frames import planar_table_jacobians
+        _, j[:4], _ = planar_table_jacobians([0,0,.04], np.eye(3), 0., 6, .5)
+        tau[2] = -.098
+    opt.update_Jacobian(j)
+    common = dict(x_d=target, current_x=current, v_last=np.zeros(6),
+        J_tilde=j, D_inv=opt.compute_env_diag_inverse(j), tau_o_np=tau,
+        n_arm=[1., 0, 0], t1=[0., 1, 0], t2=[0., 0, 1], p_arm=[0., 0, .02], curr_ori_coef=1.)
+    results = []
+    for limit in [.8, .25, .8]:
+        opt.set_contact_force_limit(limit)
+        result = opt._solve_optimization(**common)
+        assert result is not None
+        f = np.asarray(result['lam_arm_opt']).reshape(3)
+        assert np.linalg.norm(f) <= limit + 1e-6
+        # Same impulse/displacement convention as MPC, without a moving arm.
+        wrench = tau.copy() if drive_robot else tau + np.r_[f, np.cross([0., 0, .02], f)]
+        Q = np.eye(9); Q[:6, :6] = opt.obj_inertia
+        full_j = np.c_[j, np.zeros((40,3))]
+        command = np.zeros(3)
+        if drive_robot:
+            Q[6:,6:] = 600.*np.eye(3)
+            command = f/600.
+            Jc = np.array([[1,0,0,0,.02,0],[0,1,0,-.02,0,0],[0,0,1,0,0,0.]])
+            mu = opt.mu_arm_obj
+            pyramid = np.array([[1,mu,0],[1,0,mu],[1,-mu,0],[1,0,-mu]])
+            full_j = np.r_[full_j, pyramid@np.c_[Jc,-np.eye(3)]]
+        param = SimpleNamespace(h_=.02, n_qpos_=10, n_qvel_=9, n_robot_qpos_=3,
+            n_cmd_=3, max_ncon_=full_j.shape[0]//4, obj_mass_=1., gravity_=wrench, Q=Q,
+            robot_stiff_=(600. if drive_robot else 1.)*np.eye(3), contact_dynamics='quasi-dynamic', grouped_contact_response_=grouped)
+        model = ExplicitModel(param)
+        expected = np.asarray(model.step_once_fn(np.r_[current, np.zeros(3)],
+            command, np.zeros(full_j.shape[0]), full_j, .2)).reshape(-1)[:7]
+        np.testing.assert_allclose(np.asarray(result['x_plus_opt']).reshape(7), expected, atol=2e-6)
+        cost = object_cost_np(expected, target, opt.object_cost_config()) + .01*np.dot(f, f)
+        assert float(result['cost']) == pytest.approx(cost, abs=2e-5)
+        assert id(opt.acados_solver) == solver_id
+        results.append(expected[0])
+    assert results[1] < results[0] and results[2] == pytest.approx(results[0], abs=1e-4)
+
+
+def test_weighted_flip_cost_is_invariant_under_lambda_frame_transform():
+    origin = np.array([.4, -.1, .3])
+    r = Rotation.from_euler('xyz', [42, -15, 70], degrees=True)
+    prediction = np.r_[[.35, .2, .4], quat([25, 12, 85])]
+    target = np.r_[[.3, .1, .36], quat([0, -90, 10])]
+    from planning.object_pose_cost import target_up_axis
+    axis = target_up_axis(target[3:7])
+    world = cost_config(500, 0, 20, body_axis=axis)
+    local = cost_config(500, 0, 20, body_axis=axis, reference_up=r.inv().apply([0,0,1]))
+    def transform(pose):
+        q = (r.inv() * Rotation.from_quat(pose[[4,5,6,3]])).as_quat()[[3,0,1,2]]
+        return np.r_[r.inv().apply(pose[:3] - origin), q]
+    assert object_cost_np(transform(prediction), transform(target), local) == pytest.approx(
+        object_cost_np(prediction, target, world))
+
+
+def test_observed_contact_overrides_sample_geometry_without_corrupting_mesh():
+    from planning.mlqp_point import LambdaContactControlOptimizer
+    opt = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    opt.sample_point = np.array([[.01, .02, .03]])
+    opt.normal = np.array([[1., 0, 0]])
+    opt.t1 = np.array([[0., 1, 0]])
+    opt.t2 = np.array([[0., 0, 1]])
+    opt.J_tilde = np.zeros((4,6))
+    opt.compute_env_diag_inverse = lambda _: np.ones(4)
+    captured = {}
+    def solve(**kw):
+        captured.update(kw)
+        return dict(lam_arm_opt=np.array([0.,-.1,0.]), x_plus_opt=kw['current_x'], cost=2.)
+    opt._solve_optimization = solve
+    pose = np.r_[np.zeros(3), [1.,0,0,0]]
+    point = np.array([.035,-.015,.025])
+    actual = dict(contact_point_local=point, contact_normal_inward=[0,2,0])
+    p, outward, _, cost, info = opt.optimize_control_input(pose, pose, np.zeros(6), sample_idx=0, **actual)
+    np.testing.assert_allclose(p, point)
+    np.testing.assert_allclose(outward, [0,-1,0])
+    np.testing.assert_allclose(captured['p_arm'], point)
+    np.testing.assert_allclose(captured['n_arm'], [0,1,0])
+    frame = np.array([captured['n_arm'], captured['t1'], captured['t2']])
+    np.testing.assert_allclose(frame @ frame.T, np.eye(3), atol=1e-12)
+    np.testing.assert_allclose(opt.sample_point, [[.01,.02,.03]])
+    assert cost == 2. and not info['solver_failed'] and opt.last_executed_idx == 0
+    with pytest.raises(ValueError, match='both'):
+        opt.optimize_control_input(pose, pose, np.zeros(6), sample_idx=0, contact_point_local=point)

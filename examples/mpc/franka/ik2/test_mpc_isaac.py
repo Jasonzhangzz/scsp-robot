@@ -135,11 +135,14 @@ ISAAC_VIA_MAX_STEP = 0.005
 ISAAC_VIA_MAX_LEAD = 0.005
 ISAAC_VIA_SMOOTH_RATE = 0.10
 ISAAC_ACTION_SLEW = 0.0025
-# MPC increments also supply the contact PD wrench (K*u). A positive
-# fingertip-center clearance clips downward commands before PhysX contact
-# can transmit that wrench and can prevent flipping. Preserve main's press
-# behavior by default; an extra clearance remains available explicitly.
-ISAAC_TABLE_CLEARANCE = 0.0
+# MPC increments also supply the contact PD wrench (K*u).  The fingertip is
+# a 10 mm sphere, so a zero center-height margin lets the controller command
+# the sphere through the tabletop.  Keep a small physical clearance by
+# default; users can still deliberately lower it with ``--table-clearance``.
+ISAAC_TABLE_CLEARANCE = 0.012
+# Start braking before the object footprint reaches the rim: the light test
+# objects can travel several centimetres during one delayed contact update.
+ISAAC_TABLE_EDGE_GUARD_DISTANCE = 0.060
 # Same keep-out as path_blocked / verify.  An extra 8 cm circle
 # sent the Franka tip 15 cm from the COM before it could drop.
 ISAAC_ORBIT_EXTRA = 0.0
@@ -1028,12 +1031,21 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         jac_p = self._get_position_jacobian(q)
         vel = np.clip(jac_p @ qd, -2.0, 2.0)
         err = np.asarray(self.position_d - p_curr, dtype=np.float32).reshape(3)
-        # Only an active interval supplies K*u and its velocity reference.
-        # _last_mpc_action is slew history; replaying it after completion
-        # applies a stale wrench while the asynchronous planner is busy.
+        # Keep the developer velocity reference while a free-space interval is
+        # finishing.  Once the tip is touching the object, replaying the last
+        # interval during planner latency becomes an unbounded stale push.
         action = getattr(self, "_mpc_action", None)
         p0 = getattr(self, "_mpc_p0", None)
         blocked = bool(getattr(self, "_path_blocked", False))
+        in_contact, contact_n = self._fingertip_contact_info()
+        if action is None:
+            previous = getattr(self, "_last_mpc_action", None)
+            press = getattr(self, "_mpc_press", None)
+            # Planner actions always carry a press point.  Do not replay the
+            # previous action during that planner's latency window; only the
+            # standalone free-space command path has no press point.
+            if previous is not None and press is None and not in_contact:
+                action = previous
         if action is not None and p0 is not None:
             remain = _remaining_along_action(
                 p_curr, p0, action, keep_lateral=blocked)
@@ -1043,7 +1055,6 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         else:
             remain = err
             v_ref = None
-        in_contact, contact_n = self._fingertip_contact_info()
         force_track = _isaac_task_force(
             remain, vel, v_ref=v_ref,
             k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
@@ -1103,8 +1114,34 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 limit=FREE_SPACE_FORCE_LIMIT)
             if in_contact:
                 force = outward_release_force(force, contact_n)
-        elif bool(getattr(self, '_preserve_upright', False)) and near_press:
-            force = self._clip_task_force(force, .25)
+        else:
+            # Keep the fingertip sphere above the actual tabletop even when
+            # the OSC target is still catching up.  Target clipping alone is
+            # insufficient because the arm has velocity and the task wrench
+            # can carry it below the target for a few PhysX frames.
+            table_z = float(getattr(self.param_, "table_height", 0.35))
+            table_clearance = max(
+                0.0, float(getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE))
+            )
+            floor_z = table_z + table_clearance
+            floor_gap = float(p_curr[2] - floor_z)
+            if floor_gap < 0.0:
+                floor_brake = ISAAC_TASK_KP * (-floor_gap) - ISAAC_TASK_KD * float(vel[2])
+                force[2] = max(
+                    float(force[2]), 0.0,
+                    min(FREE_SPACE_FORCE_LIMIT, floor_brake),
+                )
+            elif floor_gap < 0.003 and float(force[2]) < 0.0:
+                force[2] = 0.0
+
+            # A real/near contact at the table edge may otherwise turn the
+            # planner's tangential command into a shove that carries the
+            # object over the rim.  Pulling away during an upright release is
+            # intentionally exempt: it removes contact rather than pushing
+            # the object.
+            force = _clip_outward_table_force(
+                force, object_state, self.param_, active=bool(in_contact or near_press)
+            )
         self._osc_effective_target = np.asarray(
             self.position_d if guard_goal is None else guard_goal, dtype=np.float32).reshape(3).copy()
         self._last_osc_force = np.asarray(force, dtype=np.float32).reshape(3)
@@ -1333,8 +1370,21 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             None if release_pressure else getattr(self, "_last_mpc_action", None), increment, max_step,
             max_slew=max_slew,
         )
-        floor_z = float(getattr(self.param_, "table_height", 0.35)) + float(
-            getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE)
+        if press_arr is not None and not air:
+            # Apply the same rim guard to the position increment.  Force
+            # clipping below prevents a shove, while this prevents the
+            # desired pose from continuing to carry the arm over the rim
+            # during the next planner-latency window.
+            try:
+                increment = _clip_outward_table_force(
+                    increment, np.asarray(self.get_state(), dtype=np.float64),
+                    self.param_, active=True
+                )
+            except (AttributeError, NameError, TypeError, ValueError):
+                pass
+        configured_clearance = getattr(self.param_, "table_clearance_", None)
+        floor_z = float(getattr(self.param_, "table_height", 0.35)) + max(
+            0.0, float(0.0 if configured_clearance is None else configured_clearance)
         )
         if p_curr[2] + float(increment[2]) < floor_z:
             increment[2] = np.float32(floor_z - p_curr[2])
@@ -1374,7 +1424,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             policy_dt=policy_dt,
             origin=p_curr,
             table_z=float(getattr(self.param_, "table_height", 0.35)),
-            clearance=float(getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE)),
+            clearance=float(getattr(self.param_, "table_clearance_", 0.0)),
             submitted_at=submitted_at,
             planner_dt=planner_dt,
             solver_backend=solver_backend,
@@ -1434,8 +1484,9 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         elif self._mpc_action is not None:
             self._advance_mpc_action_target()
         tip_now = np.asarray(self.get_end_effector_pos()[0], dtype=np.float64).reshape(3)
-        floor_z = float(getattr(self.param_, "table_height", 0.35)) + float(
-            getattr(self.param_, "table_clearance_", ISAAC_TABLE_CLEARANCE)
+        configured_clearance = getattr(self.param_, "table_clearance_", None)
+        floor_z = float(getattr(self.param_, "table_height", 0.35)) + max(
+            0.0, float(0.0 if configured_clearance is None else configured_clearance)
         )
         self._policy_schedule.record_execution(
             velocity=self._mpc_v_ref,
@@ -1538,6 +1589,8 @@ class ContactIsaacCartesian:
                     cpos = np.asarray(tip_pos, dtype=np.float32) - radius * np.asarray(n_raw, dtype=np.float32)
                 else:
                     cpos = np.asarray(cpos, dtype=np.float32)
+                from examples.mpc.franka.ik2.physx_contact import object_outward_normal
+                n_raw = object_outward_normal(n_raw, tip_pos, cpos)
                 dist = physx_signed_gap(overlap, cpos, tip_pos, n_raw, radius)
                 if contact_impulse(c) > 1e-6:
                     dist = min(float(dist), 0.0) if np.isfinite(dist) else 0.0
@@ -1545,7 +1598,7 @@ class ContactIsaacCartesian:
                 # contact for verify/pose-apply is still ``dist <= 0``.
                 if not np.isfinite(dist) or dist > contact_offset + 1e-8:
                     continue
-                if_contact = True
+                if_contact = bool(if_contact or dist <= 0.)
                 surface = np.asarray(cpos, dtype=np.float32) - 0.5 * float(dist) * np.asarray(n_raw, dtype=np.float32)
                 if dist < best_ft_sep:
                     best_ft_sep = dist
@@ -1562,7 +1615,9 @@ class ContactIsaacCartesian:
                     j_obj[:, 3:6] = -simulator._skew(r_obj)
                     j_other = np.zeros((3, nv), dtype=np.float32)
                     j_other[:, 6:9] = np.eye(3, dtype=np.float32)
-                    n, t1, t2 = _tangent_basis_from_normal(n_raw)
+                    # Gap is (tip - surface)·n_out - radius, so its object
+                    # columns use -n_out with relative velocity obj-tip.
+                    n, t1, t2 = _tangent_basis_from_normal(-n_raw)
                     con_jac = np.array(
                         _contact_jacobian(n, t1, t2, j_obj - j_other, mu),
                         dtype=np.float32,
@@ -1570,7 +1625,13 @@ class ContactIsaacCartesian:
                     phi_vec[4 * row_idx : 4 * row_idx + 4] = dist
                     jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac
                     row_idx += 1
-        dist_table = float(obj_pos[2] - table_height)
+        vertices = getattr(simulator.param_, 'object_vertices_', None)
+        if vertices is not None:
+            world_vertices = np.asarray(vertices) @ r_obj_to_world.T + obj_pos
+            dist_table = float(world_vertices[:, 2].min() - table_height)
+        else:
+            dist_table = float(obj_pos[2] - table_height)
+        self.env_phi = np.ones(max_ncon * 4, dtype=np.float64)
         if table_seen or dist_table < 0.02:
             # One world-up plane.  Dumping every PhysX manifold point into
             # J_tilde treats each as independently supporting the object
@@ -1579,9 +1640,10 @@ class ContactIsaacCartesian:
                 obj_pos, r_obj_to_world, table_height, nv, mu, simulator._skew
             )
             if row_idx < max_ncon:
-                phi_vec[4 * row_idx : 4 * row_idx + 4] = min(max(dist_table, 0.0), 0.02)
+                phi_vec[4 * row_idx : 4 * row_idx + 4] = dist_table
                 jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac_table
             jac_mat_env[0:4, :6] = con_jac_body
+            self.env_phi[:4] = dist_table
             con_pos_list.append(np.asarray(con_pos_local, dtype=np.float32))
 
         # ExplicitModel integrates a body-frame angular velocity, while the
@@ -1592,11 +1654,15 @@ class ContactIsaacCartesian:
 
 def adapt_param_for_cartesian_solver(param, args):
     table_height = float(param.table_height)
+    table_clearance = max(
+        0.0, float(getattr(args, "table_clearance", ISAAC_TABLE_CLEARANCE))
+    )
     param.n_cmd_ = 3
     param.n_robot_qpos_ = 3
     param.n_qpos_ = 10
     param.n_qvel_ = 9
-    param.robot_stiff_ = np.diag(3 * [float(args.cartesian_joint_stiffness)])
+    param.robot_stiff_ = np.diag(3 * [ISAAC_TASK_KP if getattr(param, 'runtime_object_cost_', False)
+                                    else float(args.cartesian_joint_stiffness)])
     q = np.zeros((param.n_qvel_, param.n_qvel_))
     q[:6, :6] = param.obj_inertia_
     q[6:, 6:] = param.robot_stiff_
@@ -1604,7 +1670,7 @@ def adapt_param_for_cartesian_solver(param, args):
     param.mpc_u_lb_ = -float(getattr(args, "mpc_step_limit", 0.005))
     param.mpc_u_ub_ = -param.mpc_u_lb_
     # Same fingertip box as test_0902 --rollout, shifted by the Isaac table.
-    param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), np.array([-10.0, -10.0, table_height - 0.01])))
+    param.mpc_q_lb_ = np.hstack((-1e7 * np.ones(7), np.array([-10.0, -10.0, table_height + table_clearance])))
     param.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), np.array([10.0, 10.0, table_height + 1.0])))
     requested_backend = getattr(args, "solver_backend", "auto")
     concrete_backend = resolve_solver_backend(requested_backend)
@@ -1613,7 +1679,7 @@ def adapt_param_for_cartesian_solver(param, args):
     param.solver_backend_ = requested_backend
     param.torch_solver = concrete_backend
     param.planner_solver_ = concrete_backend
-    param.table_clearance_ = float(getattr(args, "table_clearance", ISAAC_TABLE_CLEARANCE))
+    param.table_clearance_ = table_clearance
     # Keep the ranking NLP built with the fingertip --rollout mass / hull.
     # Rebuilding after DyWA would score patches with the randomized sim mass.
     if getattr(param, "lambda_optimizer", None) is None:
@@ -1824,6 +1890,60 @@ _TABLE_XY_MAX = np.array([2.20, 1.00], dtype=np.float64)
 def _table_edge_dist_xy(obj_xy):
     xy = np.asarray(obj_xy, dtype=np.float64).reshape(2)
     return float(np.min(np.concatenate([xy - _TABLE_XY_MIN, _TABLE_XY_MAX - xy])))
+
+
+def _table_edge_gap_and_normal(object_state, param):
+    """Return the closest footprint gap and its outward table-edge normal.
+
+    The COM can still be well inside the tabletop while a rotated mesh has a
+    vertex over the edge.  Use the actual collision vertices when available,
+    falling back to the configured AABB for older parameter objects.
+    """
+    state = np.asarray(object_state, dtype=np.float64).reshape(-1)
+    if state.size < 7 or not np.isfinite(state[:7]).all():
+        return float("inf"), np.zeros(2, dtype=np.float64)
+    obj = state[:3]
+    quat = state[3:7]
+    qnorm = float(np.linalg.norm(quat))
+    if qnorm < 1e-8:
+        rot = np.eye(3, dtype=np.float64)
+    else:
+        rot = Rotation.from_quat(quat[[1, 2, 3, 0]] / qnorm).as_matrix()
+    vertices = getattr(param, "object_vertices_", None)
+    if vertices is None:
+        lo = np.asarray(getattr(param, "object_aabb_lo", (-0.06, -0.04, -0.04)), dtype=np.float64)
+        hi = np.asarray(getattr(param, "object_aabb_hi", (0.06, 0.04, 0.06)), dtype=np.float64)
+        vertices = np.array(np.meshgrid(*zip(lo, hi))).T.reshape(-1, 3)
+    vertices = np.asarray(vertices, dtype=np.float64).reshape(-1, 3)
+    if vertices.shape[0] == 0 or not np.isfinite(vertices).all():
+        return float("inf"), np.zeros(2, dtype=np.float64)
+    world_xy = np.asarray(vertices, dtype=np.float64) @ rot.T
+    world_xy = world_xy[:, :2] + obj[:2]
+    gaps = np.array([
+        np.min(world_xy[:, 0]) - _TABLE_XY_MIN[0],
+        _TABLE_XY_MAX[0] - np.max(world_xy[:, 0]),
+        np.min(world_xy[:, 1]) - _TABLE_XY_MIN[1],
+        _TABLE_XY_MAX[1] - np.max(world_xy[:, 1]),
+    ], dtype=np.float64)
+    normals = np.array([
+        [-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0],
+    ], dtype=np.float64)
+    idx = int(np.argmin(gaps))
+    return float(gaps[idx]), normals[idx]
+
+
+def _clip_outward_table_force(force, object_state, param, active=False):
+    """Remove a horizontal wrench that would drive a contacted object off the table."""
+    force = np.asarray(force, dtype=np.float32).reshape(3).copy()
+    if not bool(active):
+        return force
+    gap, outward = _table_edge_gap_and_normal(object_state, param)
+    if not np.isfinite(gap) or gap > ISAAC_TABLE_EDGE_GUARD_DISTANCE:
+        return force
+    outward_component = float(np.dot(force[:2].astype(np.float64), outward))
+    if outward_component > 0.0:
+        force[:2] -= np.float32(outward_component) * outward.astype(np.float32)
+    return force
 
 
 def _finite_or_none(value):
@@ -2106,6 +2226,8 @@ def _print_rollout_step(
         "act_dcost:", None if act_reduction is None else round(float(act_reduction), 6),
         "dwell:", int(getattr(param.lambda_optimizer, "_dwell_steps", 0)),
         "occupied_idx:", None if not value_info else value_info.get("occupied_idx"),
+        "actual_contact_idx:", None if not value_info else value_info.get("actual_contact_idx"),
+        "patch_locked:", None if not value_info else int(bool(value_info.get("contact_patch_locked", False))),
         "arrived:", None if not value_info else int(bool(value_info.get("arrived_at_best", False))),
         "via_phase:", None if not value_info else value_info.get("via_phase"),
         "path_blocked:", None if not value_info else int(bool(value_info.get("path_blocked", False))),
@@ -2181,7 +2303,7 @@ def _add_rollout_policy_args(parser):
         type=float,
         default=ISAAC_TABLE_CLEARANCE,
         help="Extra lower bound for the fingertip-center reference (m). "
-             "Default 0 preserves contact press; PhysX enforces sphere/table contact.",
+             "Default 0.012 m keeps the 10 mm fingertip sphere above the table.",
     )
     parser.add_argument(
         "--target-type",

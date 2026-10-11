@@ -1,5 +1,6 @@
 import casadi as cs
 import re
+from pathlib import Path
 import numpy as np
 import trimesh
 
@@ -13,7 +14,7 @@ from models.soft_scm_contact import (
 from examples.mpc.fingertips.test.params import canonical_object_meshes
 from planning.runtime_compat import resolve_solver_backend
 
-# Historical elephant goal-geom offset, same as fingertips --rollout.
+# Legacy yaw sampler's factorization; physical standing is handled separately.
 _GOAL_GEOM_Q = np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], dtype=np.float64)
 
 
@@ -67,11 +68,7 @@ def _lift_init_height_for_tilt(init_height, quat_wxyz, local_bounds, table_heigh
 
 
 def _xml_obj_geom_quat_wxyz(model_path):
-    """Standing offset baked into the MuJoCo obj geom (wxyz).
-
-    piggy_bank / mug / teapot / foam_brick / rubber_duck use +90 deg about Y
-    so the raw STL rests on its feet.  Elephant / bunny are already identity.
-    """
+    """Authored geom-to-body offset, not a physical standing pose (wxyz)."""
     identity = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
     try:
         text = open(model_path, "r", encoding="ascii").read()
@@ -98,17 +95,40 @@ def _xml_obj_geom_quat_wxyz(model_path):
 
 
 def _source_standing_quat_wxyz(model_path):
-    """Stand the *source STL* using the XML obj geom quat.
+    """Physical standing pose of the audited source STL, before XML baking.
 
-    piggy_bank / mug / teapot / foam_brick / rubber_duck bake +90 deg about
-    Y so authored +X becomes world +Z.  Ry(-90) is the inverse and stands
-    those meshes on their heads.  Elephant / bunny already use identity.
+    All seven fingertip source meshes stand with +Z up. Five XML files
+    rotate that geometry by +90 Y, so their *actor* meshes stand with +X up.
+    Do not mistake the authored frame transform for a standing rotation.
     """
-    return _xml_obj_geom_quat_wxyz(model_path)
+    name = Path(model_path).stem.replace('env_fingertips_', '', 1)
+    if name not in ('elephant', 'stanford_bunny2', 'piggy_bank', 'mug',
+                    'teapot', 'rubber_duck', 'foam_brick'):
+        raise ValueError('Source standing pose has not been audited for ' + name)
+    return np.array([1., 0., 0., 0.], dtype=np.float64)
+
+
+def _actor_standing_quat_wxyz(model_path, extracted):
+    """Undo the baked geom rotation to stand the actor's actual mesh."""
+    source_q = _source_standing_quat_wxyz(model_path)
+    if not extracted:
+        return source_q
+    geom_q = _xml_obj_geom_quat_wxyz(model_path)
+    return rotations.quaternion_multiply(source_q, geom_q * [1., -1., -1., -1.])
+
+
+def _supported_mesh_height(quat_wxyz, vertices, table_height, clearance=0.):
+    """Place the lowest collision vertex on the table in the target pose."""
+    return float(table_height) + float(clearance) - float(
+        np.min(np.asarray(vertices, dtype=np.float64) @ _quat_wxyz_to_R(quat_wxyz)[2, :]))
 
 
 def _ground_rotation_target_q(target_roll_sample):
-    """Same 90 deg pitch flip as fingertips test_0902 ground-rotation."""
+    """Legacy ground-rotation sample, equivalent to a world-Z yaw only.
+
+    The -90 Y and +90 Y factors cancel, conjugating the sampled roll into
+    yaw. The caller must compose the actual actor standing orientation.
+    """
     body_target_q = rotations.rpy_to_quaternion(
         np.hstack([0.0, -0.5 * np.pi, np.pi * float(target_roll_sample) - 0.5 * np.pi])
     )
@@ -140,20 +160,24 @@ def _box_inertia_diag(mass, aabb_lo, aabb_hi):
 
 def build_lambda_optimizer(param, args):
     """Same acados contact NLP as examples/mpc/fingertips/test/params.py."""
+    runtime_cost = bool(getattr(param, 'runtime_object_cost_', False))
+    grouped_response = bool(getattr(param, 'grouped_contact_response_', False))
     extracted = bool(getattr(param, "_collision_mesh_extracted", False))
     return LambdaContactControlOptimizer(
         mesh_path=param.mesh_path_,
         obj_mass=float(getattr(param, "lambda_obj_mass_", 0.01)),
         arm_friction=param.mu_object_,
         contact_stiffness=param.model_params,
-        time_step=getattr(param, "lambda_h_", 0.05),
+        time_step=(param.h_ if runtime_cost else getattr(param, 'lambda_h_', .05)),
+        max_contacts=1 if grouped_response else 10,
         sample_num=args.sample_num,
         top_k=getattr(args, "top_k", 2),
         pos_coef=args.pos_coef,
         ori_coef=args.ori_coef,
         friction_reg_coef=getattr(args, "friction_reg_coef", 0.0),
         force_reg_coef=getattr(args, "force_reg_coef", 0.01),
-        max_contact_force=float(getattr(args, "max_contact_force", 10.0)),
+        max_contact_force=(min(float(getattr(args, 'max_contact_force', 10.)), .8)
+                           if runtime_cost else float(getattr(args, 'max_contact_force', 10.))),
         contact_switch_radius=getattr(args, "contact_switch_radius", 0.03),
         contact_switch_margin_ratio=getattr(args, "contact_switch_margin_ratio", 0.2),
         contact_switch_margin_abs=getattr(args, "contact_switch_margin_abs", 1e-3),
@@ -163,8 +187,11 @@ def build_lambda_optimizer(param, args):
             getattr(args, "solver_backend", getattr(args, "solver", "auto"))
         ),
         torch_max_iter=getattr(args, "torch_max_iter", 100),
-        obj_inertia=None,
-        wrench_is_force=False,
+        obj_inertia=param.obj_inertia_ if runtime_cost else None,
+        wrench_is_force=runtime_cost,
+        contact_dynamics='quasi-dynamic' if runtime_cost else None,
+        grouped_contact_response=grouped_response,
+        robot_stiffness=600. if grouped_response else None,
         contact_model=getattr(param, 'contact_model', 'soft-scm'),
         soft_scm_response_time=getattr(param, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME),
         soft_scm_damping_ratio=getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO),
@@ -217,15 +244,19 @@ class ExplicitMPCParams:
             )
             self._collision_mesh_extracted = True
         try:
-            bounds = np.asarray(
-                trimesh.load_mesh(self.mesh_path_, process=False).bounds,
-                dtype=np.float64,
-            )
+            mesh = trimesh.load_mesh(self.mesh_path_, process=False)
+            self.object_vertices_ = np.asarray(mesh.vertices, dtype=np.float64).copy()
+            hull = mesh.convex_hull
+            self.object_hull_normals_ = np.asarray(hull.face_normals, dtype=np.float64)
+            self.object_hull_offsets_ = np.sum(self.object_hull_normals_ * hull.triangles_center, axis=1)
+            bounds = np.asarray(mesh.bounds, dtype=np.float64)
             self.object_aabb_lo = bounds[0].copy()
             self.object_aabb_hi = bounds[1].copy()
             self.object_circumradius = float(np.linalg.norm(0.5 * (bounds[1] - bounds[0])))
         except Exception:
             self.object_circumradius = 0.08
+            self.object_vertices_ = np.array(np.meshgrid(*zip(
+                self.object_aabb_lo, self.object_aabb_hi))).T.reshape(-1, 3)
 
         self.frame_skip_ = int(10)
         # Match the fingertip --rollout planner interval.  Isaac physics keeps
@@ -251,14 +282,8 @@ class ExplicitMPCParams:
         np.random.seed(100 + rand_seed)
 
         self.table_height = 0.35
-        local_bounds = np.stack([self.object_aabb_lo, self.object_aabb_hi], axis=0)
         extracted = bool(self._collision_mesh_extracted)
-        # Extracted hull is already in the MuJoCo body frame (geom baked).
-        self.standing_q_ = (
-            np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
-            if extracted
-            else _source_standing_quat_wxyz(self.model_path_)
-        )
+        self.standing_q_ = _actor_standing_quat_wxyz(self.model_path_, extracted)
         init_xy_rand = 0.1 * np.random.rand(2)
         init_xy_rand[0] += 0.3
 
@@ -268,29 +293,23 @@ class ExplicitMPCParams:
         target_roll_sample = float(np.random.rand())
         target_type = str(getattr(args, "target_type", target_type) or target_type)
         if target_type == "ground-rotation":
-            # Same flip as test_0902, shifted into the Franka workspace.
-            self.target_q_ = _actor_quat_from_body(
-                _ground_rotation_target_q(target_roll_sample),
-                self.standing_q_,
-                extracted,
-            )
-            self.target_p_ = np.array(
-                [0.40, 0.10, float(self.table_height) + 0.03], dtype=np.float64
-            )
+            # Preserve the legacy world-yaw distribution, with the actual
+            # actor-frame standing rotation rather than an elephant offset.
+            self.target_q_ = rotations.quaternion_multiply(
+                _ground_rotation_target_q(target_roll_sample), self.standing_q_)
+            target_xy = np.array([0.40, 0.10], dtype=np.float64)
         elif target_type == "rotation":
             target_xy_rand = 0.1 * np.random.rand(2)
             target_xy_rand[0] += 0.35
             target_yaw = np.pi * np.random.rand(1) - np.pi / 2
             target_yaw_q = rotations.rpy_to_quaternion(np.hstack([target_yaw, 0, 0]))
-            self.target_q_ = _actor_quat_from_body(
-                target_yaw_q, self.standing_q_, extracted
-            )
-            target_height = _lift_init_height_for_tilt(
-                0.0, self.target_q_, local_bounds, self.table_height
-            )
-            self.target_p_ = np.hstack([target_xy_rand, target_height])
+            self.target_q_ = rotations.quaternion_multiply(target_yaw_q, self.standing_q_)
+            target_xy = target_xy_rand
         else:
             raise ValueError(f"Target type {target_type} not supported")
+
+        self.target_p_ = np.r_[target_xy, _supported_mesh_height(
+            self.target_q_, self.object_vertices_, self.table_height)]
 
         from planning.object_pose_cost import target_up_axis
         self.object_up_axis_ = target_up_axis(self.target_q_)
@@ -298,12 +317,9 @@ class ExplicitMPCParams:
         self.flip_stable_time_ = float(getattr(args, 'flip_stable_time', .3))
 
         init_tilt_q = _tilted_init_quaternion(args, yaw_angle)
-        init_obj_quat_rand = _actor_quat_from_body(
-            init_tilt_q, self.standing_q_, extracted
-        )
-        init_height = _lift_init_height_for_tilt(
-            0.0, init_obj_quat_rand, local_bounds, self.table_height
-        )
+        init_obj_quat_rand = rotations.quaternion_multiply(init_tilt_q, self.standing_q_)
+        init_height = _supported_mesh_height(
+            init_obj_quat_rand, self.object_vertices_, self.table_height, clearance=0.002)
 
         self.init_obj_qpos_ = np.hstack((init_xy_rand, init_height, init_obj_quat_rand))
         self.init_robot_qpos_ = np.array([0.0, -0.785, 0.0, -2.356, 0, 1.571, 0.785])
@@ -336,7 +352,8 @@ class ExplicitMPCParams:
         self.obj_inertia_ = np.identity(6)
         self.obj_inertia_[0:3, 0:3] = 50 * np.eye(3)
         self.obj_inertia_[3:, 3:] = 0.05 * np.eye(3)
-        self.robot_stiff_ = np.diag(self.n_cmd_ * [100])
+        self.grouped_contact_response_ = self.runtime_object_cost_ and getattr(args, 'contact_model', 'soft-scm') == 'soft-scm'
+        self.robot_stiff_ = np.diag(self.n_cmd_ * [600 if self.runtime_object_cost_ else 100])
 
         Q = np.zeros((self.n_qvel_, self.n_qvel_))
         Q[:6, :6] = self.obj_inertia_

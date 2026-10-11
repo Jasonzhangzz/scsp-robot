@@ -45,6 +45,7 @@ class ExplicitModel:
         self.scm_theta = np.zeros(6)
         self.online_scm = bool(getattr(param, "online_scm_", False)) and self.contact_model == "soft-scm"
         self.model_parameter_dim = 7 if self.online_scm else 1
+        self.grouped_contact_response = bool(getattr(param, 'grouped_contact_response_', False))
         self.init_utils()
         self.init_model()
 
@@ -102,6 +103,9 @@ class ExplicitModel:
             residual = self.soft_scm_a * speed + self.soft_scm_b * phi_vec / h
             impulse = cs.fmax(-weights * residual, 0)
             v = v_smooth + inverse @ jac_mat.T @ impulse
+            if self.grouped_contact_response:
+                from models.soft_scm_contact import grouped_contact_velocity_cs
+                v = grouped_contact_velocity_cs(v_smooth, jac_mat, phi_vec, inverse, h, self.soft_scm_a, self.soft_scm_b, self.soft_scm_regularization)
         else:
             invweight = float(np.trace(inverse_np[:3, :3]) / 3.0)
             row_masses = []
@@ -136,6 +140,9 @@ class ExplicitModel:
             free = self.force_velocity_scale * qi @ force
             weights = inverse_diagonal_cs(j, qi, self.soft_scm_regularization)
             vel = free + qi @ j.T @ cs.fmax(-weights*(a*(j@free)+b*phi_vec/h), 0)
+            if self.grouped_contact_response:
+                from models.soft_scm_contact import grouped_contact_velocity_cs
+                vel = grouped_contact_velocity_cs(free, j, phi_vec, qi, h, a, b, self.soft_scm_regularization)
             pred = self.cs_qposInteg_(curr_q, vel)
             self.step_learn_fn = cs.Function('scm_step_learn', [curr_q, cmd, phi_vec, jac_mat, theta], [pred])
             mp = cs.SX.sym('scm_model_parameters', 7)
@@ -174,6 +181,9 @@ class ExplicitModel:
             weights = inverse_diagonal_torch(jacobian, inverse, self.soft_scm_regularization)
             a, b = soft_scm_coefficients(h, self.soft_scm_response_time*np.exp(self.scm_theta[4]),
                                          self.soft_scm_damping_ratio, self.soft_scm_regularization)
+            if self.grouped_contact_response:
+                from models.soft_scm_contact import grouped_contact_velocity_torch
+                return grouped_contact_velocity_torch(smooth, jacobian, phi, inverse, h, a, b, self.soft_scm_regularization)
             residual = a * speed + b * phi / h
             impulse = torch.clamp(-weights * residual, min=0)
             return smooth + inverse @ jacobian.T @ impulse

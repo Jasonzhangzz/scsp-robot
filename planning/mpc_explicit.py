@@ -222,7 +222,7 @@ class MPCExplicit:
         )
         if requested in {"torch-lbfgs", "torch-gn"}:
             try:
-                return self._plan_torch(curr_x, phi_vec, jac_mat, cost_params, sol_guess)
+                return self._plan_torch(curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub)
             except Exception as exc:
                 print(f"Torch MPC failed ({type(exc).__name__}: {exc}); falling back to acados/IPOPT")
 
@@ -432,7 +432,7 @@ class MPCExplicit:
             requested_solver="acados",
         )
 
-    def _plan_torch(self, curr_x, phi_vec, jac_mat, cost_params, sol_guess):
+    def _plan_torch(self, curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb=None, u_ub=None):
         if torch is None:
             raise RuntimeError("Torch is not installed")
         if self.cost_kind not in {"fingertip", "param"}:
@@ -446,8 +446,8 @@ class MPCExplicit:
         n, nu, nq = self.param_.mpc_horizon_, self.param_.n_cmd_, self.param_.n_qpos_
         qlb = torch.as_tensor(self.param_.mpc_q_lb_, device=dev, dtype=dtype)
         qub = torch.as_tensor(self.param_.mpc_q_ub_, device=dev, dtype=dtype)
-        ulb = torch.as_tensor(self.param_.mpc_u_lb_, device=dev, dtype=dtype)
-        uub = torch.as_tensor(self.param_.mpc_u_ub_, device=dev, dtype=dtype)
+        ulb = torch.as_tensor(self.param_.mpc_u_lb_ if u_lb is None else u_lb, device=dev, dtype=dtype)
+        uub = torch.as_tensor(self.param_.mpc_u_ub_ if u_ub is None else u_ub, device=dev, dtype=dtype)
         z0 = np.asarray(self._prepare_sol_guess(sol_guess)["x0"]).reshape(-1)
         if z0.size != n * (nu + nq):
             raise ValueError(f"invalid Torch MPC warm start size {z0.size}, expected {n * (nu + nq)}")
@@ -520,7 +520,7 @@ class MPCExplicit:
         opt.step(closure)
         out = z.detach().cpu().numpy()
         traj = out.reshape(n, -1)
-        traj[:, :nu] = np.clip(traj[:, :nu], np.asarray(self.param_.mpc_u_lb_), np.asarray(self.param_.mpc_u_ub_))
+        traj[:, :nu] = np.clip(traj[:, :nu], np.asarray(ulb.cpu()), np.asarray(uub.cpu()))
         traj[:, nu:] = np.clip(traj[:, nu:], np.asarray(self.param_.mpc_q_lb_), np.asarray(self.param_.mpc_q_ub_))
         if not np.isfinite(traj).all():
             raise FloatingPointError("non-finite Torch MPC trajectory")
@@ -599,15 +599,8 @@ class MPCExplicit:
         _set_acados_code_export_directory(ocp, code_dir)
         json_file = os.path.join(code_dir, model.name + ".json")
         shared = os.path.join(code_dir, "libacados_ocp_solver_" + model.name + ".so")
-        if _acados_codegen_cache_is_current(json_file, shared):
-            return AcadosOcpSolver(
-                ocp, json_file=json_file, generate=False, build=False,
-                verbose=False,
-            )
-        return AcadosOcpSolver(
-            ocp, json_file=json_file, generate=True, build=True,
-            verbose=False,
-        )
+        from planning.acados_env import build_cached_solver
+        return build_cached_solver(ocp, json_file, shared)
 
     def init_MPC(self):
         model_params = cs.SX.sym("model_param", self.model.model_parameter_dim)
@@ -913,10 +906,19 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         reset_objective_history(param.lambda_optimizer, mpc, trackers)
         print('[object-cost] transition:', stages.diagnostics(), flush=True)
     if stages is not None and stages.enabled:
+        # The shared rollout policy uses this to distinguish the stable
+        # post-flip pose phase from the exploratory flip phase.  Keep it on
+        # the runtime param so the policy can latch a measured contact patch
+        # without coupling itself to the planner's tracker object.
+        param.object_cost_stage_ = stages.stage
         param.object_cost_config_ = stages.config()
         q = np.asarray(msg['policy_q'])
         r = Rotation.from_quat([q[4], q[5], q[6], q[3]]).as_matrix()
         param.lambda_optimizer.set_object_cost_config(stages.config(r))
+        param.lambda_optimizer.set_contact_force_limit(min(float(getattr(args, 'max_contact_force', 10.)),
+                                                          .25 if stages.stage == 'pose' else .8))
+    elif stages is not None:
+        param.object_cost_stage_ = stages.stage
 
     dwell = None if msg.get("osc_upright_guard_active", False) else msg.get("dwell")
     if msg.get("osc_upright_guard_active", False):
@@ -961,6 +963,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     gravity = gravity_wrench_object_frame(
         param.gravity_[:3], ranking_mass, r_obj_to_world, support_normal,
     )
+    param.lambda_env_phi_ = msg.get('env_phi')
+    param.lambda_actual_contact_ = (msg.get('actual_contact') if stages is not None and stages.enabled
+                                    and msg.get('if_contact', False) else None)
     t0 = time.perf_counter()
     policy = _call_rollout_contact_via(
         compute_rollout_contact_via,
@@ -976,6 +981,11 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     trackers["arrived_hold"] = policy["arrived_hold"]
     trackers["arrived_dest_idx"] = policy["arrived_dest_idx"]
     verify_cost = policy["verify_cost"]
+    if stages is not None and stages.enabled and not bool(msg.get('if_contact', False)):
+        # Being near a sampled patch is not an executed contact. Keep the
+        # geometric approach active until the observed sphere gap closes.
+        verify_cost = policy['verify_cost'] = 0.
+        policy['value_info']['contact_active'] = False
     verify_chatter = _verify_is_chatter(trackers["last_verify_cost"], verify_cost)
     trackers["last_verify_cost"] = float(verify_cost)
 
@@ -1001,7 +1011,14 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         nearest = int(np.argmin(np.linalg.norm(samples - local_tip, axis=1)))
         surface = r_obj_to_world @ samples[nearest] + curr_q[:3]
         policy['withdrawal_axis'] = tip - surface
+        if param.lambda_actual_contact_ is not None:
+            policy['withdrawal_axis'] = np.asarray(param.lambda_actual_contact_['normal_world'])
     release_goal = release.update(stages, msg, policy) if release is not None else None
+    pose_stage = bool(stages is not None and stages.enabled and stages.stage == 'pose')
+    # Keep the developer Cartesian step (mpc_u_ub_, 5 mm). Dividing the
+    # contact-force cap by K_task boxes every increment under 1 mm and the
+    # arm crawls. The object cost and its force limit are unchanged.
+    contact_bound = float(np.max(np.abs(getattr(param, "mpc_u_ub_", max_lead))))
     t1 = time.perf_counter()
     sol = mpc.plan_once(
         param.target_p_,
@@ -1026,8 +1043,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         # applying the previous contact wrench in the executor.
         action = np.zeros(3)
     elif release is not None and (bool(value_info.get('path_blocked', False)) or (
-            not bool(msg.get('if_contact', False)) and
-            np.linalg.norm(tip - np.asarray(policy['p_arm_world'])) > .025)):
+            not bool(msg.get('if_contact', False)) and (
+                (stages is not None and stages.enabled) or
+                np.linalg.norm(tip - np.asarray(policy['p_arm_world'])) > .025))):
         execution_mode = 'approach'
         action = bounded_step(tip, policy['mpc_virtual_point'], max_lead)
     else:
@@ -1039,10 +1057,6 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         # Do not feed their gains into confidence/dwell on the next frame.
         policy['execution_override'] = True
     policy['preserve_upright'] = bool(stages is not None and stages.enabled and stages.stage == 'pose')
-    if policy['preserve_upright'] and execution_mode == 'contact':
-        # Gentle planar correction after standing; the flip-scale force is too
-        # large for this object's narrow support footprint.
-        action = bounded_step(np.zeros(3), action, min(max_lead, .001))
     policy['release_pressure'] = execution_mode in ('settle', 'upright_guard')
     policy['execution_mode'] = execution_mode
     if policy['release_pressure']:
@@ -1054,6 +1068,37 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         trackers['arrived_hold'] = False
         trackers['arrived_dest_idx'] = None
     policy["choose_dt"] = rank_dt
+    # #region agent log
+    try:
+        import json as _json
+        import time as _time
+        _payload = {
+            "sessionId": "252d5a",
+            "hypothesisId": "B",
+            "location": "mpc_explicit.py:handle_mpc_request",
+            "message": "plan_action",
+            "timestamp": int(_time.time() * 1000),
+            "data": {
+                "mode": execution_mode,
+                "action_norm_mm": round(float(np.linalg.norm(action)) * 1000.0, 3),
+                "contact_bound_mm": round(float(contact_bound) * 1000.0, 3),
+                "max_lead_mm": round(float(max_lead) * 1000.0, 3),
+                "stages_enabled": bool(stages is not None and stages.enabled),
+                "stage": None if stages is None else stages.stage,
+                "pose_stage": bool(pose_stage),
+                "if_contact": bool(msg.get("if_contact", False)),
+                "path_blocked": bool(value_info.get("path_blocked", False)),
+                "plan_dt_ms": round(float(plan_dt) * 1000.0, 1),
+                "rank_dt_ms": round(float(rank_dt) * 1000.0, 1),
+                "release": bool(policy.get("release_pressure", False)),
+                "preserve": bool(policy.get("preserve_upright", False)),
+            },
+        }
+        with open("/home/zz/scsp-robot/.cursor/debug-252d5a.log", "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps(_payload) + "\n")
+    except Exception:
+        pass
+    # #endregion
     if stages is not None:
         policy['object_cost_stage'] = stages.stage
         policy['object_cost_config'] = stages.config() if stages.enabled else None
