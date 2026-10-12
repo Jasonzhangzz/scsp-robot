@@ -163,7 +163,8 @@ def test_async_observations_share_pose_contact_frame_and_physics_cadence(draw_st
         "viewer_closed": lambda *_: False,
         "viewer_draw_stride": lambda *_: draw_stride,
         "apply_incoming": lambda *_: "ok",
-        "time": SimpleNamespace(sleep=lambda _: None),
+        "time": SimpleNamespace(sleep=lambda _: None, perf_counter=lambda: 0.),
+        "_PROCESS_STARTED": 0.,
     }
     exec(compile(ast.Module(body=[loop], type_ignores=[]), str(source), "exec"), scope)
     scope["isaac_loop"](bus, SimpleNamespace(trial_num=1), "mpc")
@@ -213,6 +214,39 @@ def test_sync_bus_executes_one_interval_and_advances_trials_without_a_peer():
     bus.publish_cmd({"cmd": "end_trial"})
     assert bus.wait_obs()["cmd"] == "stop"
     assert all(env.closed for env in environments)
+
+
+@pytest.mark.parametrize('headless', [False, True])
+def test_async_realtime_clock_excludes_startup_and_matches_display_modes(headless):
+    source = Path(__file__).resolve().parents[1]/'examples/mpc/franka/ik2/run.py'
+    loop = next(n for n in ast.parse(source.read_text()).body
+                if isinstance(n, ast.FunctionDef) and n.name == 'isaac_loop')
+    clock, waits, observations = [0.], [], []
+    env = SimpleNamespace(sim_dt_=.002, frame=0, param_=SimpleNamespace(),
+                          break_out_signal_=False, hold_current_pose=lambda: None,
+                          render_current_state=lambda: None, close=lambda: None)
+    def step(**kw):
+        clock[0] += .0005
+        env.frame += 1
+        env.break_out_signal_ = env.frame >= 25
+    def sleep(duration):
+        clock[0] += duration
+        waits.append(duration)
+    env.step_control_frame = step
+    env.sync_realtime = lambda: pytest.fail('The common clock should own pacing')
+    commands = iter([None]*5+[dict(kind='via')])
+    bus = SimpleNamespace(publish_obs=observations.append, take_cmd=lambda: next(commands, None))
+    scope = dict(POLICY_INTERVAL=.02, open_env=lambda *a: (env, object(), .35),
+                 refresh_contact=lambda *a: {}, pack_state=lambda e,s,t,c: dict(seq=s, frame=e.frame),
+                 viewer_closed=lambda *a: False, viewer_draw_stride=lambda *a: 8,
+                 apply_incoming=lambda *a: 'ok', _PROCESS_STARTED=0.,
+                 time=SimpleNamespace(perf_counter=lambda: clock[0], sleep=sleep))
+    exec(compile(ast.Module(body=[loop], type_ignores=[]), str(source), 'exec'), scope)
+    scope['isaac_loop'](bus, SimpleNamespace(trial_num=1, headless=headless, headless_realtime=True), 'mpc')
+    assert clock[0] == pytest.approx(5/60+.05)
+    assert waits[:5] == pytest.approx([1/60]*5)
+    assert waits[5:] == pytest.approx([.0015]*25)
+    assert [o['frame'] for o in observations if 'frame' in o] == [0,10,20]
 
 
 def test_episode_end_is_delivered_after_an_occupied_action_queue():

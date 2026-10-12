@@ -131,6 +131,7 @@ class MPCExplicit:
         self.param_.mpc_cost_kind = self.cost_kind
         self.path_cost_fn, self.final_cost_fn = build_cost_fns(param, self.cost_kind)
         self.stage_cost_on_next = stage_cost_on_next_state(self.cost_kind)
+
         if getattr(param, "smooth_contact_detour", False):
             # Cost the predicted fingertip, otherwise the first stage only
             # sees 50||u||^2 and the ball freezes after a lift.
@@ -142,6 +143,7 @@ class MPCExplicit:
             and not getattr(param, 'online_scm_', False) and model is None
             and param.n_qpos_ == 10 and param.n_cmd_ == 3
             and getattr(param, 'mpc_carry_velocity_', True))
+        self.recoverable_floor = self.velocity_state
         if self.velocity_state:
             import copy
             param = copy.copy(param)
@@ -162,8 +164,17 @@ class MPCExplicit:
         else:
             self.model = ExplicitModel(param)
 
-        self.support_vertices = None
-        if self.velocity_state and hasattr(param, 'mesh_path_'):
+        self.support_bounds = {}
+        self.support_plane = {}
+        if hasattr(param, 'support_surface_half_extents_'):
+            self.support_bounds = dict(support_point=param.support_surface_point_,
+                support_tangents=param.support_surface_tangents_,
+                support_half_extents=param.support_surface_half_extents_)
+            self.support_plane = dict(self.support_bounds,
+                support_normal=param.support_surface_normal_,
+                support_edges=getattr(param, 'support_edges_', None))
+        self.support_vertices = getattr(param, 'support_vertices_', None)
+        if self.support_vertices is None and self.velocity_state and hasattr(param, 'mesh_path_'):
             import trimesh
             self.support_vertices = np.asarray(trimesh.load_mesh(
                 param.mesh_path_, process=False).convex_hull.vertices)
@@ -177,7 +188,7 @@ class MPCExplicit:
         gaps, stage_jac = phi, jac
         if self.update_contact_gaps:
             from models.contact_geometry import contact_geometry_cs
-            gaps, stage_jac = contact_geometry_cs(state[:10], reference[:10], phi, jac)
+            gaps, stage_jac = contact_geometry_cs(state[:10], reference[:10], phi, jac, **self.support_bounds)
             self.contact_geometry_fn = cs.Function('transport_contact_geometry',
                 [state, reference, phi, jac], [gaps, stage_jac])
         self.stage_prediction_fn = cs.Function('mpc_stage_prediction',
@@ -359,6 +370,8 @@ class MPCExplicit:
 
     def _plan_once_ipopt(self, curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub,
                          requested_solver="ipopt", fallback_reason=None):
+        if self.ipopt_solver is None:
+            self.ipopt_solver = cs.nlpsol("solver", "ipopt", *self._ipopt_definition)
         warm_start = self._prepare_sol_guess(sol_guess)
         if sol_guess is None and getattr(self.param_, 'runtime_object_cost_', False):
             # Zero quaternions in IPOPT's historical default iterate produce
@@ -366,14 +379,19 @@ class MPCExplicit:
             # feasible zero-action rollout, including normalized orientations.
             state = np.asarray(curr_x, dtype=float)
             rows = []
-            for _ in range(self.param_.mpc_horizon_):
-                zero = np.zeros(self.param_.n_cmd_)
-                state = np.asarray(self.stage_prediction_fn(state, zero, phi_vec, jac_mat,
+            for k in range(self.param_.mpc_horizon_):
+                command = np.clip(np.zeros(self.param_.n_cmd_), u_lb, u_ub)
+                if k == 0 and getattr(self, 'first_action_bounds', None) is not None:
+                    command = np.clip(command, *self.first_action_bounds)
+                state = np.asarray(self.stage_prediction_fn(state, command, phi_vec, jac_mat,
                     self.model.runtime_parameters(self.param_.model_params), curr_x)).reshape(-1)
-                rows.append(np.r_[zero, state])
+                rows.append(np.r_[command, state])
             warm_start = dict(warm_start, x0=np.concatenate(rows))
         nlp_param = self.nlp_params_fn_(curr_x, phi_vec, jac_mat, cost_params, self.model.runtime_parameters(self.param_.model_params))
-        nlp_lbw, nlp_ubw = self.nlp_bounds_fn_(u_lb, u_ub, self.param_.mpc_q_lb_, self.param_.mpc_q_ub_)
+        lower_q, upper_q = self.param_.mpc_q_lb_.copy(), self.param_.mpc_q_ub_.copy()
+        if self.recoverable_floor:
+            lower_q[9], upper_q[9] = -1e7, 1e7
+        nlp_lbw, nlp_ubw = self.nlp_bounds_fn_(u_lb, u_ub, lower_q, upper_q)
         if getattr(self, 'first_action_bounds', None) is not None:
             nlp_lbw[:self.param_.n_cmd_], nlp_ubw[:self.param_.n_cmd_] = self.first_action_bounds
         raw_sol = self.ipopt_solver(
@@ -416,6 +434,10 @@ class MPCExplicit:
     def _plan_once_acados(self, curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub):
         if self.acados_solver_ is None:
             return None
+        if sol_guess is None:
+            # Replacing x/u does not clear acados' dual/QP memory. This also
+            # covers re-entry after approach and objective/contact changes.
+            self._reset_acados_solver()
         n, nu, nx = self.param_.mpc_horizon_, self.param_.n_cmd_, self.param_.n_qpos_
         stage_p = np.concatenate(
             [
@@ -459,7 +481,9 @@ class MPCExplicit:
                     gaps, rows = self.contact_geometry_fn(x_guess[k], curr_x, phi_vec, jac_mat)
                     gaps, rows = refresh_table_support(self.support_vertices, x_guess[k],
                         np.asarray(gaps).ravel(), np.asarray(rows),
-                        float(self.source_param_.table_height), float(self.param_.mu_object_))
+                        float(self.source_param_.table_height),
+                        float(getattr(self.param_, 'support_friction_', self.param_.mu_object_)),
+                        **getattr(self, 'support_plane', {}))
                     reference = x_guess[k].copy()
                 stage_geometry[k] = (gaps, rows, reference)
                 stage_parameters[k] = np.r_[np.asarray(gaps).ravel(),
@@ -491,7 +515,13 @@ class MPCExplicit:
                 self.last_acados_rti_iterations = 1
                 status = int(self.acados_solver_.solve())
             if status != 0:
-                raise RuntimeError(f"acados status {status}")
+                detail = ''
+                try:
+                    qp_status = int(np.asarray(self.acados_solver_.get_stats('qp_stat')).reshape(-1)[-1])
+                    detail = ' QP=' + _format_acados_status(qp_status)
+                except Exception:
+                    pass
+                raise RuntimeError(f"acados status {status}{detail}")
             u_traj = np.asarray([self.acados_solver_.get(k, "u") for k in range(n)], dtype=np.float64)
             u_traj = np.clip(u_traj, u_lb, u_ub)
             if getattr(self, 'first_action_bounds', None) is not None:
@@ -613,7 +643,7 @@ class MPCExplicit:
                 stage_phi, stage_jac = phi, jac
                 if self.update_contact_gaps:
                     from models.contact_geometry import contact_geometry_torch
-                    stage_phi, stage_jac = contact_geometry_torch(q[:10], q0[:10], phi, jac)
+                    stage_phi, stage_jac = contact_geometry_torch(q[:10], q0[:10], phi, jac, **self.support_bounds)
                 if self.velocity_state:
                     qpred = self.model.prediction_torch(q,u,stage_phi,stage_jac)
                 else:
@@ -625,7 +655,7 @@ class MPCExplicit:
                     stage_phi, stage_jac = phi, jac
                     if self.update_contact_gaps:
                         from models.contact_geometry import contact_geometry_torch
-                        stage_phi, stage_jac = contact_geometry_torch(q, q0, phi, jac)
+                        stage_phi, stage_jac = contact_geometry_torch(q, q0, phi, jac, **self.support_bounds)
                     v = self.model.contact_velocity_torch(smooth, stage_jac, stage_phi, Qinv, sigma)
                     qpred = torch.cat((
                         q[:3] + h * v[:3],
@@ -721,6 +751,27 @@ class MPCExplicit:
         dynamics_key = hashlib.sha1(dynamics_fn.serialize().encode()).hexdigest()[:10]
         contact_tag = getattr(self.model, 'contact_model', 'explicit').replace('-', '_')
         model.name = f"mpc_{contact_tag}_v3_{dynamics_key}_{self.cost_kind}_{cost_tag}_h{n}_c{self.param_.max_ncon_}_x{nx}_u{nu}"
+        self.recoverable_floor = bool(getattr(self, 'velocity_state', False))
+        if self.recoverable_floor:
+            model.name += '_floor_recovery_v1'
+        if getattr(self, 'velocity_state', False) and self.update_contact_gaps and not self.stage_cost_on_next:
+            # Keep one directional derivative subroutine, called once per
+            # Jacobian column. Expanding all columns as SX produces ~15 MB
+            # of C and spends ~30 s compiling on a first object load. This
+            # computes the same analytic Jacobian without duplicating its
+            # scalar instruction graph in the generated source.
+            direction = cs.SX.sym('dynamics_direction', nx + nu)
+            dynamics = cs.Function('compact_dynamics', [x, u, p], [pred], {'cse': True})
+            jvp = cs.Function('compact_dynamics_jvp', [x, u, p, direction],
+                [cs.jtimes(pred, cs.vertcat(u, x), direction)], {'cse': True})
+            cp_start, cp_size, cp_shape = phi.numel() + jac.numel(), cp.numel(), cp.shape
+            x, u, p = cs.MX.sym('x', nx), cs.MX.sym('u', nu), cs.MX.sym('p', p.numel())
+            cp = cs.reshape(p[cp_start:cp_start + cp_size], *cp_shape)
+            pred = dynamics(x, u, p)
+            directions = cs.DM.eye(nx + nu)
+            model.disc_dyn_custom_jac_ux_expr = cs.horzcat(*[
+                jvp(x, u, p, directions[:, i]) for i in range(nx + nu)])
+            model.name += '_jvp_v1'
         if self.contact_force_limit is not None:
             # Version the force configuration so the cache cannot reuse a
             # solver whose initial stage lacks the nonlinear force bound.
@@ -768,6 +819,19 @@ class MPCExplicit:
         ocp.constraints.idxbx_0 = idx
         ocp.constraints.lbx_0 = np.zeros(nx)
         ocp.constraints.ubx_0 = np.zeros(nx)
+        if self.recoverable_floor:
+            # An observed downward tip velocity cannot instantaneously obey
+            # a future hard clearance bound under a bounded wrench. Penalize
+            # temporary clearance violations; do not alter the measured x0,
+            # force cap, or executor's floor clipping/braking.
+            ocp.constraints.idxsbx = np.array([9], dtype=np.int64)
+            ocp.constraints.idxsbx_e = np.array([9], dtype=np.int64)
+            ocp.cost.Zl = ocp.cost.Zu = np.array([1e6])
+            ocp.cost.zl = ocp.cost.zu = np.array([1e3])
+            ocp.cost.Zl_e = ocp.cost.Zu_e = np.array([1e6])
+            ocp.cost.zl_e = ocp.cost.zu_e = np.array([1e3])
+            ocp.cost.Zl_0 = ocp.cost.Zu_0 = np.zeros(0)
+            ocp.cost.zl_0 = ocp.cost.zu_0 = np.zeros(0)
         ocp.solver_options.N_horizon = n
         ocp.solver_options.tf = float(self.param_.h_ * n)
         profile = acados_solver_profile(self.cost_kind)
@@ -824,6 +888,10 @@ class MPCExplicit:
             lbw += [lbq]
             ubw += [ubq]
             g += [pred_q - qk]
+            if self.recoverable_floor:
+                low = cs.fmax(float(self.param_.mpc_q_lb_[9]) - qk[9], 0.)
+                high = cs.fmax(qk[9] - float(self.param_.mpc_q_ub_[9]), 0.)
+                j += 1e3*(low+high) + .5e6*(low**2+high**2)
             lower_g.extend([0.] * self.param_.n_qpos_)
             upper_g.extend([0.] * self.param_.n_qpos_)
             if self.contact_force_limit is not None:
@@ -842,7 +910,9 @@ class MPCExplicit:
             "ipopt.tol": 1e-4,
             "ipopt.linear_solver": "mumps",
         }
-        self.ipopt_solver = cs.nlpsol("solver", "ipopt", nlp_prog, nlp_opts)
+        self._ipopt_definition = (nlp_prog, nlp_opts)
+        self.ipopt_solver = (cs.nlpsol("solver", "ipopt", nlp_prog, nlp_opts)
+                             if self.planner_solver_ == 'ipopt' else None)
         self.nlp_w0_ = cs.vcat(w0)
         self.nlp_lam_x0_ = cs.DM.zeros(self.nlp_w0_.shape)
         self.nlp_lam_g0_ = cs.DM.zeros(cs.vcat(g).shape)
@@ -950,7 +1020,7 @@ def planner_init_payload(args, param, trial_count, device=None):
     }
 
 
-def _build_mpc_planner_runtime(init):
+def _build_mpc_planner_runtime(init, param=None):
     import argparse
     from planning.acados_env import ensure_acados_env
     ensure_acados_env()
@@ -970,12 +1040,13 @@ def _build_mpc_planner_runtime(init):
     args.solver = resolve_solver_backend(args.solver_backend)
     args.rollout = True
     trial_count = int(init["trial_count"])
-    param = ExplicitMPCParams(
-        args,
-        rand_seed=trial_count,
-        target_type=getattr(args, "target_type", "ground-rotation"),
-        mpc_model="explicit",
-    )
+    if param is None:
+        param = ExplicitMPCParams(
+            args,
+            rand_seed=trial_count,
+            target_type=getattr(args, "target_type", "ground-rotation"),
+            mpc_model="explicit",
+        )
     param = adapt_param_for_cartesian_solver(param, args)
     param = _configure_rollout_param(param, args)
     for key in (
@@ -1130,6 +1201,14 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         param.lambda_optimizer.set_contact_force_limit(float(getattr(param, 'contact_command_force_limit_', contact_command_force_limit(args, 600.))))
     elif stages is not None:
         param.object_cost_stage_ = stages.stage
+    elif getattr(param, 'object_cost_config_', None) is not None:
+        # Ramp pushing has a fixed support-relative objective, without a
+        # world-up flip/pose stage machine. Lambda works in the observed body.
+        q = np.asarray(msg['policy_q'])
+        r = Rotation.from_quat(q[[4, 5, 6, 3]]).as_matrix()
+        config = np.asarray(param.object_cost_config_, dtype=float).copy()
+        config[6:9] = r.T @ config[6:9]
+        param.lambda_optimizer.set_object_cost_config(config)
 
     dwell = None if msg.get("osc_upright_guard_active", False) else msg.get("dwell")
     if msg.get("osc_upright_guard_active", False):
@@ -1185,8 +1264,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     reachable_contact = bool(msg.get('if_contact', False) or (
         measured_contact is not None and np.isfinite(measured_gap)
         and measured_gap <= float(np.max(np.abs(param.mpc_u_ub_)))))
-    param.lambda_actual_contact_ = (measured_contact if stages is not None and stages.enabled
-                                    and reachable_contact else None)
+    param.lambda_actual_contact_ = (measured_contact if
+        ((stages is not None and stages.enabled) or getattr(param, 'runtime_object_cost_', False))
+        and reachable_contact else None)
     # Finite-difference fingertip motion is in world coordinates. Object
     # angular velocity is transformed to body coordinates by the model.
     previous = trackers.get('motion_observation')
@@ -1226,6 +1306,16 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     tip = np.asarray(curr_q[7:10], dtype=np.float64)
     max_lead = max(1e-4, float(getattr(args, "via_max_lead", getattr(args, "via_max_step", getattr(args, "mpc_step_limit", 0.005)))))
     value_info = policy.get("value_info") or {}
+    contact_id = getattr(param.lambda_optimizer, 'last_executed_idx', None)
+    context = (contact_id, bool(reachable_contact),
+               tuple(np.flatnonzero(np.linalg.norm(jac_mat.reshape(-1, 4, nv), axis=(1, 2)) > 1e-10)))
+    previous_context = trackers.get('mpc_contact_context')
+    if previous_context is not None and context != previous_context:
+        trackers['sol_guess'] = None
+        if hasattr(mpc, '_reset_acados_solver'):
+            mpc._reset_acados_solver()
+        trackers['mpc_contact_resets'] = trackers.get('mpc_contact_resets', 0) + 1
+    trackers['mpc_contact_context'] = context
     if bool(value_info.get("path_blocked", False)) and not reachable_contact:
         trackers["sol_guess"] = None
     # A blocked orbit already walks via at max_step.  Clamping it back
@@ -1237,6 +1327,13 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
 
     from planning.franka_contact_motion import bounded_step
     pose_stage = bool(stages is not None and stages.enabled and stages.stage == 'pose')
+    flip_stage = bool(stages is not None and stages.enabled and stages.stage == 'flip')
+    # OSC clips endpoint commands at the table in both stages. Predicting
+    # only the finite-response fingertip state above the floor is insufficient:
+    # a downward increment can still be replaced by an upward executor command.
+    align_executor = bool(
+        (pose_stage and getattr(args, 'pose_executor_constraints', False))
+        or (flip_stage and getattr(args, 'flip_executor_constraints', True)))
     # Keep the developer Cartesian step (mpc_u_ub_, 5 mm). Dividing the
     # contact-force cap by K_task boxes every increment under 1 mm and the
     # arm crawls. The object cost and its force limit are unchanged.
@@ -1245,6 +1342,10 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         or (not reachable_contact and (bool(value_info.get('path_blocked', False))
             or (stages is not None and stages.enabled)
             or np.linalg.norm(tip - np.asarray(policy.get('p_arm_world', tip))) > .025)))
+    if getattr(param, 'approach_requires_contact_', False) and not reachable_contact:
+        # Without a reachable measured finger row the object objective cannot
+        # drive an approach. Use the bounded via until contact geometry exists.
+        approach_action = True
     if bool(getattr(param, 'cpo_direct_trajectory', False)):
         # Direct trajectory optimization solves the dynamics-constrained
         # problem. The geometric lift/place path is the phase potential
@@ -1252,13 +1353,51 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         approach_action = False
     execution_mode = 'approach' if approach_action else 'contact'
     mpc.first_action_bounds = None
+    trackers['mpc_slew_rebased'] = False
     if (getattr(mpc, 'velocity_state', False) and msg.get('executed_action') is not None
             and not approach_action):
         previous_command = np.clip(np.asarray(msg['executed_action'], dtype=float).reshape(3),
                                    param.mpc_u_lb_, param.mpc_u_ub_)
+        force_cap = getattr(mpc, 'contact_force_limit', None)
+        if force_cap is not None:
+            force = np.linalg.norm(np.asarray(param.robot_stiff_) @ previous_command)
+            if force > force_cap:
+                # A free-space command can exceed the contact cap. Centering
+                # the slew box on it can make its intersection with the force
+                # ball empty. Rebase on a feasible command at contact entry.
+                previous_command *= force_cap / force
+                trackers['mpc_slew_rebased'] = True
         slew = float(getattr(param, 'isaac_action_slew_', .0025))/np.sqrt(3.)
         mpc.first_action_bounds = (np.maximum(param.mpc_u_lb_, previous_command-slew),
                                    np.minimum(param.mpc_u_ub_, previous_command+slew))
+    command_lower = getattr(param, 'mpc_u_lb_', -contact_bound)
+    command_upper = getattr(param, 'mpc_u_ub_', contact_bound)
+    trackers['mpc_executor_edge'] = False
+    if (align_executor
+            and getattr(mpc, 'velocity_state', False) and not approach_action):
+        from planning.execution_constraints import table_edge_command_bounds
+        from examples.mpc.franka.ik2.test_mpc_isaac import (
+            _table_edge_gap_and_normal, ISAAC_TABLE_EDGE_GUARD_DISTANCE)
+        gap, outward = _table_edge_gap_and_normal(curr_q, param)
+        guard_active = bool(msg.get('if_contact', False) or (
+            not value_info.get('path_blocked', False)
+            and np.linalg.norm(tip - policy['p_arm_world']) <= .015))
+        command_lower, command_upper, edge_applied = table_edge_command_bounds(
+            command_lower, command_upper, gap, outward, ISAAC_TABLE_EDGE_GUARD_DISTANCE, guard_active)
+        trackers['mpc_executor_edge'] = edge_applied
+    trackers['mpc_executor_floor'] = dict(applied=False, rebased=False, emergency=False)
+    if (align_executor
+            and getattr(mpc, 'velocity_state', False) and not approach_action):
+        from planning.execution_constraints import floor_command_bounds
+        force_cap = getattr(mpc, 'contact_force_limit', None)
+        radius = (None if force_cap is None else force_cap / np.linalg.norm(param.robot_stiff_, 2))
+        previous_command = msg.get('executed_action')
+        bounds, floor_info = floor_command_bounds(tip[2], param.mpc_q_lb_[9],
+            command_lower, command_upper, first_bounds=mpc.first_action_bounds,
+            previous=previous_command,
+            slew=float(getattr(param, 'isaac_action_slew_', .0025))/np.sqrt(3.), max_norm=radius)
+        mpc.first_action_bounds = bounds
+        trackers['mpc_executor_floor'] = floor_info
     t1 = time.perf_counter()
     if approach_action:
         # The geometric approach replaces MPC's command. Solving that discarded
@@ -1296,6 +1435,8 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
             virtual_point=policy["mpc_virtual_point"],
             contact_point=policy["mpc_contact_point"],
             sol_guess=trackers["sol_guess"],
+            **(dict(u_lb=command_lower, u_ub=command_upper)
+               if trackers['mpc_executor_edge'] else {}),
         )
         action = np.asarray(sol['action'], dtype=float).reshape(3)
     plan_dt = time.perf_counter() - t1
@@ -1322,6 +1463,10 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     policy['preserve_upright'] = False
     policy['release_pressure'] = False
     policy['execution_mode'] = execution_mode
+    if getattr(args, 'rollout_trace_jsonl', '') and getattr(param, 'runtime_object_cost_', False):
+        from planning.contact_prediction_diagnostics import contact_prediction_diagnostics
+        policy['contact_prediction_diagnostics'] = contact_prediction_diagnostics(
+            param, mpc, curr_q, policy, sol)
     policy['execution_path_blocked'] = bool(value_info.get('path_blocked', False) and approach_action)
     policy["choose_dt"] = rank_dt
     # #region agent log
@@ -1360,6 +1505,8 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         policy['object_cost_config'] = stages.config() if stages.enabled else None
         policy['object_progress_scale'] = stages.progress_scale() if stages.enabled else None
         policy['object_feedback_scale'] = max(.05, float(getattr(stages, 'ori_weight', 20.))*.025) if stages.enabled else None
+    elif getattr(param, 'object_cost_config_', None) is not None:
+        policy['object_cost_config'] = np.asarray(param.object_cost_config_).copy()
     return {
         "object_cost_diagnostics": dict({} if stages is None else stages.diagnostics(),
             pressure_releases=0, upright_action_rejections=0),
@@ -1379,7 +1526,13 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "online_dt": float(online_dt),
         "total_dt": float(time.perf_counter() - request_started),
         "mpc_skipped": bool(approach_action),
+        "mpc_executor_floor": dict(trackers['mpc_executor_floor']),
+        "mpc_executor_edge": bool(trackers['mpc_executor_edge']),
         "mpc_fallbacks": int(getattr(mpc, "acados_fallback_count", 0)),
+        "mpc_contact_resets": int(trackers.get('mpc_contact_resets', 0)),
+        "mpc_slew_rebased": bool(trackers.get('mpc_slew_rebased', False)),
+        "mpc_floor_recovery_m": max(0., float(param.mpc_q_lb_[9]) - float(np.min(sol['rollout_q'][:, 9])))
+            if getattr(mpc, 'recoverable_floor', False) and sol.get('rollout_q') is not None else 0.,
         "mpc_last_error": str(getattr(mpc, "last_acados_error", "") or ""),
         "mpc_rti_iterations": 0 if approach_action else int(getattr(mpc, "last_acados_rti_iterations", 0)),
         "plan_dt": float(plan_dt),

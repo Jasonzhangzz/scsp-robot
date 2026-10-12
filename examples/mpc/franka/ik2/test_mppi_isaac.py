@@ -1442,7 +1442,7 @@ def _plan_payload(env, contact, table_ground, dwell=None):
     return payload, curr_q, if_contact, contact_distance
 
 
-def _apply_plan_result(param, env, result, curr_q, print_fn):
+def _apply_plan_result(param, env, result, curr_q, print_fn, verbose=True):
     from planning.MPPIWarp import _apply_opt_snapshot
 
     _apply_opt_snapshot(param.lambda_optimizer, result.get("opt_snapshot"))
@@ -1455,20 +1455,21 @@ def _apply_plan_result(param, env, result, curr_q, print_fn):
         local_config = c.copy()
         local_config[6:9] = r.T @ c[6:9]
         param.lambda_optimizer.set_object_cost_config(local_config)
-    print_fn(
-        param, curr_q, policy, policy["value_info"], result["verify_cost"],
-        result["verify_chatter"],
-        _ConfView(result["model_tightness"], result["model_accum"]),
-        policy.get("pred_dcost_prev"), policy.get("act_dcost_prev"), result.get("if_contact", False), policy["escape_on"],
-    )
-    if "total_dt" in result:
+    if verbose:
+        print_fn(
+            param, curr_q, policy, policy["value_info"], result["verify_cost"],
+            result["verify_chatter"],
+            _ConfView(result["model_tightness"], result["model_accum"]),
+            policy.get("pred_dcost_prev"), policy.get("act_dcost_prev"), result.get("if_contact", False), policy["escape_on"],
+        )
+    if verbose and "total_dt" in result:
         print("rank_dt:", round(float(result["rank_dt"]), 4),
               "plan_dt:", round(float(result["plan_dt"]), 4),
               "online_dt:", round(float(result["online_dt"]), 4),
               "total_dt:", round(float(result["total_dt"]), 4),
               "backend:", result.get("solver_backend"),
               "mpc_fallbacks:", result.get("mpc_fallbacks", 0))
-    else:
+    elif verbose:
         print(
             "rank_dt:", round(float(result["rank_dt"]), 4),
             "plan_dt:", round(float(result.get("plan_dt", result.get("mppi_dt", 0.0))), 4),

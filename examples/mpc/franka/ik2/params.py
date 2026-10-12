@@ -215,7 +215,8 @@ def build_lambda_optimizer(param, args):
 
 
 class ExplicitMPCParams:
-    def __init__(self, args, rand_seed=1, target_type="ground-rotation", mpc_model="explicit"):
+    def __init__(self, args, rand_seed=1, target_type="ground-rotation", mpc_model="explicit",
+                 build_optimizer=True):
         self.contact_cost_param = float(args.contact_cost_param)
         self.cpo_variant = str(getattr(args, "cpo_variant", "full"))
         if self.cpo_variant not in ("full", "no_object_center", "direct"):
@@ -270,7 +271,9 @@ class ExplicitMPCParams:
             self._collision_mesh_extracted = True
             if use_parts:
                 self.mesh_path_, self.collision_mesh_paths_ = decomposed_collision_mesh(
-                    self.visual_mesh_path_)
+                    self.visual_mesh_path_, manifest_path=getattr(args, 'collision_manifest', None))
+            elif getattr(args, 'collision_manifest', None):
+                raise ValueError('--collision-manifest requires decomposed collision geometry')
         self.collision_geometry_ = 'decomposed' if self.collision_mesh_paths_ else 'hull'
         sampling = getattr(args, 'contact_sampling', 'auto')
         if sampling not in ('auto', 'surface', 'vertices'):
@@ -434,7 +437,7 @@ class ExplicitMPCParams:
         self.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), fts_q_ub))
         self.sol_guess_ = None
         self.max_env_contacts_ = 4
-        self.lambda_optimizer = build_lambda_optimizer(self, args)
+        self.lambda_optimizer = build_lambda_optimizer(self, args) if build_optimizer else None
 
     @staticmethod
     def calculate_rotation_quaternion(x, target_position):

@@ -153,19 +153,63 @@ def ensure_acados_env():
 
 
 class quiet_acados_stderr:
-    """Hide HPIPM/SQP_RTI MINSTEP spam; the Python caller still sees the status."""
+    """Suppress native solve diagnostics; retain the returned status in Python.
+
+    acados prints QP failures to C stdout, not just stderr. Flush C stdio
+    before restoring descriptors so buffered output cannot leak afterwards.
+    """
 
     def __enter__(self):
-        self._fd = os.dup(2)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self._libc = ctypes.CDLL(None)
+        self._libc.fflush(None)
+        self._fds = {fd: os.dup(fd) for fd in (1, 2)}
         devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, 2)
+        for fd in self._fds:
+            os.dup2(devnull, fd)
         os.close(devnull)
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        os.dup2(self._fd, 2)
-        os.close(self._fd)
+        self._libc.fflush(None)
+        for fd, saved in self._fds.items():
+            os.dup2(saved, fd)
+            os.close(saved)
         return False
+
+
+def _canonical_ocp_signature(payload):
+    """Compare model algebra without CasADi 3.6 serializer alias IDs.
+
+    StringSerializer preserves incidental sharing between separately packed
+    SX expressions. Code generation changes that sharing; equivalent models
+    therefore get different acados hashes. A single CSE Function gives a
+    stable representation of every symbolic expression and its free inputs.
+    All non-symbolic OCP settings remain part of the signature.
+    """
+    import hashlib
+    import json
+    import casadi as cs
+    from acados_template.utils import make_object_json_dumpable, OCP_COMPARE_IGNORED_FIELD_PATHS
+    payload = json.loads(json.dumps(payload, default=make_object_json_dumpable))
+    payload.pop('hash', None)
+    for field_path in OCP_COMPARE_IGNORED_FIELD_PATHS:
+        parent = payload
+        for key in field_path[:-1]:
+            parent = parent.get(key, {})
+        parent.pop(field_path[-1], None)
+    model = payload['model']
+    decoder = cs.StringDeserializer(model['serialized_expressions'])
+    outputs = [decoder.unpack() for _ in model['expression_names']]
+    inputs = cs.symvar(cs.vertcat(*[cs.vec(value) for value in outputs]))
+    # MX already retains the compact, shared subroutines. Running CSE over
+    # those calls costs ~1.5 s per warm load without improving their identity.
+    # SX needs CSE to remove the incidental serializer alias differences.
+    function = cs.Function('cache_model', inputs, outputs,
+                           {'cse': not any(isinstance(value, cs.MX) for value in outputs)})
+    model['serialized_expressions'] = function.serialize()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 def build_cached_solver(ocp, json_file, shared_file):
@@ -176,11 +220,15 @@ def build_cached_solver(ocp, json_file, shared_file):
     library, then publish/load it while holding an inter-process cache lock.
     """
     import fcntl
+    import inspect
     import json
     import subprocess
     import time
     from pathlib import Path
     from acados_template import AcadosOcpSolver
+    legacy_json_argument = 'json_file' in inspect.signature(AcadosOcpSolver.generate).parameters
+    if not legacy_json_argument:
+        ocp.code_gen_options.json_file = str(json_file)
     if hasattr(ocp, 'name'):
         ocp.name = ocp.model.name
     directory = Path(json_file).parent
@@ -189,21 +237,43 @@ def build_cached_solver(ocp, json_file, shared_file):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print('[acados] waiting for solver cache: %s' % ocp.model.name, flush=True)
+            print('[acados] waiting for solver cache: %s' % ocp.model.name, flush=True, file=sys.__stdout__)
             fcntl.flock(lock, fcntl.LOCK_EX)
         current = False
         try:
             data = json.loads(Path(json_file).read_text())
             options = data.get('code_gen_options', data)
             current = (Path(shared_file).is_file()
+                       and Path(shared_file).stat().st_mtime_ns >= Path(json_file).stat().st_mtime_ns
                        and all(k in options for k in ('acados_lib_path', 'code_export_directory'))
                        and data.get('name', ocp.model.name) == ocp.model.name)
         except (OSError, ValueError, TypeError):
             pass
+        reuse_check = getattr(AcadosOcpSolver, 'is_code_reuse_possible', None)
+        if current and reuse_check is not None:
+            # New constructors silently regenerate on a hash mismatch even
+            # with generate=False/build=False. Detect it here so rebuilding
+            # keeps our lock and large-map compiler flags.
+            ocp.make_consistent(verbose=False)
+            if hasattr(ocp, 'to_dict') and 'serialized_expressions' in data.get('model', {}):
+                # A different CasADi release can leave a readable JSON with
+                # an incompatible serialized graph. Rebuild that cache;
+                # do not turn a cache miss into an IPOPT backend fallback.
+                try:
+                    current = _canonical_ocp_signature(ocp.to_dict()) == _canonical_ocp_signature(data)
+                except (RuntimeError, ValueError, KeyError, TypeError):
+                    current = False
+            else:
+                current = reuse_check(ocp, verbose=False, tol_code_reuse=0.)
         if not current:
             started = time.perf_counter()
-            print('[acados] generating solver: %s' % ocp.model.name, flush=True)
-            AcadosOcpSolver.generate(ocp, json_file=str(json_file))
+            print('[acados] generating solver: %s' % ocp.model.name, flush=True, file=sys.__stdout__)
+            # Since acados 0.5.6 generate() reads the filename from the OCP;
+            # passing the removed keyword made both CSO and MPC fall back.
+            if legacy_json_argument:
+                AcadosOcpSolver.generate(ocp, json_file=str(json_file))
+            else:
+                AcadosOcpSolver.generate(ocp)
             makefile = directory / 'Makefile'
             if os.name != 'nt' and makefile.is_file():
                 # Unrolled SCM Hessians can contain megabytes of scalar C.
@@ -211,7 +281,7 @@ def build_cached_solver(ocp, json_file, shared_file):
                 # Keep the normal flags for small functions and the solver;
                 # only skip optimization on the oversized generated maps.
                 large_sources = sorted(p for p in directory.rglob('*.c')
-                                       if p.stat().st_size >= 1024*1024)
+                                       if p.stat().st_size >= 256*1024)
                 if large_sources:
                     with makefile.open('a') as handle:
                         handle.write('\n# Bound cold-start time for large CasADi maps.\n')
@@ -219,7 +289,7 @@ def build_cached_solver(ocp, json_file, shared_file):
                             target = source.relative_to(directory).with_suffix('.o')
                             handle.write('%s: CFLAGS += -O0\n' % target.as_posix())
                 print('[acados] compiling solver (%d large maps); log: %s' %
-                      (len(large_sources), directory / 'build.log'), flush=True)
+                      (len(large_sources), directory / 'build.log'), flush=True, file=sys.__stdout__)
                 with (directory / 'build.log').open('w') as output:
                     result = subprocess.run(
                         ['make', '-j2', 'ocp_shared_lib'], cwd=str(directory),
@@ -230,6 +300,10 @@ def build_cached_solver(ocp, json_file, shared_file):
             else:
                 AcadosOcpSolver.build(str(directory), verbose=False)
             print('[acados] solver ready in %.2fs' %
-                  (time.perf_counter() - started), flush=True)
-        return AcadosOcpSolver(ocp, json_file=str(json_file), generate=False,
-                               build=False, verbose=False)
+                  (time.perf_counter() - started), flush=True, file=sys.__stdout__)
+        load_options = dict(generate=False, build=False, verbose=False)
+        if reuse_check is not None:
+            load_options['check_reuse_possible'] = False
+        if legacy_json_argument:
+            load_options['json_file'] = str(json_file)
+        return AcadosOcpSolver(ocp, **load_options)

@@ -313,7 +313,9 @@ class LambdaContactControlOptimizer:
         self._contact_patch_failures = {}
         self.contact_patch_max_block_cycles = 320
         self.init_utils()
-        self._precompile_optimization_function()
+        self.optimization_fn = None
+        if self.solver == 'ipopt':
+            self._precompile_optimization_function()
         self.acados_solver = None
         self.acados_error = None
         if self.solver not in ('ipopt', 'torch-lbfgs', 'torch-gn'):
@@ -1113,6 +1115,12 @@ class LambdaContactControlOptimizer:
             ['lam_arm_opt', 'x_plus_opt', 'cost']
         )
 
+    def _ipopt_optimization(self, **kwargs):
+        """Build the fallback only when it is actually needed."""
+        if self.optimization_fn is None:
+            self._precompile_optimization_function()
+        return self.optimization_fn(**kwargs)
+
     def _select_contact_candidate(self, visible_face_idx, costs, force_buffer=None,
                                   contact_anchor_local=None, contact_anchor_idx=None,
                                   force_required=False):
@@ -1405,7 +1413,7 @@ class LambdaContactControlOptimizer:
             try:
                 self._acados_fallbacks_this_cycle += 1
                 self.acados_fallback_count += 1
-                result = self.optimization_fn(**kwargs)
+                result = self._ipopt_optimization(**kwargs)
                 self.last_solver_status = 'ipopt-fallback'
                 return result
             except RuntimeError:
@@ -1421,14 +1429,14 @@ class LambdaContactControlOptimizer:
                 # This is important during rollout when a degenerate Jacobian
                 # can make the small Torch problem temporarily non-finite.
                 try:
-                    result = self.optimization_fn(**kwargs)
+                    result = self._ipopt_optimization(**kwargs)
                     self.last_solver_status = 'ipopt-fallback'
                     return result
                 except RuntimeError:
                     self.last_solver_status = 'failed'
                     return None
         try:
-            result = self.optimization_fn(**kwargs)
+            result = self._ipopt_optimization(**kwargs)
             self.last_solver_status = 'ipopt'
             return result
         except RuntimeError:
@@ -1440,7 +1448,7 @@ class LambdaContactControlOptimizer:
         ensure_acados_env()
         from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver, ACADOS_INFTY
         # Fast path: N=1 SQP_RTI with lambda as the control.  One QP per
-        # candidate; do not reset the solver between patches.
+        # candidate. Each patch gets its own primal/dual initial iterate.
         cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
         cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
         cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
@@ -1465,18 +1473,21 @@ class LambdaContactControlOptimizer:
         # Terminal cost is on the terminal state ``x`` (qn after the
         # discrete transition).  Putting qn itself here is rejected because
         # a terminal cost may not depend on ``u``.
-        mass_key = hashlib.sha1(np.r_[np.asarray(self.Q_inv).reshape(-1), self.h, self.K_contact, self.comfree_damping, self.soft_scm_response_time, self.soft_scm_damping_ratio, self.soft_scm_regularization, float(self.wrench_is_force), self.gravity_velocity_scale, self.wrench_velocity_scale, float(self.grouped_contact_response), self.robot_stiffness or 0., self.pos_coef, self.ori_coef, self.friction_reg_coef, self.force_reg_coef].astype('<f8').tobytes()).hexdigest()[:10]
+        mass_key = hashlib.sha1(np.r_[np.asarray(self.Q_inv).reshape(-1), self.h, self.K_contact, self.comfree_damping, self.soft_scm_response_time, self.soft_scm_damping_ratio, self.soft_scm_regularization, float(self.wrench_is_force), self.gravity_velocity_scale, self.wrench_velocity_scale, float(self.grouped_contact_response), self.robot_stiffness or 0., self.pos_coef, self.ori_coef, self.friction_reg_coef, self.force_reg_coef].astype('<f8').tobytes() + cs.__version__.encode()).hexdigest()[:10]
         mu_key = int(round(float(self.mu_arm_obj) * 1000.0))
         contact_tag = self.contact_model.replace('-', '_')
-        model=AcadosModel(); model.name=f'contact_lambda_{contact_tag}_v24_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
+        model=AcadosModel(); model.name=f'contact_lambda_{contact_tag}_v25_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
         model.cost_expr_ext_cost = self.friction_reg_coef * cs.sumsqr(u[1:3]) + self.force_reg_coef * cs.sumsqr(u)
         model.cost_expr_ext_cost_e = object_cost_cs(x, cs_p, object_config)
         ocp=AcadosOcp(); ocp.model=model; ocp.parameter_values=np.zeros(int(prm.size1())); ocp.parameter_values[-1]=self.max_contact_force; ocp.cost.cost_type='EXTERNAL'; ocp.cost.cost_type_e='EXTERNAL';
         mu = self.base_mu_arm_obj*cs.exp(scm_theta[5]) if self.contact_model == 'soft-scm' else float(self.mu_arm_obj)
         cap = force_limit/cs.sqrt(1+2*mu**2)
-        model.con_h_expr = cs.vertcat(u[0], u[0]-cap, u[1]-mu*u[0], -u[1]-mu*u[0], u[2]-mu*u[0], -u[2]-mu*u[0], cs.sumsqr(u)-force_limit**2)
-        ocp.constraints.lh = np.array([0.0] + [-ACADOS_INFTY]*6)
-        ocp.constraints.uh = np.array([ACADOS_INFTY] + [0.]*6)
+        # The conservative normal cap plus friction pyramid already implies
+        # ||u|| <= force_limit. Its redundant nonlinear row has a zero gradient
+        # at disengagement and makes the QP unnecessarily degenerate.
+        model.con_h_expr = cs.vertcat(u[0], u[0]-cap, u[1]-mu*u[0], -u[1]-mu*u[0], u[2]-mu*u[0], -u[2]-mu*u[0])
+        ocp.constraints.lh = np.array([0.0] + [-ACADOS_INFTY]*5)
+        ocp.constraints.uh = np.array([ACADOS_INFTY] + [0.]*5)
         ocp.constraints.idxbx_0=np.arange(7); ocp.constraints.lbx_0=np.zeros(7); ocp.constraints.ubx_0=np.zeros(7)
         if self.robot_stiffness is not None:
             ocp.solver_options.cost_scaling = np.ones(2)
@@ -1498,6 +1509,7 @@ class LambdaContactControlOptimizer:
                           np.asarray(kwargs['p_arm']).reshape(-1), np.asarray(kwargs.get('scm_theta', self.scm_theta)).reshape(-1),
                           extended_cost_config(kwargs.get('object_config', self.object_cost_config())),
                           [kwargs.get('force_limit', self.max_contact_force)]])
+        solver.reset()
         solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur)
         initial_normal = .01
         if self.robot_stiffness is not None:
@@ -1506,7 +1518,8 @@ class LambdaContactControlOptimizer:
             # Seed inside the feasible force cone so it can optimize a press.
             initial_normal = .9 * float(kwargs.get('force_limit', self.max_contact_force)) / np.sqrt(1 + 2*self.mu_arm_obj**2)
         solver.set(0,'u',np.array([initial_normal,0,0])); solver.set(0,'p',p)
-        solver.set(1,'x',xcur); solver.set(1,'p',p)
+        seed_pose = np.asarray(self._acados_candidate_fn(xcur, np.array([initial_normal,0,0]), p)[0]).reshape(7)
+        solver.set(1,'x',seed_pose); solver.set(1,'p',p)
         from planning.acados_env import quiet_acados_stderr
         with quiet_acados_stderr():
             status=int(solver.solve())

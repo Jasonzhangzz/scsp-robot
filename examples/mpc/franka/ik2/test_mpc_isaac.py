@@ -9,7 +9,18 @@ def main():
     """Dispatch before importing the planner, which the child loads separately."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.environ.pop("SCSP_PLANNER_ONLY", None)
-    if "--floating-fingertip" in sys.argv:
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument('--physics-backend', choices=('isaac', 'mjwarp'), default='isaac')
+    pre.add_argument('--headless', dest='headless', action='store_true')
+    pre.add_argument('--viewer', dest='headless', action='store_false')
+    pre.set_defaults(headless=False)
+    backend, _ = pre.parse_known_args()
+    if backend.physics_backend == 'mjwarp' or (backend.headless and '--floating-fingertip' not in sys.argv):
+        if backend.physics_backend == 'mjwarp':
+            os.environ['SCSP_PLANNER_ONLY'] = '1'
+        script = os.path.join(script_dir, 'headless_rollout.py')
+        argv = [sys.executable, '-u', script, *sys.argv[1:]]
+    elif "--floating-fingertip" in sys.argv:
         script = os.path.abspath(os.path.join(
             script_dir, "..", "..", "fingertips", "test", "test_0902_isaac.py"))
         argv = [sys.executable, "-u", script] + [
@@ -439,7 +450,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         # One-env viewer + Warp MPPI share a GPU.  CPU PhysX avoids that hitch.
         sim_params.physx.use_gpu = bool(getattr(self.param_, "physx_use_gpu_", False))
 
-        self.sim = self.gym.create_sim(compute_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
+        self.sim = self.gym.create_sim(
+            compute_id, -1 if headless else graphics_device_id, gymapi.SIM_PHYSX, sim_params)
         if self.sim is None:
             raise RuntimeError("Failed to create Isaac Gym sim")
 
@@ -1686,7 +1698,7 @@ class ContactIsaacCartesian:
         return phi_vec, jac_mat, con_pos_list, jac_mat_env, if_contact
 
 
-def adapt_param_for_cartesian_solver(param, args):
+def adapt_param_for_cartesian_solver(param, args, build_optimizer=True):
     param.contact_force_limit_ = contact_force_limit(args)
     param.contact_command_force_limit_ = contact_command_force_limit(args, ISAAC_TASK_KP)
     table_height = float(param.table_height)
@@ -1718,9 +1730,10 @@ def adapt_param_for_cartesian_solver(param, args):
     param.table_clearance_ = table_clearance
     # Keep the ranking NLP built with the fingertip --rollout mass / hull.
     # Rebuilding after DyWA would score patches with the randomized sim mass.
-    if getattr(param, "lambda_optimizer", None) is None:
+    if build_optimizer and getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
-    param.lambda_optimizer.solver = concrete_backend
+    if param.lambda_optimizer is not None:
+        param.lambda_optimizer.solver = concrete_backend
     param.sol_guess_ = None
     return param
 
@@ -1769,10 +1782,11 @@ def _configure_rollout_param(param, args):
     param.attract_coef = max(float(param.attract_coef), 20.0)
     param.field_cost_weight = 0.0
     param.contact_coef = max(float(param.contact_coef), float(param.attract_coef))
-    param.lambda_optimizer.lock_contact_patch = False
-    param.lambda_optimizer.contact_switch_confirm_steps = max(
-        1, int(args.contact_switch_confirm_steps)
-    )
+    if param.lambda_optimizer is not None:
+        param.lambda_optimizer.lock_contact_patch = False
+        param.lambda_optimizer.contact_switch_confirm_steps = max(
+            1, int(args.contact_switch_confirm_steps)
+        )
     via_step = getattr(args, "via_max_step", None)
     param.isaac_via_max_step_ = (
         ISAAC_VIA_MAX_STEP if via_step is None else max(1e-4, float(via_step))
@@ -2284,6 +2298,18 @@ def _print_rollout_step(
 
 def _add_rollout_policy_args(parser):
     add_rollout_via_args(parser)
+    parser.add_argument('--rollout-planner-snapshots', default='', metavar='DIR',
+                        help='Save the first measured pose-stage contact request per trial for offline prediction diagnosis.')
+    parser.add_argument('--pose-executor-constraints', dest='pose_executor_constraints', action='store_true',
+                        help='Pose-stage MPC bounds matching executor floor/edge clipping (default enabled).')
+    parser.add_argument('--no-pose-executor-constraints', dest='pose_executor_constraints', action='store_false',
+                        help='Disable pose-stage executor constraints for baseline comparison.')
+    parser.set_defaults(pose_executor_constraints=True)
+    parser.add_argument('--flip-executor-constraints', dest='flip_executor_constraints', action='store_true',
+                        help='Flip-stage MPC bounds matching executor floor/edge clipping (default enabled).')
+    parser.add_argument('--no-flip-executor-constraints', dest='flip_executor_constraints', action='store_false',
+                        help='Disable flip-stage executor constraints for baseline comparison.')
+    parser.set_defaults(flip_executor_constraints=True)
     parser.add_argument('--collision-geometry', choices=('auto', 'hull', 'decomposed'), default='auto',
                         help='Shared planner/PhysX geometry; auto decomposes mug and rubber_duck.')
     parser.add_argument('--contact-sampling', choices=('auto', 'surface', 'vertices'), default='auto',
@@ -2351,6 +2377,29 @@ def _add_rollout_policy_args(parser):
     parser.add_argument("--use-xml-texture", action="store_true")
     parser.add_argument("--headless", dest="headless", action="store_true")
     parser.add_argument("--viewer", dest="headless", action="store_false")
+    parser.add_argument('--physics-backend', choices=('isaac', 'mjwarp'), default='isaac',
+                        help='Execution physics; mjwarp uses batched headless Franka worlds.')
+    parser.add_argument('--num-envs', type=int, default=1,
+                        help='Parallel Isaac processes, or batched mjwarp worlds, with independent planners.')
+    parser.add_argument('--rollout-verbose', action='store_true',
+                        help='Print per-step diagnostics during headless evaluation.')
+    parser.add_argument('--rollout-summary-json', default='',
+                        help='Write aggregate success counts and throughput as JSON.')
+    parser.add_argument('--rollout-trace-jsonl', default='',
+                        help='Optional compact per-cycle diagnosis; parallel Isaac writes one file per worker.')
+    parser.add_argument('--collision-manifest', default='',
+                        help='Validated precomputed convex parts; allows Isaac Python without CoACD.')
+    parser.add_argument('--headless-realtime', dest='headless_realtime', action='store_true',
+                        help='Use a common real-time physics clock for asynchronous Isaac, with or without a viewer.')
+    parser.add_argument('--no-headless-realtime', dest='headless_realtime', action='store_false',
+                        help='Reproduce the original unpaced asynchronous headless physics.')
+    parser.set_defaults(headless_realtime=True)
+    parser.add_argument('--mjwarp-nconmax', type=int, default=512,
+                        help='Contact capacity per mjwarp world.')
+    parser.add_argument('--mjwarp-njmax', type=int, default=2048,
+                        help='Constraint capacity per mjwarp world.')
+    parser.add_argument('--mjwarp-scene', choices=('isaac', 'legacy'), default='isaac',
+                        help='Use measured Isaac URDF inertias and averaged sliding friction; legacy reproduces the original Panda scene.')
     parser.add_argument("--sim-device", type=str, default="cuda:0")
     parser.add_argument("--graphics-device-id", type=int, default=0)
     parser.add_argument("--show-ghost-object", type=_parse_bool_arg, default=False)
@@ -2467,9 +2516,15 @@ def run_mpc_planner(bus, args):
     metric_gamma = float(getattr(args, 'ranking_metric_gamma', 0.9))
     metric_eta = float(getattr(args, 'ranking_metric_eta', 1.0))
     discounted_terminal_reward(False, gamma=metric_gamma, eta=metric_eta)
+    # Graphics must not implicitly enable thousands of diagnostic prints:
+    # their cost changes the async feedback delay relative to headless.
+    verbose = bool(getattr(args, 'rollout_verbose', False))
     metric_path = getattr(args, 'ranking_metrics_jsonl', '')
     if metric_path:
         os.makedirs(os.path.dirname(os.path.abspath(metric_path)), exist_ok=True)
+    trace_path = getattr(args, 'rollout_trace_jsonl', '')
+    if trace_path:
+        os.makedirs(os.path.dirname(os.path.abspath(trace_path)), exist_ok=True)
     args.solver = resolve_solver_backend(getattr(args, "solver_backend", "auto"))
     print_runtime_profile(
         make_runtime_profile(
@@ -2494,8 +2549,13 @@ def run_mpc_planner(bus, args):
     exec_step = mpc_step
     success_rate = 0
     viewer_quit = False
+    rollout_started = time.perf_counter()
+    trial_summaries = []
 
     for trial_count in range(trial_start, trial_stop):
+        startup_started = time.perf_counter()
+        print('[mpc-startup] trial=%d building contact/MPC runtime' % trial_count,
+              flush=True, file=sys.__stdout__)
         param = ExplicitMPCParams(
             args,
             rand_seed=trial_count,
@@ -2512,12 +2572,25 @@ def run_mpc_planner(bus, args):
             from planning.sampling_c3 import SamplingC3Controller, config_from_args
             sampling_controller = SamplingC3Controller(config_from_args(args, trial_count))
         init = planner_init_payload(args, param, trial_count)
-        _, plan_param, mpc, trackers = _build_mpc_planner_runtime(init)
+        _, plan_param, mpc, trackers = _build_mpc_planner_runtime(init, param)
+        print('[mpc-startup] trial=%d ready in %.2fs (contact=%s mpc=%s)' % (
+            trial_count, time.perf_counter()-startup_started,
+            getattr(plan_param.lambda_optimizer, 'solver', 'unknown'),
+            getattr(mpc, 'planner_solver_', 'unknown')), flush=True, file=sys.__stdout__)
 
         obs = wait_trial_obs(bus, trial_count)
         if obs is None:
             viewer_quit = True
             break
+        if trace_path:
+            opt = plan_param.lambda_optimizer
+            with open(trace_path, 'a') as trace:
+                trace.write(json.dumps(dict(event='setup', trial=trial_count,
+                    samples=np.asarray(opt.sample_point).tolist(),
+                    curvature=np.asarray(opt.point_curvature).tolist(),
+                    high_curvature=np.asarray(opt._high_curvature_mask()).tolist(),
+                    target_p=np.asarray(param.target_p_).tolist(),
+                    target_q=np.asarray(param.target_q_).tolist()), allow_nan=False)+'\n')
 
         policy = None
         c_now_cost = None
@@ -2526,6 +2599,8 @@ def run_mpc_planner(bus, args):
         escape_on = False
         verify_chatter = False
         last_result = None
+        previous_trace_pose = None
+        pose_snapshot_saved = False
         rollout_step = 0
         trial_success = False
         consecutive_success_time = 0
@@ -2534,12 +2609,15 @@ def run_mpc_planner(bus, args):
         pose_apply_count = 0
         choose_times = []
         plan_times = []
+        planning_wall_times = []
         pos_err_now = None
         quat_err_now = None
         prev_pos_err = None
         prev_quat_err = None
         edge_verdicts = []
         iteration_wall_times = []
+        max_floor_recovery = 0.0
+        observation_gaps = []
         trial_wall_start = time.perf_counter()
 
         # Check the observation after the final allowed action as well.
@@ -2562,7 +2640,7 @@ def run_mpc_planner(bus, args):
                 policy = None
                 c_now_cost = pred_reduction = None
                 print('[object-cost] transition:', stages.diagnostics(), flush=True)
-            if stages is not None and rollout_step % 25 == 0:
+            if verbose and stages is not None and rollout_step % 25 == 0:
                 print('[object-cost] state:', stages.diagnostics(), flush=True)
             if stages is not None and stages.enabled:
                 plan_param.object_cost_config_ = stages.config()
@@ -2586,6 +2664,7 @@ def run_mpc_planner(bus, args):
                     pos_err_now, curr_q=curr_q, param=param,
                 )
             payload, curr_q = _plan_from_obs(obs, dwell)
+            planning_started = time.perf_counter()
             if sampling_controller is None:
                 result = handle_mpc_request(args, plan_param, mpc, trackers, payload)
             else:
@@ -2594,8 +2673,25 @@ def run_mpc_planner(bus, args):
                     sampling_controller, args, plan_param, mpc, trackers, payload,
                     exec_step, pos_err_now, quat_err_now,
                 )
+            planning_wall_times.append(time.perf_counter() - planning_started)
+            if (getattr(args, 'rollout_planner_snapshots', '') and not pose_snapshot_saved
+                    and stages is not None and stages.enabled and stages.stage == 'pose'
+                    and payload.get('actual_contact') is not None
+                    and (result.get('policy', {}).get('value_info') or {}).get('using_observed_contact')):
+                snapshot_dir = os.path.abspath(args.rollout_planner_snapshots)
+                os.makedirs(snapshot_dir, exist_ok=True)
+                # Static replay has no preceding command/dwell history.
+                snapshot_request = dict(payload, dwell=None)
+                snapshot = dict(planner_init_payload(args, plan_param, trial_count),
+                                msg=snapshot_request, config=stages.config())
+                path = os.path.join(snapshot_dir, '%s_trial%d_pose.json' % (args.obj, trial_count))
+                with open(path, 'w') as output:
+                    json.dump(snapshot, output,
+                              default=lambda value: np.asarray(value).tolist(), allow_nan=False)
+                pose_snapshot_saved = True
             last_result = result
-            policy = _apply_plan_result(param, None, result, curr_q, _print_rollout_step)
+            max_floor_recovery = max(max_floor_recovery, float(result.get('mpc_floor_recovery_m', 0.)))
+            policy = _apply_plan_result(param, None, result, curr_q, _print_rollout_step, verbose=verbose)
             choose_times.append(float(result["rank_dt"]))
             plan_times.append(float(result.get("plan_dt", 0.0)))
             c_now_cost, pred_reduction = _pred_reduction_from_policy(param, curr_q, policy)
@@ -2606,6 +2702,32 @@ def run_mpc_planner(bus, args):
             tip_now = np.asarray(curr_q[7:10], dtype=np.float64)
             action = np.asarray(_clip_mpc_action(action, exec_step), dtype=np.float64)
             exec_via = np.asarray(policy["mpc_virtual_point"], dtype=np.float64).reshape(3)
+            if trace_path:
+                opt = plan_param.lambda_optimizer
+                selected = getattr(opt, 'last_selected_idx', None)
+                executed = getattr(opt, 'last_executed_idx', None)
+                with open(trace_path, 'a') as trace:
+                    trace.write(json.dumps(dict(event='cycle', trial=trial_count, step=rollout_step,
+                        observation_seq=obs.get('seq'), sim_time=obs.get('sim_time'),
+                        policy_q=curr_q.tolist(), action=action.tolist(),
+                        planning_ms=planning_wall_times[-1]*1000.,
+                        selected_idx=None if selected is None else int(selected),
+                        executed_idx=None if executed is None else int(executed),
+                        selected_curvature=None if selected is None else float(opt.point_curvature[selected]),
+                        physical_contact=bool(np.isfinite(contact_distance) and contact_distance <= 0.),
+                        contact_distance=float(contact_distance) if np.isfinite(contact_distance) else None,
+                        via=exec_via.tolist(), p_arm=np.asarray(policy['p_arm_world']).tolist(),
+                        best_contact=np.asarray(policy['best_contact_world']).tolist(),
+                        contact_predictions=policy.get('contact_prediction_diagnostics'),
+                        reported_executed_action=(None if obs.get('executed_action') is None else
+                            np.asarray(obs['executed_action']).tolist()),
+                        executor_floor_constraints=result.get('mpc_executor_floor'),
+                        executor_edge_constraint=result.get('mpc_executor_edge', False),
+                        observed_position_reduction_mm=(None if previous_trace_pose is None else
+                            1000*(np.linalg.norm(previous_trace_pose[:3]-param.target_p_)
+                                  - np.linalg.norm(curr_q[:3]-param.target_p_))),
+                        **({} if stages is None else stages.diagnostics())), allow_nan=False)+'\n')
+                previous_trace_pose = curr_q.copy()
 
             on_exec_contact = False
             physical_contact = bool(np.isfinite(contact_distance) and contact_distance <= 0.003)
@@ -2613,61 +2735,63 @@ def run_mpc_planner(bus, args):
                 on_exec_contact = float(np.linalg.norm(tip_now - np.asarray(policy["p_arm_world"], dtype=float))) <= 0.03
                 if on_exec_contact:
                     pose_apply_count += 1
-                _print_contact_pose_diag(
-                    _contact_pose_diag(
-                        param.lambda_optimizer, policy, tip_now,
-                        osc_target=tip_now + action,
+                if verbose:
+                    _print_contact_pose_diag(
+                        _contact_pose_diag(
+                            param.lambda_optimizer, policy, tip_now,
+                            osc_target=tip_now + action,
+                        )
                     )
+            if verbose:
+                print(
+                    "contact_distance:",
+                    None if not np.isfinite(contact_distance) else round(contact_distance, 6),
+                    "physics_contact:", int(on_exec_contact),
                 )
-            print(
-                "contact_distance:",
-                None if not np.isfinite(contact_distance) else round(contact_distance, 6),
-                "physics_contact:", int(on_exec_contact),
-            )
-            _print_rank_cost_diag(param, curr_q, policy["best_contact_world"])
-            osc_force = obs.get("osc_force")
-            osc_pd = obs.get("osc_pd")
-            edge_info = _analyze_edge_pose_source(
-                param, curr_q, policy, result, osc_force, physical_contact,
-                pos_err_now, quat_err_now, prev_pos_err, prev_quat_err,
-            )
-            if edge_info["near_edge"] or edge_info["if_contact"] or float(pos_err_now) > 0.05:
-                _print_edge_pose_source(edge_info)
-                edge_verdicts.append((rollout_step, edge_info["verdict"], edge_info))
-            prev_pos_err = float(pos_err_now)
-            prev_quat_err = float(quat_err_now)
-            print(
-                "diag_push:",
-                "step:", rollout_step,
-                "obj:", np.round(np.asarray(curr_q[:3], dtype=float), 4).tolist(),
-                "obj_z:", round(float(curr_q[2]), 4),
-                "table:", round(float(param.table_height), 4),
-                "below_table:", int(float(curr_q[2]) < float(param.table_height) - 0.01),
-                "tip:", np.round(tip_now, 4).tolist(),
-                "via:", np.round(exec_via, 4).tolist(),
-                "virtual:", np.round(np.asarray(policy["mpc_virtual_point"], dtype=float), 4).tolist(),
-                "p_arm:", np.round(np.asarray(policy["p_arm_world"], dtype=float), 4).tolist(),
-                "best:", np.round(np.asarray(policy["best_contact_world"], dtype=float), 4).tolist(),
-                "action:", np.round(action, 4).tolist(),
-                "osc_pd:", None if osc_pd is None else np.round(np.asarray(osc_pd, dtype=float), 4).tolist(),
-                "osc_f:", None if osc_force is None else np.round(np.asarray(osc_force, dtype=float), 3).tolist(),
-                "osc_fn:", None if osc_force is None else round(float(np.linalg.norm(osc_force)), 3),
-                "near_press:", int(bool(obs.get("osc_near_press", False))),
-                "verify:", None if result.get("verify_cost") is None else round(float(result["verify_cost"]), 4),
-                "conf:", round(float(param.lambda_optimizer.contact_switch_confidence), 3),
-                "tight:", round(float(result.get("model_tightness", 0.0)), 3),
-                "accept:", int(bool(policy["value_info"].get("accept_p_arm", False))),
-                "pose_tie:", int(bool(policy["value_info"].get("pose_near_tie", True))),
-                "blocked:", int(bool((policy.get("value_info") or {}).get("path_blocked", False))),
-                "phase:", (policy.get("value_info") or {}).get("via_phase"),
-                "opposite:", edge_info["opposite"],
-                "keepout:", round(float(edge_info["keepout"]), 4),
-                "tip_r:", round(float(edge_info["tip_xy_r"]), 4),
-                "via_r:", round(float(edge_info["via_xy_r"]), 4),
-                "orbit_clips:", edge_info["orbit_clips"],
-                "dwell:", int(getattr(param.lambda_optimizer, "_dwell_steps", 0)),
-                "blacklisted:", len(getattr(param.lambda_optimizer, "_blocked_contact_indices", {})),
-            )
+                _print_rank_cost_diag(param, curr_q, policy["best_contact_world"])
+                osc_force = obs.get("osc_force")
+                osc_pd = obs.get("osc_pd")
+                edge_info = _analyze_edge_pose_source(
+                    param, curr_q, policy, result, osc_force, physical_contact,
+                    pos_err_now, quat_err_now, prev_pos_err, prev_quat_err,
+                )
+                if edge_info["near_edge"] or edge_info["if_contact"] or float(pos_err_now) > 0.05:
+                    _print_edge_pose_source(edge_info)
+                    edge_verdicts.append((rollout_step, edge_info["verdict"], edge_info))
+                prev_pos_err = float(pos_err_now)
+                prev_quat_err = float(quat_err_now)
+                print(
+                    "diag_push:",
+                    "step:", rollout_step,
+                    "obj:", np.round(np.asarray(curr_q[:3], dtype=float), 4).tolist(),
+                    "obj_z:", round(float(curr_q[2]), 4),
+                    "table:", round(float(param.table_height), 4),
+                    "below_table:", int(float(curr_q[2]) < float(param.table_height) - 0.01),
+                    "tip:", np.round(tip_now, 4).tolist(),
+                    "via:", np.round(exec_via, 4).tolist(),
+                    "virtual:", np.round(np.asarray(policy["mpc_virtual_point"], dtype=float), 4).tolist(),
+                    "p_arm:", np.round(np.asarray(policy["p_arm_world"], dtype=float), 4).tolist(),
+                    "best:", np.round(np.asarray(policy["best_contact_world"], dtype=float), 4).tolist(),
+                    "action:", np.round(action, 4).tolist(),
+                    "osc_pd:", None if osc_pd is None else np.round(np.asarray(osc_pd, dtype=float), 4).tolist(),
+                    "osc_f:", None if osc_force is None else np.round(np.asarray(osc_force, dtype=float), 3).tolist(),
+                    "osc_fn:", None if osc_force is None else round(float(np.linalg.norm(osc_force)), 3),
+                    "near_press:", int(bool(obs.get("osc_near_press", False))),
+                    "verify:", None if result.get("verify_cost") is None else round(float(result["verify_cost"]), 4),
+                    "conf:", round(float(param.lambda_optimizer.contact_switch_confidence), 3),
+                    "tight:", round(float(result.get("model_tightness", 0.0)), 3),
+                    "accept:", int(bool(policy["value_info"].get("accept_p_arm", False))),
+                    "pose_tie:", int(bool(policy["value_info"].get("pose_near_tie", True))),
+                    "blocked:", int(bool((policy.get("value_info") or {}).get("path_blocked", False))),
+                    "phase:", (policy.get("value_info") or {}).get("via_phase"),
+                    "opposite:", edge_info["opposite"],
+                    "keepout:", round(float(edge_info["keepout"]), 4),
+                    "tip_r:", round(float(edge_info["tip_xy_r"]), 4),
+                    "via_r:", round(float(edge_info["via_xy_r"]), 4),
+                    "orbit_clips:", edge_info["orbit_clips"],
+                    "dwell:", int(getattr(param.lambda_optimizer, "_dwell_steps", 0)),
+                    "blacklisted:", len(getattr(param.lambda_optimizer, "_blocked_contact_indices", {})),
+                )
             bus.publish_cmd({
                 "kind": "via",
                 "seq": int(rollout_step),
@@ -2688,7 +2812,10 @@ def run_mpc_planner(bus, args):
                 },
             })
             rollout_step += 1
+            previous_seq = obs.get('seq')
             obs = bus.wait_obs(timeout=180.0)
+            if obs is not None and previous_seq is not None and obs.get('seq') is not None:
+                observation_gaps.append(max(0, int(obs['seq'])-int(previous_seq)))
             iteration_wall_times.append(time.perf_counter() - iteration_wall_start)
             if obs is None:
                 viewer_quit = True
@@ -2735,12 +2862,55 @@ def run_mpc_planner(bus, args):
         trial_summary = {
             "trial": trial_count,
             "seed": trial_count,
+            "numpy_seed": 100 + trial_count,
             "object": str(args.obj),
             "mode": "mpc_planner",
+            "physics_backend": str(getattr(args, 'physics_backend', 'isaac')),
+            "num_envs": int(getattr(args, 'num_envs', 1)),
+            "mjwarp_scene": (getattr(args, 'mjwarp_scene', 'legacy')
+                             if getattr(args, 'physics_backend', 'isaac') == 'mjwarp' else None),
+            "headless": bool(getattr(args, 'headless', False)),
+            "async_planner": bool(getattr(args, 'async_planner', True)),
+            "headless_realtime": bool(getattr(args, 'headless_realtime', True)),
+            "pose_executor_constraints": bool(getattr(args, 'pose_executor_constraints', False)),
+            "flip_executor_constraints": bool(getattr(args, 'flip_executor_constraints', True)),
+            "physics_policy_ticks": None if obs is None else obs.get('seq'),
+            "sim_end_time_s": None if obs is None else obs.get('sim_time'),
+            "observation_gap_mean": float(np.mean(observation_gaps)) if observation_gaps else None,
+            "observation_gap_max": max(observation_gaps) if observation_gaps else None,
+            "physics_scene_sha256": None if obs is None else obs.get('physics_scene_sha256'),
+            "mjwarp_nconmax": int(getattr(args, 'mjwarp_nconmax', 512)),
+            "mjwarp_njmax": int(getattr(args, 'mjwarp_njmax', 2048)),
+            "joint_velocity_limiter": ('poststep_projection'
+                if getattr(args, 'physics_backend', 'isaac') == 'mjwarp'
+                and getattr(args, 'mjwarp_scene', 'legacy') == 'isaac' else None),
+            "joint_velocity_projections": 0 if obs is None else int(obs.get('joint_velocity_projections', 0)),
+            "joint_velocity_max_unlimited": 0. if obs is None else float(obs.get('joint_velocity_max_unlimited', 0.)),
+            "solver_requested": str(getattr(args, 'solver_backend', 'auto')),
+            "solver_backend": (getattr(mpc, 'planner_solver_', None) if last_result is None
+                               else last_result.get('solver_backend')),
+            "planner_solver_backend": str(getattr(mpc, 'planner_solver_', 'ipopt')),
+            "lambda_solver_backend": str(getattr(plan_param.lambda_optimizer, 'solver', 'ipopt')),
+            "mpc_solves": int(getattr(mpc, 'acados_solve_count', 0)),
+            "lambda_solves": int(getattr(plan_param.lambda_optimizer, 'acados_solve_count', 0)),
+            "mpc_init_error": str(getattr(mpc, '_acados_init_error', '') or ''),
+            "lambda_init_error": str(getattr(plan_param.lambda_optimizer, 'acados_error', '') or ''),
+            "mpc_fallbacks": int(getattr(mpc, 'acados_fallback_count', 0)),
+            "mpc_contact_resets": int(trackers.get('mpc_contact_resets', 0)),
+            "mpc_floor_recovery_max_m": max_floor_recovery,
+            "lambda_fallbacks": int(getattr(plan_param.lambda_optimizer, 'acados_fallback_count', 0)),
             # Wall timing excludes reset/model construction and final reporting.
             # Iterations include policy work, diagnostic output and bus/physics wait.
             "trial_wall_time_s": trial_wall_time,
             "completion_wall_time_s": trial_wall_time if trial_success else None,
+            # Full CSO/approach/MPC call; excludes diagnostics, IPC and physics.
+            "planning_wall_count": len(planning_wall_times),
+            "planning_wall_total_s": float(sum(planning_wall_times)),
+            "planning_wall_sum_squares_s2": float(np.dot(planning_wall_times, planning_wall_times)),
+            "planning_wall_mean_ms": (float(np.mean(planning_wall_times))*1000
+                                      if planning_wall_times else None),
+            "planning_wall_std_ms": (float(np.std(planning_wall_times, ddof=1))*1000
+                                     if len(planning_wall_times) > 1 else None),
             "iteration_wall_count": len(iteration_wall_times),
             "iteration_wall_total_s": float(sum(iteration_wall_times)),
             "iteration_wall_mean_s": (float(np.mean(iteration_wall_times))
@@ -2791,6 +2961,9 @@ def run_mpc_planner(bus, args):
             "contact_sample_count": len(param.lambda_optimizer.sample_point),
         }
         print("trial_summary: " + repr(trial_summary))
+        trial_summaries.append(trial_summary)
+        if hasattr(bus, 'record_summary'):
+            bus.record_summary(trial_summary)
         if metric_path:
             with open(metric_path, 'a', encoding='utf-8') as metric_file:
                 metric_file.write(json.dumps(trial_summary, allow_nan=False) + '\n')
@@ -2803,6 +2976,12 @@ def run_mpc_planner(bus, args):
         f"(trial ids {trial_start} to {trial_stop - 1}): "
         f"{success_rate}/{trial_num} = {success_rate / trial_num:.2%}"
     )
+    if (getattr(args, 'headless', False) and getattr(args, 'rollout_summary_json', '')
+            and not hasattr(bus, 'record_summary')):
+        # The original async Isaac bus keeps its latest-only command/obs
+        # protocol. Write statistics in the planner without adding barriers.
+        from examples.mpc.franka.ik2.headless_rollout import report
+        report(args, trial_summaries, rollout_started)
     return viewer_quit
 
 

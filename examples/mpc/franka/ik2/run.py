@@ -7,6 +7,8 @@ import os
 import sys
 import time
 
+_PROCESS_STARTED = time.perf_counter()
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(current_dir)
 while os.path.basename(parent_dir) != "scsp-robot":
@@ -20,6 +22,10 @@ sys.path.insert(0, parent_dir)
 
 # gymdeps refuses to load if torch is already imported.  params -> mlqp_point
 # imports torch, so isaacgym must come first.
+_backend_parser = argparse.ArgumentParser(add_help=False)
+_backend_parser.add_argument('--physics-backend', default='isaac')
+if _backend_parser.parse_known_args()[0].physics_backend == 'mjwarp':
+    os.environ['SCSP_PLANNER_ONLY'] = '1'
 if os.environ.get("SCSP_PLANNER_ONLY") != "1":
     from isaacgym import gymapi, gymtorch  # noqa: F401
     import torch  # noqa: F401
@@ -148,10 +154,11 @@ def build_osc_param(args, trial_count):
         rand_seed=trial_count,
         target_type=getattr(args, "target_type", "ground-rotation"),
         mpc_model="explicit",
+        build_optimizer=False,
     )
     param = _apply_dywa_physics_to_param(param)
     param.use_jax_contact_ = False
-    param = adapt_param_for_cartesian_solver(param, args)
+    param = adapt_param_for_cartesian_solver(param, args, build_optimizer=False)
     param = _configure_rollout_param(param, args)
     param.osc_pos_stiffness_ = float(args.osc_pos_stiffness)
     param.osc_ori_stiffness_ = float(args.osc_ori_stiffness)
@@ -179,6 +186,7 @@ def build_osc_param(args, trial_count):
 
 
 def open_env(args, trial_count):
+    started = time.perf_counter()
     param = build_osc_param(args, trial_count)
     contact = ContactIsaacCartesian(param)
     env = IsaacFrankaOSCSimulator(
@@ -192,6 +200,8 @@ def open_env(args, trial_count):
         env._scm_recorder = ExecutionTransitionBuffer(trial_count, env.sim_dt_)
     env.show_target_object_pose(param.target_p_, param.target_q_)
     table_ground = float(param.table_height) + float(args.ground_height_threshold)
+    print('[isaac-startup] trial=%d physics ready in %.2fs' %
+          (trial_count, time.perf_counter()-started), flush=True, file=sys.__stdout__)
     return env, contact, table_ground
 
 
@@ -241,7 +251,7 @@ class SynchronousMPCBus:
             if viewer_closed(self.env) or getattr(self.env, "break_out_signal_", False):
                 break
             self.frames += 1
-            draw = self.frames % stride == 0
+            draw = not getattr(self.args, 'headless', False) and self.frames % stride == 0
             self.env.step_control_frame(draw=draw, sync_realtime=False)
             if draw:
                 self.env.sync_realtime()
@@ -278,6 +288,7 @@ def isaac_loop(bus, args, planner):
             policy_frames = max(1, int(round(POLICY_INTERVAL / env.sim_dt_)))
             bus.publish_obs(pack_state(env, seq, trial_count, last_contact))
             started = False
+            clock_started = None
             while True:
                 if viewer_closed(env) or getattr(env, "break_out_signal_", False):
                     bus.publish_obs({
@@ -296,6 +307,10 @@ def isaac_loop(bus, args, planner):
                     return
                 if status == "end_trial":
                     break
+                if cmd is not None and not started:
+                    clock_started = time.perf_counter()
+                    print('[isaac-startup] trial=%d first command after %.2fs from process start' %
+                          (trial_count, time.perf_counter()-_PROCESS_STARTED), flush=True)
                 if cmd is not None:
                     started = True
                 if not started:
@@ -306,17 +321,26 @@ def isaac_loop(bus, args, planner):
                     time.sleep(1.0 / max(1.0, float(getattr(args, "viewer_hz", 60.0))))
                     continue
                 frames += 1
-                draw = (frames % draw_stride == 0)
+                draw = (not getattr(args, 'headless', False) and frames % draw_stride == 0)
                 # #region agent log
                 import time as _time
                 _t0 = _time.perf_counter()
                 # #endregion
                 env.step_control_frame(draw=draw, sync_realtime=False)
+                if getattr(args, 'headless_realtime', False):
+                    # Headless used to bypass gym.sync_frame_time (it only
+                    # waits with a viewer). Physics then outran the 20 ms
+                    # predictor while ranking was still working on old data.
+                    # Use the same clock with/without a viewer. Start pacing
+                    # at the first command, excluding startup.
+                    left = clock_started + frames * env.sim_dt_ - time.perf_counter()
+                    if left > 0.:
+                        time.sleep(left)
                 # #region agent log
                 _step_ms = (_time.perf_counter() - _t0) * 1000.0
                 _sync_ms = 0.0
                 # #endregion
-                if draw:
+                if draw and not getattr(args, 'headless_realtime', False):
                     # #region agent log
                     _ts = _time.perf_counter()
                     # #endregion
@@ -383,6 +407,18 @@ def main():
     else:
         _add_rollout_policy_args(parser)
     args = parser.parse_args(["--planner", pre_args.planner, *remaining])
+    if getattr(args, 'physics_backend', 'isaac') == 'mjwarp':
+        if args.planner != 'mpc':
+            parser.error('MJWarp headless evaluation requires --planner mpc')
+        from examples.mpc.franka.ik2.headless_rollout import run_mjwarp_headless
+        run_mjwarp_headless(args)
+        return
+    if args.planner == 'mpc' and args.headless:
+        from examples.mpc.franka.ik2.headless_rollout import run_isaac_headless
+        run_isaac_headless(args)
+        return
+    if getattr(args, 'num_envs', 1) != 1:
+        parser.error('--num-envs > 1 requires headless MPC evaluation')
     args.solver = resolve_solver_backend(getattr(args, "solver_backend", "auto"))
     args.rollout = True
     print_runtime_profile(

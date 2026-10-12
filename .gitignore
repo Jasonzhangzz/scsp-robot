@@ -11,3 +11,4 @@ outputs/
 venv/
 envs/assets/objects/_generated_collision/
 thirdparty/
+.cursor/debug-*.log

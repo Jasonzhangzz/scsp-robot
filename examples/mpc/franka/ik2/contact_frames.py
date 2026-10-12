@@ -498,28 +498,15 @@ def support_patch_jacobians(obj_pos, rotation, point_world, nv, mu):
 
 
 def gravity_accel_with_support(gravity_world3, support_normal=None):
-    """World gravity, with the plane's normal hold removed on a tilt.
+    """Full world gravity; contact reactions supply normal hold and friction.
 
-    Table ranking / MPC keep raw ``+Z`` gravity and let the support
-    Jacobian generate the reaction.  A ramp must cancel ``g`` along
-    the plane normal so neither lambda nor MPC treats the fingertip
-    as a jack.
+    Removing its normal component erases the contact preload and the moment
+    about a support edge. ``support_normal`` is retained for API compatibility.
     """
-    accel = np.asarray(gravity_world3, dtype=np.float64).reshape(3).copy()
-    if support_normal is None:
-        return accel
-    normal = np.asarray(support_normal, dtype=np.float64).reshape(3)
-    nrm = float(np.linalg.norm(normal))
-    if nrm < 1e-8:
-        return accel
-    normal = normal / nrm
-    if abs(float(normal[2])) < 0.999:
-        accel = accel + max(0.0, -float(np.dot(normal, accel))) * normal
-    return accel
-
+    return np.asarray(gravity_world3, dtype=np.float64).reshape(3).copy()
 
 def gravity_wrench_object_frame(gravity_world3, mass, r_obj_to_world, support_normal=None):
-    """Body-frame external wrench: gravity, plus the plane's normal hold."""
+    """Full gravity wrench expressed in the observed object frame."""
     force = gravity_accel_with_support(gravity_world3, support_normal) * float(mass)
     rot = np.asarray(r_obj_to_world, dtype=np.float64).reshape(3, 3)
     return np.hstack([rot.T @ force, np.zeros(3, dtype=np.float64)])

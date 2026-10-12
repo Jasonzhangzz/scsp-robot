@@ -1,5 +1,6 @@
 """Planner startup must not initialize the viewer's native dependencies."""
 import ast
+import argparse
 import os
 import queue
 from pathlib import Path
@@ -57,7 +58,7 @@ def test_entry_dispatches_before_loading_numpy_or_planner(floating):
     # Run the dispatch prefix with intercepted execv. No simulator or planner
     # imports are allowed before the process is handed to its real entry point.
     declarations = [node for node in prefix if isinstance(node, (ast.FunctionDef, ast.If))]
-    scope = dict(__name__='__main__', __file__=str(path), os=fake_os,
+    scope = dict(__name__='__main__', __file__=str(path), os=fake_os, argparse=argparse,
                  sys=SimpleNamespace(executable='/python', argv=argv))
     exec(compile(ast.Module(body=declarations, type_ignores=[]), str(path), 'exec'), scope)
     assert len(calls) == 1

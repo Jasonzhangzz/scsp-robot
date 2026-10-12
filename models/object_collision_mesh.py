@@ -8,13 +8,25 @@ import tempfile
 import trimesh
 
 
-def decomposed_collision_mesh(visual_mesh_path):
+def decomposed_collision_mesh(visual_mesh_path, manifest_path=None):
     """Return a surface STL and convex-part STLs in the authored body frame.
 
     The surface STL is for sampling only. Dynamic PhysX actors must load each
     part as a separate collision element, otherwise PhysX fills the cavity
     again. Publication of the manifest follows all mesh writes.
     """
+    if manifest_path:
+        payload = json.loads(Path(manifest_path).read_text())
+        if payload.get('source_sha256') != hashlib.sha256(Path(visual_mesh_path).read_bytes()).hexdigest():
+            raise ValueError('Collision manifest does not match the canonical object mesh')
+        paths = [payload['surface'], *payload['parts']]
+        if not payload['parts']:
+            raise ValueError('Collision manifest has no convex parts')
+        for path in paths:
+            expected = payload.get('asset_sha256', {}).get(path)
+            if not expected or hashlib.sha256(Path(path).read_bytes()).hexdigest() != expected:
+                raise ValueError('Collision manifest asset changed: '+path)
+        return payload['surface'], payload['parts']
     try:
         import coacd
         from importlib.metadata import version

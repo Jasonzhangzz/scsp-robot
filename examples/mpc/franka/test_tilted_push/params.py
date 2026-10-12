@@ -2,9 +2,13 @@ import casadi as cs
 import numpy as np
 import trimesh
 
-from examples.mpc.franka.ik2.params import build_lambda_optimizer
 from planning.attract_function import compute_scalar_potential_and_gradient
 from utils import rotations
+from models.soft_scm_contact import (
+    SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
+)
+from planning.object_pose_cost import OBJECT_COST_CONFIG_SIZE, object_cost_cs
+from examples.mpc.franka.test_tilted_push.ramp_support import repo_asset_path
 
 
 class ExplicitMPCParams:
@@ -29,8 +33,8 @@ class ExplicitMPCParams:
         self.object_aabb_lo = np.array([-0.06, -0.04, -0.04], dtype=np.float64)
         self.object_aabb_hi = np.array([0.06, 0.04, 0.06], dtype=np.float64)
 
-        self.model_path_ = "./envs/xmls/env_fingertips_" + args.obj + ".xml"
-        self.source_mesh_path_ = "envs/assets/objects/" + args.obj + ".stl"
+        self.model_path_ = str(repo_asset_path("envs/xmls/env_fingertips_" + args.obj + ".xml"))
+        self.source_mesh_path_ = str(repo_asset_path("envs/assets/objects/" + args.obj + ".stl"))
         self.mesh_path_ = self.source_mesh_path_
         self.visual_mesh_path_ = self.source_mesh_path_
         self.object_names_ = ["obj"]
@@ -50,7 +54,15 @@ class ExplicitMPCParams:
 
         self.frame_skip_ = int(10)
         self.h_ = 0.02
-        self.lambda_h_ = 0.05
+        self.lambda_h_ = self.h_
+        self.runtime_object_cost_ = True
+        self.approach_requires_contact_ = True
+        self.contact_dynamics = 'quasi-dynamic'
+        self.contact_model = 'soft-scm'
+        self.grouped_contact_response_ = True
+        self.soft_scm_response_time = SOFT_SCM_RESPONSE_TIME
+        self.soft_scm_damping_ratio = SOFT_SCM_DAMPING_RATIO
+        self.soft_scm_regularization = SOFT_SCM_REGULARIZATION
 
         self.n_robot_qpos_ = 3
         self.n_qpos_ = 10
@@ -115,7 +127,7 @@ class ExplicitMPCParams:
         self.obj_inertia_ = np.identity(6)
         self.obj_inertia_[0:3, 0:3] = 50 * np.eye(3)
         self.obj_inertia_[3:, 3:] = 0.05 * np.eye(3)
-        self.robot_stiff_ = np.diag(self.n_cmd_ * [100])
+        self.robot_stiff_ = np.diag(self.n_cmd_ * [600])
 
         Q = np.zeros((self.n_qvel_, self.n_qvel_))
         Q[:6, :6] = self.obj_inertia_
@@ -143,7 +155,9 @@ class ExplicitMPCParams:
         self.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), fts_q_ub))
         self.sol_guess_ = None
         self.max_env_contacts_ = 4
-        self.lambda_optimizer = build_lambda_optimizer(self, args)
+        # Scene friction, geometry/scale and support objective must be final
+        # before building Lambda's compiled dynamics.
+        self.lambda_optimizer = None
 
     @staticmethod
     def calculate_rotation_quaternion(x, target_position):
@@ -172,6 +186,11 @@ class ExplicitMPCParams:
         cost_param = cs.vvcat(
             [target_position, target_quaternion, phi_vec, jac_mat, verify_cost_param, virtual_point, contact_point]
         )
+        contact_reference = cs.SX.sym("contact_reference", 7)
+        object_config = cs.SX.sym("object_config", OBJECT_COST_CONFIG_SIZE)
+        cost_param = cs.vertcat(cost_param, contact_reference, object_config)
+        from models.contact_geometry import attached_point_cs
+        contact_point = attached_point_cs(x, contact_reference, contact_point)
         if getattr(self, "smooth_contact_detour", False):
             base_cost = self._smooth_contact_detour_cost(x, virtual_point, contact_point)
             final_cost = (
@@ -225,6 +244,21 @@ class ExplicitMPCParams:
             )
             control_weight = 50.0
 
+        final_cost = object_cost_cs(x[:7], cs.vertcat(target_position, target_quaternion), object_config)
+        # Price intermediate tilt as well as the endpoint. The object footprint
+        # must stay clear of the finite ramp rim, even while the COM is inside.
+        edge_cost = cs.DM(0)
+        from models.contact_geometry import rotation_cs
+        footprint = self.support_footprint_vertices_
+        world = rotation_cs(x[3:7]) @ cs.DM(footprint.T) + cs.repmat(x[:3], 1, len(footprint))
+        uv = cs.DM(self.support_surface_tangents_) @ (world - cs.repmat(cs.DM(self.support_surface_point_), 1, len(footprint)))
+        for axis in range(2):
+            limit = float(self.support_surface_half_extents_[axis]) - float(self.support_edge_margin_)
+            edge_cost += cs.fmax(cs.mmax(uv[axis, :]) - limit, 0)**2
+            edge_cost += cs.fmax(-cs.mmin(uv[axis, :]) - limit, 0)**2
+        edge_cost *= float(self.support_edge_cost_)
+        base_cost += final_cost + edge_cost
+        final_cost += edge_cost
         path_cost_fn = cs.Function("path_cost_fn", [x, u, cost_param], [base_cost + control_weight * control_cost])
         final_cost_fn = cs.Function("final_cost_fn", [x, cost_param], [10 * final_cost])
         return path_cost_fn, final_cost_fn

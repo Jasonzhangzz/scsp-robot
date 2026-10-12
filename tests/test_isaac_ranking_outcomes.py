@@ -49,7 +49,7 @@ def test_trial_reward_uses_observed_success(
     bus_module.wait_trial_obs = lambda *_: observation(initial_error)
     planner_module = ModuleType('planning.mpc_explicit')
     planner_module.planner_init_payload = lambda *_: None
-    planner_module._build_mpc_planner_runtime = lambda *_: (None, None, None, {})
+    planner_module._build_mpc_planner_runtime = lambda *_: (None, param, None, {})
     planner_module.handle_mpc_request = lambda *_: {
         'rank_dt': 0.01, 'action': np.zeros(3), 'verify_chatter': False,
     }
@@ -57,7 +57,7 @@ def test_trial_reward_uses_observed_success(
     monkeypatch.setitem(sys.modules, planner_module.__name__, planner_module)
     param = SimpleNamespace(
         target_p_=np.zeros(3), target_q_=np.array([1, 0, 0, 0]),
-        lambda_optimizer=SimpleNamespace(contact_switch_confidence=1), table_height=0,
+        lambda_optimizer=SimpleNamespace(contact_switch_confidence=1, sample_point=np.zeros((1, 3))), table_height=0,
     )
     policy = {
         'value_info': {}, 'escape_on': False,
@@ -69,7 +69,7 @@ def test_trial_reward_uses_observed_success(
         'keepout': 0, 'tip_xy_r': 0, 'via_xy_r': 0, 'orbit_clips': 0,
     }
     namespace = {
-        'np': np, 'os': os, 'json': json, 'time': time,
+        'np': np, 'os': os, 'json': json, 'time': time, 'sys': sys,
         'POLICY_INTERVAL': 0.02, 'DYWA_SIM_DT': 0.002, 'ISAAC_TABLE_CLEARANCE': 0,
         'discounted_terminal_reward': discounted_terminal_reward,
         'metrics': SimpleNamespace(
@@ -84,7 +84,7 @@ def test_trial_reward_uses_observed_success(
         'adapt_param_for_cartesian_solver': lambda p, args: p,
         '_configure_rollout_param': lambda p, args: p,
         '_plan_from_obs': lambda obs, dwell: (None, obs['policy_q']),
-        '_apply_plan_result': lambda *_: policy,
+        '_apply_plan_result': lambda *a, **kw: policy,
         '_print_rollout_step': lambda *_: None,
         '_pred_reduction_from_policy': lambda *_: (None, None),
         '_clip_mpc_action': lambda action, _: action,
@@ -94,7 +94,7 @@ def test_trial_reward_uses_observed_success(
     exec(compile(ast.Module(body=[run], type_ignores=[]), str(source), 'exec'), namespace)
     output = tmp_path / 'trials.jsonl'
     args = SimpleNamespace(trial_start=0, trial_num=1, max_rollout_length=1,
-                           control_substeps=0, ranking_metrics_jsonl=str(output))
+                           control_substeps=0, obj='fixture', ranking_metrics_jsonl=str(output))
     assert namespace['run_mpc_planner'](bus, args) is aborted
     record = json.loads(output.read_text())
     assert bool(record['success']) is success

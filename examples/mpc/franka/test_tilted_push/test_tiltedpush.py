@@ -24,7 +24,6 @@ ensure_acados_env()
 from examples.mpc.fingertips.test.test_0902 import (
     ContactValueTracker,
     ModelCostConfidence,
-    SmoothedApproachVia,
     add_rollout_via_args,
 )
 from examples.mpc.franka.ik2.contact_frames import (
@@ -32,20 +31,18 @@ from examples.mpc.franka.ik2.contact_frames import (
     clip_mpc_action as _clip_mpc_action,
     clip_via_target as _clip_via_target,
     franka_nullspace_posture_torque as _franka_nullspace_posture_torque,
-    gravity_accel_with_support,
     isaac_task_force as _isaac_task_force,
     mpc_ball_trajectory as _mpc_ball_trajectory,
     near_press_force_mode as _near_press_force_mode,
     NEAR_PRESS_SWITCH as CONTACT_NEAR_PRESS,
     osc_action_task_force as _osc_action_task_force,
-    planar_support_jacobians,
     slew_mpc_action as _slew_mpc_action,
     press_normal_outward as _press_normal_outward,
     project_along_action as _project_along_action,
     remaining_along_action as _remaining_along_action,
 )
 from examples.mpc.franka.ik2.isaac_bus import joint_hold_target
-from examples.mpc.franka.ik2.params import _box_inertia_diag, build_lambda_optimizer
+from examples.mpc.franka.ik2.params import _box_inertia_diag
 from examples.mpc.franka.ik2.test_mpc_isaac import (
     AIR_VIA_STEP,
     CONTACT_FORCE_LIMIT,
@@ -53,7 +50,6 @@ from examples.mpc.franka.ik2.test_mpc_isaac import (
     FREE_SPACE_FORCE_LIMIT,
     ISAAC_ACTION_SLEW,
     ISAAC_ORBIT_EXTRA,
-    ISAAC_REF_HORIZON,
     ISAAC_TASK_KD,
     ISAAC_TASK_KP,
     ISAAC_VIA_MAX_LEAD,
@@ -78,7 +74,13 @@ from examples.mpc.franka.ik2.test_mppi_isaac import (
     _pred_reduction_from_policy,
 )
 from examples.mpc.franka.test_tilted_push.params import ExplicitMPCParams
-from planning.mpc_explicit import MPCExplicitIsaac, handle_mpc_request
+from planning.mpc_explicit import MPCExplicit, handle_mpc_request
+from planning.franka_contact_motion import FrankaApproachVia
+from models.support_geometry import mesh_support_points, support_jacobians
+from examples.mpc.franka.test_tilted_push.ramp_support import (
+    prepare_object_geometry, configure_support_objective, fit_mesh_center_on_ramp,
+    repo_asset_path,
+)
 from planning.screenshot import create_isaacgym_mp4_recorder, create_isaacgym_svg_screenshot_recorder
 from utils import metrics, rotations
 
@@ -115,7 +117,8 @@ FORCE_ARROW_HEAD_WIDTH = 0.012
 ATTACHMENT_RADIUS = 0.005
 FINGERTIP_RADIUS = 0.006
 ATTRACT_POINT_MAX_INWARD_NORMAL_WORLD_Z = 0.2
-DEFAULT_RECORD_OUTPUT_DIR = "/home/lab423/scsp/scsp-robot/outputs/videos_tilted_pushing"
+DEFAULT_RECORD_OUTPUT_DIR = str(repo_asset_path("outputs/videos_tilted_pushing"))
+DEFAULT_SVG_SCREENSHOT_DIR = str(repo_asset_path("outputs/videos_tilted_pushing/screenshots"))
 DEFAULT_AXIS_POSE_WXYZ = np.array(
     [0.42849, 0.11289, 0.38614, 0.62768, -0.10893, -0.10086, 0.76419],
     dtype=np.float32,
@@ -132,13 +135,18 @@ TILTED_RAMP_TARGET_CLEARANCE = 0.03
 TILTED_RAMP_HOLD_FRICTION_MARGIN = 0.05
 TILTED_RAMP_SETTLE_STEPS = 80
 TILTED_RAMP_SETTLE_CYCLES = 2
-DEFAULT_TARGET_RAMP_LOCAL_XY = np.array([-0.18, 0.0], dtype=np.float32)
+DEFAULT_TARGET_RAMP_LOCAL_XY = np.array([-0.16, -0.12], dtype=np.float32)
 DEFAULT_TARGET_RAMP_LOCAL_YAW_DEG = 0.0
 DEFAULT_TARGET_LOCAL_Z_ROTATION_OFFSET_RAD = np.pi / 3.0
-DEFAULT_INIT_RAMP_LOCAL_XY = np.array([-0.24, -0.14], dtype=np.float32)
+DEFAULT_INIT_RAMP_LOCAL_XY = np.array([-0.16, 0.13], dtype=np.float32)
 DEFAULT_INIT_RAMP_LOCAL_XY_JITTER = np.array([0.02, 0.02], dtype=np.float32)
 DEFAULT_SPHERE_MESH_SCALE = np.array([0.08, 0.08, 0.08], dtype=np.float32)
-DEFAULT_TARGET_WORLD_OFFSET_FROM_INIT = np.array([0.0, -0.10, 0.10], dtype=np.float32)
+# A 25 cm uphill displacement in the ramp tangent frame. Starting on the
+# downhill half leaves room for this target without clipping it to the rim.
+DEFAULT_TARGET_WORLD_OFFSET_FROM_INIT = np.array(
+    [0.0, -0.25 * np.cos(TILTED_RAMP_ROLL_RAD), -0.25 * np.sin(TILTED_RAMP_ROLL_RAD)],
+    dtype=np.float32,
+)
 DEFAULT_POSITION_ONLY_GOAL = True
 DEFAULT_SET_TO_GOAL_POSE = False
 DEFAULT_SET_TO_GOAL_POSE_XYZ_NOISE = np.array([0.01, 0.01, 0.005], dtype=np.float32)
@@ -445,12 +453,15 @@ def _apply_tilted_ramp_scene_to_param(
     param.support_surface_point_ = np.asarray(ramp_config["surface_center"], dtype=np.float32).copy()
     param.support_surface_normal_ = np.asarray(ramp_config["surface_normal"], dtype=np.float32).copy()
     param.support_surface_min_height_ = float(ramp_config["surface_min_height"])
+    param.support_surface_tangents_ = ramp_config["rotation"].as_matrix()[:, :2].T.copy()
+    param.support_surface_half_extents_ = .5 * np.asarray(ramp_config["size"][:2], dtype=float)
     param.project_mpc_action_to_support_tangent_ = False
     param.mpc_action_support_normal_ = np.asarray(ramp_config["surface_normal"], dtype=np.float32).copy()
     gravity = np.asarray(getattr(param, "gravity_", np.zeros(6)), dtype=np.float64).reshape(-1)
     if gravity.size < 6:
         gravity = np.hstack([gravity[:3], np.zeros(max(0, 6 - int(gravity.size)), dtype=np.float64)])
-    gravity[:3] = gravity_accel_with_support(gravity[:3], param.support_surface_normal_)
+    # Keep full gravity. Support reactions and friction are generated by the
+    # finite contact patches, including their off-centre moment arms.
     param.gravity_ = gravity.astype(np.float64)
 
     init_ramp_local_xy_seed = DEFAULT_INIT_RAMP_LOCAL_XY.astype(np.float32).copy()
@@ -467,6 +478,14 @@ def _apply_tilted_ramp_scene_to_param(
         object_surface_clearance,
     )
     init_quat_wxyz = _compose_quat_wxyz(ramp_config["quat_wxyz"], param.init_obj_qpos_[3:7])
+    init_rotation = Rotation.from_quat(init_quat_wxyz[[1, 2, 3, 0]]).as_matrix()
+    fitted_xy = fit_mesh_center_on_ramp(param, init_ramp_local_xy, init_rotation)
+    shift = (fitted_xy - init_ramp_local_xy) @ param.support_surface_tangents_
+    init_pos_world += shift
+    init_surface_point += shift
+    init_ramp_local_xy = fitted_xy
+    lowest = np.min((param.support_vertices_ @ init_rotation.T) @ param.support_surface_normal_)
+    init_pos_world += max(0., .002 - lowest - object_surface_clearance) * param.support_surface_normal_
     param.init_obj_qpos_ = np.hstack([init_pos_world, init_quat_wxyz]).astype(np.float32)
     param.init_xy_rand_ = init_surface_point[:2].astype(np.float32).copy()
     param.init_ramp_local_xy_seed_ = np.asarray(init_ramp_local_xy_seed, dtype=np.float32).copy()
@@ -509,6 +528,17 @@ def _apply_tilted_ramp_scene_to_param(
             goal_pose_on_ramp["local_quat_wxyz"],
             local_z_offset_quat_wxyz,
         ).astype(np.float32)
+
+    if use_default_target_position:
+        # The target COM must clear its actual mesh. Position-only pushing
+        # keeps the initial support orientation; target yaw is unconstrained.
+        support_quat = init_quat_wxyz if param.position_only_goal_ else param.target_q_
+        support_rotation = Rotation.from_quat(support_quat[[1, 2, 3, 0]]).as_matrix()
+        fitted_xy = fit_mesh_center_on_ramp(param, param.target_ramp_local_xy_, support_rotation)
+        param.target_surface_point_ += (fitted_xy - param.target_ramp_local_xy_) @ param.support_surface_tangents_
+        param.target_ramp_local_xy_ = fitted_xy
+        height = -np.min((param.support_vertices_ @ support_rotation.T) @ param.support_surface_normal_)
+        param.target_p_ = param.target_surface_point_ + height * param.support_surface_normal_
 
     if bool(getattr(param, "set_to_goal_pose_", False)):
         random_generator = getattr(param, "random_generator_", None)
@@ -1047,10 +1077,13 @@ def _apply_dywa_physics_to_param(param):
     param.ramp_friction_ = max(float(param.table_friction_), hold_mu)
     param.object_friction_ = ROLLOUT_OBJECT_FRICTION
     param.fingertip_friction_ = float(ROLLOUT_FINGERTIP_FRICTION)
+    # PhysX's default material combine mode averages the two shape frictions.
+    param.support_friction_ = .5 * (param.ramp_friction_ + param.object_friction_)
+    param.contact_friction_ = .5 * (param.fingertip_friction_ + param.object_friction_)
     rollout_mass = float(getattr(param, "lambda_obj_mass_", 0.01))
     param.sim_obj_mass_ = rollout_mass
     param.obj_mass_ = rollout_mass
-    param.mu_object_ = float(param.object_friction_)
+    param.mu_object_ = param.contact_friction_
     param.sim_obj_inertia_diag_ = _box_inertia_diag(
         rollout_mass,
         getattr(param, "object_aabb_lo", np.array([-0.03, -0.03, -0.03])),
@@ -1107,7 +1140,7 @@ def _build_mpc_trackers(args):
             eps=float(getattr(args, "model_cost_error_eps", 1e-6)),
             min_steps=int(getattr(args, "model_cost_error_min_steps", 3)),
         ),
-        "approach_via": SmoothedApproachVia(
+        "approach_via": FrankaApproachVia(
             rate=float(getattr(args, "via_smooth_rate", ISAAC_VIA_SMOOTH_RATE)),
             max_step=via_step,
             max_lead=via_lead,
@@ -1459,92 +1492,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
 
         return asset_root, dst_rel
 
-    def _prepare_mesh_urdf_assets(
-        self,
-        repo_root,
-        mesh_path,
-        visual_mesh_path=None,
-        mass=0.01,
-        inertia_diag=None,
-    ):
-        if mesh_path is None:
-            raise ValueError("param.mesh_path_ is required for Isaac object asset loading")
-
-        mesh_abs_path = mesh_path if os.path.isabs(mesh_path) else os.path.join(repo_root, mesh_path)
-        mesh_abs_path = os.path.abspath(mesh_abs_path)
-        if not os.path.isfile(mesh_abs_path):
-            raise FileNotFoundError(f"Mesh file not found: {mesh_abs_path}")
-        visual_src = visual_mesh_path or mesh_path
-        visual_abs_path = visual_src if os.path.isabs(visual_src) else os.path.join(repo_root, visual_src)
-        visual_abs_path = os.path.abspath(visual_abs_path)
-        if not os.path.isfile(visual_abs_path):
-            visual_abs_path = mesh_abs_path
-
-        mesh_asset_root = os.path.join(repo_root, "envs", "assets", "objects", "_isaac_tmp")
-        os.makedirs(mesh_asset_root, exist_ok=True)
-        mesh_rel_to_urdf = os.path.relpath(mesh_abs_path, mesh_asset_root)
-        visual_rel_to_urdf = os.path.relpath(visual_abs_path, mesh_asset_root)
-        mesh_scale_vec = np.asarray(
-            getattr(self.param_, "obj_mesh_scale_", np.ones(3, dtype=np.float32)),
-            dtype=np.float32,
-        ).reshape(3)
-        mesh_scale = " ".join(f"{float(v):.8g}" for v in mesh_scale_vec)
-        obj_urdf_rel = "obj_mesh_dynamic.urdf"
-        obj_urdf_abs = os.path.join(mesh_asset_root, obj_urdf_rel)
-        target_urdf_rel = "obj_mesh_target_ghost.urdf"
-        target_urdf_abs = os.path.join(mesh_asset_root, target_urdf_rel)
-        if inertia_diag is None:
-            inertia_diag = (1.5e-6, 1.5e-6, 1.5e-6)
-        ixx, iyy, izz = [float(v) for v in np.asarray(inertia_diag, dtype=np.float64).reshape(3)]
-        mass = float(mass)
-
-        obj_urdf = f"""<?xml version="1.0"?>
-<robot name="mesh_obj">
-  <link name="base">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="{mass}"/>
-      <inertia ixx="{ixx}" ixy="0" ixz="0" iyy="{iyy}" iyz="0" izz="{izz}"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="{visual_rel_to_urdf}" scale="{mesh_scale}"/>
-      </geometry>
-      <material name="obj_color">
-        <color rgba="0.2 0.6 1.0 1.0"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="{mesh_rel_to_urdf}" scale="{mesh_scale}"/>
-      </geometry>
-    </collision>
-  </link>
-</robot>
-"""
-        ghost_urdf = f"""<?xml version="1.0"?>
-<robot name="mesh_target_ghost">
-  <link name="base">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="{visual_rel_to_urdf}" scale="{mesh_scale}"/>
-      </geometry>
-      <material name="ghost_color">
-        <color rgba="0.95 0.95 0.95 0.35"/>
-      </material>
-    </visual>
-  </link>
-</robot>
-"""
-        with open(obj_urdf_abs, "w", encoding="ascii") as f:
-            f.write(obj_urdf)
-        with open(target_urdf_abs, "w", encoding="ascii") as f:
-            f.write(ghost_urdf)
-
-        return obj_urdf_rel, target_urdf_rel, mesh_asset_root
+    # Object meshes are scaled before scene creation. Use the shared asset
+    # cache and collision-part API inherited from IsaacFrankaSimulator.
 
     @staticmethod
     def _prepare_force_cylinder_urdf_asset(repo_root):
@@ -1842,8 +1791,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
     def _simulate_once(self, sync_realtime=False, draw=True):
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
+        self._contact_info_cache = None
         if draw:
-            self._contact_info_cache = None
             self._sync_pose_axes()
 
         graphics_stepped = False
@@ -2155,6 +2104,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
 
     def _compute_osc_torques(self):
         self._refresh_osc_tensors()
+        force_limit = float(getattr(self.param_, 'contact_force_limit_', CONTACT_FORCE_LIMIT))
+        in_contact, contact_n = self._fingertip_contact_info()
 
         q = self.get_current_joint_position()
         qd = np.clip(np.nan_to_num(self.get_current_joint_velocity(), nan=0.0), -8.0, 8.0)
@@ -2163,13 +2114,13 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         vel = np.clip(jac_p @ qd, -2.0, 2.0)
         err = np.asarray(self.position_d - p_curr, dtype=np.float32).reshape(3)
         action = getattr(self, "_mpc_action", None)
-        if action is None:
+        if action is None and not in_contact:
             action = getattr(self, "_last_mpc_action", None)
         p0 = getattr(self, "_mpc_p0", None)
         if action is not None and p0 is not None:
             remain = _remaining_along_action(p_curr, p0, action)
             v_ref = _project_along_action(
-                np.asarray(action, dtype=np.float64) / ISAAC_REF_HORIZON, action)
+                np.asarray(action, dtype=np.float64) / max(float(getattr(self, '_mpc_T', POLICY_INTERVAL)), 1e-6), action)
         else:
             remain = err
             v_ref = None
@@ -2181,17 +2132,16 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         if action is not None:
             force_track = _project_along_action(force_track, action)
             force_contact = _isaac_task_force(
-                action, vel, v_ref=None,
+                action, vel, v_ref=None if in_contact else v_ref,
                 k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
-                limit=CONTACT_FORCE_LIMIT,
+                limit=force_limit,
             )
         else:
             force_contact = _isaac_task_force(
-                err, vel, v_ref=None,
+                err, vel, v_ref=None if in_contact else v_ref,
                 k_task=ISAAC_TASK_KP, d_task=ISAAC_TASK_KD,
-                limit=CONTACT_FORCE_LIMIT,
+                limit=force_limit,
             )
-        in_contact, contact_n = self._fingertip_contact_info()
         press = getattr(self, "_mpc_press", None)
         state_fn = getattr(self, "get_state", None)
         obj = None if state_fn is None else np.asarray(state_fn()[:3], dtype=np.float64)
@@ -2201,7 +2151,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             bool(getattr(self, "_path_blocked", False)),
             contact_n_outward=_press_normal_outward(
                 p_curr, press, fallback=contact_n),
-            contact_limit=CONTACT_FORCE_LIMIT,
+            contact_limit=force_limit,
         )
         self._last_osc_force = np.asarray(force, dtype=np.float32).reshape(3)
         self._last_osc_pd = np.asarray(self.position_d, dtype=np.float32).reshape(3)
@@ -2471,26 +2421,12 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
 
 
 class ContactIsaacRamp(ContactIsaacCartesian):
-    """ik2 fingertip signed-gap detector, with one ramp plane instead of a table."""
-
-    @staticmethod
-    def _first_free_contact_row(phi_vec, max_ncon):
-        for row_idx in range(int(max_ncon)):
-            if np.allclose(phi_vec[4 * row_idx : 4 * row_idx + 4], 1.0):
-                return row_idx
-        return int(max_ncon)
-
-    def _planar_ramp_jacobians(self, obj_pos, r_obj_to_world, nv, mu, skew_fn):
-        point, normal = _support_plane(self.param_)
-        return planar_support_jacobians(
-            obj_pos, r_obj_to_world, point, normal, nv, mu, skew_fn=skew_fn
-        )
+    """Measured finger plus mesh support on the finite tilted ramp."""
 
     def detect_once(self, simulator):
         saved_table_idx = simulator.table_body_idx
         saved_table_height = self.param_.table_height
         try:
-            # Hide the flat-table plane so ik2 only fills fingertip signed-gap rows.
             simulator.table_body_idx = -1
             self.param_.table_height = -1.0e6
             phi_vec, jac_mat, con_pos_list, jac_mat_env, if_contact = super().detect_once(simulator)
@@ -2498,37 +2434,40 @@ class ContactIsaacRamp(ContactIsaacCartesian):
             simulator.table_body_idx = saved_table_idx
             self.param_.table_height = saved_table_height
 
-        full_q = np.asarray(simulator.get_state(), dtype=np.float32)
-        obj_pos = full_q[0:3]
-        obj_quat_wxyz = full_q[3:7]
-        quat_xyzw = np.array(
-            [obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]],
-            dtype=np.float32,
-        )
-        r_obj_to_world = Rotation.from_quat(quat_xyzw).as_matrix()
-        dist_ramp = _support_signed_distance(self.param_, obj_pos)
-        # COM-to-plane is typically 2–4 cm on foam_brick, so the old
-        # ``dist < 0.02`` gate dropped the ramp row and left J_tilde = 0.
-        # Lambda then ranked top / edge samples as a gravity jack.
-        con_jac_table, con_jac_body, con_pos_local, _dist = self._planar_ramp_jacobians(
-            obj_pos, r_obj_to_world, self.param_.n_qvel_, float(self.param_.mu_object_), simulator._skew
-        )
-        jac_mat_env[0:4, :6] = con_jac_body
-        con_pos_list.append(np.asarray(con_pos_local, dtype=np.float32))
-        # Same plane row for MPC ``jac_mat`` (world frame) as lambda
-        # ``jac_mat_env`` (body frame).  Do not gate on COM height: foam_brick
-        # sits 2–4 cm above the plane and would otherwise fall in the model.
-        row_idx = self._first_free_contact_row(phi_vec, self.param_.max_ncon_)
-        if row_idx < self.param_.max_ncon_:
-            phi_vec[4 * row_idx : 4 * row_idx + 4] = min(max(dist_ramp, 0.0), 0.02)
-            jac_mat[4 * row_idx : 4 * row_idx + 4, :] = con_jac_table
+        # Parent returns mixed world-linear/body-angular rows already. Keep
+        # only the finger; rebuild all environment rows and their gaps together.
+        blocks = jac_mat.reshape(-1, 4, self.param_.n_qvel_)
+        free = np.flatnonzero(np.sum(blocks[:, :, 6:]**2, axis=(1, 2)) == 0)
+        for slot in free:
+            phi_vec[4*slot:4*slot+4] = 1.
+            blocks[slot] = 0.
+        jac_mat_env[:] = 0.
+        self.env_phi[:] = 1.
+        con_pos_list = []
+        state = np.asarray(simulator.get_state(), dtype=float)
+        position = state[:3]
+        rotation = Rotation.from_quat(state[[4, 5, 6, 3]]).as_matrix()
+        point, normal = _support_plane(self.param_)
+        support = mesh_support_points(
+            self.param_.support_vertices_, position, rotation, point, normal,
+            tangents=self.param_.support_surface_tangents_,
+            half_extents=self.param_.support_surface_half_extents_,
+            edges=self.param_.support_edges_, max_points=min(4, len(free)))
+        for index, (slot, patch) in enumerate(zip(free, support)):
+            rows, body = support_jacobians(position, rotation, patch,
+                self.param_.n_qvel_, self.param_.support_friction_, normal)
+            gap = float(np.dot(patch - point, normal))
+            blocks[slot] = rows
+            phi_vec[4*slot:4*slot+4] = gap
+            jac_mat_env[4*index:4*index+4, :6] = body
+            self.env_phi[4*index:4*index+4] = gap
+            con_pos_list.append(rotation.T @ (patch-position))
         return phi_vec, jac_mat, con_pos_list, jac_mat_env, if_contact
 
 
 def adapt_param_for_cartesian_solver(param, args):
     args.solver = "acados"
-    if getattr(param, "lambda_optimizer", None) is None:
-        param.lambda_optimizer = build_lambda_optimizer(param, args)
+    # ik2 builds Lambda after the ramp scene and its material/scale setup.
     param = _adapt_ik2_cartesian_solver(param, args)
     z_lo = float(getattr(param, "support_surface_min_height_", param.table_height)) - 0.01
     param.mpc_q_lb_ = np.hstack((
@@ -2795,7 +2734,12 @@ def main():
         help="when true, turn best_force_lam into an end-effector desired force target during real execution (true/false)",
     )
     parser.add_argument("--cartesian-step", type=float, default=0.1, help="bound of xyz delta action per MPC step")
-    parser.add_argument("--cartesian-joint-stiffness", type=float, default=100.0, help="internal stiffness used in explicit model")
+    parser.add_argument("--cartesian-joint-stiffness", type=float, default=ISAAC_TASK_KP, help="legacy option; prediction uses the OSC contact gain")
+    parser.add_argument("--pose-upright-coef", type=float, default=20.0)
+    parser.add_argument("--pose-tilt-limit-deg", type=float, default=10.0)
+    parser.add_argument("--pose-tilt-barrier-coef", type=float, default=2000.0)
+    parser.add_argument("--ramp-edge-margin", type=float, default=TILTED_RAMP_EDGE_MARGIN)
+    parser.add_argument("--ramp-edge-cost", type=float, default=2000.0)
     parser.add_argument("--cartesian-dls-lambda", type=float, default=1e-4, help="damped least squares term for J^+")
     parser.add_argument("--osc-pos-stiffness", type=float, default=12000.0, help="Cartesian position stiffness used by the Isaac OSC tracker")
     parser.add_argument("--osc-ori-stiffness", type=float, default=0.0, help="Cartesian orientation stiffness used by the Isaac OSC tracker")
@@ -2811,7 +2755,7 @@ def main():
         type=float,
         default=ISAAC_VIA_MAX_LEAD,
         help="Max via/press offset from the current fingertip (m).  "
-             "Same 3 mm carrot as ik2 test_mpc_isaac.py.",
+             "Default matches the 5 mm Cartesian policy increment.",
     )
     parser.add_argument("--via-max-step", type=float, default=ISAAC_VIA_MAX_STEP)
     parser.add_argument("--via-smooth-rate", type=float, default=ISAAC_VIA_SMOOTH_RATE)
@@ -2837,7 +2781,7 @@ def main():
     parser.add_argument(
         "--svg-screenshot-dir",
         type=str,
-        default="/home/lab423/scsp/scsp-robot/examples/mpc/franka/ik2/figs",
+        default=DEFAULT_SVG_SCREENSHOT_DIR,
         help="Directory to save Isaac Gym SVG screenshots. Leave empty to disable periodic capture.",
     )
     parser.add_argument(
@@ -2897,9 +2841,13 @@ def main():
     parser.add_argument(
         "--print-object-pose-interval",
         type=int,
-        default=1,
+        default=10,
         help="Print object pose every N rollout steps.",
     )
+    parser.add_argument("--diagnostic-interval", type=int, default=50,
+                        help="Print planner/OSC diagnostics every N policy steps; 0 disables them.")
+    parser.add_argument("--traj-snapshot-interval", type=int, default=50,
+                        help="Save trajectory snapshots every N samples; final/interrupt saves are immediate.")
     parser.add_argument(
         "--success_pos_threshold",
         "--success-pos-threshold",
@@ -3019,6 +2967,8 @@ def main():
         else:
             param.object_surface_clearance_ = float(TILTED_RAMP_INIT_CLEARANCE)
             param.target_surface_clearance_ = float(TILTED_RAMP_TARGET_CLEARANCE)
+        prepare_object_geometry(param)
+        param.support_edge_margin_ = float(args.ramp_edge_margin)
         param = _apply_dywa_physics_to_param(param)
         param = _apply_tilted_ramp_scene_to_param(
             param,
@@ -3030,6 +2980,7 @@ def main():
             position_only_goal=bool(args.position_only_goal),
             target_local_z_rotation_offset_rad=float(args.target_local_z_rotation_offset),
         )
+        configure_support_objective(param, args)
         param.use_jax_contact_ = False
         param = adapt_param_for_cartesian_solver(param, args)
         param = _configure_rollout_param(param, args)
@@ -3165,8 +3116,11 @@ def main():
             nonlocal saved_traj_path, last_traj_snapshot_sample_count
             if traj_output_path is None:
                 return None
-            if (not force) and last_traj_snapshot_sample_count == len(rollout_q_traj):
-                return saved_traj_path
+            if not force:
+                interval = max(1, int(args.traj_snapshot_interval))
+                if (last_traj_snapshot_sample_count >= 0
+                        and len(rollout_q_traj) - last_traj_snapshot_sample_count < interval):
+                    return saved_traj_path
 
             saved_traj_path = record_traj(
                 rollout_q_traj,
@@ -3197,7 +3151,7 @@ def main():
             env.set_axis_pose(axis_pose_wxyz)
             env.hold_current_pose()
 
-            mpc = MPCExplicitIsaac(param)
+            mpc = MPCExplicit(param, cost_kind="param")
             trackers = _build_mpc_trackers(args)
             mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
             via_step = getattr(args, "via_max_step", None)
@@ -3256,6 +3210,8 @@ def main():
                     env, contact, table_ground,
                 )
                 payload["floor_z"] = floor_z
+                payload["sim_time"] = float(env.gym.get_sim_time(env.sim))
+                payload["object_linear_velocity"], payload["object_angular_velocity"] = env.get_object_velocity_world()
                 payload["support_point"] = np.asarray(
                     getattr(param, "support_surface_point_", np.array([0.0, 0.0, floor_z])),
                     dtype=np.float64,
@@ -3272,7 +3228,9 @@ def main():
                     )
                 result = handle_mpc_request(args, param, mpc, trackers, payload)
                 last_result = result
-                policy = _apply_plan_result(param, None, result, curr_q, _print_rollout_step)
+                show_diagnostics = args.diagnostic_interval > 0 and rollout_step % args.diagnostic_interval == 0
+                policy = _apply_plan_result(param, None, result, curr_q, _print_rollout_step,
+                                            verbose=show_diagnostics)
                 c_now_cost, pred_reduction = _pred_reduction_from_policy(param, curr_q, policy)
                 last_accept_p_arm = bool(policy["value_info"].get("accept_p_arm", False))
                 escape_on = bool(policy["escape_on"])
@@ -3293,28 +3251,29 @@ def main():
                 for i in range(n_substeps):
                     last = (i + 1 == n_substeps)
                     env.step_control_frame(
-                        draw=last or env.video_recorder_ is not None,
+                        draw=last,
                         sync_realtime=last,
                     )
-                print(
-                    "diag_push:",
-                    "step:", rollout_step,
-                    "obj:", np.round(np.asarray(curr_q[:3], dtype=float), 4).tolist(),
-                    "tip:", np.round(np.asarray(curr_q[7:10], dtype=float), 4).tolist(),
-                    "via:", np.round(exec_via, 4).tolist(),
-                    "p_arm:", np.round(np.asarray(policy["p_arm_world"], dtype=float), 4).tolist(),
-                    "best:", np.round(np.asarray(policy["best_contact_world"], dtype=float), 4).tolist(),
-                    "action:", np.round(action, 4).tolist(),
-                    "floor_z:", round(float(floor_z), 4),
-                    "ramp_tip:", round(_support_surface_z(param, curr_q[7:10]), 4),
-                    "verify:", None if result.get("verify_cost") is None else round(float(result["verify_cost"]), 4),
-                    "conf:", round(float(param.lambda_optimizer.contact_switch_confidence), 3),
-                    "tight:", round(float(result.get("model_tightness", 0.0)), 3),
-                    "accept:", int(bool(policy["value_info"].get("accept_p_arm", False))),
-                    "blocked:", int(bool((policy.get("value_info") or {}).get("path_blocked", False))),
-                    "phase:", (policy.get("value_info") or {}).get("via_phase"),
-                    "dwell:", int(getattr(param.lambda_optimizer, "_dwell_steps", 0)),
-                )
+                if show_diagnostics:
+                    print(
+                        "diag_push:",
+                        "step:", rollout_step,
+                        "obj:", np.round(np.asarray(curr_q[:3], dtype=float), 4).tolist(),
+                        "tip:", np.round(np.asarray(curr_q[7:10], dtype=float), 4).tolist(),
+                        "via:", np.round(exec_via, 4).tolist(),
+                        "p_arm:", np.round(np.asarray(policy["p_arm_world"], dtype=float), 4).tolist(),
+                        "best:", np.round(np.asarray(policy["best_contact_world"], dtype=float), 4).tolist(),
+                        "action:", np.round(action, 4).tolist(),
+                        "floor_z:", round(float(floor_z), 4),
+                        "ramp_tip:", round(_support_surface_z(param, curr_q[7:10]), 4),
+                        "verify:", None if result.get("verify_cost") is None else round(float(result["verify_cost"]), 4),
+                        "conf:", round(float(param.lambda_optimizer.contact_switch_confidence), 3),
+                        "tight:", round(float(result.get("model_tightness", 0.0)), 3),
+                        "accept:", int(bool(policy["value_info"].get("accept_p_arm", False))),
+                        "blocked:", int(bool((policy.get("value_info") or {}).get("path_blocked", False))),
+                        "phase:", (policy.get("value_info") or {}).get("via_phase"),
+                        "dwell:", int(getattr(param.lambda_optimizer, "_dwell_steps", 0)),
+                    )
                 rollout_step += 1
 
             if last_result is not None:
@@ -3334,6 +3293,7 @@ def main():
                 if saved_video_path is not None:
                     print(f"[trial {trial_count:03d}] saved mp4: {saved_video_path}")
 
+            _save_traj_snapshot(force=True)
             success_rate += 1 if trial_success else 0
         except Exception as exc:
             print(

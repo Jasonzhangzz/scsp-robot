@@ -22,7 +22,8 @@ def attached_point_cs(state, reference_pose, point_world):
         rotation_cs(reference_pose[3:7]).T @ (point_world-reference_pose[:3]))
 
 
-def contact_geometry_cs(state, reference, phi, jacobian):
+def contact_geometry_cs(state, reference, phi, jacobian, *, support_point=None,
+                        support_tangents=None, support_half_extents=None):
     """Refresh measured patch gaps AND moment arms inside the dynamics graph.
 
     Linear velocities are world-frame, angular velocities body-frame. Table
@@ -58,7 +59,15 @@ def contact_geometry_cs(state, reference, phi, jacobian):
         finger_gap = cs.dot(new_normal, state[:3]+world_lever-state[7:10]) - cs.dot(
             normal[:3].T, reference[:3]+observed@lever-reference[7:10])
         change = cs.if_else(finger, finger_gap, cs.dot(normal[:3].T, delta))
-        gaps.append(phi[start:start+4] + cs.repmat(change, 4, 1))
+        gap = phi[start:start+4] + cs.repmat(change, 4, 1)
+        if support_half_extents is not None:
+            uv = cs.DM(support_tangents) @ (state[:3] + world_lever - cs.DM(support_point))
+            inside = cs.logic_and(cs.fabs(uv[0]) <= support_half_extents[0],
+                                  cs.fabs(uv[1]) <= support_half_extents[1])
+            active = cs.logic_or(finger, inside)
+            rows[-1] = cs.if_else(active, rows[-1], cs.DM.zeros(4, jacobian.size2()))
+            gap = cs.if_else(active, gap, cs.DM.ones(4))
+        gaps.append(gap)
     return cs.vertcat(*gaps), cs.vertcat(*rows)
 
 
@@ -104,7 +113,8 @@ def attached_point_torch(state, reference_pose, point_world):
         rotation_torch(reference_pose[3:7]).T @ (point_world-reference_pose[:3]))
 
 
-def contact_geometry_torch(state, reference, phi, jacobian):
+def contact_geometry_torch(state, reference, phi, jacobian, *, support_point=None,
+                           support_tangents=None, support_half_extents=None):
     import torch
     rotation, observed = rotation_torch(state[3:7]), rotation_torch(reference[3:7])
     gaps, rows = [], []
@@ -126,39 +136,42 @@ def contact_geometry_torch(state, reference, phi, jacobian):
         finger_gap = torch.dot(directions.mean(dim=0), state[:3]+world_lever-state[7:10]) - torch.dot(
             normal[:3], reference[:3]+observed@lever-reference[7:10])
         change = torch.where(finger, finger_gap, torch.dot(normal[:3], delta))
-        gaps.append(phi[start:start+4] + change)
+        gap = phi[start:start+4] + change
+        if support_half_extents is not None:
+            point = torch.as_tensor(support_point, device=state.device, dtype=state.dtype)
+            tangents = torch.as_tensor(support_tangents, device=state.device, dtype=state.dtype)
+            bounds = torch.as_tensor(support_half_extents, device=state.device, dtype=state.dtype)
+            inside = torch.all(torch.abs(tangents @ (state[:3]+world_lever-point)) <= bounds)
+            active = finger | inside
+            rows[-1] = torch.where(active, rows[-1], torch.zeros_like(rows[-1]))
+            gap = torch.where(active, gap, torch.ones_like(gap))
+        gaps.append(gap)
     return torch.cat(gaps), torch.cat(rows)
 
 
-def refresh_table_support(vertices, state, phi, jacobian, floor_z, mu):
-    """Build the plane footprint at a horizon linearization point.
-
-    Transport the measured finger independently. New table support points
-    come from the collision hull; a rolling body must not remain constrained
-    to the table patches observed at the start of the horizon.
-    """
+def refresh_table_support(vertices, state, phi, jacobian, floor_z, mu, *,
+                          support_point=None, support_normal=(0., 0., 1.),
+                          support_tangents=None, support_half_extents=None, support_edges=None):
+    """Refresh the collision-hull footprint on a horizontal or finite tilted plane."""
     import numpy as np
     from scipy.spatial.transform import Rotation
-    state, vertices = np.asarray(state), np.asarray(vertices)
+    from models.support_geometry import mesh_support_points, support_jacobians
+    state = np.asarray(state)
     rotation = Rotation.from_quat(state[[4, 5, 6, 3]]).as_matrix()
-    world = vertices @ rotation.T + state[:3]
-    band = world[:, 2] <= world[:, 2].min() + .001
+    point = np.array([0., 0., floor_z]) if support_point is None else np.asarray(support_point)
+    normal = np.asarray(support_normal, dtype=float)
+    normal /= np.linalg.norm(normal)
     blocks = np.asarray(jacobian).reshape(-1, 4, 9)
     slots = np.flatnonzero((blocks[:, :, 6:]**2).sum(axis=(1, 2)) == 0)
     rows, gaps = np.asarray(jacobian).copy(), np.asarray(phi).copy()
     for slot in slots:
         rows[4*slot:4*slot+4] = 0.
         gaps[4*slot:4*slot+4] = 1.
-    directions = np.array([[mu,0,1], [0,mu,1], [-mu,0,1], [0,-mu,1]])
-    selected = int(world[:,2].argmin())
-    distance = np.full(len(vertices), np.inf)
-    for slot in slots[:4]:
-        block = rows[4*slot:4*slot+4]
-        block[:, :3] = directions
-        block[:, 3:6] = np.cross(vertices[selected], directions @ rotation)
-        gaps[4*slot:4*slot+4] = world[selected,2] - floor_z
-        distance = np.minimum(distance, ((world[:,:2]-world[selected,:2])**2).sum(axis=1))
-        selected = int(np.where(band, distance, -1.).argmax())
-        if distance[selected] <= .002**2:
-            break
+    patches = mesh_support_points(vertices, state[:3], rotation, point, normal,
+        tangents=support_tangents, half_extents=support_half_extents,
+        edges=support_edges, max_points=min(4, len(slots)))
+    for slot, patch in zip(slots, patches):
+        block, _ = support_jacobians(state[:3], rotation, patch, 9, mu, normal)
+        rows[4*slot:4*slot+4] = block
+        gaps[4*slot:4*slot+4] = np.dot(patch-point, normal)
     return gaps, rows
