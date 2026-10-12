@@ -85,6 +85,30 @@ def object_cost_np(pose, target, config):
                  + c[2]*up + barrier)
 
 
+def object_cost_batch_np(poses, target, config):
+    """Evaluate the same objective on candidate rows without Python calls."""
+    poses = np.asarray(poses, dtype=float).reshape(-1, 7)
+    target, c = np.asarray(target, dtype=float), np.asarray(config, dtype=float)
+    qnorm = np.linalg.norm(poses[:, 3:7], axis=1)
+    tnorm = np.linalg.norm(target[3:7])
+    valid = np.isfinite(poses).all(axis=1) & (qnorm >= 1e-12)
+    if not np.isfinite(target[:7]).all() or tnorm < 1e-12:
+        return np.full(len(poses), np.inf)
+    q = poses[:, 3:7] / np.maximum(qnorm[:, None], 1e-12)
+    axis = c[3:6] + 2*np.cross(q[:, 1:], np.cross(q[:, 1:], c[3:6]) + q[:, :1]*c[3:6])
+    up = .5*(1-np.clip(np.sum(axis*c[6:9], axis=1), -1, 1))
+    delta = poses[:, :3]-target[:3]
+    position, barrier = np.sum(delta**2, axis=1), 0.
+    if c.size >= OBJECT_COST_CONFIG_SIZE:
+        if c[9] > 0:
+            planar = delta-np.sum(delta*c[6:9], axis=1, keepdims=True)*c[6:9]
+            position = np.maximum(np.linalg.norm(planar, axis=1)-c[9], 0.)**2
+        barrier = c[11]*np.maximum(2*up-c[10], 0.)**2
+    cost = (c[0]*position + c[1]*(1-np.clip(np.sum(q*(target[3:7]/tnorm), axis=1), -1, 1)**2)
+            + c[2]*up + barrier)
+    return np.where(valid, cost, np.inf)
+
+
 def object_cost_cs(pose, target, config):
     import casadi as cs
     q = pose[3:7] / cs.sqrt(cs.sumsqr(pose[3:7]) + 1e-12)

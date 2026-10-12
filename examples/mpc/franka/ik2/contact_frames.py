@@ -465,13 +465,14 @@ def planar_support_jacobians(obj_pos, r_obj_to_world, support_point, support_nor
     return con_jac, con_jac_body, con_pos_local, dist
 
 
-def mesh_table_contact_points(obj_pos, rotation, vertices, contact_band=.001, max_points=4):
+def mesh_table_contact_points(obj_pos, rotation, vertices, contact_band=.001, max_points=4, world_vertices=None):
     """Separated points on the lowest collision-mesh patch, in world space.
 
     Keep the support lever arms: replacing the patch by the COM projection
     loses the pivot that converts an off-center downward press into rotation.
     """
-    world = np.asarray(vertices, dtype=float) @ np.asarray(rotation).T + np.asarray(obj_pos)
+    world = (np.asarray(vertices, dtype=float) @ np.asarray(rotation).T + np.asarray(obj_pos)
+             if world_vertices is None else np.asarray(world_vertices))
     lowest = float(world[:, 2].min())
     cloud = world[world[:, 2] <= lowest + float(contact_band)]
     selected = [int(np.argmin(cloud[:, 2]))]

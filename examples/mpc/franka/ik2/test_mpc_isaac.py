@@ -8,6 +8,10 @@ import time
 def main():
     """Dispatch before importing the planner, which the child loads separately."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(script_dir, "../../../.."))
+    sys.path.insert(0, repo_root)
+    from planning.cpu_runtime import configure_compute_threads
+    configure_compute_threads()
     os.environ.pop("SCSP_PLANNER_ONLY", None)
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument('--physics-backend', choices=('isaac', 'mjwarp'), default='isaac')
@@ -1674,7 +1678,7 @@ class ContactIsaacCartesian:
             if vertices is None:
                 support_points = np.array([[obj_pos[0], obj_pos[1], table_height]])
             else:
-                support_points = mesh_table_contact_points(obj_pos, r_obj_to_world, vertices)
+                support_points = mesh_table_contact_points(obj_pos, r_obj_to_world, vertices, world_vertices=world_vertices)
             # One coupled contact per separated support point. Lambda sees
             # the same support geometry/gaps as MPC, excluding the fingertip.
             for env_idx, point in enumerate(support_points):
@@ -2486,6 +2490,12 @@ def _add_rollout_policy_args(parser):
         action="store_false",
         help="Rank+MPC in the Isaac process (debug).",
     )
+    parser.add_argument("--compute-threads", type=int, default=None,
+                        help="Numerical library threads; default 1 unless set in environment; 0 preserves library defaults.")
+    parser.add_argument("--contact-dynamics-variant", choices=("legacy", "physical"), default="legacy",
+                        help="Experimental physical inertia response; legacy retains the original contact blend.")
+    parser.add_argument("--shared-contact-dynamics", action="store_true",
+                        help="Use the CPO actuator/contact response for CSO candidates; opt-in experiment.")
     parser.add_argument("--viewer-hz", type=float, default=60.0)
     parser.add_argument(
         "--floating-fingertip",
@@ -2886,6 +2896,8 @@ def run_mpc_planner(bus, args):
                 and getattr(args, 'mjwarp_scene', 'legacy') == 'isaac' else None),
             "joint_velocity_projections": 0 if obs is None else int(obs.get('joint_velocity_projections', 0)),
             "joint_velocity_max_unlimited": 0. if obs is None else float(obs.get('joint_velocity_max_unlimited', 0.)),
+            "contact_dynamics_variant": getattr(args, "contact_dynamics_variant", "legacy"),
+            "shared_contact_dynamics": bool(getattr(args, "shared_contact_dynamics", False)),
             "solver_requested": str(getattr(args, 'solver_backend', 'auto')),
             "solver_backend": (getattr(mpc, 'planner_solver_', None) if last_result is None
                                else last_result.get('solver_backend')),

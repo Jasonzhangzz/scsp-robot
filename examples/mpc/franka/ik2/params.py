@@ -169,6 +169,15 @@ def build_lambda_optimizer(param, args):
     runtime_cost = bool(getattr(param, 'runtime_object_cost_', False))
     grouped_response = bool(getattr(param, 'grouped_contact_response_', False))
     extracted = bool(getattr(param, "_collision_mesh_extracted", False))
+    shared = None
+    if getattr(param, 'shared_contact_dynamics_', False):
+        shared = dict(mass=np.r_[np.full(3, param.sim_obj_mass_), param.sim_obj_inertia_diag_,
+                                  np.full(3, getattr(args, 'mpc_tip_effective_mass', 2.5))].tolist(),
+            h=param.h_, tip_mass=float(getattr(args, 'mpc_tip_effective_mass', 2.5)),
+            damping=float(getattr(args, 'mpc_tip_damping', 40.)),
+            response_time=param.soft_scm_response_time, rigid_response_time=.01,
+            damping_ratio=param.soft_scm_damping_ratio, regularization=param.soft_scm_regularization,
+            blend_speed=.005, variant=param.contact_dynamics_variant_)
     opt = LambdaContactControlOptimizer(
         mesh_path=param.mesh_path_,
         obj_mass=float(getattr(param, "lambda_obj_mass_", 0.01)),
@@ -204,6 +213,7 @@ def build_lambda_optimizer(param, args):
         collision_hull=(bool(getattr(param, "collision_hull", True)) and not extracted),
         surface_sampling=getattr(param, 'contact_sampling_', 'vertices') == 'surface',
         collision_part_paths=getattr(param, 'collision_mesh_paths_', None),
+        shared_response=shared,
     )
     guidance = str(getattr(args, "cso_guidance", "cso"))
     if guidance not in ("cso", "pose", "random", "nearest"):
@@ -232,6 +242,12 @@ class ExplicitMPCParams:
         self.reject_dis = args.reject_dis
         self.pos_coef = float(getattr(args, "pos_coef", 500.0))
         self.ori_coef = float(getattr(args, "ori_coef", 20.0))
+        self.contact_dynamics_variant_ = getattr(args, 'contact_dynamics_variant', 'legacy')
+        self.shared_contact_dynamics_ = bool(getattr(args, 'shared_contact_dynamics', False))
+        if (self.shared_contact_dynamics_ or self.contact_dynamics_variant_ != 'legacy') and (
+                not getattr(args, 'two_stage_object_cost', False) or getattr(args, 'contact_model', 'soft-scm') != 'soft-scm'
+                or getattr(args, 'online_scm', False) or not getattr(args, 'mpc_carry_velocity', True)):
+            raise ValueError('contact dynamics experiments require two-stage soft-SCM, velocity state and no online-SCM')
         self.runtime_object_cost_ = bool(getattr(args, 'two_stage_object_cost', False))
         if self.runtime_object_cost_ and (not np.isfinite(self.ori_coef) or self.ori_coef <= 0):
             raise ValueError('two-stage object cost requires ori_coef > 0')

@@ -1,0 +1,125 @@
+{
+  "protocol": {
+    "seed": 0,
+    "steps": 400,
+    "objects": [
+      "rubber_duck",
+      "stanford_bunny2"
+    ],
+    "headless": true,
+    "async_planner": false,
+    "numerical_threads": 1,
+    "baseline_commit": "909e63cd64869a472fbbc7cc9178081e927e8c0e",
+    "position_and_orientation_weights_unchanged": true,
+    "approach_path_unchanged": true,
+    "new_action_selection_rules": false
+  },
+  "cases": [
+    {
+      "case": "baseline",
+      "object": "rubber_duck",
+      "tilt_deg": 103.46081447599951,
+      "planning_mean_ms": 28.971413028193638,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "baseline",
+      "object": "stanford_bunny2",
+      "tilt_deg": 73.80461884506992,
+      "planning_mean_ms": 27.71595144426101,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "optimized",
+      "object": "rubber_duck",
+      "tilt_deg": 105.76919354944559,
+      "planning_mean_ms": 28.076146289822645,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "optimized",
+      "object": "stanford_bunny2",
+      "tilt_deg": 73.80461884506992,
+      "planning_mean_ms": 25.61240521070431,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "physical_cpo",
+      "object": "rubber_duck",
+      "tilt_deg": 103.90867896333837,
+      "planning_mean_ms": 22.106763908523135,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "physical_cpo",
+      "object": "stanford_bunny2",
+      "tilt_deg": 131.03105779761015,
+      "planning_mean_ms": 22.5234194668883,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "shared_legacy",
+      "object": "rubber_duck",
+      "tilt_deg": 105.40922113879364,
+      "planning_mean_ms": 29.144291936099762,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "shared_legacy",
+      "object": "stanford_bunny2",
+      "tilt_deg": 117.67395889292006,
+      "planning_mean_ms": 25.23623798013432,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "shared_physical",
+      "object": "rubber_duck",
+      "tilt_deg": 103.56016410766482,
+      "planning_mean_ms": 24.612304704496637,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    },
+    {
+      "case": "shared_physical",
+      "object": "stanford_bunny2",
+      "tilt_deg": 82.36518396021168,
+      "planning_mean_ms": 19.619380337680923,
+      "stable_flip_success": false,
+      "mpc_fallbacks": 0
+    }
+  ],
+  "decision": "Keep original dynamics as default; physical and shared models remain opt-in experiments.",
+  "limitations": [
+    "One seed and 400 policy steps per case; no success-rate conclusion.",
+    "PhysX closed-loop trajectories varied between runs, especially rubber_duck.",
+    "Wall timing depends on CPU load. Earlier diagnostics ran alongside a busy user viewer; these runs do not establish a causal comparison with those older timings."
+  ],
+  "validation": {
+    "regression_tests_passed": 116,
+    "recorded_contact_samples": 4,
+    "rollback_in_isolated_copy": true,
+    "async_smoke_steps_per_object": 100,
+    "cpo_uses_own_continuous_contact_objective": true,
+    "mpc_non_sample_contact_cost_regression_passed": true
+  },
+  "async_smoke": {
+    "rubber_duck": {
+      "planning_mean_ms": 21.704874248825945,
+      "mpc_fallbacks": 0,
+      "lambda_fallbacks": 0
+    },
+    "stanford_bunny2": {
+      "planning_mean_ms": 20.750933752278797,
+      "mpc_fallbacks": 0,
+      "lambda_fallbacks": 0
+    }
+  }
+}

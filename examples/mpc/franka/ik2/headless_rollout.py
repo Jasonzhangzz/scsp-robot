@@ -18,6 +18,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
+from planning.cpu_runtime import configure_compute_threads
+configure_compute_threads()
 
 
 def trial_ranges(start, count, lanes):
@@ -99,8 +101,8 @@ def run_isaac_headless(args):
 def isaac_worker_entry(conn, values):
     """An independent Isaac simulator, retaining its normal planner protocol."""
     os.environ.pop('SCSP_PLANNER_ONLY', None)
-    for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
-        os.environ[name] = '1'
+    configure_compute_threads(['--compute-threads', str(values['compute_threads'])]
+                              if values.get('compute_threads') is not None else [])
     try:
         from isaacgym import gymapi, gymtorch  # Must precede Torch.
         from examples.mpc.franka.ik2.run import SynchronousMPCBus, isaac_loop
@@ -247,8 +249,8 @@ def planner_entry(conn, values):
     os.environ['SCSP_PLANNER_ONLY'] = '1'
     # CPU acados/CSO workers should not initialize CUDA just to probe Torch.
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
-    for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
-        os.environ[name] = '1'
+    configure_compute_threads(['--compute-threads', str(values['compute_threads'])]
+                              if values.get('compute_threads') is not None else [])
     args = argparse.Namespace(**values)
     args.ranking_metrics_jsonl = ''  # Only the GPU coordinator writes metrics.
     try:

@@ -29,6 +29,32 @@ python examples/mpc/franka/ik2/test_mpc_isaac.py
 已经验证过的 CSO 最优参数。旧 `--model_param` 只控制 ComFree 刚度，
 不会再改变 soft-SCM 的响应时间或阻尼。
 
+## 可回退的动力学对照（2026-10-13）
+
+原动力学仍为默认。以下选项用于分离模型一致性和惯量模型的影响，
+不增加倾角收益筛选，也不改变目标权重、候选集合或接近路径：
+
+- `--shared-contact-dynamics`：CSO 的接触力经共同执行器/接触响应计算，
+  使用观测速度；仍假设已经到达候选接触。CSO 保留 7 维位姿优化，
+  CPO 保留 19 维状态，统一的是响应和坐标语义，而非状态维数。
+- `--contact-dynamics-variant physical`：CPO 全程使用物理质量/惯量，
+  移除原准动态 mobility 混合。与上一选项组合时 CSO 使用同一响应。
+- 默认 `legacy` 保留原混合模型；实验要求 soft-SCM、两阶段目标、
+  携带速度且关闭在线 SCM，暂不将该固定模型用于在线参数辨识。
+- 数值库启动时默认单线程，尊重已有环境设置；`--compute-threads N`
+  显式覆盖，`--compute-threads 0` 不设置线程环境变量。
+
+示例（保留默认异步和 viewer）：
+
+```bash
+python examples/mpc/franka/ik2/test_mpc_isaac.py --obj rubber_duck \
+  --shared-contact-dynamics --contact-dynamics-variant physical
+```
+
+去掉两个动力学选项恢复原模型。源码备份与检查后回退工具位于
+`output/diagnostics/contact_experiment_20261013/`；该实验尚不代表翻转
+成功率改善，具体对照结果保存于其中的 `experiments.json`。
+
 ## bunny 接触与回落修复（2026-10-11）
 
 两阶段 Cartesian MPC 默认携带 19 维状态：物体位姿、指尖位置、

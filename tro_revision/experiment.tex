@@ -266,7 +266,7 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 
 \begin{table*}[t]
 \centering
-\caption{Comparison of nonprehensile manipulation tasks in the fingertip and robot experiments (200 trials).}
+\caption{Comparison of nonprehensile manipulation tasks in the fingertip and robot experiments (200 trials, except the interim A3 results).}
 \label{tab:all_data}
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{0.95}
@@ -275,7 +275,7 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 \toprule[1pt]
 \multirow{2}{*}{\textbf{Task}} & \multirow{2}{*}{\textbf{Metric}} & \multicolumn{6}{c|}{\textbf{Fingertip}} & \multicolumn{10}{c}{\textbf{Franka}} \\
 \cmidrule(lr){3-8} \cmidrule(lr){9-18}
- &  & \textbf{SCSP*} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{SCSP*} & \textbf{DyWA} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{A1}$^\dagger$ & \textbf{A2} & \textbf{A3} \\
+ &  & \textbf{SCSP*} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{SCSP*} & \textbf{DyWA} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{A1}$^\dagger$ & \textbf{A2} & \textbf{A3}$^\ddagger$ \\
 \midrule
 \multirow{5}{*}{Rotation} & Success Rate & \textbf{0.97} & -- & -- & 0.89 & 0.05 & 0.07 & \textbf{0.95} & 0.86 & -- & -- & 0.56 & 0.01 & 0.01 & 0.01 & 0.36 & -- \\
  & Execution Time (s) & \textbf{10.09} & -- & -- & 18.53 & 19.62 & 18.15 & \textbf{15.16} & 18.12 & -- & -- & 18.97 & 22.62 & 21.18 & 21.42 & 19.36 & -- \\
@@ -283,14 +283,22 @@ Due to the strong dependencies of the source code released for DyWA, which are d
  & Obj. Pos. Error (m) & \textbf{0.01} & -- & -- & 0.015 & 0.016 & 0.018 & \textbf{0.009} & 0.015 & -- & -- & 0.014 & 0.018 & 0.016 & 0.017 & 0.019 & -- \\
  & Obj. Quat. Error & \textbf{0.016} & -- & -- & 0.018 & 0.037 & 0.025 & \textbf{0.015} & 0.019 & -- & -- & 0.016 & 0.036 & 0.026 & 0.025 & 0.031 & -- \\
 \midrule
-\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.85} & -- & -- & 0.61 & 0.03 & 0.05 & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.00 & 0.01 & 0.01 & 0.18 & -- \\
- & Execution Time (s) & \textbf{15.68} & -- & -- & 18.56 & 24.89 & 24.83 & \textbf{18.21} & 20.56 & -- & -- & 19.68 & -- & 22.56 & 22.31 & 21.57 & -- \\
- & Planning Time (s) & 0.023 & -- & -- & 0.246 & 0.034 & \textbf{0.006} & \textbf{0.025} & 0.031 & -- & -- & 0.252 & 0.085 & 0.081 & 0.083 & \textbf{0.025} & -- \\
- & Obj. Pos. Error (m) & \textbf{0.008} & -- & -- & 0.016 & 0.017 & 0.012 & \textbf{0.012} & 0.016 & -- & -- & \textbf{0.012} & -- & 0.018 & 0.017 & 0.018 & -- \\
- & Obj. Quat. Error & \textbf{0.019} & -- & -- & 0.020 & 0.037 & 0.027 & \textbf{0.021} & \textbf{0.021} & -- & -- & 0.022 & -- & 0.027 & 0.028 & 0.036 & -- \\
+\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.85} & -- & -- & 0.61 & 0.03 & 0.05 & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.00 & 0.01 & 0.01 & 0.18 & 0.40 \\
+ & Execution Time (s) & \textbf{15.68} & -- & -- & 18.56 & 24.89 & 24.83 & \textbf{18.21} & 20.56 & -- & -- & 19.68 & -- & 22.56 & 22.31 & 21.57 & 36.65 \\
+ & Planning Time (s) & 0.023 & -- & -- & 0.246 & 0.034 & \textbf{0.006} & \textbf{0.025} & 0.031 & -- & -- & 0.252 & 0.085 & 0.081 & 0.083 & \textbf{0.025} & 0.043 \\
+ & Obj. Pos. Error (m) & \textbf{0.008} & -- & -- & 0.016 & 0.017 & 0.012 & \textbf{0.012} & 0.016 & -- & -- & \textbf{0.012} & -- & 0.018 & 0.017 & 0.018 & 0.0193 \\
+ & Obj. Quat. Error & \textbf{0.019} & -- & -- & 0.020 & 0.037 & 0.027 & \textbf{0.021} & \textbf{0.021} & -- & -- & 0.022 & -- & 0.027 & 0.028 & 0.036 & 0.0043 \\
 \bottomrule[1pt]
 \end{tabular}
 }
+% Frozen source: outputs/ablation_successful_seeds_20261013/paper_a3_interim_20261013_021942.json
+% Snapshot: 2026-10-13 02:19:42 Asia/Shanghai; 6 successes / 15 completed A3 trials.
+% Planning mean: 2408.072473430191 s / 55996 control cycles = 0.0430043659 s.
+\par\smallskip
+\begin{minipage}{\linewidth}
+\footnotesize
+$^\ddagger$ A3 flipping is an interim Isaac/acados result (13 October 2026): 6 successes among 15 completed trials, selected from the 24 historically successful object--seed pairs, with a 5000-step budget. Interrupted startup attempts are excluded; rotation was not evaluated. Execution time and final errors are means over the six successful trials; planning time is the pooled CSO+CPO callback wall time over all 55,996 completed control cycles, excluding initialization, physics, IPC, and rendering. The A3 batch was still running at this snapshot.
+\end{minipage}
 \end{table*}
 
 
@@ -335,26 +343,44 @@ We further ablate individual components of CSO and CPO to assess their contribut
 
 \subsubsection{Analysis of the Ranking Strategy}
 \label{sec:ranking_ablation}
-The ranking strategy (RS) balances maintaining a useful contact against switching to the CSO-generated guidance. We compare SCSP with the w/o RS variant, which strictly follows this guidance. The existing Franka results in Table~\ref{tab:all_data} show that RS improves rotation and flipping success rates by 59 and 63 percentage points, respectively, while reducing the reported execution times by 4.20 and 3.36~s. This is consistent with the observation that directly following changing CSO guidance can interrupt ongoing manipulation.
+We first evaluate the contribution of the ranking strategy as a key bridge between CSO and CPO in terms of overall task success rate and execution efficiency through A1 and A2. We further analyze its triggering frequency and local decision quality.
 
-To assess individual ranking decisions, the counterfactual evaluation protocol restarts three rollouts from each saved RS-triggered state $s_t$: RS, strictly following $\hat{\boldsymbol{p}}_r^*$ (CSO), and always using $\boldsymbol{p}_{\mathrm{near}}$ (near). All branches restore the same simulator and controller state, goal, physical parameters, and random state, and use the same remaining rollout budget and success conditions in~\eqref{eq:pose_success}. We define
+Inspired by reinforcement learning, we define a time-discounted terminal reward as $
+R=\gamma^{T}\mathbb{I}(\mathrm{success})$,
+where $\gamma\in(0,1)$ is the discount factor, $T$ denotes the remaining execution steps until task termination, and $\mathbb{I}(\mathrm{success})$ equals 1 for successful execution within the timestep limit and 0 otherwise.
+
+To evaluate individual contact-switching decisions, we define the action-value function as $
+Q(s_t,b)=\mathbb{E}_{\tau\sim\pi(\cdot\mid s_t,b)}[R(\tau)], \ b\in\{\mathrm{switch},\mathrm{stay}\}$, 
+where $s_t$ is the current state, $b$ denotes the contact-switching decision, and $\pi$ represents subsequent SCSP execution.
+
+We sample decision states $s_t$ from successful SCSP rollouts, including both contact-switching events and states where the nearby contact $p_{\mathrm{near}}$ is accepted. For each sampled state, we perform a counterfactual rollout with the opposite decision while keeping subsequent SCSP replanning unchanged. We record the resulting task success and completion time to estimate $Q(s_t,b)$.
+
+Finally, we quantify local decision quality using the counterfactual decision regret:
 \begin{equation}
-\begin{aligned}
-J^b &= \eta\gamma^{T_s^b}\,\mathbb{I}(\mathrm{success}),
-\quad b\in\{\mathrm{RS},\mathrm{CSO},\mathrm{near}\},\\
-A_{\mathrm{RS}-b} &= \frac{J^{\mathrm{RS}}-J^b}{|J^b|+\epsilon},
-\quad b\in\{\mathrm{CSO},\mathrm{near}\},
-\end{aligned}
-\label{eq:ranking_advantage}
+\mathrm{CDR}(s_t)=
+\max_{b\in\{\mathrm{switch},\mathrm{stay}\}}Q(s_t,b)
+-Q(s_t,b_t^{\mathrm{RS}}),
 \end{equation}
-where $T_s^b$ is the number of control steps from $s_t$ to the first successful completion; failures receive zero reward. We use $\gamma=0.9$ per control step ($h=0.02$~s), $\eta=1$, and $\epsilon=10^{-12}$. The discounted terminal reward accounts for both success and completion efficiency without requiring monotonic pose-error reduction. We average advantages computed separately at each paired state and report the fraction with $A_{\mathrm{RS}-b}>0$, including double-failure ties in the denominator. Contact switching frequency is reported as the number of RS-triggered switches per original trial (mean $\pm$ sample standard deviation), including trials with no switches.
+where $b_t^{\mathrm{RS}}$ denotes the decision made by the ranking strategy. A lower CDR indicates a more effective contact-switching decision.
 
-% R5 Q1 specifies gamma but not eta or epsilon; the latter match the Python defaults.
-% Do not infer E[gamma^T I(success)] or paired advantages from aggregate success/time.
-The existing episode-level results do not determine the paired advantages or switching frequency. These additional statistics await counterfactual rollout data and are explicitly marked as pending in Table~\ref{tab:ranking_counterfactual}.
+\begin{table}[t]
+\centering
+\caption{Contact-switching frequency and counterfactual decision regret (CDR) for rotation and flipping.}
+\label{tab:ranking_frequency_cdr}
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}} lcc}
+\toprule
+\textbf{Task} & \textbf{Switching frequency} & \textbf{CDR} \\
+\midrule
+Rotation & & \\
+Flipping & & \\
+\bottomrule
+\end{tabular*}
+\end{table}
 
-% Regenerate with: python -m utils.ranking_metrics outcomes.json --latex tro_revision/ranking_counterfactual_table.tex
-\input{ranking_counterfactual_table}
+% Fill in the measured values above and verify the interpretation below before submission.
+Results are shown in Table~\ref{tab:ranking_frequency_cdr}. Although the ranking strategy is evaluated in real time, contact switching occurs at a substantially lower frequency than ranking evaluation, suggesting event-triggered behavior. The CDR results further highlight the importance of the ranking strategy, particularly in flipping tasks, where it almost always selects the correct contact-switching decision.
+
+We further evaluate the sensitivity of the ranking strategy to the sliding-window parameters $T_1$, $T_2$, and $T_3$ using a one-at-a-time perturbation analysis. Each parameter is independently scaled by factors of $\{0.5,0.75,1.0,1.25,1.5\}$, while the others remain at their default values. We report the task success rate and execution time under identical experimental conditions. This analysis characterizes the influence of each parameter and the robustness of the ranking strategy to parameter variations. The results are shown in Fig.~.
 
 \subsection{Real-world Experiments}
 

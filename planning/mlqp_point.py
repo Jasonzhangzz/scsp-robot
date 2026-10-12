@@ -76,7 +76,11 @@ class LambdaContactControlOptimizer:
                  soft_scm_damping_ratio=SOFT_SCM_DAMPING_RATIO,
                  soft_scm_regularization=SOFT_SCM_REGULARIZATION,
                  contact_dynamics=None, grouped_contact_response=False, robot_stiffness=None,
-                 surface_sampling=False, collision_part_paths=None, fingertip_radius=.01):
+                 surface_sampling=False, collision_part_paths=None, fingertip_radius=.01,
+                 shared_response=None):
+        self.shared_response = shared_response
+        self.rank_object_velocity = np.zeros(6)
+        self.rank_tip_velocity = np.zeros(3)
         # 系统参数
         self.m = obj_mass
         self.mu_arm_obj = arm_friction
@@ -865,30 +869,44 @@ class LambdaContactControlOptimizer:
             masses = reduced_row_masses(J_tilde, self.Q_inv, self.env_phi)
         return np.vstack([np.diag(masses[4*i:4*i+4]) for i in range(self.max_contacts)])
 
-    def _arm_velocity_cs(self, velocity, tau, force, point, frame, env_j, phi, inverse, theta, arm_gap=0., full_velocity=False):
+    def _arm_velocity_cs(self, velocity, tau, force, point, frame, env_j, phi, inverse, theta, arm_gap=0., full_velocity=False, tip_velocity=None):
         """Predict the driven fingertip contact using MPC's nine-DoF mobility.
 
         The decision is an actuator wrench, not a wrench applied directly to
         the object. It must pass through the unilateral/friction response.
         """
         from models.soft_scm_contact import grouped_contact_velocity_cs
-        qi = cs.SX.zeros(9, 9) if isinstance(inverse, cs.SX) else cs.MX.zeros(9, 9)
+        qi = type(inverse).zeros(9, 9)
         qi[:6, :6] = inverse
         qi[6:, 6:] = cs.DM.eye(3)/self.robot_stiffness
-        free = cs.vertcat(velocity + self.gravity_velocity_scale*inverse@tau,
-                          force/(self.h*self.robot_stiffness))
         env_j = friction_jacobian_cs(env_j, theta)
         relative = cs.horzcat(cs.DM.eye(3), -cs.skew(point), -cs.DM.eye(3))
         mu = self.base_mu_arm_obj*cs.exp(theta[5])
         n, t1, t2 = frame[:, 0], frame[:, 1], frame[:, 2]
         pyramid = cs.vertcat((n+mu*t1).T, (n+mu*t2).T, (n-mu*t1).T, (n-mu*t2).T)
         j = cs.vertcat(cs.horzcat(env_j, cs.DM.zeros(env_j.size1(), 3)), pyramid@relative)
+        if getattr(self, 'shared_response', None) is not None:
+            from models.cartesian_contact_response import contact_response_cs
+            settings = dict(self.shared_response)
+            physical_inverse = cs.DM(np.diag(1 / np.asarray(settings.pop('mass'))))
+            tip_velocity = cs.DM.zeros(3) if tip_velocity is None else tip_velocity
+            result, _ = contact_response_cs(velocity, tip_velocity, force, tau,
+                j, cs.vertcat(phi, cs.repmat(arm_gap, 4, 1)), physical_inverse, qi,
+                **settings)
+            return result if full_velocity else result[:6]
+        free = cs.vertcat(velocity + self.gravity_velocity_scale*inverse@tau,
+                          force/(self.h*self.robot_stiffness))
         a, b = response_cs(self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio, theta)
         result = grouped_contact_velocity_cs(free, j, cs.vertcat(phi, cs.repmat(arm_gap,4,1)),
             qi, self.h, a, b, self.soft_scm_regularization)
         return result if full_velocity else result[:6]
 
     def _arm_velocity_numpy(self, velocity, tau, force, point, frame, env_j, phi):
+        if getattr(self, 'shared_response', None) is not None:
+            result = self._arm_velocity_cs(cs.DM(velocity), cs.DM(tau), cs.DM(force),
+                cs.DM(point), cs.DM(frame), cs.DM(env_j), cs.DM(phi), cs.DM(self.Q_inv),
+                cs.DM(self.scm_theta), tip_velocity=cs.DM(self.rank_tip_velocity))
+            return np.asarray(result).reshape(6)
         from models.soft_scm_contact import grouped_contact_velocity_numpy
         qi = np.zeros((9, 9)); qi[:6, :6] = self.Q_inv
         qi[6:, 6:] = np.eye(3)/self.robot_stiffness
@@ -921,6 +939,14 @@ class LambdaContactControlOptimizer:
         blocks = env_j.reshape(-1,4,6); normal = blocks.mean(dim=1,keepdim=True)
         env_j = (normal + float(np.exp(self.scm_theta[5]))*(blocks-normal)).reshape(env_j.shape)
         j = torch.cat([torch.cat([env_j, env_j.new_zeros((env_j.shape[0],3))],dim=1), pyramid@relative])
+        if getattr(self, 'shared_response', None) is not None:
+            from models.cartesian_contact_response import contact_response_torch
+            settings = dict(self.shared_response)
+            physical_inverse = torch.diag(1/torch.as_tensor(settings.pop('mass'), dtype=inverse.dtype, device=inverse.device))
+            tip_velocity = torch.as_tensor(self.rank_tip_velocity, dtype=inverse.dtype, device=inverse.device)
+            result, _ = contact_response_torch(velocity, tip_velocity, force, tau,
+                j, torch.cat([phi, phi.new_zeros(4)]), physical_inverse, qi, **settings)
+            return result[:6]
         return grouped_contact_velocity_torch(free,j,torch.cat([phi,phi.new_zeros(4)]),qi,
             self.h,self.soft_scm_a,self.soft_scm_b,self.soft_scm_regularization)[:6]
 
@@ -1024,6 +1050,7 @@ class LambdaContactControlOptimizer:
         x_d = opti.parameter(7)
         current_x = opti.parameter(7)
         v_last = opti.parameter(6)
+        tip_velocity = opti.parameter(3) if getattr(self, 'shared_response', None) is not None else None
         J_tilde = opti.parameter(4 * self.max_contacts, 6)
         D_inv = opti.parameter(4 * self.max_contacts, 4)
         env_phi = opti.parameter(4 * self.max_contacts)
@@ -1067,7 +1094,7 @@ class LambdaContactControlOptimizer:
             v_now = self._contact_velocity_cs(v_last + qi @ b, J_tilde, D_inv, env_phi)
 
         if self.robot_stiffness is not None:
-            v_now = self._arm_velocity_cs(v_last, tau_o_np, R_contact@lam_arm, p_arm, R_contact, J_tilde, env_phi, qi, scm_theta)
+            v_now = self._arm_velocity_cs(v_last, tau_o_np, R_contact@lam_arm, p_arm, R_contact, J_tilde, env_phi, qi, scm_theta, tip_velocity=tip_velocity)
 
         # 计算预测位姿x+
         x_plus = self.cs_qposInteg_(current_x, v_now)
@@ -1109,9 +1136,9 @@ class LambdaContactControlOptimizer:
         # 构建优化函数
         self.optimization_fn = opti.to_function(
             'optimization_fn_joint',
-            [x_d, current_x, v_last, J_tilde, D_inv, tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef, env_phi, scm_theta, object_config, force_limit],
+            [x_d, current_x, v_last, J_tilde, D_inv, tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef, env_phi, scm_theta, object_config, force_limit] + ([tip_velocity] if tip_velocity is not None else []),
             [lam_arm, x_plus, objective],
-            ['x_d', 'current_x', 'v_last', 'J_tilde', 'D_inv', 'tau_o_np', 'n_arm', 't1', 't2', 'p_arm', 'curr_ori_coef', 'env_phi', 'scm_theta', 'object_config', 'force_limit'],
+            ['x_d', 'current_x', 'v_last', 'J_tilde', 'D_inv', 'tau_o_np', 'n_arm', 't1', 't2', 'p_arm', 'curr_ori_coef', 'env_phi', 'scm_theta', 'object_config', 'force_limit'] + (['tip_velocity'] if tip_velocity is not None else []),
             ['lam_arm_opt', 'x_plus_opt', 'cost']
         )
 
@@ -1393,6 +1420,8 @@ class LambdaContactControlOptimizer:
         return geo
 
     def _solve_optimization(self, **kwargs):
+        if getattr(self, 'shared_response', None) is not None:
+            kwargs.setdefault('tip_velocity', self.rank_tip_velocity)
         kwargs.setdefault('object_config', self.object_cost_config())
         kwargs.setdefault('force_limit', self.max_contact_force)
         kwargs.setdefault('env_phi', self.env_phi)
@@ -1450,13 +1479,15 @@ class LambdaContactControlOptimizer:
         # Fast path: N=1 SQP_RTI with lambda as the control.  One QP per
         # candidate. Each patch gets its own primal/dual initial iterate.
         cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
+        cs_tip = cs.SX.sym('tip_velocity', 3) if getattr(self, 'shared_response', None) is not None else None
         cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
         cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
         cs_phi = cs.SX.sym('phi', 4*self.max_contacts)
         scm_theta = cs.SX.sym('scm_theta', 6)
         object_config = cs.SX.sym('object_config', OBJECT_COST_CONFIG_SIZE)
         force_limit = cs.SX.sym('force_limit')
-        prm = cs.vertcat(cs_phi, cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp, scm_theta, object_config, force_limit)
+        prm = cs.vertcat(cs_phi, cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp, scm_theta, object_config,
+                         *([cs_tip] if cs_tip is not None else []), force_limit)
         x = cs.SX.sym('x', 7); u = cs.SX.sym('u', 3)
         Jc = cs.SX.zeros(3, 6); Jc[:3, :3] = cs.SX.eye(3); Jc[0,4],Jc[0,5]=cs_cp[2],-cs_cp[1]; Jc[1,3],Jc[1,5]=-cs_cp[2],cs_cp[0]; Jc[2,3],Jc[2,4]=cs_cp[1],-cs_cp[0]
         wrench_scale = self.wrench_velocity_scale
@@ -1464,7 +1495,7 @@ class LambdaContactControlOptimizer:
         vn = (self._contact_velocity_cs(cs_v+qib, cs_j, cs_d, cs_phi, qinv, scm_theta)
               if self.contact_model == "soft-scm" else self._contact_velocity_cs(cs_v+qib, cs_j, cs_d, cs_phi))
         if self.robot_stiffness is not None:
-            vn = self._arm_velocity_cs(cs_v, cs_tau, Rct@u, cs_cp, Rct, cs_j, cs_phi, qinv, scm_theta)
+            vn = self._arm_velocity_cs(cs_v, cs_tau, Rct@u, cs_cp, Rct, cs_j, cs_phi, qinv, scm_theta, tip_velocity=cs_tip)
         quat=x[3:7]; H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
         qn=cs.vertcat(x[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
         self._acados_candidate_fn = cs.Function('contact_candidate', [x, u, prm],
@@ -1474,6 +1505,9 @@ class LambdaContactControlOptimizer:
         # discrete transition).  Putting qn itself here is rejected because
         # a terminal cost may not depend on ``u``.
         mass_key = hashlib.sha1(np.r_[np.asarray(self.Q_inv).reshape(-1), self.h, self.K_contact, self.comfree_damping, self.soft_scm_response_time, self.soft_scm_damping_ratio, self.soft_scm_regularization, float(self.wrench_is_force), self.gravity_velocity_scale, self.wrench_velocity_scale, float(self.grouped_contact_response), self.robot_stiffness or 0., self.pos_coef, self.ori_coef, self.friction_reg_coef, self.force_reg_coef].astype('<f8').tobytes() + cs.__version__.encode()).hexdigest()[:10]
+        if getattr(self, 'shared_response', None) is not None:
+            import json
+            mass_key = hashlib.sha1((mass_key + json.dumps(self.shared_response, sort_keys=True)).encode()).hexdigest()[:10]
         mu_key = int(round(float(self.mu_arm_obj) * 1000.0))
         contact_tag = self.contact_model.replace('-', '_')
         model=AcadosModel(); model.name=f'contact_lambda_{contact_tag}_v25_m{self.max_contacts}_f{int(self.max_contact_force*1000)}_u{mu_key}_q{mass_key}'; model.x=x; model.u=u; model.p=prm; model.disc_dyn_expr=qn
@@ -1508,6 +1542,7 @@ class LambdaContactControlOptimizer:
                           np.asarray(kwargs['t2']).reshape(-1),
                           np.asarray(kwargs['p_arm']).reshape(-1), np.asarray(kwargs.get('scm_theta', self.scm_theta)).reshape(-1),
                           extended_cost_config(kwargs.get('object_config', self.object_cost_config())),
+                          *([np.asarray(kwargs.get('tip_velocity', self.rank_tip_velocity)).reshape(3)] if getattr(self, 'shared_response', None) is not None else []),
                           [kwargs.get('force_limit', self.max_contact_force)]])
         solver.reset()
         solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur)
@@ -1745,7 +1780,7 @@ class LambdaContactControlOptimizer:
         if p_arm is None:
             p_arm = np.array([-1, 0, 0])
         if v_last is None:
-            v_last = np.zeros(6)
+            v_last = self.rank_object_velocity.copy() if getattr(self, 'shared_response', None) is not None else np.zeros(6)
 
         ori_align_sq = cs.dot(current_x[3:7], x_d[3:7]) ** 2
         th = 0.85
@@ -1839,7 +1874,7 @@ class LambdaContactControlOptimizer:
             # 确保返回不是None
             return self.sample_point[0], self.normal[0], 1, 1, 1
         if v_last is None:
-            v_last = np.zeros(6)
+            v_last = self.rank_object_velocity.copy() if getattr(self, 'shared_response', None) is not None else np.zeros(6)
 
         if self.solver in ('torch-lbfgs', 'torch-gn'):
             D_inv = self.compute_env_diag_inverse(self.J_tilde)
@@ -1993,14 +2028,13 @@ class LambdaContactControlOptimizer:
         self.last_pose_cost_now = float(c_now) if np.isfinite(c_now) else 0.0
         if not np.isfinite(c_now) or x_plus_buffer is None:
             return deltas
-        n_buf = len(x_plus_buffer)
-        for i in range(min(n, n_buf)):
-            if not np.isfinite(raw[i]):
-                continue
-            c_plus = self._pose_cost(x_plus_buffer[i], x_d)
-            if not np.isfinite(c_plus):
-                continue
-            deltas[i] = c_now - c_plus
+        from planning.object_pose_cost import object_cost_batch_np
+        count = min(n, len(x_plus_buffer))
+        if count:
+            costs = object_cost_batch_np(np.asarray(x_plus_buffer[:count]).reshape(count, 7),
+                                        x_d, self.object_cost_config())
+            valid = np.isfinite(raw[:count]) & np.isfinite(costs)
+            deltas[:count] = np.where(valid, c_now-costs, np.nan)
         return deltas
 
     def _record_best_delta(self, local_idx):

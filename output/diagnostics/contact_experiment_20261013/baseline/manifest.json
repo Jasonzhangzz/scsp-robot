@@ -1,0 +1,41 @@
+{
+  "commit": "909e63cd64869a472fbbc7cc9178081e927e8c0e",
+  "files": {
+    "models/cartesian_rigid_contact.py": "93b665265c553b856e2d3d57df73344e36bff774cd70aea44ac6c21a65f1e82d",
+    "models/support_geometry.py": "6841593d28b58c20be038bc1513b4ea40da58a777abf82b1bdf5edcd5536f2c1",
+    "planning/mlqp_point.py": "db9307eec70450633991d8660daece44d559aabb8a4b25231ca90e2ff5e94c9c",
+    "planning/mpc_explicit.py": "64128b1168c49deb0ecdc686047f53f669b98ff42bf1adcdb1b9ebf6fd50d692",
+    "examples/mpc/franka/ik2/run.py": "40419d0c132ce2498c7268c50a73076b03229c7aad8a7445b6ebef4d37363846",
+    "examples/mpc/franka/ik2/params.py": "a8c231ecdcf019c33b7554bd3ee74216c7b25e5291a94ef164aa32fc2dc54cd8",
+    "examples/mpc/franka/ik2/test_mpc_isaac.py": "b11a249686e195d34debeca1412437f44323fee03b48a24e69443c6e6e8832d5",
+    "examples/mpc/franka/ik2/headless_rollout.py": "78458d066d96728d8ec6fba11ffb1ff2d810768f8a54ca8bf37cabcf50992b4c",
+    "examples/mpc/franka/ik2/contact_frames.py": "bd59161a0ce92ae2a3c26ddae86092511b666b542189eb90c80390148e872994",
+    "examples/mpc/fingertips/test/test_0902.py": "39b79c0afa13aea7502156665df61a23b5a065948ade194c8c96f061bc771b93",
+    "planning/object_pose_cost.py": "1973d7ae65405f9cf8c4d5f19ea90a2d15788c31ef7fd4e71354cc7759c37cec",
+    "examples/mpc/franka/ik2/SOFT_SCM.md": "95db82421fa3fa266b11657a5d3b362acd2b50c55bacfc8ab1d69718dd276b39"
+  },
+  "experiment_files": {
+    "models/cartesian_rigid_contact.py": "c7035d0b48a26f63407f0f97ed07ff55b3f2325e6290603cba1ee7ba0aaeb13b",
+    "models/support_geometry.py": "6841593d28b58c20be038bc1513b4ea40da58a777abf82b1bdf5edcd5536f2c1",
+    "planning/mlqp_point.py": "33a629d75daa1e1871fb93e211d0b9f79149f4a20ebdf067c7df9c4cc3bfc37b",
+    "planning/mpc_explicit.py": "7b86fd0d47a2808c39bb481c8546cb79feac44a01939dcb64cf0180ce169857f",
+    "examples/mpc/franka/ik2/run.py": "c70f00b5fb6be1ede4d6b5e114a2480a6c6cc5d7caf553626a2381c7731d561c",
+    "examples/mpc/franka/ik2/params.py": "8fd4ad1b22be5b48d1de15b769a6af1230e7ec30dc71e595cf3035acfa498d99",
+    "examples/mpc/franka/ik2/test_mpc_isaac.py": "5d95e57316e17d5f318772a4e54d0f275835c9ff3fc6d2bfa719d5ce6c52bcef",
+    "examples/mpc/franka/ik2/headless_rollout.py": "13fc916a5843a3d62f82b70f674b3ead11aadcba2e3bbd309a6c10d7cdcfb382",
+    "examples/mpc/franka/ik2/contact_frames.py": "48eae80f1b4b5fd86f0a735266a2a382e8546ebfc075e81f57e8eaa2ce0725ba",
+    "examples/mpc/fingertips/test/test_0902.py": "39b79c0afa13aea7502156665df61a23b5a065948ade194c8c96f061bc771b93",
+    "planning/object_pose_cost.py": "140dd6026ab46015fc3ee365c3f29cde0850979c8fcec698340324584469cfff",
+    "examples/mpc/franka/ik2/SOFT_SCM.md": "5cca676ca00dc63ff81ad9aec1fb7b55f697ed59ec4fa022850c7071c1b86fe7",
+    "models/cartesian_contact_response.py": "902c79c01c1f6f3afb54f37064f17545ccb7fce781802af9d43d3f4986bc3ec4",
+    "planning/cpu_runtime.py": "71758b91bffd19631e7b7e63a308bff62d467e17a2f5ac1f6eb52fbb52e35ec0",
+    "tests/test_shared_cartesian_contact.py": "0f6d9d132579f8f682768563445044db48882f2fcfd3050358a40a7bbab80e48",
+    "tests/test_cpu_runtime.py": "c9ee310b8e7ee98e9f546f0d91e57bcf6d7db307b52846138634b1c2b1cfe58f"
+  },
+  "added_files": [
+    "models/cartesian_contact_response.py",
+    "planning/cpu_runtime.py",
+    "tests/test_shared_cartesian_contact.py",
+    "tests/test_cpu_runtime.py"
+  ]
+}

@@ -19,6 +19,8 @@ while os.path.basename(parent_dir) != "scsp-robot":
 # Isaac Gym/PyTorch may import a third-party ``examples`` package first.
 sys.path = [p for p in sys.path if os.path.abspath(p or os.curdir) != parent_dir]
 sys.path.insert(0, parent_dir)
+from planning.cpu_runtime import configure_compute_threads
+configure_compute_threads()
 
 # gymdeps refuses to load if torch is already imported.  params -> mlqp_point
 # imports torch, so isaacgym must come first.

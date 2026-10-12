@@ -1,0 +1,60 @@
+{
+  "legacy": {
+    "samples": [
+      {
+        "position_error_mm": 0.8553402262705909,
+        "tip_error_mm": 0.0373611322060024,
+        "rotation_error_deg": 0.4162951552641707
+      },
+      {
+        "position_error_mm": 0.8454286300595095,
+        "tip_error_mm": 0.060752059804708554,
+        "rotation_error_deg": 0.5919364531916448
+      },
+      {
+        "position_error_mm": 0.9853925832883511,
+        "tip_error_mm": 0.10536257266907686,
+        "rotation_error_deg": 0.9224509401814395
+      },
+      {
+        "position_error_mm": 0.8997770390815867,
+        "tip_error_mm": 0.07726965531488521,
+        "rotation_error_deg": 0.8206565595439831
+      }
+    ],
+    "means": {
+      "position_error_mm": 0.8964846196750096,
+      "tip_error_mm": 0.07018635499866825,
+      "rotation_error_deg": 0.6878347770453095
+    }
+  },
+  "physical": {
+    "samples": [
+      {
+        "position_error_mm": 0.407042129957732,
+        "tip_error_mm": 0.043018429135830094,
+        "rotation_error_deg": 0.7173099186625634
+      },
+      {
+        "position_error_mm": 0.5730652971520359,
+        "tip_error_mm": 0.06091664803827076,
+        "rotation_error_deg": 0.6018208899015042
+      },
+      {
+        "position_error_mm": 0.5326076059454025,
+        "tip_error_mm": 0.11009792579325368,
+        "rotation_error_deg": 0.27303113436294707
+      },
+      {
+        "position_error_mm": 0.6917882466668405,
+        "tip_error_mm": 0.07216193090725781,
+        "rotation_error_deg": 0.7701346373806437
+      }
+    ],
+    "means": {
+      "position_error_mm": 0.5511258199305027,
+      "tip_error_mm": 0.07154873346865309,
+      "rotation_error_deg": 0.5905741450769146
+    }
+  }
+}
