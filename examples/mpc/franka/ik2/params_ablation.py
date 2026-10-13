@@ -15,6 +15,9 @@ from examples.mpc.fingertips.test.params import canonical_object_meshes
 from models.object_collision_mesh import decomposed_collision_mesh
 from planning.runtime_compat import resolve_solver_backend
 from planning.contact_limits import contact_force_limit, contact_command_force_limit
+from examples.mpc.franka.ik2.scene_friction import (
+    DEFAULT_TANGENTIAL_FORCE_PENALTY, configure_scene_friction,
+)
 
 # Legacy yaw sampler's factorization; physical standing is handled separately.
 _GOAL_GEOM_Q = np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], dtype=np.float64)
@@ -36,7 +39,10 @@ def add_via_init_pose_args(parser):
 
 
 def _tilted_init_quaternion(args, yaw_angle, target_type="rotation"):
+    """Sample tilt only for flipping; rotation preserves the target's up axis."""
     yaw = float(np.asarray(yaw_angle, dtype=np.float64).reshape(-1)[0])
+    if target_type == "rotation":
+        return rotations.rpy_to_quaternion([yaw, 0.0, 0.0])
     tilt = np.pi / 2 if target_type == "ground-rotation" else 0.0
     axis_angle = 0.0
     if getattr(args, "random_init_tilt", False):
@@ -181,7 +187,8 @@ def build_lambda_optimizer(param, args):
     opt = LambdaContactControlOptimizer(
         mesh_path=param.mesh_path_,
         obj_mass=float(getattr(param, "lambda_obj_mass_", 0.01)),
-        arm_friction=param.mu_object_,
+        arm_friction=getattr(param, 'mu_fingertip_object_', param.mu_object_),
+        friction_cone='pyramid',
         contact_stiffness=param.model_params,
         time_step=(param.h_ if runtime_cost else getattr(param, 'lambda_h_', .05)),
         max_contacts=4 if grouped_response else 10,
@@ -189,7 +196,7 @@ def build_lambda_optimizer(param, args):
         top_k=getattr(args, "top_k", 2),
         pos_coef=args.pos_coef,
         ori_coef=args.ori_coef,
-        friction_reg_coef=getattr(args, "friction_reg_coef", 0.0),
+        friction_reg_coef=getattr(args, "friction_reg_coef", DEFAULT_TANGENTIAL_FORCE_PENALTY),
         force_reg_coef=getattr(args, "force_reg_coef", 0.01),
         max_contact_force=(contact_command_force_limit(args, 600.) if runtime_cost else contact_force_limit(args)),
         contact_switch_radius=getattr(args, "contact_switch_radius", 0.03),
@@ -401,11 +408,13 @@ class ExplicitMPCParams:
             ],
             dtype=np.float64,
         )
-        if getattr(args, "random_init_tilt", False):
+        if target_type == "ground-rotation" and getattr(args, "random_init_tilt", False):
             self.init_fingertip_pos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
             self.init_fingertip_pos_[2] += 0.03 * float(np.random.rand())
 
-        self.mu_object_ = 0.5
+        combine_mode = ('max' if getattr(args, 'physics_backend', 'isaac') == 'mjwarp'
+                        and getattr(args, 'mjwarp_scene', 'isaac') == 'legacy' else 'average')
+        configure_scene_friction(self, combine_mode)
         self.n_mj_q_ = self.n_qpos_
         self.n_mj_v_ = self.n_qvel_
         self.max_ncon_ = 10

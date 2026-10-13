@@ -1,0 +1,35 @@
+......................                                                   [100%]
+=============================== warnings summary ===============================
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+  /home/zz/miniconda3/envs/pi0/lib/python3.11/site-packages/matplotlib/_fontconfig_pattern.py:64: PyparsingDeprecationWarning: 'oneOf' deprecated - use 'one_of'
+    prop = Group((name + Suppress("=") + comma_separated(value)) | oneOf(_CONSTANTS))
+
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+  /home/zz/miniconda3/envs/pi0/lib/python3.11/site-packages/matplotlib/_fontconfig_pattern.py:85: PyparsingDeprecationWarning: 'parseString' deprecated - use 'parse_string'
+    parse = parser.parseString(pattern)
+
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+  /home/zz/miniconda3/envs/pi0/lib/python3.11/site-packages/matplotlib/_fontconfig_pattern.py:89: PyparsingDeprecationWarning: 'resetCache' deprecated - use 'reset_cache'
+    parser.resetCache()
+
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cma-es]
+  /home/zz/miniconda3/envs/pi0/lib/python3.11/site-packages/matplotlib/_mathtext.py:45: PyparsingDeprecationWarning: 'enablePackrat' deprecated - use 'enable_packrat'
+    ParserElement.enablePackrat()
+
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cem]
+tests/test_scm_force_solvers.py::test_population_search_improves_known_objective_and_repeats[cem]
+  /home/zz/miniconda3/envs/pi0/lib/python3.11/site-packages/torch/jit/_script.py:1480: DeprecationWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+22 passed, 16 warnings in 18.04s

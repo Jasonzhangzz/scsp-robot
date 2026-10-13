@@ -1,0 +1,92 @@
+[
+  {
+    "object": "elephant",
+    "penalty": 0.01,
+    "n": 8,
+    "median_ratio": 0.8469059523731712,
+    "p90_ratio": 1.6004315096977824,
+    "median_elevation": 23.615852437898067,
+    "mean_tilt_gain": 0.3167093434656145
+  },
+  {
+    "object": "elephant",
+    "penalty": 0.03,
+    "n": 8,
+    "median_ratio": 0.4252535037454537,
+    "p90_ratio": 0.8944028783905468,
+    "median_elevation": 13.561279853904935,
+    "mean_tilt_gain": 0.21617960941812875
+  },
+  {
+    "object": "elephant",
+    "penalty": 0.05,
+    "n": 8,
+    "median_ratio": 0.2839056227733653,
+    "p90_ratio": 0.59554779144666,
+    "median_elevation": 6.478123430623109,
+    "mean_tilt_gain": 0.17708544438719187
+  },
+  {
+    "object": "elephant",
+    "penalty": 0.1,
+    "n": 8,
+    "median_ratio": 0.15505834757145356,
+    "p90_ratio": 0.3244878450508127,
+    "median_elevation": 1.1130572980244604,
+    "mean_tilt_gain": 0.13902097131856195
+  },
+  {
+    "object": "elephant",
+    "penalty": 0.2,
+    "n": 8,
+    "median_ratio": 0.08128129390288777,
+    "p90_ratio": 0.16986337108719696,
+    "median_elevation": -0.8784555409063319,
+    "mean_tilt_gain": 0.11627792040336793
+  },
+  {
+    "object": "stanford_bunny2",
+    "penalty": 0.01,
+    "n": 9,
+    "median_ratio": 1.370267707412554,
+    "p90_ratio": 1.6708140909536873,
+    "median_elevation": 27.823227145976826,
+    "mean_tilt_gain": 0.5235646626109813
+  },
+  {
+    "object": "stanford_bunny2",
+    "penalty": 0.03,
+    "n": 9,
+    "median_ratio": 0.7805510573784514,
+    "p90_ratio": 1.285703165676061,
+    "median_elevation": 18.234873152487882,
+    "mean_tilt_gain": 0.44085203076877455
+  },
+  {
+    "object": "stanford_bunny2",
+    "penalty": 0.05,
+    "n": 9,
+    "median_ratio": 0.5197138864820265,
+    "p90_ratio": 1.1590742782236405,
+    "median_elevation": 8.312803201898621,
+    "mean_tilt_gain": 0.39304667845114394
+  },
+  {
+    "object": "stanford_bunny2",
+    "penalty": 0.1,
+    "n": 9,
+    "median_ratio": 0.2831570213451088,
+    "p90_ratio": 0.6841495851446142,
+    "median_elevation": -3.0125240857207243,
+    "mean_tilt_gain": 0.3405486471455611
+  },
+  {
+    "object": "stanford_bunny2",
+    "penalty": 0.2,
+    "n": 9,
+    "median_ratio": 0.14822375043725963,
+    "p90_ratio": 0.35681590704203864,
+    "median_elevation": -10.277904382967696,
+    "mean_tilt_gain": 0.30642379632083955
+  }
+]

@@ -1,0 +1,63 @@
+{
+  "elephant": {
+    "baseline": {
+      "loaded_snapshots": 8,
+      "total_snapshots": 14,
+      "tangent_to_normal_median": 0.010564417921688416,
+      "median_elevation_deg": -1.4423142891423755,
+      "mean_predicted_tilt_gain_deg": 0.0022145560708973938
+    },
+    "no_tangent_penalty": {
+      "loaded_snapshots": 8,
+      "total_snapshots": 14,
+      "tangent_to_normal_median": 0.6412538367094187,
+      "median_elevation_deg": 9.548972123184903,
+      "mean_predicted_tilt_gain_deg": 0.07045490803843636
+    },
+    "arm_mu_1_2": {
+      "loaded_snapshots": 8,
+      "total_snapshots": 14,
+      "tangent_to_normal_median": 0.01638885528102094,
+      "median_elevation_deg": -1.5773508309032436,
+      "mean_predicted_tilt_gain_deg": 0.0417883376621333
+    },
+    "pair_mu_and_no_penalty": {
+      "loaded_snapshots": 8,
+      "total_snapshots": 14,
+      "tangent_to_normal_median": 1.381897340389852,
+      "median_elevation_deg": 30.269424580943628,
+      "mean_predicted_tilt_gain_deg": 0.24242288109496712
+    }
+  },
+  "stanford_bunny2": {
+    "baseline": {
+      "loaded_snapshots": 6,
+      "total_snapshots": 11,
+      "tangent_to_normal_median": 0.02085626509293794,
+      "median_elevation_deg": -13.454408131218514,
+      "mean_predicted_tilt_gain_deg": 0.16010403424408925
+    },
+    "no_tangent_penalty": {
+      "loaded_snapshots": 6,
+      "total_snapshots": 11,
+      "tangent_to_normal_median": 0.6666926633665182,
+      "median_elevation_deg": -0.6378556877698949,
+      "mean_predicted_tilt_gain_deg": 0.26198463282190043
+    },
+    "arm_mu_1_2": {
+      "loaded_snapshots": 7,
+      "total_snapshots": 11,
+      "tangent_to_normal_median": 0.029958414246385172,
+      "median_elevation_deg": -16.1152753578148,
+      "mean_predicted_tilt_gain_deg": 0.17228787968229203
+    },
+    "pair_mu_and_no_penalty": {
+      "loaded_snapshots": 9,
+      "total_snapshots": 11,
+      "tangent_to_normal_median": 1.6970562748477138,
+      "median_elevation_deg": 26.668047789326945,
+      "mean_predicted_tilt_gain_deg": 0.4748791553503909
+    }
+  },
+  "baseline_replay_max_cost_difference": 1.4252670155201486e-09
+}

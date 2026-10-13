@@ -1,0 +1,42 @@
+import sys, os, json, numpy as np
+from pathlib import Path
+root=Path('/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013')
+repo=Path('/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget')
+label='current_capture_wrist'
+os.environ['GEORT_WUJI_MODEL_CONFIG']=str(root/'matched_model.json')
+sys.path[:0]=[str(repo),str(repo/'replay'),str(repo/'utils')]
+from calibrated import batch_replay as batch
+from wuji_retarget import emf_offline as emf
+native_original=emf.solve_native
+def capture_native(*args,**kwargs):
+ result=native_original(*args,**kwargs)
+ np.savez_compressed(root/(label+'_native.npz'),**result[0])
+ (root/(label+'_native_metadata.json')).write_text(json.dumps(result[1],ensure_ascii=False,indent=2))
+ return result
+emf.solve_native=capture_native
+# Diagnostic ablation: retain SDK-generated local bones but locate their wrist
+# using the captured world wrist, skipping calibrated wrist/TX re-anchoring.
+from wuji_retarget import glove_ik
+world_original=glove_ik.recorded_world_from_wrist
+def capture_wrist(episode,group,side,timestamps,tx_from_wrist=None):
+ return world_original(episode,group,side,timestamps,tx_from_wrist=None)
+glove_ik.recorded_world_from_wrist=capture_wrist
+clock_original=batch._apply_publish_clock
+def capture_clock(data,fps):
+ np.savez_compressed(root/(label+'_raw.npz'),**data)
+ result=clock_original(data,fps)
+ np.savez_compressed(root/(label+'_publish_clock.npz'),**result)
+ return result
+batch._apply_publish_clock=capture_clock
+write_original=batch._write_reference_episode
+def capture_write(*args,**kwargs):
+ result=write_original(*args,**kwargs)
+ data=kwargs.get('replay_data')
+ if data is not None:np.savez_compressed(root/(label+'_final.npz'),**data)
+ return result
+batch._write_reference_episode=capture_write
+args=['--config',str(root/(label+'.yaml')),'--devices','cuda:2','--workers-per-gpu','1','--no-remote-fetch']
+if label=='historical':args+=['--initial_position','0.37','0','0.245']
+status=batch.main(args)
+(root/(label+'_exit_status.json')).write_text(json.dumps({'status':status}))
+raise SystemExit(status)

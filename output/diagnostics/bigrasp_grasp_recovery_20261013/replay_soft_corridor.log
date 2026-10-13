@@ -1,0 +1,24 @@
+EE IK backend: mujoco
+MuJoCo viewer: off
+Warp UserWarning: Python 3.9 or newer is recommended for running Warp, detected sys.version_info(major=3, minor=8, micro=20, releaselevel='final', serial=0)
+Warp 1.3.1 initialized:
+   CUDA Toolkit 12.5, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.3.1
+[acados] generating solver: mpc_soft_scm_bimanual_v3_7fe905c6a2_param_staged2_52400a4d68_current_h8_c6_x25_u6_profile_e8ddba0a_force0_v2_12000000
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+External functions generated in 3089.923 ms.
+Templated solver code generated in 1095.283 ms.
+[acados] compiling solver (5 large maps); log: /tmp/mpc_soft_scm_bimanual_v3_7fe905c6a2_param_staged2_52400a4d68_current_h8_c6_x25_u6_profile_e8ddba0a_force0_v2_12000000_codegen/build.log
+[acados] solver ready in 17.82s
+Online bimanual MPC: solver=acados state=25 action=6 horizon=8 dt=0.010s
+REPLAY {'backend': 'acados', 'diagnostics': {'contact_model': 'soft-scm-bimanual', 'fallback_reason': None, 'acados_error': None, 'acados_attempt_errors': [], 'acados_qp_diagnostics': None, 'acados_failure_snapshot': None, 'solve_status': 'ACADOS_SUCCESS (sqp_iter=1)', 'ipopt_iterations': None, 'ipopt_initialization_time': 0.0, 'ipopt_solve_time': 0.0, 'solver_success': True, 'fallback_control': None, 'grasp_established': False, 'selected_contact_established': False, 'phase': 'approach', 'object_cost_now': 3.065798172294919, 'object_cost_next': 3.021285224703787, 'predicted_cost_reduction': 0.04451294759113189, 'predicted_horizontal_displacement': array([ 0.00006378, -0.00005292]), 'horizontal_bounds': array([[ 0.56557278, -0.02614575],
+       [ 0.59442722,  0.02614575]]), 'predicted_horizontal_bound_violation': 8.340747951618432e-05, 'selected_contact_mask': array([False, False]), 'approach_origin': array([0.58      , 0.        , 0.35484723]), 'predicted_force_world': array([[ 0.00625747, -0.006481  , -0.00049199],
+       [ 0.0003817 , -0.00204187, -0.01618309]]), 'state_dim': 25, 'action_dim': 6}, 'action': array([-0.00882364, -0.00882364, -0.00882364, -0.00327368, -0.00882364,
+       -0.00882364])}

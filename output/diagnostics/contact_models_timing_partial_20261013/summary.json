@@ -1,0 +1,403 @@
+{
+  "timing_definitions": {
+    "execution_time_s": "Wall time from first planning round to successful settling, including planning and physics, excluding scene initialization; null for failures.",
+    "planning_time_ms": "Wall time of each complete contact-point and force planning round, excluding physical execution.",
+    "simulation_time_s": "Elapsed MuJoCo simulation time; separate from wall-clock execution_time_s."
+  },
+  "models": {
+    "lcp": {
+      "successes": 1,
+      "total_trials": 1,
+      "success_rate": 1.0,
+      "execution_time_s_success_only": {
+        "n": 1,
+        "mean": 26.20203076803591,
+        "std": 0.0,
+        "median": 26.20203076803591,
+        "p95": 26.20203076803591,
+        "min": 26.20203076803591,
+        "max": 26.20203076803591
+      },
+      "simulation_time_s_success_only": {
+        "n": 1,
+        "mean": 5.819999999999494,
+        "std": 0.0,
+        "median": 5.819999999999494,
+        "p95": 5.819999999999494,
+        "min": 5.819999999999494,
+        "max": 5.819999999999494
+      },
+      "planning_time_ms_all_rounds": {
+        "n": 291,
+        "mean": 88.27159589290926,
+        "std": 8.420519217872517,
+        "median": 86.10544801922515,
+        "p95": 98.83474299567752,
+        "min": 44.28999300580472,
+        "max": 144.81903903651983
+      },
+      "planning_time_ms_trial_means": {
+        "n": 1,
+        "mean": 88.27159589290926,
+        "std": 0.0,
+        "median": 88.27159589290926,
+        "p95": 88.27159589290926,
+        "min": 88.27159589290926,
+        "max": 88.27159589290926
+      },
+      "failed_trials": 0
+    },
+    "qp": {
+      "successes": 2,
+      "total_trials": 2,
+      "success_rate": 1.0,
+      "execution_time_s_success_only": {
+        "n": 2,
+        "mean": 193.8322578649968,
+        "std": 171.7108110259869,
+        "median": 193.8322578649968,
+        "p95": 348.371987788385,
+        "min": 22.121446839009877,
+        "max": 365.5430688909837
+      },
+      "simulation_time_s_success_only": {
+        "n": 2,
+        "mean": 41.32000000009581,
+        "std": 36.880000000095556,
+        "median": 41.32000000009581,
+        "p95": 74.51200000018181,
+        "min": 4.440000000000259,
+        "max": 78.20000000019137
+      },
+      "planning_time_ms_all_rounds": {
+        "n": 4132,
+        "mean": 92.05756833902093,
+        "std": 9.042857055015935,
+        "median": 88.97545747458935,
+        "p95": 104.15258082502987,
+        "min": 65.7991249463521,
+        "max": 189.32601797860116
+      },
+      "planning_time_ms_trial_means": {
+        "n": 2,
+        "mean": 94.83020600138511,
+        "std": 3.106436773559871,
+        "median": 94.83020600138511,
+        "p95": 97.625999097589,
+        "min": 91.72376922782524,
+        "max": 97.93664277494499
+      },
+      "failed_trials": 0
+    },
+    "scm": {
+      "successes": 2,
+      "total_trials": 2,
+      "success_rate": 1.0,
+      "execution_time_s_success_only": {
+        "n": 2,
+        "mean": 8.920915595488623,
+        "std": 0.3959893785067834,
+        "median": 8.920915595488623,
+        "p95": 9.277306036144727,
+        "min": 8.52492621698184,
+        "max": 9.316904973995406
+      },
+      "simulation_time_s_success_only": {
+        "n": 2,
+        "mean": 10.650000000001524,
+        "std": 0.8900000000010877,
+        "median": 10.650000000001524,
+        "p95": 11.451000000002503,
+        "min": 9.760000000000437,
+        "max": 11.540000000002612
+      },
+      "planning_time_ms_all_rounds": {
+        "n": 1065,
+        "mean": 14.989762476966781,
+        "std": 2.4900837958545887,
+        "median": 14.859037997666746,
+        "p95": 17.299370805267245,
+        "min": 11.088836996350437,
+        "max": 56.348864978645
+      },
+      "planning_time_ms_trial_means": {
+        "n": 2,
+        "mean": 15.045707270961596,
+        "std": 0.6694517483648985,
+        "median": 15.045707270961596,
+        "p95": 15.648213844490003,
+        "min": 14.376255522596697,
+        "max": 15.715159019326494
+      },
+      "failed_trials": 0
+    }
+  },
+  "by_object": {
+    "lcp": {
+      "foam_brick": {
+        "successes": 1,
+        "total_trials": 1,
+        "success_rate": 1.0,
+        "execution_time_s_success_only": {
+          "n": 1,
+          "mean": 26.20203076803591,
+          "std": 0.0,
+          "median": 26.20203076803591,
+          "p95": 26.20203076803591,
+          "min": 26.20203076803591,
+          "max": 26.20203076803591
+        },
+        "simulation_time_s_success_only": {
+          "n": 1,
+          "mean": 5.819999999999494,
+          "std": 0.0,
+          "median": 5.819999999999494,
+          "p95": 5.819999999999494,
+          "min": 5.819999999999494,
+          "max": 5.819999999999494
+        },
+        "planning_time_ms_all_rounds": {
+          "n": 291,
+          "mean": 88.27159589290926,
+          "std": 8.420519217872517,
+          "median": 86.10544801922515,
+          "p95": 98.83474299567752,
+          "min": 44.28999300580472,
+          "max": 144.81903903651983
+        },
+        "planning_time_ms_trial_means": {
+          "n": 1,
+          "mean": 88.27159589290926,
+          "std": 0.0,
+          "median": 88.27159589290926,
+          "p95": 88.27159589290926,
+          "min": 88.27159589290926,
+          "max": 88.27159589290926
+        },
+        "failed_trials": 0
+      }
+    },
+    "qp": {
+      "foam_brick": {
+        "successes": 2,
+        "total_trials": 2,
+        "success_rate": 1.0,
+        "execution_time_s_success_only": {
+          "n": 2,
+          "mean": 193.8322578649968,
+          "std": 171.7108110259869,
+          "median": 193.8322578649968,
+          "p95": 348.371987788385,
+          "min": 22.121446839009877,
+          "max": 365.5430688909837
+        },
+        "simulation_time_s_success_only": {
+          "n": 2,
+          "mean": 41.32000000009581,
+          "std": 36.880000000095556,
+          "median": 41.32000000009581,
+          "p95": 74.51200000018181,
+          "min": 4.440000000000259,
+          "max": 78.20000000019137
+        },
+        "planning_time_ms_all_rounds": {
+          "n": 4132,
+          "mean": 92.05756833902093,
+          "std": 9.042857055015935,
+          "median": 88.97545747458935,
+          "p95": 104.15258082502987,
+          "min": 65.7991249463521,
+          "max": 189.32601797860116
+        },
+        "planning_time_ms_trial_means": {
+          "n": 2,
+          "mean": 94.83020600138511,
+          "std": 3.106436773559871,
+          "median": 94.83020600138511,
+          "p95": 97.625999097589,
+          "min": 91.72376922782524,
+          "max": 97.93664277494499
+        },
+        "failed_trials": 0
+      }
+    },
+    "scm": {
+      "foam_brick": {
+        "successes": 2,
+        "total_trials": 2,
+        "success_rate": 1.0,
+        "execution_time_s_success_only": {
+          "n": 2,
+          "mean": 8.920915595488623,
+          "std": 0.3959893785067834,
+          "median": 8.920915595488623,
+          "p95": 9.277306036144727,
+          "min": 8.52492621698184,
+          "max": 9.316904973995406
+        },
+        "simulation_time_s_success_only": {
+          "n": 2,
+          "mean": 10.650000000001524,
+          "std": 0.8900000000010877,
+          "median": 10.650000000001524,
+          "p95": 11.451000000002503,
+          "min": 9.760000000000437,
+          "max": 11.540000000002612
+        },
+        "planning_time_ms_all_rounds": {
+          "n": 1065,
+          "mean": 14.989762476966781,
+          "std": 2.4900837958545887,
+          "median": 14.859037997666746,
+          "p95": 17.299370805267245,
+          "min": 11.088836996350437,
+          "max": 56.348864978645
+        },
+        "planning_time_ms_trial_means": {
+          "n": 2,
+          "mean": 15.045707270961596,
+          "std": 0.6694517483648985,
+          "median": 15.045707270961596,
+          "p95": 15.648213844490003,
+          "min": 14.376255522596697,
+          "max": 15.715159019326494
+        },
+        "failed_trials": 0
+      }
+    }
+  },
+  "trials": [
+    {
+      "model": "lcp",
+      "object": "foam_brick",
+      "seed": 0,
+      "steps": 291,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.016359912093621684,
+      "final_quat": 0.00011305579165832302,
+      "error": null,
+      "execution_time_s": 26.20203076803591,
+      "elapsed_wall_time_s": 26.20203076803591,
+      "simulation_time_s": 5.819999999999494,
+      "planning_time_ms": {
+        "n": 291,
+        "mean": 88.27159589290926,
+        "std": 8.420519217872517,
+        "median": 86.10544801922515,
+        "p95": 98.83474299567752,
+        "min": 44.28999300580472,
+        "max": 144.81903903651983
+      },
+      "planning_rounds": 291
+    },
+    {
+      "model": "qp",
+      "object": "foam_brick",
+      "seed": 0,
+      "steps": 222,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.014216699912056343,
+      "final_quat": 0.0015075468951361026,
+      "error": null,
+      "execution_time_s": 22.121446839009877,
+      "elapsed_wall_time_s": 22.121446839009877,
+      "simulation_time_s": 4.440000000000259,
+      "planning_time_ms": {
+        "n": 222,
+        "mean": 97.93664277494499,
+        "std": 11.277022582628456,
+        "median": 95.09999200236052,
+        "p95": 115.01152409182393,
+        "min": 65.7991249463521,
+        "max": 173.89732401352376
+      },
+      "planning_rounds": 222
+    },
+    {
+      "model": "qp",
+      "object": "foam_brick",
+      "seed": 1,
+      "steps": 3910,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.01620133321251831,
+      "final_quat": 9.3204685841064e-05,
+      "error": null,
+      "execution_time_s": 365.5430688909837,
+      "elapsed_wall_time_s": 365.5430688909837,
+      "simulation_time_s": 78.20000000019137,
+      "planning_time_ms": {
+        "n": 3910,
+        "mean": 91.72376922782524,
+        "std": 8.78190348593097,
+        "median": 88.83453151793219,
+        "p95": 103.6183311836794,
+        "min": 73.09398695360869,
+        "max": 189.32601797860116
+      },
+      "planning_rounds": 3910
+    },
+    {
+      "model": "scm",
+      "object": "foam_brick",
+      "seed": 0,
+      "steps": 488,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.016051977238886333,
+      "final_quat": 0.0007814875524717602,
+      "error": null,
+      "execution_time_s": 8.52492621698184,
+      "elapsed_wall_time_s": 8.52492621698184,
+      "simulation_time_s": 9.760000000000437,
+      "planning_time_ms": {
+        "n": 488,
+        "mean": 15.715159019326494,
+        "std": 2.0096328370573406,
+        "median": 15.246583498083055,
+        "p95": 17.648754140827805,
+        "min": 14.275664987508208,
+        "max": 49.870396964251995
+      },
+      "planning_rounds": 488
+    },
+    {
+      "model": "scm",
+      "object": "foam_brick",
+      "seed": 1,
+      "steps": 577,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.01616481687330306,
+      "final_quat": 6.752865155468246e-05,
+      "error": null,
+      "execution_time_s": 9.316904973995406,
+      "elapsed_wall_time_s": 9.316904973995406,
+      "simulation_time_s": 11.540000000002612,
+      "planning_time_ms": {
+        "n": 577,
+        "mean": 14.376255522596697,
+        "std": 2.6846825293126226,
+        "median": 13.845287961885333,
+        "p95": 16.134746186435223,
+        "min": 11.088836996350437,
+        "max": 56.348864978645
+      },
+      "planning_rounds": 577
+    }
+  ],
+  "matched_initial_states": true,
+  "notes": [
+    "Execution time is success-only wall time, including planning and physics; failed/capped trials are not successful completion times.",
+    "Planning time includes all candidate solves, prediction and selection per round. Aggregate planning samples include failed trials.",
+    "SCM retains the reference Isaac quasi-dynamic model and ACADOS force optimizer.",
+    "QP is native MuJoCo Newton with pyramidal friction, evaluated in a separate model/data at measured state.",
+    "LCP is the coupled physical-mass, regularized nonnegative friction-ray LCP, solved with scaled QuantEcon Lemke and certified on the unscaled problem.",
+    "QP/LCP use finite-difference local pose linearization and SLSQP force solves, then rank exact model predictions. Timing compares model+solver implementations, not model equations alone.",
+    "QP/LCP physical predictors average the 0.5ms pulse impulse over one 20ms Euler policy step. All executions use 40 physical substeps.",
+    "Identical seeds, point samples, force bounds, objective stages, ideal-point executor, pulse duration and success/settling thresholds are used.",
+    "Every attempted trial is included in the success denominator; solver exceptions have null completion time."
+  ]
+}

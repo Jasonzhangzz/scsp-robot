@@ -1,0 +1,52 @@
+
+******************************************************************************
+This program contains Ipopt, a library for large-scale nonlinear optimization.
+ Ipopt is released as open source code under the Eclipse Public License (EPL).
+         For more information visit https://github.com/coin-or/Ipopt
+******************************************************************************
+
+direct_force solver=ipopt object=elephant seed=1 step=0 pos=0.116894 quat=0.643131 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=50 pos=0.073117 quat=0.342918 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=100 pos=0.077534 quat=0.055944 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=150 pos=0.046908 quat=0.000128 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=200 pos=0.044591 quat=0.000181 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=250 pos=0.043834 quat=0.000087 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=300 pos=0.042303 quat=0.000039 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=350 pos=0.041182 quat=0.000075 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=400 pos=0.040159 quat=0.000068 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=450 pos=0.039089 quat=0.000043 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=500 pos=0.038189 quat=0.000088 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=550 pos=0.036888 quat=0.000155 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=600 pos=0.036377 quat=0.000151 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=650 pos=0.035770 quat=0.000148 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=700 pos=0.035089 quat=0.000157 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=750 pos=0.033791 quat=0.000186 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=800 pos=0.032869 quat=0.000143 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=850 pos=0.032333 quat=0.000092 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=900 pos=0.030919 quat=0.000121 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=950 pos=0.028826 quat=0.000106 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1000 pos=0.028012 quat=0.000059 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1050 pos=0.027795 quat=0.000069 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1100 pos=0.027166 quat=0.000068 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1150 pos=0.026427 quat=0.000103 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1200 pos=0.025140 quat=0.000042 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1250 pos=0.024216 quat=0.000032 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1300 pos=0.023290 quat=0.000026 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1350 pos=0.022344 quat=0.000027 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1400 pos=0.021637 quat=0.000023 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1450 pos=0.021074 quat=0.000028 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1500 pos=0.020756 quat=0.000025 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1550 pos=0.020158 quat=0.000026 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1600 pos=0.019553 quat=0.000024 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1650 pos=0.019022 quat=0.000027 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1700 pos=0.018694 quat=0.000027 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1750 pos=0.018197 quat=0.000030 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1800 pos=0.017903 quat=0.000035 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1850 pos=0.017404 quat=0.000033 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1900 pos=0.017281 quat=0.000028 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=1950 pos=0.017035 quat=0.000034 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=2000 pos=0.016608 quat=0.000023 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=2050 pos=0.016283 quat=0.000039 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=1 step=2100 pos=0.015961 quat=0.000034 hold=4 success=False
+direct_force solver=ipopt object=elephant seed=1 step=2106 pos=0.015981 quat=0.000027 hold=10 success=True
+TRIAL_RESULT {"solver": "ipopt", "object": "elephant", "seed": 1, "steps": 2107, "success": true, "settled": true, "final_pos": 0.015981194414066473, "final_quat": 2.7344314649457857e-05, "solver_backends": ["ipopt"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:19:35+08:00", "completed_at": "2026-10-13T21:51:39+08:00", "execution_time_s": 1918.9661586669972, "elapsed_wall_time_s": 1918.9661586669972, "simulation_time_s": 42.140000000019185, "planning_time_ms": {"n": 2107, "mean": 907.1460820222981, "std": 375.4676691638888, "median": 856.5879379748367, "p95": 1632.715672900667, "min": 393.2027510018088, "max": 2311.732585018035}, "planning_rounds": 2107}

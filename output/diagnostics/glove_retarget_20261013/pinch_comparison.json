@@ -1,0 +1,118 @@
+[
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_17_19_04",
+    "before": {
+      "robot_tip_mm": [
+        110.006,
+        123.288,
+        158.557
+      ],
+      "human_tip_mm": [
+        100.776,
+        114.661,
+        141.948
+      ],
+      "frames": 807
+    },
+    "after": {
+      "robot_tip_mm": [
+        26.434,
+        33.7,
+        59.469
+      ],
+      "human_tip_mm": [
+        18.245,
+        33.617,
+        43.158
+      ],
+      "frames": 807
+    }
+  },
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_17_21_28",
+    "before": {
+      "robot_tip_mm": [
+        64.922,
+        91.954,
+        129.929
+      ],
+      "human_tip_mm": [
+        63.975,
+        87.861,
+        122.019
+      ],
+      "frames": 685
+    },
+    "after": {
+      "robot_tip_mm": [
+        25.616,
+        35.137,
+        59.313
+      ],
+      "human_tip_mm": [
+        16.292,
+        29.041,
+        43.124
+      ],
+      "frames": 685
+    }
+  },
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_18_14_52",
+    "before": {
+      "robot_tip_mm": [
+        81.424,
+        98.925,
+        120.486
+      ],
+      "human_tip_mm": [
+        55.675,
+        88.331,
+        103.989
+      ],
+      "frames": 665
+    },
+    "after": {
+      "robot_tip_mm": [
+        13.223,
+        26.027,
+        58.569
+      ],
+      "human_tip_mm": [
+        8.278,
+        28.031,
+        41.573
+      ],
+      "frames": 665
+    }
+  },
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_09_12_05_21",
+    "before": {
+      "robot_tip_mm": [
+        14.162,
+        31.852,
+        72.106
+      ],
+      "human_tip_mm": [
+        12.711,
+        29.346,
+        58.137
+      ],
+      "frames": 310
+    },
+    "after": {
+      "robot_tip_mm": [
+        14.178,
+        31.752,
+        72.228
+      ],
+      "human_tip_mm": [
+        12.711,
+        29.347,
+        58.137
+      ],
+      "frames": 310
+    }
+  }
+]

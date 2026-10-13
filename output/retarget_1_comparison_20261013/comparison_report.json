@@ -1,0 +1,40 @@
+{
+  "status": "comparison_blocked_no_complete_trajectories",
+  "uploaded_file": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1.json",
+  "sha256": "2633f2b9aed674aa9e70e5280c2db78b5bb6bd4d52a7919d2c4eff493a8018ea",
+  "historical_commit": "adde3216860a76b70f3bfda462ab48e50ab9cba4",
+  "current_head": "0da78fb17418fb77fe408eb04391ba2452abcea4",
+  "current_source": "remote working directory, including existing uncommitted modifications",
+  "robot": "ex001_wuji / hand1",
+  "input_frames": 249,
+  "input_duration_s": 12.4,
+  "source_recording_frames": 195,
+  "source_recording_duration_s": 6.527677952,
+  "command_constraints": [
+    "--config cannot be combined with --test_data",
+    "batch --test_data requires collection directory, not JSON file",
+    "system python3 lacks warp; used existing pi0 Python for execution"
+  ],
+  "run_preparation": "isolated episode directory linked to the unchanged uploaded JSON and its corresponding original EMF/TF/video files; cloned YAML changed only list/output for current run; historical YAML selected ex001_wuji and isolated model_config",
+  "current": {
+    "status": "skipped",
+    "complete_trajectory": false,
+    "reason": "118 camera frames have no EMF sample within one action period, longest consecutive run 118 (limit 5); missing indices 131..248",
+    "exit_code": 0,
+    "log": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_comparison_20261013/current.log"
+  },
+  "historical": {
+    "status": "failed",
+    "complete_trajectory": false,
+    "reason": "No camera frame has exact left/right EMF payload matches. Uploaded standardized JSON lacks left_glove_emf_poses and right_glove_emf_poses required by historical align_camera.",
+    "exit_code": 1,
+    "log": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_comparison_20261013/historical.log"
+  },
+  "comparison": {
+    "complete_trajectories_available": 0,
+    "exact_equal": null,
+    "reason": "Neither version generated the complete arm+hand trajectory for the uploaded input."
+  },
+  "historical_native_npz_note": "historical_native.npz contains original-recording SDK intermediate hand arrays only; not a solved trajectory of retarget_1.json",
+  "required_next_step": "Provide/choose the original raw episode JSON with EMF payloads and original timestamps for both versions, or authorize adapting both pipelines to solve standardized source_mano21 input."
+}

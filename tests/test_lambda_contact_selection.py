@@ -228,6 +228,42 @@ def test_real_facade_empty_live_cones_keep_offline_fallback_and_reset(policy):
     assert policy.offline_solve_count == 1 and policy.online_solve_count == 0
 
 
+@pytest.mark.parametrize("reverse_assignment", [False, True])
+def test_online_empty_admissible_set_keeps_assigned_pair_and_refreshes_prediction(policy, reverse_assignment):
+    current = np.array([0., 0., .5, 1., 0., 0., 0.])
+    target = current.copy()
+    target[2] += .03
+    inertia = np.diag([.1, .1, .1, .003, .003, .003])
+    tips = current[:3] + np.array([[-.3, 0., 0.], [.3, 0., 0.]])
+    points, normals, previous_pose, _, first = policy.initialize_offline(
+        target, current, tips_world=tips, object_inertia=inertia, prediction_dt=.06)
+    expected_ids = first["contact_indices"].copy()
+    if reverse_assignment:
+        expected_ids = expected_ids[::-1].copy()
+        points, normals = points[::-1].copy(), normals[::-1].copy()
+        policy._active_ids.assign(expected_ids)
+    # Changed support geometry rejects global fallback, incumbent and cones.
+    # This used to leave _choice=-1 and crash in _result.
+    policy.set_support_surface([0., 0., .7], [0., 0., 1.])
+    current[0] += .02
+    next_points, next_normals, predicted, cost, info = policy.update_contacts(
+        target, current, tips_world=tips, object_inertia=inertia, prediction_dt=.06)
+    np.testing.assert_array_equal(info["contact_indices"], expected_ids)
+    np.testing.assert_array_equal(next_points, points)
+    np.testing.assert_array_equal(next_normals, normals)
+    assert info["source"] == "incumbent_fallback"
+    assert info["selection_failed"] and not info["pair_switch_approved"]
+    assert not info["solver_failed"]
+    assert np.isfinite(predicted).all() and np.isfinite(cost)
+    assert not np.allclose(predicted, previous_pose)
+    assert policy.offline_solve_count == policy.online_solve_count == 1
+    # A later explicit freeze must use the initial pair, not the fallback's
+    # potentially different active assignment cached in the one-pair buffer.
+    frozen = policy.update_contacts(target, current, tips_world=tips,
+        object_inertia=inertia, prediction_dt=.06, freeze_contact_pair=True)
+    np.testing.assert_array_equal(frozen[4]["contact_indices"], first["contact_indices"])
+
+
 def test_real_facade_support_clearance_and_device_support_response(policy):
     current = np.array([0., 0., .5, 1., 0., 0., 0.])
     target = current.copy()
@@ -241,3 +277,65 @@ def test_real_facade_support_clearance_and_device_support_response(policy):
     assert np.isfinite(x_plus).all() and np.isfinite(cost)
     assert np.isfinite(policy._support_gap.numpy()).all()
     assert info["cost_reduction"] > 0
+
+
+def test_loaded_contact_pair_keeps_identity_while_forces_are_reoptimized(policy):
+    current = np.array([0., 0., .5, 1., 0., 0., 0.])
+    target = current.copy()
+    target[2] += .03
+    inertia = np.diag([.1, .1, .1, .003, .003, .003])
+    points, normals, _, _, first = policy.initialize_offline(target, current,
+        tips_world=[[-.3, 0., .5], [.3, 0., .5]], object_inertia=inertia, prediction_dt=.06)
+    tips = current[:3] + points - .012 * normals
+    points_next, normals_next, predicted, cost, info = policy.update_contacts(target, current,
+        tips_world=tips, object_inertia=inertia, prediction_dt=.06, lock_contact_pair=True)
+    assert info["contact_pair_locked"]
+    np.testing.assert_array_equal(info["contact_indices"], first["contact_indices"])
+    np.testing.assert_array_equal(points_next, points)
+    np.testing.assert_array_equal(normals_next, normals)
+    assert np.isfinite(predicted).all() and np.isfinite(cost)
+
+
+def test_frozen_pair_survives_contact_loss_and_crossed_arm_assignment(policy, monkeypatch):
+    current = np.array([0., 0., .5, 1., 0., 0., 0.])
+    target = current.copy()
+    target[2] += .03
+    inertia = np.diag([.1, .1, .1, .003, .003, .003])
+    points, normals, _, _, first = policy.initialize_offline(target, current,
+        tips_world=[[-.3, 0., .5], [.3, 0., .5]], object_inertia=inertia, prediction_dt=.06)
+
+    def forbid_search(*args, **kwargs):
+        raise AssertionError("Frozen pair must not invoke candidate search")
+
+    monkeypatch.setattr(policy.surface, "online_pairs", forbid_search)
+    for tips in ([[.3, 0., .5], [-.3, 0., .5]], [[0., 0., .5], [0., 0., .5]]):
+        next_points, next_normals, predicted, cost, info = policy.update_contacts(
+            target, current, tips_world=tips, object_inertia=inertia,
+            prediction_dt=.06, freeze_contact_pair=True, joint_verify=True)
+        np.testing.assert_array_equal(info["contact_indices"], first["contact_indices"])
+        np.testing.assert_array_equal(next_points, points)
+        np.testing.assert_array_equal(next_normals, normals)
+        assert info["source"] == "fixed_pair" and info["contact_pair_frozen"]
+        assert not info["pair_switch_approved"] and info["candidate_capacity"] == 1
+        assert np.isfinite(predicted).all() and np.isfinite(cost)
+    assert policy.offline_solve_count == 1 and policy.online_solve_count == 2
+    policy.reset()
+    assert policy._fixed is None
+
+
+@pytest.mark.parametrize("candidate, reduction, expected", [
+    ([[.09, 0., 0.], [.3, 0., 0.]], .002, 1),  # summed gain, right arm veto
+    ([[.09, 0., 0.], [.11, 0., 0.]], .002, 2),  # both approve
+    ([[.09, 0., 0.], [.11, 0., 0.]], .0005, 1),  # worse object response
+])
+def test_verify_pair_requires_both_arms_and_shared_object_gain(candidate, reduction, expected):
+    k, wp = ensure_selection_kernels(), ensure_selection_kernels().wp
+    points = np.array([[[.2, 0., 0.], [.2, 0., 0.]],
+                       [[.2, 0., 0.], [.2, 0., 0.]], candidate])
+    selected = _array([2, 0], int)
+    verification = wp.zeros(3, dtype=float, device="cpu")
+    wp.launch(k.verify_pair, dim=1, inputs=[_array(points.reshape(-1, 3), wp.vec3),
+        _array(np.zeros((2, 3)), wp.vec3), _array([.001, .001, reduction]),
+        .002, selected, verification], device="cpu")
+    assert selected.numpy()[0] == expected
+    assert bool(verification.numpy()[2]) == (expected == 2)

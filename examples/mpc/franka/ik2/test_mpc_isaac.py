@@ -65,6 +65,7 @@ ensure_acados_env()
 from examples.mpc.franka.ik2.params import (
     ExplicitMPCParams,
     build_lambda_optimizer,
+    add_lambda_predictor_args,
     _box_inertia_diag,
 )
 from examples.mpc.franka.ik2.test_mppi_isaac import (
@@ -110,7 +111,11 @@ from examples.mpc.franka.ik2.contact_frames import (
 )
 from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule, joint_hold_target
 from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
-from planning.contact_limits import DEFAULT_CONTACT_FORCE_LIMIT, contact_force_limit, contact_command_force_limit
+from planning.contact_limits import DEFAULT_CONTACT_FORCE_LIMIT, contact_force_limit, contact_command_force_limit, CARTESIAN_TASK_STIFFNESS, CARTESIAN_TASK_DAMPING
+from examples.mpc.franka.ik2.scene_friction import (
+    DEFAULT_TANGENTIAL_FORCE_PENALTY, ROLLOUT_TABLE_FRICTION,
+    ROLLOUT_OBJECT_FRICTION, ROLLOUT_FINGERTIP_FRICTION, configure_scene_friction,
+)
 from models.soft_scm_contact import (
     SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
 )
@@ -154,8 +159,8 @@ DEFAULT_EFFORT_JOINT_DAMPING = 0.0
 ROLLOUT_FINGERTIP_MASS = 0.01
 ROLLOUT_TASK_KP = 100.0
 ROLLOUT_TASK_KD = 2.0
-ISAAC_TASK_KP = 600.0
-ISAAC_TASK_KD = 40.0
+ISAAC_TASK_KP = CARTESIAN_TASK_STIFFNESS
+ISAAC_TASK_KD = CARTESIAN_TASK_DAMPING
 # Enough to finish a 5 mm increment in 20 ms without saturating.
 FREE_SPACE_FORCE_LIMIT = 12.0
 # Contact cap follows --max_contact_force for both prediction and OSC.
@@ -179,8 +184,6 @@ ISAAC_TABLE_EDGE_GUARD_DISTANCE = 0.060
 # sent the Franka tip 15 cm from the COM before it could drop.
 ISAAC_ORBIT_EXTRA = 0.0
 NEAR_PRESS_SWITCH = CONTACT_NEAR_PRESS
-ROLLOUT_TABLE_FRICTION = 0.5
-ROLLOUT_OBJECT_FRICTION = 0.9
 
 
 def policy_control_substeps(control_substeps, sim_dt, policy_interval=POLICY_INTERVAL):
@@ -191,7 +194,6 @@ def policy_control_substeps(control_substeps, sim_dt, policy_interval=POLICY_INT
     return n
 
 
-ROLLOUT_FINGERTIP_FRICTION = 1.5
 SVG_SCREENSHOT_CAMERA_POSITION = np.array([0.7, 0.00, 0.63], dtype=np.float32)
 SVG_SCREENSHOT_CAMERA_TARGET = np.array([0.1, 0.00, 0.32], dtype=np.float32)
 
@@ -329,6 +331,8 @@ def _apply_dywa_physics_to_param(param):
     # (table 0.3--0.8, object 0.2--1.0) made some trials unflippable.
     param.table_friction_ = ROLLOUT_TABLE_FRICTION
     param.object_friction_ = ROLLOUT_OBJECT_FRICTION
+    param.fingertip_friction_ = ROLLOUT_FINGERTIP_FRICTION
+    configure_scene_friction(param)
     rollout_mass = float(getattr(param, "lambda_obj_mass_", 0.01))
     param.sim_obj_mass_ = rollout_mass
     param.obj_mass_ = rollout_mass
@@ -668,9 +672,10 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                     if 0 <= k < len(shape_props):
                         shape_props[k].filter = filt
                         if name == "fingertip":
-                            shape_props[k].friction = ROLLOUT_FINGERTIP_FRICTION
-                            shape_props[k].torsion_friction = ROLLOUT_FINGERTIP_FRICTION
-                            shape_props[k].rolling_friction = ROLLOUT_FINGERTIP_FRICTION
+                            fingertip_mu = float(getattr(self.param_, 'fingertip_friction_', ROLLOUT_FINGERTIP_FRICTION))
+                            shape_props[k].friction = fingertip_mu
+                            shape_props[k].torsion_friction = fingertip_mu
+                            shape_props[k].rolling_friction = fingertip_mu
                         assigned = True
         except Exception:
             assigned = False
@@ -1583,7 +1588,8 @@ class ContactIsaacCartesian:
         if_contact = False
 
         contacts_raw = simulator.gym.get_env_rigid_contacts(simulator.env)
-        mu = float(self.param_.mu_object_)
+        mu_fingertip = float(getattr(self.param_, 'mu_fingertip_object_', self.param_.mu_object_))
+        mu_table = float(getattr(self.param_, 'mu_table_object_', self.param_.mu_object_))
         fingertip_sim_idx = fingertip_body_index(simulator)
         quat_xyzw = np.array(
             [obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]],
@@ -1658,7 +1664,7 @@ class ContactIsaacCartesian:
             # columns use -n_out with relative velocity obj-tip.
             n, t1, t2 = _tangent_basis_from_normal(-n_raw)
             con_jac = np.array(
-                _contact_jacobian(n, t1, t2, j_obj - j_other, mu),
+                _contact_jacobian(n, t1, t2, j_obj - j_other, mu_fingertip),
                 dtype=np.float32,
             )
             phi_vec[4 * row_idx : 4 * row_idx + 4] = dist
@@ -1683,7 +1689,7 @@ class ContactIsaacCartesian:
             # the same support geometry/gaps as MPC, excluding the fingertip.
             for env_idx, point in enumerate(support_points):
                 world_j, body_j = support_patch_jacobians(
-                    obj_pos, r_obj_to_world, point, nv, mu)
+                    obj_pos, r_obj_to_world, point, nv, mu_table)
                 gap = float(point[2] - table_height)
                 if row_idx < max_ncon:
                     phi_vec[4*row_idx:4*row_idx+4] = gap
@@ -2302,6 +2308,11 @@ def _print_rollout_step(
 
 def _add_rollout_policy_args(parser):
     add_rollout_via_args(parser)
+    add_lambda_predictor_args(parser)
+    parser.add_argument('--rollout-cache-dir', default='', metavar='DIR',
+                        help='Cache complete synchronous source observations, commands and ranking decisions for test_rs replay.')
+    # Allow tangential loading during a flip without removing regularization.
+    parser.set_defaults(friction_reg_coef=DEFAULT_TANGENTIAL_FORCE_PENALTY)
     parser.add_argument('--rollout-planner-snapshots', default='', metavar='DIR',
                         help='Save the first measured pose-stage contact request per trial for offline prediction diagnosis.')
     parser.add_argument('--pose-executor-constraints', dest='pose_executor_constraints', action='store_true',
@@ -2314,18 +2325,10 @@ def _add_rollout_policy_args(parser):
     parser.add_argument('--no-flip-executor-constraints', dest='flip_executor_constraints', action='store_false',
                         help='Disable flip-stage executor constraints for baseline comparison.')
     parser.set_defaults(flip_executor_constraints=True)
-    parser.add_argument('--collision-geometry', choices=('auto', 'hull', 'decomposed'), default='auto',
-                        help='Shared planner/PhysX geometry; auto decomposes mug and rubber_duck.')
-    parser.add_argument('--contact-sampling', choices=('auto', 'surface', 'vertices'), default='auto',
-                        help='Auto uses surface contacts for mug/duck and dense mesh vertices for other objects.')
     # A flip starts on its side. Smaller explicit tilt ranges remain usable
     # for recovery experiments; --no_random_init_tilt fixes the side axis.
+    # Rotation starts stay upright regardless of these tilt options.
     parser.set_defaults(init_tilt_deg=90.0, init_tilt_min_deg=90.0)
-    parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
-    parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
-    parser.set_defaults(two_stage_object_cost=True)
-    parser.add_argument('--cso-guidance', choices=('cso', 'pose', 'random', 'nearest'), default='cso',
-                        help='CSO prior: ell_cso, ell_pose, uniform feasible sample, or nearest sample.')
     parser.add_argument('--cpo-variant', choices=('full', 'no_object_center', 'direct'), default='full',
                         help='CPO stage cost: full lift/place, w_o=0, or direct trajectory optimization.')
     parser.add_argument('--ablation-variant', default='',
@@ -2354,13 +2357,7 @@ def _add_rollout_policy_args(parser):
     parser.add_argument('--ranking-metrics-jsonl', default='',
                         help='Append whole-trial outcomes and terminal rewards to this JSONL file; '
                              'paired counterfactual advantages require separate matched rollouts.')
-    parser.add_argument('--contact-model', choices=('soft-scm', 'comfree'), default='soft-scm',
-                        help='Contact predictor for both CSO ranking and explicit MPC.')
-    parser.add_argument('--soft-scm-response-time', type=float, default=SOFT_SCM_RESPONSE_TIME,
-                        help='Finite contact response time in seconds; default 0.05 (not MPC-calibrated).')
-    parser.add_argument('--soft-scm-damping-ratio', type=float, default=SOFT_SCM_DAMPING_RATIO)
-    parser.add_argument('--soft-scm-regularization', type=float, default=SOFT_SCM_REGULARIZATION,
-                        help='Positive diagonal Delassus regularization.')
+
     parser.add_argument('--adaptive', '--online-scm', dest='online_scm', action='store_true',
                         help='Enable online soft-SCM identification from executed contact transitions '
                              '(disabled by default; --online-scm is a compatibility alias).')
@@ -2431,14 +2428,30 @@ def _add_rollout_policy_args(parser):
         help="Extra lower bound for the fingertip-center reference (m). "
              "Default 0.012 m keeps the 10 mm fingertip sphere above the table.",
     )
-    parser.add_argument(
+    task = parser.add_mutually_exclusive_group()
+    task.add_argument(
+        "--rotation",
+        dest="target_type",
+        action="store_const",
+        const="rotation",
+        help="Start upright with the same up axis as the target; rotate without flipping. "
+             "Initial tilt options are ignored.",
+    )
+    task.add_argument(
+        "--flipping",
+        dest="target_type",
+        action="store_const",
+        const="ground-rotation",
+        help="Start tilted and flip into the upright target pose (default).",
+    )
+    task.add_argument(
         "--target-type",
         dest="target_type",
         type=str,
-        default="ground-rotation",
         choices=("ground-rotation", "rotation"),
-        help="ground-rotation matches fingertips --rollout (90 deg pitch flip).",
+        help="Legacy task selector: ground-rotation is --flipping; rotation is --rotation.",
     )
+    parser.set_defaults(target_type="ground-rotation")
     parser.add_argument("--trial-start", type=int, default=0)
     parser.add_argument(
         "--control-substeps",
@@ -2563,6 +2576,12 @@ def run_mpc_planner(bus, args):
     trial_summaries = []
 
     for trial_count in range(trial_start, trial_stop):
+        if getattr(args, 'rollout_cache_dir', ''):
+            import random
+            random.seed(100 + trial_count)
+            np.random.seed(100 + trial_count)
+            if torch is not None:
+                torch.manual_seed(100 + trial_count)
         startup_started = time.perf_counter()
         print('[mpc-startup] trial=%d building contact/MPC runtime' % trial_count,
               flush=True, file=sys.__stdout__)
@@ -2583,6 +2602,8 @@ def run_mpc_planner(bus, args):
             sampling_controller = SamplingC3Controller(config_from_args(args, trial_count))
         init = planner_init_payload(args, param, trial_count)
         _, plan_param, mpc, trackers = _build_mpc_planner_runtime(init, param)
+        # Optional one-decision counterfactual evaluator; ordinary runs have no hook.
+        plan_param.rs_decision_hook = getattr(bus, 'rs_decision_hook', None)
         print('[mpc-startup] trial=%d ready in %.2fs (contact=%s mpc=%s)' % (
             trial_count, time.perf_counter()-startup_started,
             getattr(plan_param.lambda_optimizer, 'solver', 'unknown'),
@@ -2967,6 +2988,10 @@ def run_mpc_planner(bus, args):
             "cpo_variant": str(getattr(args, "cpo_variant", "full")),
             "ablation_variant": str(getattr(args, "ablation_variant", "") or ""),
             "target_type": str(getattr(args, "target_type", "")),
+            "friction_reg_coef": float(args.friction_reg_coef),
+            "lambda_friction_cone": str(getattr(param.lambda_optimizer, 'friction_cone', 'box')),
+            "fingertip_object_friction": float(param.mu_fingertip_object_),
+            "table_object_friction": float(param.mu_table_object_),
             "collision_geometry": getattr(param, 'collision_geometry_', 'hull'),
             "collision_part_count": len(getattr(param, 'collision_mesh_paths_', [])),
             "contact_sampling": getattr(param, 'contact_sampling_', 'vertices'),

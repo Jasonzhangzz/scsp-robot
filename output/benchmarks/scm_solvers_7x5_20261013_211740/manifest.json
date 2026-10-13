@@ -1,0 +1,148 @@
+{
+  "created_at": "2026-10-13T21:17:40+08:00",
+  "source_root": "/home/zz/scsp-robot",
+  "source_snapshot": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/source/scsp-robot",
+  "solvers": [
+    "acados",
+    "ipopt",
+    "cma-es",
+    "cem"
+  ],
+  "objects": [
+    "foam_brick",
+    "elephant",
+    "mug",
+    "rubber_duck",
+    "piggy_bank",
+    "stanford_bunny2",
+    "teapot"
+  ],
+  "seeds_execution_order": [
+    1,
+    2,
+    3,
+    4,
+    0
+  ],
+  "trials_per_object": 5,
+  "trials_per_solver": 35,
+  "total_trials": 140,
+  "max_steps": 5000,
+  "jobs_per_solver": 2,
+  "mass": 0.01,
+  "execution": "wrench",
+  "random_tilt": "default 35-75 degrees",
+  "population_size": 24,
+  "population_iterations": 12,
+  "cem_elite_fraction": 0.25,
+  "solver_seed_offset": 0,
+  "thread_limits": 1,
+  "started_at": "2026-10-13T21:19:35+08:00",
+  "python": "/home/zz/miniconda3/envs/pi0/bin/python",
+  "acados_source_dir": "/home/zz/zz_ws/acados",
+  "package_versions": {
+    "numpy": "2.2.6",
+    "casadi": "3.7.2",
+    "mujoco": "3.11.0",
+    "cma": "4.5.0",
+    "evotorch": "0.6.1"
+  },
+  "processes": [
+    {
+      "solver": "acados",
+      "pid": 3073422,
+      "process_group": 3073422,
+      "log": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/acados.log",
+      "output_dir": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/acados",
+      "command": [
+        "/home/zz/miniconda3/envs/pi0/bin/python",
+        "-u",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/source/scsp-robot/examples/mpc/fingertips/test/benchmark_scm_solvers.py",
+        "--solver",
+        "acados",
+        "--objects",
+        "foam_brick,elephant,mug,rubber_duck,piggy_bank,stanford_bunny2,teapot",
+        "--seeds",
+        "1,2,3,4,0",
+        "--steps",
+        "5000",
+        "--jobs",
+        "2",
+        "--output-dir",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/acados"
+      ]
+    },
+    {
+      "solver": "ipopt",
+      "pid": 3073423,
+      "process_group": 3073423,
+      "log": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt.log",
+      "output_dir": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt",
+      "command": [
+        "/home/zz/miniconda3/envs/pi0/bin/python",
+        "-u",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/source/scsp-robot/examples/mpc/fingertips/test/benchmark_scm_solvers.py",
+        "--solver",
+        "ipopt",
+        "--objects",
+        "foam_brick,elephant,mug,rubber_duck,piggy_bank,stanford_bunny2,teapot",
+        "--seeds",
+        "1,2,3,4,0",
+        "--steps",
+        "5000",
+        "--jobs",
+        "2",
+        "--output-dir",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt"
+      ]
+    },
+    {
+      "solver": "cma-es",
+      "pid": 3073424,
+      "process_group": 3073424,
+      "log": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es.log",
+      "output_dir": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es",
+      "command": [
+        "/home/zz/miniconda3/envs/pi0/bin/python",
+        "-u",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/source/scsp-robot/examples/mpc/fingertips/test/benchmark_scm_solvers.py",
+        "--solver",
+        "cma-es",
+        "--objects",
+        "foam_brick,elephant,mug,rubber_duck,piggy_bank,stanford_bunny2,teapot",
+        "--seeds",
+        "1,2,3,4,0",
+        "--steps",
+        "5000",
+        "--jobs",
+        "2",
+        "--output-dir",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es"
+      ]
+    },
+    {
+      "solver": "cem",
+      "pid": 3073425,
+      "process_group": 3073425,
+      "log": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cem.log",
+      "output_dir": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cem",
+      "command": [
+        "/home/zz/miniconda3/envs/pi0/bin/python",
+        "-u",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/source/scsp-robot/examples/mpc/fingertips/test/benchmark_scm_solvers.py",
+        "--solver",
+        "cem",
+        "--objects",
+        "foam_brick,elephant,mug,rubber_duck,piggy_bank,stanford_bunny2,teapot",
+        "--seeds",
+        "1,2,3,4,0",
+        "--steps",
+        "5000",
+        "--jobs",
+        "2",
+        "--output-dir",
+        "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cem"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "packages": {
+    "casadi": "3.7.2",
+    "mujoco": "3.11.0",
+    "cma": "4.5.0",
+    "evotorch": "0.6.1",
+    "torch": "2.10.0+cu128",
+    "numpy": "2.2.6"
+  },
+  "regression_tests": {
+    "passed": 67,
+    "log": "library_regression.log"
+  },
+  "completed_trials": [
+    {
+      "solver": "cma-es",
+      "library": "pycma",
+      "start": "default random tilt",
+      "object": "foam_brick",
+      "seed": 0,
+      "success": true,
+      "steps": 461,
+      "final_pos_m": 0.00564246948192039,
+      "final_quat_error": 0.01321719209596628,
+      "success_hold": 14,
+      "json": "cma-es.json",
+      "no_fallback": true,
+      "no_mujoco_instability": true,
+      "force_constraints_verified": true
+    },
+    {
+      "solver": "cem",
+      "library": "EvoTorch",
+      "start": "default random tilt",
+      "object": "foam_brick",
+      "seed": 0,
+      "success": true,
+      "steps": 489,
+      "final_pos_m": 0.016217629635289842,
+      "final_quat_error": 0.00018746284754844744,
+      "success_hold": 10,
+      "json": "cem.json",
+      "no_fallback": true,
+      "no_mujoco_instability": true,
+      "force_constraints_verified": true
+    },
+    {
+      "solver": "ipopt",
+      "library": "CasADi/IPOPT",
+      "start": "upright",
+      "object": "foam_brick",
+      "seed": 0,
+      "success": true,
+      "steps": 285,
+      "final_pos_m": 0.017044256931085244,
+      "final_quat_error": 0.0001369956838098707,
+      "success_hold": 11,
+      "json": "ipopt_upright.json",
+      "no_fallback": true,
+      "no_mujoco_instability": true,
+      "force_constraints_verified": true
+    },
+    {
+      "solver": "cma-es",
+      "library": "pycma",
+      "start": "upright",
+      "object": "foam_brick",
+      "seed": 0,
+      "success": true,
+      "steps": 58,
+      "final_pos_m": 0.015879343130226903,
+      "final_quat_error": 0.014528239537184184,
+      "success_hold": 12,
+      "json": "cma-es_upright.json",
+      "no_fallback": true,
+      "no_mujoco_instability": true,
+      "force_constraints_verified": true
+    },
+    {
+      "solver": "cem",
+      "library": "EvoTorch",
+      "start": "upright",
+      "object": "foam_brick",
+      "seed": 0,
+      "success": true,
+      "steps": 282,
+      "final_pos_m": 0.016319144936400954,
+      "final_quat_error": 0.001128873675908526,
+      "success_hold": 13,
+      "json": "cem_upright.json",
+      "no_fallback": true,
+      "no_mujoco_instability": true,
+      "force_constraints_verified": true
+    }
+  ],
+  "incomplete_trials": [
+    {
+      "solver": "ipopt",
+      "start": "default random tilt",
+      "status": "Additional long benchmark interrupted by agent after about 20 minutes; no completed result. Upright trial succeeded.",
+      "log": "ipopt_default_interrupted.log"
+    }
+  ],
+  "default_cma_cem_initial_pose_matched": true
+}

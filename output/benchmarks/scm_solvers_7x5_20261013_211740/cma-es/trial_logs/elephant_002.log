@@ -1,0 +1,16 @@
+direct_force solver=cma-es object=elephant seed=2 step=0 pos=0.139105 quat=0.685770 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=50 pos=0.084331 quat=0.812087 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=100 pos=0.091328 quat=0.921317 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=150 pos=0.019893 quat=0.000623 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=200 pos=0.020081 quat=0.000078 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=250 pos=0.019486 quat=0.000056 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=300 pos=0.019162 quat=0.000047 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=350 pos=0.018667 quat=0.000029 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=400 pos=0.018336 quat=0.000065 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=450 pos=0.018005 quat=0.000083 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=500 pos=0.017412 quat=0.000029 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=550 pos=0.016971 quat=0.000035 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=600 pos=0.016642 quat=0.000031 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=650 pos=0.016103 quat=0.000019 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=2 step=675 pos=0.016061 quat=0.000025 hold=10 success=True
+TRIAL_RESULT {"solver": "cma-es", "object": "elephant", "seed": 2, "steps": 676, "success": true, "settled": true, "final_pos": 0.01606144705409558, "final_quat": 2.5353982736842084e-05, "solver_backends": ["cma-es"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-14T00:05:49+08:00", "completed_at": "2026-10-14T00:14:42+08:00", "execution_time_s": 529.0772276259959, "elapsed_wall_time_s": 529.0772276259959, "simulation_time_s": 13.520000000005032, "planning_time_ms": {"n": 676, "mean": 780.5876194955106, "std": 79.57436350830646, "median": 747.3545440007001, "p95": 935.8797772583785, "min": 615.262130042538, "max": 1246.7052510473877}, "planning_rounds": 676}

@@ -1,0 +1,21 @@
+[acados] generating solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q1895272cc8
+External functions generated in 95.180 ms.
+Templated solver code generated in 849.063 ms.
+[acados] compiling solver (1 large maps); log: /tmp/contact_lambda_soft_scm_v25_m10_f10000_u900_q1895272cc8_codegen/build.log
+[acados] solver ready in 3.33s
+[acados] generating solver: contact_lambda_soft_scm_v25_m10_f200_u900_qf39a0ae43f
+External functions generated in 660.872 ms.
+Templated solver code generated in 911.048 ms.
+[acados] compiling solver (3 large maps); log: /tmp/contact_lambda_soft_scm_v25_m10_f200_u900_qf39a0ae43f_codegen/build.log
+[acados] solver ready in 4.72s
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+direct_force object=foam_brick seed=0 step=0 pos=0.053974 quat=0.459371 hold=0 success=False
+direct_force object=foam_brick seed=0 step=39 pos=0.017983 quat=0.004804 hold=23 success=True
+direct_force summary: 1/1 succeeded

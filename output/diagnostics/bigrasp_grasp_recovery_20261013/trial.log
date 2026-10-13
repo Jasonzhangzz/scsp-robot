@@ -1,0 +1,187 @@
+EE IK backend: mujoco
+MuJoCo viewer: off
+Warp UserWarning: Python 3.9 or newer is recommended for running Warp, detected sys.version_info(major=3, minor=8, micro=20, releaselevel='final', serial=0)
+Warp 1.3.1 initialized:
+   CUDA Toolkit 12.5, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.3.1
+[acados] generating solver: mpc_soft_scm_bimanual_v3_7fe905c6a2_param_staged2_7b262183a9_current_h8_c6_x25_u6_profile_e8ddba0a_force0_v2_12000000
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+External functions generated in 3030.917 ms.
+Templated solver code generated in 1097.707 ms.
+[acados] compiling solver (5 large maps); log: /tmp/mpc_soft_scm_bimanual_v3_7fe905c6a2_param_staged2_7b262183a9_current_h8_c6_x25_u6_profile_e8ddba0a_force0_v2_12000000_codegen/build.log
+[acados] solver ready in 17.55s
+Online bimanual MPC: solver=acados state=25 action=6 horizon=8 dt=0.010s
+Module planning.lambda_contact_lm 86272c8 load on device 'cpu' took 0.78 ms  (cached)
+Module planning.contact_candidates_warp ef8679c load on device 'cpu' took 0.07 ms  (cached)
+Module planning.lambda_batched_lm 06e263e load on device 'cpu' took 2119.16 ms  (compiled)
+Online MPC will optimize the two Cartesian actions
+Generated scene: envs/xmls/_generated_bigrasp_contact_latency.xml
+Mesh: /home/zz/scsp-robot/envs/assets/objects/elephant.stl
+Object pose: [0.58       0.         0.35484723] [1. 0. 0. 0.]
+Explicit MPC (mpc_ee): state_dim=25 action_dim=6 solver=acados
+Initial contact points local:
+ [[-0.01978669  0.0248369  -0.0029899 ]
+ [ 0.03565802 -0.02594373  0.01861562]]
+Initial desired contact forces local:
+ [[ 3.86092091 -3.49052572  4.56238461]
+ [-3.82573485  3.5019896   1.50825274]]
+Initial contact projection world:
+[[ 0.56021331  0.0248369   0.35185733]
+ [ 0.61565802 -0.02594373  0.37346285]]
+target object pose: [0.58       0.         0.41484723] [1. 0. 0. 0.]
+[0000] cost=62.9056 ready=[0, 0] hold=[0, 0] ee=0.1877/0.1624 tip_z=0.5302/0.5301 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00008  0.00005] obj_err=0.0606 target_z=0.4148 plan=9.5ms (105.0 Hz)
+[0001] cost=63.6558 ready=[0, 0] hold=[0, 0] ee=0.1877/0.1624 tip_z=0.5299/0.5299 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00006  0.     ] obj_err=0.0610 target_z=0.4148 plan=9.2ms (108.5 Hz)
+[0002] cost=62.9489 ready=[0, 0] hold=[0, 0] ee=0.1875/0.1622 tip_z=0.5296/0.5296 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00004 -0.     ] obj_err=0.0612 target_z=0.4148 plan=9.3ms (107.8 Hz)
+[0003] cost=62.4226 ready=[0, 0] hold=[0, 0] ee=0.1871/0.1617 tip_z=0.5293/0.5292 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00002 -0.     ] obj_err=0.0613 target_z=0.4148 plan=9.1ms (110.4 Hz)
+[0004] cost=62.0466 ready=[0, 0] hold=[0, 0] ee=0.1866/0.1612 tip_z=0.5289/0.5288 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00001 -0.     ] obj_err=0.0614 target_z=0.4148 plan=8.9ms (112.7 Hz)
+[0005] cost=61.5651 ready=[0, 0] hold=[0, 0] ee=0.1861/0.1606 tip_z=0.5284/0.5283 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0614 target_z=0.4148 plan=9.1ms (110.3 Hz)
+[0006] cost=61.1530 ready=[0, 0] hold=[0, 0] ee=0.1855/0.1599 tip_z=0.5279/0.5277 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.1ms (109.5 Hz)
+[0007] cost=60.6496 ready=[0, 0] hold=[0, 0] ee=0.1848/0.1591 tip_z=0.5273/0.5272 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.2ms (108.7 Hz)
+[0008] cost=60.1321 ready=[0, 0] hold=[0, 0] ee=0.1840/0.1583 tip_z=0.5267/0.5266 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.1ms (110.4 Hz)
+[0009] cost=59.6542 ready=[0, 0] hold=[0, 0] ee=0.1832/0.1575 tip_z=0.5261/0.5259 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.1ms (110.3 Hz)
+[0010] cost=59.1490 ready=[0, 0] hold=[0, 0] ee=0.1823/0.1566 tip_z=0.5254/0.5252 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.1ms (109.3 Hz)
+[0011] cost=58.5857 ready=[0, 0] hold=[0, 0] ee=0.1814/0.1556 tip_z=0.5247/0.5245 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.0ms (111.3 Hz)
+[0012] cost=58.0973 ready=[0, 0] hold=[0, 0] ee=0.1805/0.1547 tip_z=0.5239/0.5237 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.2ms (109.2 Hz)
+[0013] cost=57.5085 ready=[0, 0] hold=[0, 0] ee=0.1796/0.1537 tip_z=0.5232/0.5229 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.2ms (108.8 Hz)
+[0014] cost=57.0007 ready=[0, 0] hold=[0, 0] ee=0.1786/0.1527 tip_z=0.5224/0.5221 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.2ms (108.5 Hz)
+[0015] cost=56.4029 ready=[0, 0] hold=[0, 0] ee=0.1776/0.1517 tip_z=0.5215/0.5213 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.0ms (110.9 Hz)
+[0016] cost=55.8834 ready=[0, 0] hold=[0, 0] ee=0.1765/0.1506 tip_z=0.5207/0.5205 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.2ms (108.9 Hz)
+[0017] cost=55.2811 ready=[0, 0] hold=[0, 0] ee=0.1754/0.1496 tip_z=0.5198/0.5196 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.1ms (109.5 Hz)
+[0018] cost=54.6927 ready=[0, 0] hold=[0, 0] ee=0.1744/0.1485 tip_z=0.5189/0.5187 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.0ms (110.7 Hz)
+[0019] cost=54.1521 ready=[0, 0] hold=[0, 0] ee=0.1733/0.1474 tip_z=0.5180/0.5178 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.1ms (110.0 Hz)
+[0020] cost=53.6078 ready=[0, 0] hold=[0, 0] ee=0.1722/0.1463 tip_z=0.5170/0.5168 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.1ms (110.3 Hz)
+[0040] cost=42.5670 ready=[0, 0] hold=[0, 0] ee=0.1493/0.1225 tip_z=0.4959/0.4949 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.3ms (107.0 Hz)
+[0060] cost=32.7582 ready=[0, 0] hold=[0, 0] ee=0.1244/0.0976 tip_z=0.4724/0.4708 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.0ms (110.7 Hz)
+[0080] cost=23.6095 ready=[0, 0] hold=[0, 0] ee=0.0954/0.0669 tip_z=0.4448/0.4401 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=8.9ms (112.3 Hz)
+[0100] cost=17.0637 ready=[0, 0] hold=[0, 0] ee=0.0625/0.0357 tip_z=0.4122/0.4090 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=8.8ms (113.1 Hz)
+[0120] cost=15.1844 ready=[0, 0] hold=[0, 0] ee=0.0425/0.0157 tip_z=0.3917/0.3885 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.4ms (106.5 Hz)
+[0140] cost=15.0575 ready=[0, 0] hold=[0, 0] ee=0.0395/0.0179 tip_z=0.3886/0.3879 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=9.5ms (105.2 Hz)
+[0160] cost=14.8853 ready=[0, 0] hold=[0, 0] ee=0.0398/0.0230 tip_z=0.3912/0.3915 phase=approach contacts=1/1 force=[0.049 0.022] dxy=[ 0.00026 -0.00011] obj_err=0.0596 target_z=0.4148 plan=9.7ms (103.1 Hz)
+[0180] cost=16.1388 ready=[0, 0] hold=[0, 0] ee=0.0396/0.0244 tip_z=0.3997/0.3973 phase=grasp_recovery contacts=1/1 force=[0.271 0.186] dxy=[0.00048 0.0005 ] obj_err=0.0530 target_z=0.4148 plan=10.0ms (99.9 Hz)
+[0200] cost=25.2598 ready=[0, 0] hold=[0, 0] ee=0.0392/0.0278 tip_z=0.4000/0.3977 phase=grasp_recovery contacts=1/1 force=[0.363 0.325] dxy=[0.00041 0.00068] obj_err=0.0569 target_z=0.4148 plan=9.6ms (103.7 Hz)
+[0220] cost=23.4545 ready=[0, 0] hold=[0, 0] ee=0.0387/0.0328 tip_z=0.4009/0.3997 phase=grasp_recovery contacts=1/1 force=[0.312 0.236] dxy=[-0.00025  0.00056] obj_err=0.0601 target_z=0.4148 plan=9.6ms (104.5 Hz)
+[0240] cost=27.6953 ready=[0, 0] hold=[0, 0] ee=0.0405/0.0374 tip_z=0.4021/0.4046 phase=grasp_recovery contacts=1/1 force=[0.125 0.14 ] dxy=[-0.00009  0.00014] obj_err=0.0615 target_z=0.4148 plan=9.9ms (101.5 Hz)
+[0260] cost=29.5975 ready=[0, 0] hold=[0, 0] ee=0.0435/0.0397 tip_z=0.4036/0.4051 phase=grasp_recovery contacts=1/1 force=[0.045 0.013] dxy=[-0.00014  0.0001 ] obj_err=0.0628 target_z=0.4148 plan=9.7ms (103.2 Hz)
+[0280] cost=26.6749 ready=[0, 0] hold=[0, 0] ee=0.0450/0.0408 tip_z=0.4058/0.4071 phase=grasp_recovery contacts=1/1 force=[0.082 0.088] dxy=[0.00001 0.00002] obj_err=0.0620 target_z=0.4148 plan=9.5ms (105.1 Hz)
+[0300] cost=27.6587 ready=[0, 0] hold=[0, 0] ee=0.0473/0.0431 tip_z=0.4069/0.4084 phase=grasp_recovery contacts=1/1 force=[0.05  0.034] dxy=[ 0.00001 -0.00013] obj_err=0.0627 target_z=0.4148 plan=9.5ms (105.4 Hz)
+acados NAN_SOL snapshot: output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0317] cost=40.3384 ready=[0, 0] hold=[0, 0] ee=0.0478/0.0398 tip_z=0.4064/0.4038 phase=approach contacts=1/1 force=[0.008 0.063] dxy=[ 0.00004 -0.00001] obj_err=0.0633 target_z=0.4148 plan=95.4ms (10.5 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0318] cost=40.1796 ready=[0, 0] hold=[0, 0] ee=0.0478/0.0394 tip_z=0.4063/0.4035 phase=approach contacts=1/1 force=[0.009 0.06 ] dxy=[ 0.00003 -0.00001] obj_err=0.0633 target_z=0.4148 plan=20.0ms (49.9 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0320] cost=32.1803 ready=[0, 0] hold=[0, 0] ee=0.0476/0.0389 tip_z=0.4061/0.4031 phase=approach contacts=1/1 force=[0.033 0.03 ] dxy=[-0.00001 -0.00001] obj_err=0.0633 target_z=0.4148 plan=9.5ms (105.6 Hz)
+[0340] cost=30.1738 ready=[0, 0] hold=[0, 0] ee=0.0397/0.0322 tip_z=0.3954/0.3980 phase=approach contacts=0/1 force=[0.    0.046] dxy=[0.00002 0.00009] obj_err=0.0638 target_z=0.4148 plan=9.4ms (106.6 Hz)
+[0341] cost=34.6969 ready=[0, 0] hold=[0, 0] ee=0.0393/0.0319 tip_z=0.3948/0.3977 phase=approach contacts=0/1 force=[0.    0.038] dxy=[0.      0.00008] obj_err=0.0638 target_z=0.4148 plan=18.6ms (53.8 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0350] cost=32.0712 ready=[0, 0] hold=[0, 0] ee=0.0348/0.0289 tip_z=0.3888/0.3949 phase=approach contacts=0/1 force=[0.    0.041] dxy=[0.00011 0.00005] obj_err=0.0639 target_z=0.4148 plan=18.7ms (53.4 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0359] cost=29.5365 ready=[0, 0] hold=[0, 0] ee=0.0333/0.0258 tip_z=0.3827/0.3935 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00055  0.00027] obj_err=0.0647 target_z=0.4148 plan=17.8ms (56.3 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0360] cost=33.4534 ready=[0, 0] hold=[0, 0] ee=0.0347/0.0253 tip_z=0.3823/0.3935 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00077  0.00032] obj_err=0.0653 target_z=0.4148 plan=17.8ms (56.1 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0361] cost=36.6776 ready=[0, 0] hold=[0, 0] ee=0.0367/0.0250 tip_z=0.3818/0.3935 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00099  0.00033] obj_err=0.0661 target_z=0.4148 plan=19.4ms (51.6 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0362] cost=44.2475 ready=[0, 0] hold=[0, 0] ee=0.0390/0.0252 tip_z=0.3815/0.3935 phase=approach contacts=1/0 force=[0.05 0.  ] dxy=[-0.0012   0.00036] obj_err=0.0673 target_z=0.4148 plan=18.7ms (53.4 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0363] cost=56.0920 ready=[0, 0] hold=[0, 0] ee=0.0396/0.0255 tip_z=0.3811/0.3935 phase=approach contacts=1/0 force=[0.022 0.   ] dxy=[-0.00032  0.00002] obj_err=0.0676 target_z=0.4148 plan=18.4ms (54.4 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0366] cost=25.8690 ready=[0, 0] hold=[0, 0] ee=0.0400/0.0248 tip_z=0.3806/0.3930 phase=approach contacts=1/0 force=[0.009 0.   ] dxy=[0.00002 0.00006] obj_err=0.0678 target_z=0.4148 plan=18.3ms (54.6 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0367] cost=25.8114 ready=[0, 0] hold=[0, 0] ee=0.0401/0.0246 tip_z=0.3805/0.3929 phase=approach contacts=1/0 force=[0.009 0.   ] dxy=[0.00002 0.00007] obj_err=0.0678 target_z=0.4148 plan=18.8ms (53.3 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0368] cost=38.0255 ready=[0, 0] hold=[0, 0] ee=0.0403/0.0244 tip_z=0.3804/0.3927 phase=approach contacts=1/0 force=[0.009 0.   ] dxy=[0.00002 0.00007] obj_err=0.0679 target_z=0.4148 plan=19.7ms (50.7 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0369] cost=38.0408 ready=[0, 0] hold=[0, 0] ee=0.0404/0.0242 tip_z=0.3803/0.3926 phase=approach contacts=1/0 force=[0.008 0.   ] dxy=[0.00001 0.00007] obj_err=0.0679 target_z=0.4148 plan=18.5ms (54.2 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0370] cost=38.6144 ready=[0, 0] hold=[0, 0] ee=0.0405/0.0240 tip_z=0.3802/0.3925 phase=approach contacts=0/0 force=[0. 0.] dxy=[0.00001 0.00006] obj_err=0.0679 target_z=0.4148 plan=19.1ms (52.3 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0371] cost=38.4832 ready=[0, 0] hold=[0, 0] ee=0.0408/0.0239 tip_z=0.3801/0.3924 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00012  0.00008] obj_err=0.0680 target_z=0.4148 plan=18.5ms (54.0 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0379] cost=24.8443 ready=[0, 0] hold=[0, 0] ee=0.0434/0.0207 tip_z=0.3789/0.3887 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.8ms (53.2 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0380] cost=24.8266 ready=[0, 0] hold=[0, 0] ee=0.0435/0.0203 tip_z=0.3786/0.3882 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=17.9ms (55.8 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0381] cost=24.8320 ready=[0, 0] hold=[0, 0] ee=0.0435/0.0199 tip_z=0.3784/0.3878 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.5ms (54.0 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0382] cost=24.8488 ready=[0, 0] hold=[0, 0] ee=0.0436/0.0195 tip_z=0.3782/0.3874 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.8ms (53.2 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0383] cost=24.9000 ready=[0, 0] hold=[0, 0] ee=0.0436/0.0192 tip_z=0.3779/0.3870 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.3ms (54.6 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0384] cost=24.9481 ready=[0, 0] hold=[0, 0] ee=0.0437/0.0189 tip_z=0.3777/0.3867 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.7ms (53.4 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0385] cost=24.9438 ready=[0, 0] hold=[0, 0] ee=0.0437/0.0186 tip_z=0.3774/0.3864 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=19.0ms (52.7 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0386] cost=24.9399 ready=[0, 0] hold=[0, 0] ee=0.0438/0.0184 tip_z=0.3772/0.3862 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=19.5ms (51.2 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0387] cost=24.9359 ready=[0, 0] hold=[0, 0] ee=0.0438/0.0182 tip_z=0.3769/0.3860 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.8ms (53.1 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0388] cost=24.9323 ready=[0, 0] hold=[0, 0] ee=0.0438/0.0180 tip_z=0.3767/0.3858 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=19.1ms (52.3 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0389] cost=24.9285 ready=[0, 0] hold=[0, 0] ee=0.0439/0.0178 tip_z=0.3764/0.3856 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=19.0ms (52.7 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0390] cost=24.9247 ready=[0, 0] hold=[0, 0] ee=0.0439/0.0176 tip_z=0.3762/0.3854 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.8ms (53.2 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0391] cost=24.9210 ready=[0, 0] hold=[0, 0] ee=0.0439/0.0175 tip_z=0.3759/0.3853 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.9ms (52.8 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0392] cost=24.9177 ready=[0, 0] hold=[0, 0] ee=0.0439/0.0173 tip_z=0.3756/0.3852 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.9ms (52.9 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0393] cost=24.9142 ready=[0, 0] hold=[0, 0] ee=0.0439/0.0172 tip_z=0.3754/0.3850 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=19.0ms (52.6 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0394] cost=24.9108 ready=[0, 0] hold=[0, 0] ee=0.0440/0.0171 tip_z=0.3751/0.3849 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.5ms (54.0 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0395] cost=24.9076 ready=[0, 0] hold=[0, 0] ee=0.0440/0.0170 tip_z=0.3749/0.3848 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.3ms (54.7 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0396] cost=24.9046 ready=[0, 0] hold=[0, 0] ee=0.0440/0.0168 tip_z=0.3747/0.3847 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.2ms (54.9 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0397] cost=24.9019 ready=[0, 0] hold=[0, 0] ee=0.0440/0.0167 tip_z=0.3745/0.3847 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.4ms (54.4 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0398] cost=24.8994 ready=[0, 0] hold=[0, 0] ee=0.0440/0.0167 tip_z=0.3743/0.3846 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.5ms (54.2 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+[0399] cost=24.8972 ready=[0, 0] hold=[0, 0] ee=0.0440/0.0166 tip_z=0.3742/0.3845 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.0684 target_z=0.4148 plan=18.5ms (54.1 Hz)
+  solver_fallback: acados_failed: acados status 4 HPIPM_QP=NAN_SOL backend=acados_failed status=acados status 4 HPIPM_QP=NAN_SOL iters=-1 init=0.000s solve=0.000s control=zero_approach
+  qp_input: finite=True nonfinite=[] snapshot=output/diagnostics/bigrasp_grasp_recovery_20261013/trial_solver_failure.npz
+Contact diagnostics: min_ee=0.0320/0.0142 one_arm_steps=39 both_arm_steps=176 max_dxy_step=0.00126 net_xy=0.02980 max_normal_force=0.405
+Online MPC result: success=False height_gain=-0.0016 target_gain=0.0600
+Final object pose: [0.58755231 0.02882894 0.35324678] [ 0.99824378  0.00145468 -0.00685452  0.05882393]

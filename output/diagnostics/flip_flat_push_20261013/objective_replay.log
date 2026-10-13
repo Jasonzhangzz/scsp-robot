@@ -1,0 +1,4 @@
+Evaluated objective alternatives: elephant
+Evaluated objective alternatives: stanford_bunny2
+elephant snapshots 10 position_weight_changes_winner 3 [('step_093.npz', '15.0', 'optimized'), ('step_354.npz', '0.0', 'optimized'), ('step_374.npz', '30.0', '15.0')]
+stanford_bunny2 snapshots 12 position_weight_changes_winner 0 []

@@ -1,0 +1,2 @@
+surrogate summary: steps=3 final_pos=0.046140 final_quat=0.585399 success=False
+surrogate timing: execution_time_s=None planning_time_mean_ms=787.400 planning_time_p95_ms=963.012 simulation_time_s=0.060

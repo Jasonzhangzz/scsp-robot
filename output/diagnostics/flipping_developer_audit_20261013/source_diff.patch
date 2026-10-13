@@ -1,0 +1,303 @@
+diff --git a/examples/mpc/fingertips/test/test_0902.py b/examples/mpc/fingertips/test/test_0902.py
+index cadc44f..35cc4bd 100644
+--- a/examples/mpc/fingertips/test/test_0902.py
++++ b/examples/mpc/fingertips/test/test_0902.py
+@@ -1652,6 +1652,46 @@ def compute_rollout_contact_via(
+             value_tracker._holding_p_arm = useful
+     value_info['measured_contact_gain'] = measured_gain
+     value_info['switch_observed_contact'] = switch_observed_contact
++    # Evaluate RS immediately before committing its contact target, so a
++    # counterfactual also runs the normal CPO and MPC for the chosen branch.
++    rs_hook = getattr(param, 'rs_decision_hook', None)
++    if rs_hook is not None:
++        from utils.ranking_cdr import contact_decision_context
++        rs_context = contact_decision_context(
++            param.lambda_optimizer, curr_q, p_arm_idx, best_idx,
++            near_arm=near_arm, observed=actual_contact is not None,
++            accept=bool(value_info['accept_p_arm']), hold=bool(hold_occupied),
++            switch_observed=switch_observed_contact,
++            stage=object_cost_stage,
++        )
++        forced = rs_hook(rs_context)
++        if forced is not None:
++            if forced not in ('switch', 'stay') or not rs_context['eligible']:
++                raise ValueError('Counterfactual requires a distinct reachable switch/stay pair')
++            do_switch = forced == 'switch'
++            best_idx = int(rs_context['switch_idx'] if do_switch else p_arm_idx)
++            if do_switch:
++                best_contact_point = param.lambda_optimizer.sample_point[best_idx]
++                normal = param.lambda_optimizer.normal[best_idx]
++                cached_x_plus, cached_force, cached_cost = _candidate_solution(
++                    param.lambda_optimizer, best_idx)
++                best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
++                    curr_q[:3], r_obj_to_world, best_contact_point, normal,
++                    fingertip_radius, args.ideal_contact_surface_margin)
++            else:
++                best_contact_track_world, best_contact_world = p_arm_track_world, p_arm_surface_world
++                best_normal_world = -r_obj_to_world @ p_arm_normal_out
++                cached_x_plus, cached_force, cached_cost = x_plus_opt, info['control_input'], error
++            param.lambda_optimizer.last_selected_idx = best_idx
++            value_info['accept_p_arm'] = value_info['cost_ok'] = not do_switch
++            value_tracker._holding_p_arm = not do_switch
++            hold_occupied = not do_switch
++            switch_observed_contact = do_switch
++            value_info['switch_observed_contact'] = do_switch
++            value_info['rs_forced_decision'] = forced
++            arrived_at_best = arrived_hold = not do_switch
++            arrived_dest_idx = None if do_switch else best_idx
++            approach_via.reset()
+     if transition is not None:
+         value_info.update(contact_transition_stay_cost=transition['stay_cost'],
+             contact_transition_switch_cost=transition['switch_cost'],
+diff --git a/examples/mpc/franka/ik2/params.py b/examples/mpc/franka/ik2/params.py
+index 24c7465..8f0f898 100644
+--- a/examples/mpc/franka/ik2/params.py
++++ b/examples/mpc/franka/ik2/params.py
+@@ -36,7 +36,10 @@ def add_via_init_pose_args(parser):
+ 
+ 
+ def _tilted_init_quaternion(args, yaw_angle, target_type="rotation"):
++    """Sample tilt only for flipping; rotation preserves the target's up axis."""
+     yaw = float(np.asarray(yaw_angle, dtype=np.float64).reshape(-1)[0])
++    if target_type == "rotation":
++        return rotations.rpy_to_quaternion([yaw, 0.0, 0.0])
+     tilt = np.pi / 2 if target_type == "ground-rotation" else 0.0
+     axis_angle = 0.0
+     if getattr(args, "random_init_tilt", False):
+@@ -392,7 +395,7 @@ class ExplicitMPCParams:
+             ],
+             dtype=np.float64,
+         )
+-        if getattr(args, "random_init_tilt", False):
++        if target_type == "ground-rotation" and getattr(args, "random_init_tilt", False):
+             self.init_fingertip_pos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
+             self.init_fingertip_pos_[2] += 0.03 * float(np.random.rand())
+ 
+diff --git a/examples/mpc/franka/ik2/params_ablation.py b/examples/mpc/franka/ik2/params_ablation.py
+index 116b555..fd9494b 100644
+--- a/examples/mpc/franka/ik2/params_ablation.py
++++ b/examples/mpc/franka/ik2/params_ablation.py
+@@ -36,7 +36,10 @@ def add_via_init_pose_args(parser):
+ 
+ 
+ def _tilted_init_quaternion(args, yaw_angle, target_type="rotation"):
++    """Sample tilt only for flipping; rotation preserves the target's up axis."""
+     yaw = float(np.asarray(yaw_angle, dtype=np.float64).reshape(-1)[0])
++    if target_type == "rotation":
++        return rotations.rpy_to_quaternion([yaw, 0.0, 0.0])
+     tilt = np.pi / 2 if target_type == "ground-rotation" else 0.0
+     axis_angle = 0.0
+     if getattr(args, "random_init_tilt", False):
+@@ -401,7 +404,7 @@ class ExplicitMPCParams:
+             ],
+             dtype=np.float64,
+         )
+-        if getattr(args, "random_init_tilt", False):
++        if target_type == "ground-rotation" and getattr(args, "random_init_tilt", False):
+             self.init_fingertip_pos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
+             self.init_fingertip_pos_[2] += 0.03 * float(np.random.rand())
+ 
+diff --git a/examples/mpc/franka/ik2/run_ablation.py b/examples/mpc/franka/ik2/run_ablation.py
+index d4b1b04..944e2e2 100644
+--- a/examples/mpc/franka/ik2/run_ablation.py
++++ b/examples/mpc/franka/ik2/run_ablation.py
+@@ -201,8 +201,13 @@ def main(argv=None):
+         modes.add_argument('--'+mode, action='store_true')
+     # Preserve the previous component experiments for existing callers.
+     modes.add_argument('--variant', choices=tuple(VARIANTS), help='Legacy component experiment')
+-    parser.add_argument('--task', choices=tuple(TASK_TARGET), default=None,
+-                        help='Optional; otherwise use the same default target as test_mpc_isaac.py')
++    task = parser.add_mutually_exclusive_group()
++    task.add_argument('--task', choices=tuple(TASK_TARGET), default=None,
++                      help='Optional; otherwise use the same default target as test_mpc_isaac.py')
++    task.add_argument('--rotation', dest='task', action='store_const', const='rotation',
++                      help='Rotate from an upright start with the same up axis as the target.')
++    task.add_argument('--flipping', dest='task', action='store_const', const='flipping',
++                      help='Flip from a tilted start (the default task).')
+     parser.add_argument('--sensitivity-axis', action='append', default=[], metavar='PARAM=v1,v2')
+     parser.add_argument('--sensitivity-output', default='output/ablation_ranking_sensitivity')
+     parser.add_argument('--dry-run', action='store_true', help='Print commands without importing simulators or solving')
+diff --git a/examples/mpc/franka/ik2/test_mpc_isaac.py b/examples/mpc/franka/ik2/test_mpc_isaac.py
+index 86cca0f..2dfecbb 100644
+--- a/examples/mpc/franka/ik2/test_mpc_isaac.py
++++ b/examples/mpc/franka/ik2/test_mpc_isaac.py
+@@ -2320,6 +2320,7 @@ def _add_rollout_policy_args(parser):
+                         help='Auto uses surface contacts for mug/duck and dense mesh vertices for other objects.')
+     # A flip starts on its side. Smaller explicit tilt ranges remain usable
+     # for recovery experiments; --no_random_init_tilt fixes the side axis.
++    # Rotation starts stay upright regardless of these tilt options.
+     parser.set_defaults(init_tilt_deg=90.0, init_tilt_min_deg=90.0)
+     parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
+     parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
+@@ -2431,14 +2432,30 @@ def _add_rollout_policy_args(parser):
+         help="Extra lower bound for the fingertip-center reference (m). "
+              "Default 0.012 m keeps the 10 mm fingertip sphere above the table.",
+     )
+-    parser.add_argument(
++    task = parser.add_mutually_exclusive_group()
++    task.add_argument(
++        "--rotation",
++        dest="target_type",
++        action="store_const",
++        const="rotation",
++        help="Start upright with the same up axis as the target; rotate without flipping. "
++             "Initial tilt options are ignored.",
++    )
++    task.add_argument(
++        "--flipping",
++        dest="target_type",
++        action="store_const",
++        const="ground-rotation",
++        help="Start tilted and flip into the upright target pose (default).",
++    )
++    task.add_argument(
+         "--target-type",
+         dest="target_type",
+         type=str,
+-        default="ground-rotation",
+         choices=("ground-rotation", "rotation"),
+-        help="ground-rotation matches fingertips --rollout (90 deg pitch flip).",
++        help="Legacy task selector: ground-rotation is --flipping; rotation is --rotation.",
+     )
++    parser.set_defaults(target_type="ground-rotation")
+     parser.add_argument("--trial-start", type=int, default=0)
+     parser.add_argument(
+         "--control-substeps",
+@@ -2583,6 +2600,8 @@ def run_mpc_planner(bus, args):
+             sampling_controller = SamplingC3Controller(config_from_args(args, trial_count))
+         init = planner_init_payload(args, param, trial_count)
+         _, plan_param, mpc, trackers = _build_mpc_planner_runtime(init, param)
++        # Optional one-decision counterfactual evaluator; ordinary runs have no hook.
++        plan_param.rs_decision_hook = getattr(bus, 'rs_decision_hook', None)
+         print('[mpc-startup] trial=%d ready in %.2fs (contact=%s mpc=%s)' % (
+             trial_count, time.perf_counter()-startup_started,
+             getattr(plan_param.lambda_optimizer, 'solver', 'unknown'),
+diff --git a/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py b/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py
+index 5d7f900..2aa6c97 100644
+--- a/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py
++++ b/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py
+@@ -2326,6 +2326,7 @@ def _add_rollout_policy_args(parser):
+                         help='Auto uses surface contacts for mug/duck and dense mesh vertices for other objects.')
+     # A flip starts on its side. Smaller explicit tilt ranges remain usable
+     # for recovery experiments; --no_random_init_tilt fixes the side axis.
++    # Rotation starts stay upright regardless of these tilt options.
+     parser.set_defaults(init_tilt_deg=90.0, init_tilt_min_deg=90.0)
+     parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
+     parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
+@@ -2437,14 +2438,24 @@ def _add_rollout_policy_args(parser):
+         help="Extra lower bound for the fingertip-center reference (m). "
+              "Default 0.012 m keeps the 10 mm fingertip sphere above the table.",
+     )
+-    parser.add_argument(
++    task = parser.add_mutually_exclusive_group()
++    task.add_argument(
++        "--rotation", dest="target_type", action="store_const", const="rotation",
++        help="Start upright with the same up axis as the target; rotate without flipping. "
++             "Initial tilt options are ignored.",
++    )
++    task.add_argument(
++        "--flipping", dest="target_type", action="store_const", const="ground-rotation",
++        help="Start tilted and flip into the upright target pose (default).",
++    )
++    task.add_argument(
+         "--target-type",
+         dest="target_type",
+         type=str,
+-        default="ground-rotation",
+         choices=("ground-rotation", "rotation"),
+-        help="ground-rotation matches fingertips --rollout (90 deg pitch flip).",
++        help="Legacy task selector: ground-rotation is --flipping; rotation is --rotation.",
+     )
++    parser.set_defaults(target_type="ground-rotation")
+     parser.add_argument("--trial-start", type=int, default=0)
+     parser.add_argument(
+         "--control-substeps",
+diff --git a/models/soft_scm_contact.py b/models/soft_scm_contact.py
+index 674a2ae..3b7cc01 100644
+--- a/models/soft_scm_contact.py
++++ b/models/soft_scm_contact.py
+@@ -66,7 +66,8 @@ GROUPED_CONTACT_SWEEPS = 8
+ GROUPED_CONTACT_VERSION = 3
+ 
+ 
+-def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regularization):
++def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regularization,
++                                return_impulses=False):
+     """Coupled unilateral normals and Coulomb disks, one per pyramid block."""
+     import casadi as cs
+     blocks = []
+@@ -98,7 +99,7 @@ def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regular
+             tangent *= cap/cs.sqrt(cap*cap + cs.sumsqr(tangent) + 1e-12)
+             velocity = supported + mt@tangent
+             impulses[i] = (normal, tangent)
+-    return velocity
++    return (velocity, impulses) if return_impulses else velocity
+ 
+ 
+ def grouped_contact_velocity_numpy(smooth, jacobian, phi, inverse, h, a, b, regularization):
+diff --git a/planning/mpc_explicit.py b/planning/mpc_explicit.py
+index edfa238..45211ed 100644
+--- a/planning/mpc_explicit.py
++++ b/planning/mpc_explicit.py
+@@ -186,7 +186,7 @@ class MPCExplicit:
+         jac = cs.SX.sym('stage_jac',4*param.max_ncon_,param.n_qvel_)
+         mp = cs.SX.sym('stage_parameters',self.model.model_parameter_dim)
+         gaps, stage_jac = phi, jac
+-        if self.update_contact_gaps:
++        if self.update_contact_gaps and not getattr(self.model, 'transports_contacts', False):
+             from models.contact_geometry import contact_geometry_cs
+             gaps, stage_jac = contact_geometry_cs(state[:10], reference[:10], phi, jac, **self.support_bounds)
+             self.contact_geometry_fn = cs.Function('transport_contact_geometry',
+@@ -751,6 +751,9 @@ class MPCExplicit:
+         dynamics_key = hashlib.sha1(dynamics_fn.serialize().encode()).hexdigest()[:10]
+         contact_tag = getattr(self.model, 'contact_model', 'explicit').replace('-', '_')
+         model.name = f"mpc_{contact_tag}_v3_{dynamics_key}_{self.cost_kind}_{cost_tag}_h{n}_c{self.param_.max_ncon_}_x{nx}_u{nu}"
++        custom_profile = getattr(self.param_, 'mpc_acados_profile_', None)
++        if custom_profile:
++            model.name += '_profile_' + hashlib.sha1(repr(sorted(custom_profile.items())).encode()).hexdigest()[:8]
+         self.recoverable_floor = bool(getattr(self, 'velocity_state', False))
+         if self.recoverable_floor:
+             model.name += '_floor_recovery_v1'
+@@ -790,11 +793,20 @@ class MPCExplicit:
+             # Hessian, but avoid second derivatives of the coupled unilateral
+             # map: those grow enormously and are discontinuous at mode changes.
+             model.cost_expr_ext_cost_0 = model.cost_expr_ext_cost
+-            model.cost_expr_ext_cost_custom_hess = cs.hessian(
+-                model.cost_expr_ext_cost, cs.vertcat(u, x))[0]
++            if hasattr(self, 'residual_fn'):
++                residual = self.residual_fn(x, u, cp)
++                residual_jac = cs.jacobian(residual, cs.vertcat(u, x))
++                model.cost_expr_ext_cost_custom_hess = 2 * residual_jac.T @ residual_jac
++            else:
++                model.cost_expr_ext_cost_custom_hess = cs.hessian(
++                    model.cost_expr_ext_cost, cs.vertcat(u, x))[0]
+             model.cost_expr_ext_cost_custom_hess_0 = model.cost_expr_ext_cost_custom_hess
+-            model.cost_expr_ext_cost_custom_hess_e = cs.hessian(
+-                model.cost_expr_ext_cost_e, x)[0]
++            if hasattr(self, 'terminal_residual_fn'):
++                terminal_jac = cs.jacobian(self.terminal_residual_fn(x, cp), x)
++                model.cost_expr_ext_cost_custom_hess_e = 2 * terminal_jac.T @ terminal_jac
++            else:
++                model.cost_expr_ext_cost_custom_hess_e = cs.hessian(
++                    model.cost_expr_ext_cost_e, x)[0]
+ 
+         ocp = AcadosOcp()
+         ocp.model = model
+@@ -835,6 +847,8 @@ class MPCExplicit:
+         ocp.solver_options.N_horizon = n
+         ocp.solver_options.tf = float(self.param_.h_ * n)
+         profile = acados_solver_profile(self.cost_kind)
++        if custom_profile:
++            profile = dict(profile, **custom_profile)
+         for key, value in profile.items():
+             setattr(ocp.solver_options, key, value)
+         ocp.solver_options.hessian_approx = "GAUSS_NEWTON" if self.update_contact_gaps else "EXACT"
+@@ -910,6 +924,8 @@ class MPCExplicit:
+             "ipopt.tol": 1e-4,
+             "ipopt.linear_solver": "mumps",
+         }
++        if hasattr(self, 'residual_fn'):
++            nlp_opts['ipopt.hessian_approximation'] = 'limited-memory'
+         self._ipopt_definition = (nlp_prog, nlp_opts)
+         self.ipopt_solver = (cs.nlpsol("solver", "ipopt", nlp_prog, nlp_opts)
+                              if self.planner_solver_ == 'ipopt' else None)

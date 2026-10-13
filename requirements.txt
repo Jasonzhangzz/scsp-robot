@@ -17,6 +17,8 @@ PyYAML
 open3d
 
 # Optional, used by some entries
+cma>=4,<5  # SCM CMA-ES force optimizer
+evotorch>=0.6,<0.7  # SCM CEM force optimizer
 Pillow
 imageio
 scikit-learn

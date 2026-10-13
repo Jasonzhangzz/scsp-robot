@@ -1,0 +1,30 @@
+[acados] generating solver: contact_lambda_soft_scm_v25_m10_f200_u900_q5147214cbd
+External functions generated in 892.577 ms.
+Templated solver code generated in 843.945 ms.
+[acados] compiling solver (3 large maps); log: /tmp/contact_lambda_soft_scm_v25_m10_f200_u900_q5147214cbd_codegen/build.log
+[acados] solver ready in 4.45s
+direct_force object=elephant seed=0 step=0 pos=0.067545 quat=0.423234 hold=0 success=False
+direct_force object=elephant seed=0 step=43 pos=0.011976 quat=0.003958 hold=10 success=True
+direct_force object=elephant seed=1 step=0 pos=0.112567 quat=0.590267 hold=0 success=False
+direct_force object=elephant seed=1 step=50 pos=0.014451 quat=0.015284 hold=0 success=False
+direct_force object=elephant seed=1 step=61 pos=0.007465 quat=0.001479 hold=10 success=True
+direct_force object=elephant seed=2 step=0 pos=0.137918 quat=0.651820 hold=0 success=False
+direct_force object=elephant seed=2 step=50 pos=0.017563 quat=0.004732 hold=17 success=False
+direct_force object=elephant seed=2 step=56 pos=0.017402 quat=0.004844 hold=23 success=True
+direct_force object=elephant seed=3 step=0 pos=0.037963 quat=0.959602 hold=0 success=False
+direct_force object=elephant seed=3 step=50 pos=0.018782 quat=0.000140 hold=0 success=False
+direct_force object=elephant seed=3 step=60 pos=0.014850 quat=0.009433 hold=10 success=True
+direct_force object=elephant seed=4 step=0 pos=0.083038 quat=0.866641 hold=0 success=False
+direct_force object=elephant seed=4 step=43 pos=0.016873 quat=0.000851 hold=11 success=True
+direct_force object=elephant seed=5 step=0 pos=0.109951 quat=0.971170 hold=0 success=False
+direct_force object=elephant seed=5 step=50 pos=0.007407 quat=0.013940 hold=7 success=False
+direct_force object=elephant seed=5 step=55 pos=0.006676 quat=0.009675 hold=12 success=True
+direct_force object=elephant seed=6 step=0 pos=0.212491 quat=0.397504 hold=0 success=False
+direct_force object=elephant seed=6 step=39 pos=0.014252 quat=0.000480 hold=10 success=True
+direct_force object=elephant seed=7 step=0 pos=0.162018 quat=0.308486 hold=0 success=False
+direct_force object=elephant seed=7 step=31 pos=0.018198 quat=0.011611 hold=10 success=True
+direct_force object=elephant seed=8 step=0 pos=0.055881 quat=0.483557 hold=0 success=False
+direct_force object=elephant seed=8 step=39 pos=0.015214 quat=0.007580 hold=13 success=True
+direct_force object=elephant seed=9 step=0 pos=0.101168 quat=0.750086 hold=0 success=False
+direct_force object=elephant seed=9 step=36 pos=0.014854 quat=0.000015 hold=11 success=True
+direct_force summary: 10/10 succeeded

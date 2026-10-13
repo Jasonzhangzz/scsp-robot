@@ -1,0 +1,270 @@
+Command: ["taskset", "-c", "10", "/home/zz/miniconda3/envs/pi0/bin/python", "/home/zz/scsp-robot/examples/mpc/fingertips/test/benchmark_contact_models.py", "--objects", "stanford_bunny2", "--models", "scm,qp,lcp", "--trials", "5", "--steps", "5000", "--output-dir", "/home/zz/scsp-robot/output/diagnostics/cso_contact_guidance_7x5_20261013/workers/stanford_bunny2", "--resume"]
+benchmark model=scm object=stanford_bunny2 seed=0
+direct_force solver=acados object=stanford_bunny2 seed=0 step=0 pos=0.055793 quat=0.594636 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=50 pos=0.022963 quat=0.919733 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=100 pos=0.031528 quat=0.143254 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=150 pos=0.034009 quat=0.026889 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=200 pos=0.024776 quat=0.000531 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=250 pos=0.023467 quat=0.000022 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=300 pos=0.017553 quat=0.000523 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=326 pos=0.015935 quat=0.000474 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| scm | 1/1 | 6.336 ± 0.000 (n=1) | 17.242 ± 3.504 (n=327) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=stanford_bunny2 seed=0
+direct_force solver=acados object=stanford_bunny2 seed=0 step=0 pos=0.055338 quat=0.551988 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=50 pos=0.040389 quat=0.408057 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=100 pos=0.024715 quat=0.000016 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=150 pos=0.022588 quat=0.000005 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=200 pos=0.020031 quat=0.000001 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=250 pos=0.018560 quat=0.000055 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=300 pos=0.017523 quat=0.000009 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=350 pos=0.016582 quat=0.000025 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=393 pos=0.016084 quat=0.000001 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| qp | 1/1 | 43.970 ± 0.000 (n=1) | 109.516 ± 18.425 (n=394) |
+| scm | 1/1 | 6.336 ± 0.000 (n=1) | 17.242 ± 3.504 (n=327) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=stanford_bunny2 seed=0
+direct_force solver=acados object=stanford_bunny2 seed=0 step=0 pos=0.055338 quat=0.551988 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=50 pos=0.040563 quat=0.717731 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=98 pos=0.014892 quat=0.008166 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 10.635 ± 0.000 (n=1) | 105.429 ± 17.421 (n=99) |
+| qp | 1/1 | 43.970 ± 0.000 (n=1) | 109.516 ± 18.425 (n=394) |
+| scm | 1/1 | 6.336 ± 0.000 (n=1) | 17.242 ± 3.504 (n=327) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=stanford_bunny2 seed=1
+direct_force solver=acados object=stanford_bunny2 seed=1 step=0 pos=0.112739 quat=0.635448 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=50 pos=0.068667 quat=0.960477 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=100 pos=0.081038 quat=0.952211 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=150 pos=0.081905 quat=0.911902 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=200 pos=0.013508 quat=0.047818 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=250 pos=0.016542 quat=0.000298 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=266 pos=0.015966 quat=0.000322 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 10.635 ± 0.000 (n=1) | 105.429 ± 17.421 (n=99) |
+| qp | 1/1 | 43.970 ± 0.000 (n=1) | 109.516 ± 18.425 (n=394) |
+| scm | 2/2 | 5.658 ± 0.678 (n=2) | 16.956 ± 3.391 (n=594) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=stanford_bunny2 seed=1
+direct_force solver=acados object=stanford_bunny2 seed=1 step=0 pos=0.114078 quat=0.635791 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=50 pos=0.095303 quat=0.991214 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=100 pos=0.020466 quat=0.000001 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=150 pos=0.017009 quat=0.000051 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=184 pos=0.015996 quat=0.000032 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 10.635 ± 0.000 (n=1) | 105.429 ± 17.421 (n=99) |
+| qp | 2/2 | 32.353 ± 11.617 (n=2) | 109.694 ± 17.721 (n=579) |
+| scm | 2/2 | 5.658 ± 0.678 (n=2) | 16.956 ± 3.391 (n=594) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=stanford_bunny2 seed=1
+direct_force solver=acados object=stanford_bunny2 seed=1 step=0 pos=0.114078 quat=0.635791 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=50 pos=0.093802 quat=0.986474 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=1 step=100 pos=0.019392 quat=0.000008 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.013e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 10.635 ± 0.000 (n=1) | 107.369 ± 19.606 (n=211) |
+| qp | 2/2 | 32.353 ± 11.617 (n=2) | 109.694 ± 17.721 (n=579) |
+| scm | 2/2 | 5.658 ± 0.678 (n=2) | 16.956 ± 3.391 (n=594) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=stanford_bunny2 seed=2
+direct_force solver=acados object=stanford_bunny2 seed=2 step=0 pos=0.135326 quat=0.680498 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=50 pos=0.124453 quat=0.975173 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=100 pos=0.139636 quat=0.155791 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=150 pos=0.083343 quat=0.000994 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=200 pos=0.046455 quat=0.001326 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=250 pos=0.029239 quat=0.000505 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=300 pos=0.019784 quat=0.000078 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=343 pos=0.015919 quat=0.000069 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 10.635 ± 0.000 (n=1) | 107.369 ± 19.606 (n=211) |
+| qp | 2/2 | 32.353 ± 11.617 (n=2) | 109.694 ± 17.721 (n=579) |
+| scm | 3/3 | 5.930 ± 0.674 (n=3) | 16.873 ± 3.675 (n=938) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=stanford_bunny2 seed=2
+direct_force solver=acados object=stanford_bunny2 seed=2 step=0 pos=0.135526 quat=0.689307 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=50 pos=0.127531 quat=0.969619 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=100 pos=0.025470 quat=0.013854 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=113 pos=0.009999 quat=0.002045 hold=11 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 10.635 ± 0.000 (n=1) | 107.369 ± 19.606 (n=211) |
+| qp | 3/3 | 25.832 ± 13.229 (n=3) | 109.780 ± 17.613 (n=693) |
+| scm | 3/3 | 5.930 ± 0.674 (n=3) | 16.873 ± 3.675 (n=938) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=stanford_bunny2 seed=2
+direct_force solver=acados object=stanford_bunny2 seed=2 step=0 pos=0.135526 quat=0.689307 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=50 pos=0.129758 quat=0.748196 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=100 pos=0.032230 quat=0.000722 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=150 pos=0.022006 quat=0.000146 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=200 pos=0.019446 quat=0.000218 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=250 pos=0.017505 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=300 pos=0.016036 quat=0.000014 hold=6 success=False
+direct_force solver=acados object=stanford_bunny2 seed=2 step=304 pos=0.016060 quat=0.000016 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 2/3 | 21.394 ± 10.759 (n=2) | 104.968 ± 18.197 (n=516) |
+| qp | 3/3 | 25.832 ± 13.229 (n=3) | 109.780 ± 17.613 (n=693) |
+| scm | 3/3 | 5.930 ± 0.674 (n=3) | 16.873 ± 3.675 (n=938) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=stanford_bunny2 seed=3
+direct_force solver=acados object=stanford_bunny2 seed=3 step=0 pos=0.037855 quat=0.995022 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=50 pos=0.078924 quat=0.938904 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=100 pos=0.083351 quat=0.977851 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=150 pos=0.086579 quat=0.994902 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=200 pos=0.031834 quat=0.054911 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=229 pos=0.016787 quat=0.002032 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 2/3 | 21.394 ± 10.759 (n=2) | 104.968 ± 18.197 (n=516) |
+| qp | 3/3 | 25.832 ± 13.229 (n=3) | 109.780 ± 17.613 (n=693) |
+| scm | 4/4 | 5.538 ± 0.896 (n=4) | 16.890 ± 3.527 (n=1168) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=stanford_bunny2 seed=3
+direct_force solver=acados object=stanford_bunny2 seed=3 step=0 pos=0.038516 quat=0.993073 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=50 pos=0.080765 quat=0.406650 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=100 pos=0.026168 quat=0.000066 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=150 pos=0.025305 quat=0.000064 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=200 pos=0.023991 quat=0.000006 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=250 pos=0.022913 quat=0.000041 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=300 pos=0.022024 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=350 pos=0.021272 quat=0.000000 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=400 pos=0.020272 quat=0.000003 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=450 pos=0.019567 quat=0.000004 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=500 pos=0.018989 quat=0.000007 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=550 pos=0.018307 quat=0.000019 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=600 pos=0.017505 quat=0.000026 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=650 pos=0.016925 quat=0.000009 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=700 pos=0.016183 quat=0.000007 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=717 pos=0.016203 quat=0.000003 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 2/3 | 21.394 ± 10.759 (n=2) | 104.968 ± 18.197 (n=516) |
+| qp | 4/4 | 38.733 ± 25.112 (n=4) | 107.744 ± 17.288 (n=1411) |
+| scm | 4/4 | 5.538 ± 0.896 (n=4) | 16.890 ± 3.527 (n=1168) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=stanford_bunny2 seed=3
+direct_force solver=acados object=stanford_bunny2 seed=3 step=0 pos=0.038516 quat=0.993073 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=50 pos=0.081088 quat=0.672244 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=100 pos=0.023161 quat=0.000000 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=150 pos=0.022052 quat=0.000084 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=200 pos=0.020478 quat=0.000008 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=250 pos=0.018684 quat=0.000044 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=300 pos=0.017252 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=3 step=341 pos=0.015967 quat=0.000064 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 3/4 | 26.641 ± 11.500 (n=3) | 105.558 ± 18.432 (n=858) |
+| qp | 4/4 | 38.733 ± 25.112 (n=4) | 107.744 ± 17.288 (n=1411) |
+| scm | 4/4 | 5.538 ± 0.896 (n=4) | 16.890 ± 3.527 (n=1168) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=stanford_bunny2 seed=4
+direct_force solver=acados object=stanford_bunny2 seed=4 step=0 pos=0.085931 quat=0.944602 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=50 pos=0.113258 quat=0.838154 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=100 pos=0.109088 quat=0.790259 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=150 pos=0.038027 quat=0.213996 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=200 pos=0.026606 quat=0.304700 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=250 pos=0.056269 quat=0.925143 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=300 pos=0.031712 quat=0.008174 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=350 pos=0.024858 quat=0.000592 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=400 pos=0.020100 quat=0.000215 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=450 pos=0.017010 quat=0.000081 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=483 pos=0.015874 quat=0.000041 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 3/4 | 26.641 ± 11.500 (n=3) | 105.558 ± 18.432 (n=858) |
+| qp | 4/4 | 38.733 ± 25.112 (n=4) | 107.744 ± 17.288 (n=1411) |
+| scm | 5/5 | 6.298 ± 1.717 (n=5) | 16.973 ± 3.884 (n=1652) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=stanford_bunny2 seed=4
+direct_force solver=acados object=stanford_bunny2 seed=4 step=0 pos=0.085205 quat=0.950385 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=50 pos=0.097851 quat=0.980850 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=100 pos=0.029480 quat=0.000080 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=150 pos=0.023649 quat=0.000002 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=200 pos=0.020061 quat=0.000006 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=250 pos=0.017522 quat=0.000003 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=290 pos=0.016043 quat=0.000003 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 3/4 | 26.641 ± 11.500 (n=3) | 105.558 ± 18.432 (n=858) |
+| qp | 5/5 | 37.523 ± 22.590 (n=5) | 108.171 ± 18.465 (n=1702) |
+| scm | 5/5 | 6.298 ± 1.717 (n=5) | 16.973 ± 3.884 (n=1652) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=stanford_bunny2 seed=4
+direct_force solver=acados object=stanford_bunny2 seed=4 step=0 pos=0.085205 quat=0.950385 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=50 pos=0.095547 quat=0.916654 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=100 pos=0.071289 quat=0.000059 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=150 pos=0.047551 quat=0.000303 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=200 pos=0.034948 quat=0.000147 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=250 pos=0.028281 quat=0.000576 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=300 pos=0.022557 quat=0.000168 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=350 pos=0.018370 quat=0.000059 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=397 pos=0.015950 quat=0.000015 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 4/5 | 31.101 ± 12.603 (n=4) | 106.838 ± 18.725 (n=1256) |
+| qp | 5/5 | 37.523 ± 22.590 (n=5) | 108.171 ± 18.465 (n=1702) |
+| scm | 5/5 | 6.298 ± 1.717 (n=5) | 16.973 ± 3.884 (n=1652) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 4/5 | 31.101 ± 12.603 (n=4) | 106.838 ± 18.725 (n=1256) |
+| qp | 5/5 | 37.523 ± 22.590 (n=5) | 108.171 ± 18.465 (n=1702) |
+| scm | 5/5 | 6.298 ± 1.717 (n=5) | 16.973 ± 3.884 (n=1652) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.

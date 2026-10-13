@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot name="force_cylinder_visual_only">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.004" length="0.08"/>
+      </geometry>
+      <material name="force_yellow">
+        <color rgba="1.0 0.92 0.15 1.0"/>
+      </material>
+    </visual>
+  </link>
+</robot>

@@ -1,0 +1,12 @@
+
+******************************************************************************
+This program contains Ipopt, a library for large-scale nonlinear optimization.
+ Ipopt is released as open source code under the Eclipse Public License (EPL).
+         For more information visit https://github.com/coin-or/Ipopt
+******************************************************************************
+
+direct_force solver=ipopt object=elephant seed=3 step=0 pos=0.042070 quat=0.992200 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=3 step=50 pos=0.071336 quat=0.834873 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=3 step=100 pos=0.011351 quat=0.011360 hold=0 success=False
+direct_force solver=ipopt object=elephant seed=3 step=138 pos=0.016985 quat=0.000869 hold=10 success=True
+TRIAL_RESULT {"solver": "ipopt", "object": "elephant", "seed": 3, "steps": 139, "success": true, "settled": true, "final_pos": 0.016985064798067693, "final_quat": 0.0008693209588487294, "solver_backends": ["ipopt"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-14T00:51:56+08:00", "completed_at": "2026-10-14T00:53:09+08:00", "execution_time_s": 69.65440836001653, "elapsed_wall_time_s": 69.65440836001653, "simulation_time_s": 2.7800000000000957, "planning_time_ms": {"n": 139, "mean": 499.1911027057887, "std": 133.2766705384148, "median": 473.56539097381756, "p95": 731.3496820221188, "min": 331.25792600912973, "max": 945.2186209964566}, "planning_rounds": 139}

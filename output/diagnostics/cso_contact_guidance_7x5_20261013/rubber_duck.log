@@ -1,0 +1,1140 @@
+Command: ["taskset", "-c", "4", "/home/zz/miniconda3/envs/pi0/bin/python", "/home/zz/scsp-robot/examples/mpc/fingertips/test/benchmark_contact_models.py", "--objects", "rubber_duck", "--models", "scm,qp,lcp", "--trials", "5", "--steps", "5000", "--output-dir", "/home/zz/scsp-robot/output/diagnostics/cso_contact_guidance_7x5_20261013/workers/rubber_duck", "--resume"]
+benchmark model=scm object=rubber_duck seed=0
+[acados] generating solver: contact_lambda_soft_scm_v25_m10_f10000_u900_qb48fe0ae15
+External functions generated in 136.297 ms.
+Templated solver code generated in 883.079 ms.
+[acados] compiling solver (1 large maps); log: /tmp/contact_lambda_soft_scm_v25_m10_f10000_u900_qb48fe0ae15_codegen/build.log
+[acados] solver ready in 4.72s
+direct_force solver=acados object=rubber_duck seed=0 step=0 pos=0.055659 quat=0.581480 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=50 pos=0.031168 quat=0.365957 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=100 pos=0.013268 quat=0.159288 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=150 pos=0.027551 quat=0.060244 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=200 pos=0.034001 quat=0.230992 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=250 pos=0.027833 quat=0.435263 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=300 pos=0.029807 quat=0.583546 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=350 pos=0.029310 quat=0.587536 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=400 pos=0.033741 quat=0.792907 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=450 pos=0.037743 quat=0.968372 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=500 pos=0.034142 quat=0.933036 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=550 pos=0.030132 quat=0.764203 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=600 pos=0.033531 quat=0.724855 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=650 pos=0.020207 quat=0.694300 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=700 pos=0.015859 quat=0.514304 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=750 pos=0.011206 quat=0.277118 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=800 pos=0.011622 quat=0.127119 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=850 pos=0.018169 quat=0.068001 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=900 pos=0.014770 quat=0.023354 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=950 pos=0.007839 quat=0.032752 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1000 pos=0.007383 quat=0.098158 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1050 pos=0.006643 quat=0.115318 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1100 pos=0.022995 quat=0.093423 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1150 pos=0.033207 quat=0.142954 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1200 pos=0.033193 quat=0.250110 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1250 pos=0.018204 quat=0.228102 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1300 pos=0.015174 quat=0.322122 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1350 pos=0.009770 quat=0.256682 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1400 pos=0.045917 quat=0.052571 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1450 pos=0.067637 quat=0.203429 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1500 pos=0.053272 quat=0.527359 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1550 pos=0.032788 quat=0.606755 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1600 pos=0.034992 quat=0.946142 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1650 pos=0.029867 quat=0.216834 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1700 pos=0.010583 quat=0.719412 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1750 pos=0.001583 quat=0.866872 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1800 pos=0.012665 quat=0.960829 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1850 pos=0.013896 quat=0.991144 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1900 pos=0.019114 quat=0.971858 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1950 pos=0.046453 quat=0.483585 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2000 pos=0.082280 quat=0.049949 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2050 pos=0.066941 quat=0.123951 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2100 pos=0.049563 quat=0.199194 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2150 pos=0.029230 quat=0.395584 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2200 pos=0.032768 quat=0.723424 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2250 pos=0.038394 quat=0.886537 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2300 pos=0.066763 quat=0.614234 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2350 pos=0.066489 quat=0.008623 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2400 pos=0.076891 quat=0.082591 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2450 pos=0.072563 quat=0.065545 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2500 pos=0.053663 quat=0.059130 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2550 pos=0.057603 quat=0.268183 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2600 pos=0.057940 quat=0.795414 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2650 pos=0.050781 quat=0.650079 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2700 pos=0.052307 quat=0.994553 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2750 pos=0.043355 quat=0.637558 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2800 pos=0.029484 quat=0.113866 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2850 pos=0.007772 quat=0.091686 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2900 pos=0.010700 quat=0.261293 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2950 pos=0.021121 quat=0.439327 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3000 pos=0.029316 quat=0.624874 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3050 pos=0.033099 quat=0.671635 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3100 pos=0.032332 quat=0.701402 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3150 pos=0.035756 quat=0.809864 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3200 pos=0.029174 quat=0.831322 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3250 pos=0.010480 quat=0.828648 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3300 pos=0.015180 quat=0.981741 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3350 pos=0.034853 quat=0.113164 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3400 pos=0.054339 quat=0.013542 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3450 pos=0.057666 quat=0.022906 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3500 pos=0.066765 quat=0.137738 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3550 pos=0.036300 quat=0.410025 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3600 pos=0.047300 quat=0.851637 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3650 pos=0.044013 quat=0.827657 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3700 pos=0.020939 quat=0.178389 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3750 pos=0.016182 quat=0.052658 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3800 pos=0.019394 quat=0.134519 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3850 pos=0.024503 quat=0.246353 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3900 pos=0.023375 quat=0.249427 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3950 pos=0.026901 quat=0.220376 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4000 pos=0.030318 quat=0.129776 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4050 pos=0.035087 quat=0.132850 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4100 pos=0.039691 quat=0.413917 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4150 pos=0.045885 quat=0.167237 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4200 pos=0.054562 quat=0.036595 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4250 pos=0.033381 quat=0.131706 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4300 pos=0.040032 quat=0.112290 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4350 pos=0.032575 quat=0.378758 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4400 pos=0.015779 quat=0.607824 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4450 pos=0.032369 quat=0.980613 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4500 pos=0.039405 quat=0.961030 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4550 pos=0.046368 quat=0.611324 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4600 pos=0.025775 quat=0.080760 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4650 pos=0.002254 quat=0.223656 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4700 pos=0.011496 quat=0.541528 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4750 pos=0.013268 quat=0.718947 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4800 pos=0.012130 quat=0.879798 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4850 pos=0.022181 quat=0.918858 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4900 pos=0.012756 quat=0.922566 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4950 pos=0.018984 quat=0.932007 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| scm | 0/1 | — | 16.709 ± 4.704 (n=5000) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=rubber_duck seed=0
+direct_force solver=acados object=rubber_duck seed=0 step=0 pos=0.055264 quat=0.571912 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=50 pos=0.025330 quat=0.181483 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=100 pos=0.034213 quat=0.193930 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=150 pos=0.025461 quat=0.181196 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=200 pos=0.015404 quat=0.189124 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=250 pos=0.028845 quat=0.174724 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=300 pos=0.013941 quat=0.167174 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=350 pos=0.021942 quat=0.165883 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=400 pos=0.017505 quat=0.147187 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=450 pos=0.014428 quat=0.159787 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=500 pos=0.020751 quat=0.145761 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=550 pos=0.008644 quat=0.156962 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=600 pos=0.010877 quat=0.133300 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=650 pos=0.021257 quat=0.115635 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=700 pos=0.022894 quat=0.139908 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=750 pos=0.009073 quat=0.183462 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=800 pos=0.010428 quat=0.130222 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=850 pos=0.010120 quat=0.127494 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=900 pos=0.010268 quat=0.192862 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=950 pos=0.014213 quat=0.188019 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1000 pos=0.026903 quat=0.115698 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1050 pos=0.039509 quat=0.172093 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1100 pos=0.036308 quat=0.108960 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1150 pos=0.046234 quat=0.186174 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1200 pos=0.042360 quat=0.212124 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1250 pos=0.042238 quat=0.218783 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1300 pos=0.042132 quat=0.244520 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1350 pos=0.042088 quat=0.277242 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1400 pos=0.036471 quat=0.272179 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1450 pos=0.042553 quat=0.466601 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1500 pos=0.036727 quat=0.507089 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1550 pos=0.035403 quat=0.580569 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1600 pos=0.025122 quat=0.698396 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1650 pos=0.023505 quat=0.816816 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1700 pos=0.026963 quat=0.837167 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1750 pos=0.027598 quat=0.872851 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1800 pos=0.026980 quat=0.879000 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1850 pos=0.030060 quat=0.877321 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1900 pos=0.028218 quat=0.862950 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=1950 pos=0.023321 quat=0.881469 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2000 pos=0.022834 quat=0.894159 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2050 pos=0.023419 quat=0.927899 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2100 pos=0.024455 quat=0.910275 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2150 pos=0.023254 quat=0.956837 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2200 pos=0.033184 quat=0.972351 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2250 pos=0.029765 quat=0.974732 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2300 pos=0.031399 quat=0.968124 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2350 pos=0.029593 quat=0.978479 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2400 pos=0.028008 quat=0.997010 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2450 pos=0.024470 quat=0.999660 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2500 pos=0.024516 quat=0.999970 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2550 pos=0.023859 quat=0.996800 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2600 pos=0.026824 quat=0.990920 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2650 pos=0.017394 quat=0.944348 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2700 pos=0.019189 quat=0.885934 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2750 pos=0.020886 quat=0.839445 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2800 pos=0.024536 quat=0.828015 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2850 pos=0.024562 quat=0.822547 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2900 pos=0.023575 quat=0.807130 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=2950 pos=0.025107 quat=0.787661 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3000 pos=0.027709 quat=0.783113 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3050 pos=0.026364 quat=0.815105 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3100 pos=0.029086 quat=0.790583 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3150 pos=0.029211 quat=0.769942 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3200 pos=0.028379 quat=0.713417 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3250 pos=0.031131 quat=0.630605 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3300 pos=0.026894 quat=0.615872 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3350 pos=0.022849 quat=0.578934 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3400 pos=0.024329 quat=0.536864 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3450 pos=0.025555 quat=0.493170 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3500 pos=0.027107 quat=0.491008 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3550 pos=0.022955 quat=0.425382 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3600 pos=0.022485 quat=0.343339 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3650 pos=0.029346 quat=0.258922 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3700 pos=0.028836 quat=0.211545 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3750 pos=0.028916 quat=0.180181 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3800 pos=0.030305 quat=0.172839 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3850 pos=0.028280 quat=0.192911 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3900 pos=0.024720 quat=0.169200 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=3950 pos=0.024288 quat=0.100495 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4000 pos=0.033597 quat=0.069358 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4050 pos=0.023945 quat=0.021607 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4100 pos=0.024708 quat=0.002935 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4150 pos=0.022506 quat=0.015864 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4200 pos=0.023508 quat=0.001911 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4250 pos=0.021777 quat=0.017549 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4300 pos=0.024958 quat=0.051145 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4350 pos=0.022921 quat=0.139467 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4400 pos=0.024040 quat=0.213173 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4450 pos=0.027434 quat=0.176534 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4500 pos=0.032889 quat=0.157680 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4550 pos=0.027353 quat=0.236789 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4600 pos=0.027473 quat=0.212226 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4650 pos=0.029642 quat=0.215984 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4700 pos=0.029638 quat=0.245721 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4750 pos=0.029307 quat=0.295068 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4800 pos=0.031302 quat=0.332808 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4850 pos=0.030290 quat=0.339850 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4900 pos=0.038451 quat=0.525630 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=4950 pos=0.035978 quat=0.575511 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| qp | 0/1 | — | 127.444 ± 56.041 (n=5000) |
+| scm | 0/1 | — | 16.709 ± 4.704 (n=5000) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=rubber_duck seed=0
+direct_force solver=acados object=rubber_duck seed=0 step=0 pos=0.055264 quat=0.571917 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=0 step=50 pos=0.025032 quat=0.179047 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.565e-05
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/1 | — | 98.328 ± 15.143 (n=64) |
+| qp | 0/1 | — | 127.444 ± 56.041 (n=5000) |
+| scm | 0/1 | — | 16.709 ± 4.704 (n=5000) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=rubber_duck seed=1
+direct_force solver=acados object=rubber_duck seed=1 step=0 pos=0.112766 quat=0.633528 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=50 pos=0.054185 quat=0.344625 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=100 pos=0.037374 quat=0.016198 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=150 pos=0.052114 quat=0.210984 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=200 pos=0.023354 quat=0.324656 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=250 pos=0.064450 quat=0.307423 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=300 pos=0.051365 quat=0.966232 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=350 pos=0.057404 quat=0.969816 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=400 pos=0.057224 quat=0.999585 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=450 pos=0.049550 quat=0.842733 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=500 pos=0.049723 quat=0.871007 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=550 pos=0.064209 quat=0.959331 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=600 pos=0.028223 quat=0.981844 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=650 pos=0.029203 quat=0.998340 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=700 pos=0.070337 quat=0.992788 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=750 pos=0.028934 quat=0.995042 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=800 pos=0.045881 quat=0.999773 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=850 pos=0.030110 quat=0.988457 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=900 pos=0.038397 quat=0.995415 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=950 pos=0.058320 quat=1.000000 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1000 pos=0.051232 quat=0.998875 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1050 pos=0.039309 quat=0.997712 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1100 pos=0.052520 quat=0.955191 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1150 pos=0.051668 quat=0.995978 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1200 pos=0.039196 quat=0.977661 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1250 pos=0.041504 quat=0.933330 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1300 pos=0.046508 quat=0.909566 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1350 pos=0.021943 quat=0.844203 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1400 pos=0.062363 quat=0.897726 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1450 pos=0.041931 quat=0.855474 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1500 pos=0.037432 quat=0.843887 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1550 pos=0.045957 quat=0.830277 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1600 pos=0.057290 quat=0.806372 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1650 pos=0.044064 quat=0.779420 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1700 pos=0.036875 quat=0.771518 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1750 pos=0.055057 quat=0.760339 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1800 pos=0.038460 quat=0.714904 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1850 pos=0.032635 quat=0.601203 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1900 pos=0.054720 quat=0.384413 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1950 pos=0.025630 quat=0.559153 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2000 pos=0.013433 quat=0.746444 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2050 pos=0.025666 quat=0.984753 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2100 pos=0.010193 quat=0.819477 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2150 pos=0.023911 quat=0.336030 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2200 pos=0.011870 quat=0.054686 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2250 pos=0.009349 quat=0.012464 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2300 pos=0.011579 quat=0.008458 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2350 pos=0.013808 quat=0.010291 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2400 pos=0.016717 quat=0.010866 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2450 pos=0.021415 quat=0.050290 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2500 pos=0.024091 quat=0.070876 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2550 pos=0.025762 quat=0.147748 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2600 pos=0.026219 quat=0.174760 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2650 pos=0.022115 quat=0.126100 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2700 pos=0.023804 quat=0.124252 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2750 pos=0.018805 quat=0.083919 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2800 pos=0.020588 quat=0.021967 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2850 pos=0.019221 quat=0.011297 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2900 pos=0.016868 quat=0.006789 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2916 pos=0.018434 quat=0.002431 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/1 | — | 98.328 ± 15.143 (n=64) |
+| qp | 0/1 | — | 127.444 ± 56.041 (n=5000) |
+| scm | 1/2 | 53.104 ± 0.000 (n=1) | 16.534 ± 4.513 (n=7917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=rubber_duck seed=1
+direct_force solver=acados object=rubber_duck seed=1 step=0 pos=0.111836 quat=0.645331 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=50 pos=0.055512 quat=0.982826 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=100 pos=0.051921 quat=0.991874 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=150 pos=0.040509 quat=0.981088 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=200 pos=0.034062 quat=0.957002 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=250 pos=0.039463 quat=0.977336 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=300 pos=0.040010 quat=0.971708 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=350 pos=0.036640 quat=0.974995 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=400 pos=0.035388 quat=0.977415 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=450 pos=0.029581 quat=0.973033 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=500 pos=0.024529 quat=0.977647 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=550 pos=0.030047 quat=0.976828 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=600 pos=0.025960 quat=0.986114 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=650 pos=0.027863 quat=0.985769 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=700 pos=0.026679 quat=0.991776 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=750 pos=0.014485 quat=0.993180 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=800 pos=0.022702 quat=0.993404 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=850 pos=0.023281 quat=0.992939 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=900 pos=0.027667 quat=0.996926 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=950 pos=0.017417 quat=0.997801 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1000 pos=0.025106 quat=0.999802 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1050 pos=0.018339 quat=0.999541 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1100 pos=0.011217 quat=0.999733 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1150 pos=0.018410 quat=0.997606 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1200 pos=0.019680 quat=0.993087 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1250 pos=0.008796 quat=0.993703 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1300 pos=0.022427 quat=0.990045 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1350 pos=0.023065 quat=0.985001 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1400 pos=0.010503 quat=0.982109 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1450 pos=0.017072 quat=0.979902 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1500 pos=0.011442 quat=0.975131 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1550 pos=0.017403 quat=0.969105 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1600 pos=0.021299 quat=0.946563 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1650 pos=0.018417 quat=0.963703 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1700 pos=0.021634 quat=0.977780 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1750 pos=0.026341 quat=0.976165 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1800 pos=0.032034 quat=0.921643 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1850 pos=0.026047 quat=0.913219 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1900 pos=0.023473 quat=0.631876 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=1950 pos=0.033641 quat=0.508640 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2000 pos=0.017628 quat=0.380199 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2050 pos=0.021973 quat=0.291188 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2100 pos=0.018369 quat=0.315865 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2150 pos=0.015285 quat=0.156380 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2200 pos=0.026189 quat=0.039390 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2250 pos=0.025187 quat=0.019645 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2300 pos=0.016514 quat=0.006488 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2350 pos=0.020842 quat=0.019022 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2400 pos=0.017771 quat=0.018063 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2450 pos=0.012388 quat=0.015585 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2500 pos=0.020302 quat=0.030874 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2550 pos=0.005478 quat=0.040621 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2600 pos=0.018701 quat=0.030067 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2650 pos=0.009580 quat=0.006867 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2700 pos=0.015263 quat=0.031094 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2750 pos=0.015041 quat=0.035141 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2800 pos=0.026133 quat=0.041443 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2850 pos=0.023522 quat=0.065899 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2900 pos=0.027698 quat=0.181840 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=2950 pos=0.030418 quat=0.402921 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3000 pos=0.037860 quat=0.657208 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3050 pos=0.021678 quat=0.815547 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3100 pos=0.034246 quat=0.879979 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3150 pos=0.023911 quat=0.866368 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3200 pos=0.026703 quat=0.648793 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3250 pos=0.024000 quat=0.628920 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3300 pos=0.029922 quat=0.789779 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3350 pos=0.026482 quat=0.857744 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3400 pos=0.028506 quat=0.850188 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3450 pos=0.031585 quat=0.817147 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3500 pos=0.034359 quat=0.687339 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3550 pos=0.034683 quat=0.507214 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3600 pos=0.034643 quat=0.161398 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3650 pos=0.038375 quat=0.015486 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3700 pos=0.036366 quat=0.036661 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3750 pos=0.028703 quat=0.101609 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3800 pos=0.028445 quat=0.226537 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3850 pos=0.031529 quat=0.541746 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3900 pos=0.036062 quat=0.751649 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=3950 pos=0.032701 quat=0.978747 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4000 pos=0.033241 quat=0.971522 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4050 pos=0.030705 quat=0.868727 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4100 pos=0.022795 quat=0.386093 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4150 pos=0.018024 quat=0.023053 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4200 pos=0.021318 quat=0.163809 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4250 pos=0.014637 quat=0.350515 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4300 pos=0.013369 quat=0.451713 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4350 pos=0.011698 quat=0.597027 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4400 pos=0.010079 quat=0.786340 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4450 pos=0.012327 quat=0.860022 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4500 pos=0.004526 quat=0.888698 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4550 pos=0.013884 quat=0.889298 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4600 pos=0.003084 quat=0.979411 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4650 pos=0.008627 quat=0.974594 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4700 pos=0.014201 quat=0.864261 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4750 pos=0.009279 quat=0.720578 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4800 pos=0.015398 quat=0.594803 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4850 pos=0.010492 quat=0.325510 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4900 pos=0.021421 quat=0.021551 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=4950 pos=0.021923 quat=0.022906 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/1 | — | 98.328 ± 15.143 (n=64) |
+| qp | 0/2 | — | 114.826 ± 43.845 (n=10000) |
+| scm | 1/2 | 53.104 ± 0.000 (n=1) | 16.534 ± 4.513 (n=7917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=rubber_duck seed=1
+direct_force solver=acados object=rubber_duck seed=1 step=0 pos=0.111836 quat=0.645331 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=50 pos=0.051596 quat=0.982204 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=100 pos=0.050951 quat=0.995554 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=1 step=150 pos=0.044475 quat=0.945377 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.627e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/2 | — | 98.929 ± 13.456 (n=250) |
+| qp | 0/2 | — | 114.826 ± 43.845 (n=10000) |
+| scm | 1/2 | 53.104 ± 0.000 (n=1) | 16.534 ± 4.513 (n=7917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=rubber_duck seed=2
+direct_force solver=acados object=rubber_duck seed=2 step=0 pos=0.136643 quat=0.681164 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=50 pos=0.076016 quat=0.923357 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=100 pos=0.072051 quat=0.859023 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=150 pos=0.057031 quat=0.769438 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=200 pos=0.042237 quat=0.738342 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=250 pos=0.022157 quat=0.767842 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=300 pos=0.044286 quat=0.959614 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=350 pos=0.041683 quat=0.996089 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=400 pos=0.039233 quat=0.936592 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=450 pos=0.037865 quat=0.979884 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=500 pos=0.042360 quat=0.944036 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=550 pos=0.026668 quat=0.815955 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=600 pos=0.012545 quat=0.203286 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=650 pos=0.033482 quat=0.055586 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=700 pos=0.024741 quat=0.142272 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=750 pos=0.028357 quat=0.122563 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=800 pos=0.034355 quat=0.107034 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=850 pos=0.041314 quat=0.211504 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=900 pos=0.034365 quat=0.984468 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=950 pos=0.073283 quat=0.163478 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1000 pos=0.036992 quat=0.200950 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1050 pos=0.049870 quat=0.312878 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1100 pos=0.031108 quat=0.776134 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1150 pos=0.040116 quat=0.596395 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1200 pos=0.012094 quat=0.597629 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1250 pos=0.009215 quat=0.754287 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1300 pos=0.055291 quat=0.671878 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1350 pos=0.039025 quat=0.489154 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1400 pos=0.022416 quat=0.544353 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1450 pos=0.045528 quat=0.991151 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1500 pos=0.057163 quat=0.798676 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1550 pos=0.059972 quat=0.513234 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1600 pos=0.034527 quat=0.082097 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1650 pos=0.040036 quat=0.131700 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1700 pos=0.017161 quat=0.172913 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1750 pos=0.040052 quat=0.313171 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1800 pos=0.036409 quat=0.100583 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1850 pos=0.024257 quat=0.246429 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1900 pos=0.038980 quat=0.349731 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1950 pos=0.048253 quat=0.081242 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2000 pos=0.046293 quat=0.070290 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2050 pos=0.039396 quat=0.011273 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2100 pos=0.053790 quat=0.170617 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2150 pos=0.022128 quat=0.082588 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2200 pos=0.054768 quat=0.181090 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2250 pos=0.019425 quat=0.224834 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2300 pos=0.010040 quat=0.188849 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2350 pos=0.033574 quat=0.410451 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2400 pos=0.011079 quat=0.322773 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2450 pos=0.009950 quat=0.712642 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2500 pos=0.013249 quat=0.892349 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2550 pos=0.021861 quat=0.916545 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2600 pos=0.026754 quat=0.965247 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2650 pos=0.031677 quat=0.492672 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2700 pos=0.024385 quat=0.246744 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2750 pos=0.021738 quat=0.298017 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2800 pos=0.029493 quat=0.244762 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2850 pos=0.029672 quat=0.159748 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2900 pos=0.035655 quat=0.308706 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2950 pos=0.025441 quat=0.384683 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3000 pos=0.021716 quat=0.984989 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3050 pos=0.006072 quat=0.958343 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3100 pos=0.032048 quat=0.437992 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3150 pos=0.030221 quat=0.562723 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3200 pos=0.030025 quat=0.626366 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3250 pos=0.037618 quat=0.652143 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3300 pos=0.032113 quat=0.728781 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3350 pos=0.039637 quat=0.824502 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3400 pos=0.031523 quat=0.771610 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3450 pos=0.046480 quat=0.561835 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3500 pos=0.034737 quat=0.461418 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3550 pos=0.049299 quat=0.206593 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3600 pos=0.042570 quat=0.776456 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3650 pos=0.040045 quat=0.982302 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3700 pos=0.026611 quat=0.977058 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3750 pos=0.024286 quat=0.955712 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3800 pos=0.023696 quat=0.910089 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3850 pos=0.024538 quat=0.873985 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3900 pos=0.022559 quat=0.867000 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3950 pos=0.017152 quat=0.903670 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4000 pos=0.013060 quat=0.824900 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4050 pos=0.023164 quat=0.680200 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4100 pos=0.040651 quat=0.582620 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4150 pos=0.026828 quat=0.516865 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4200 pos=0.004582 quat=0.072935 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4250 pos=0.026293 quat=0.888742 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4300 pos=0.049310 quat=0.939379 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4350 pos=0.041252 quat=0.931576 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4400 pos=0.055367 quat=0.892382 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4450 pos=0.021009 quat=0.783918 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4500 pos=0.060365 quat=0.754678 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4550 pos=0.029437 quat=0.932263 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4600 pos=0.027841 quat=0.855982 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4650 pos=0.029690 quat=0.796921 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4700 pos=0.011801 quat=0.985696 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4750 pos=0.048859 quat=0.596841 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4800 pos=0.064166 quat=0.420004 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4850 pos=0.055675 quat=0.230276 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4900 pos=0.040192 quat=0.364397 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4950 pos=0.060909 quat=0.660441 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/2 | — | 98.929 ± 13.456 (n=250) |
+| qp | 0/2 | — | 114.826 ± 43.845 (n=10000) |
+| scm | 1/3 | 53.104 ± 0.000 (n=1) | 16.455 ± 4.203 (n=12917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=rubber_duck seed=2
+direct_force solver=acados object=rubber_duck seed=2 step=0 pos=0.136128 quat=0.680431 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=50 pos=0.069667 quat=0.153612 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=100 pos=0.048653 quat=0.259734 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=150 pos=0.050317 quat=0.227455 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=200 pos=0.052582 quat=0.240049 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=250 pos=0.047542 quat=0.246276 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=300 pos=0.037093 quat=0.256996 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=350 pos=0.047961 quat=0.285047 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=400 pos=0.031980 quat=0.303672 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=450 pos=0.042355 quat=0.271000 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=500 pos=0.036863 quat=0.277628 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=550 pos=0.032349 quat=0.343361 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=600 pos=0.045330 quat=0.417812 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=650 pos=0.040060 quat=0.372484 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=700 pos=0.036848 quat=0.342493 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=750 pos=0.044052 quat=0.383511 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=800 pos=0.043148 quat=0.344006 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=850 pos=0.044052 quat=0.301598 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=900 pos=0.047925 quat=0.326803 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=950 pos=0.051604 quat=0.337250 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1000 pos=0.052856 quat=0.367169 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1050 pos=0.058310 quat=0.344656 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1100 pos=0.062092 quat=0.390233 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1150 pos=0.064799 quat=0.392498 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1200 pos=0.066860 quat=0.361418 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1250 pos=0.071484 quat=0.425375 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1300 pos=0.073658 quat=0.462225 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1350 pos=0.066527 quat=0.698482 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1400 pos=0.067841 quat=0.706819 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1450 pos=0.070901 quat=0.801188 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1500 pos=0.066326 quat=0.824072 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1550 pos=0.068840 quat=0.925363 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1600 pos=0.058061 quat=0.999997 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1650 pos=0.038513 quat=0.936057 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1700 pos=0.040016 quat=0.926001 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1750 pos=0.047907 quat=0.923904 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1800 pos=0.032329 quat=0.910008 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1850 pos=0.045207 quat=0.898775 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1900 pos=0.031329 quat=0.881807 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=1950 pos=0.043746 quat=0.873539 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2000 pos=0.036712 quat=0.850865 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2050 pos=0.037032 quat=0.843294 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2100 pos=0.041468 quat=0.821597 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2150 pos=0.038983 quat=0.822343 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2200 pos=0.028200 quat=0.718275 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2250 pos=0.034451 quat=0.626039 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2300 pos=0.038584 quat=0.600383 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2350 pos=0.035251 quat=0.513424 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2400 pos=0.030234 quat=0.429799 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2450 pos=0.027660 quat=0.248160 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2500 pos=0.028597 quat=0.190610 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2550 pos=0.031918 quat=0.136467 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2600 pos=0.021614 quat=0.124731 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2650 pos=0.019404 quat=0.098966 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2700 pos=0.028067 quat=0.014281 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2750 pos=0.024405 quat=0.003819 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2800 pos=0.017386 quat=0.027190 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2850 pos=0.015306 quat=0.025243 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2900 pos=0.013963 quat=0.007041 hold=1 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=2950 pos=0.014947 quat=0.021301 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3000 pos=0.011085 quat=0.020583 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3050 pos=0.012230 quat=0.037105 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3100 pos=0.010328 quat=0.036842 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3150 pos=0.006655 quat=0.063357 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3200 pos=0.003690 quat=0.077363 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3250 pos=0.000933 quat=0.090991 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3300 pos=0.012327 quat=0.092289 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3350 pos=0.021856 quat=0.132517 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3400 pos=0.013452 quat=0.210951 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3450 pos=0.025202 quat=0.296248 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3500 pos=0.030203 quat=0.401013 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3550 pos=0.033200 quat=0.471523 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3600 pos=0.037126 quat=0.477797 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3650 pos=0.046705 quat=0.580241 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3700 pos=0.047056 quat=0.887620 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3750 pos=0.049299 quat=0.946340 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3800 pos=0.048409 quat=0.994467 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3850 pos=0.045627 quat=0.946500 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3900 pos=0.045963 quat=0.812175 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=3950 pos=0.025969 quat=0.597629 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4000 pos=0.032458 quat=0.312925 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4050 pos=0.029387 quat=0.293094 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4100 pos=0.014602 quat=0.154388 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4150 pos=0.014490 quat=0.059951 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4200 pos=0.017592 quat=0.019987 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4250 pos=0.021688 quat=0.011228 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4300 pos=0.010842 quat=0.023480 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4350 pos=0.023137 quat=0.044084 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4400 pos=0.009043 quat=0.076873 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4450 pos=0.021543 quat=0.126648 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4500 pos=0.015403 quat=0.121493 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4550 pos=0.015173 quat=0.241931 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4600 pos=0.025806 quat=0.335298 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4650 pos=0.012559 quat=0.365840 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4700 pos=0.021864 quat=0.427006 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4750 pos=0.020656 quat=0.427260 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4800 pos=0.010392 quat=0.542954 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4850 pos=0.025742 quat=0.704932 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4900 pos=0.026920 quat=0.804675 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=4950 pos=0.017290 quat=0.838618 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/2 | — | 98.929 ± 13.456 (n=250) |
+| qp | 0/3 | — | 114.859 ± 39.946 (n=15000) |
+| scm | 1/3 | 53.104 ± 0.000 (n=1) | 16.455 ± 4.203 (n=12917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=rubber_duck seed=2
+direct_force solver=acados object=rubber_duck seed=2 step=0 pos=0.136128 quat=0.680431 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=2 step=50 pos=0.085741 quat=0.056536 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.553e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/3 | — | 100.895 ± 14.498 (n=326) |
+| qp | 0/3 | — | 114.859 ± 39.946 (n=15000) |
+| scm | 1/3 | 53.104 ± 0.000 (n=1) | 16.455 ± 4.203 (n=12917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=rubber_duck seed=3
+direct_force solver=acados object=rubber_duck seed=3 step=0 pos=0.043615 quat=0.991795 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=50 pos=0.057423 quat=0.924054 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=100 pos=0.052034 quat=0.781714 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=150 pos=0.046748 quat=0.717298 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=200 pos=0.024115 quat=0.768164 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=250 pos=0.030191 quat=0.863480 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=300 pos=0.048300 quat=0.959576 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=350 pos=0.006585 quat=0.142838 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=400 pos=0.013852 quat=0.888570 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=450 pos=0.033301 quat=0.928182 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=500 pos=0.030569 quat=0.681594 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=550 pos=0.033651 quat=0.772765 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=600 pos=0.009631 quat=0.043512 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=650 pos=0.010772 quat=0.721003 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=700 pos=0.041382 quat=0.534733 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=750 pos=0.006176 quat=0.257554 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=800 pos=0.010977 quat=0.228948 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=850 pos=0.017586 quat=0.233561 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=900 pos=0.032781 quat=0.233193 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=950 pos=0.022770 quat=0.045476 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1000 pos=0.029370 quat=0.243316 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1050 pos=0.035465 quat=0.999348 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1100 pos=0.017453 quat=0.970109 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1150 pos=0.013416 quat=0.953734 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1200 pos=0.023714 quat=0.718607 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1250 pos=0.022770 quat=0.923561 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1300 pos=0.016253 quat=0.918751 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1350 pos=0.010220 quat=0.897078 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1400 pos=0.005086 quat=0.863832 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1450 pos=0.022828 quat=0.828804 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1500 pos=0.024983 quat=0.776561 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1550 pos=0.024512 quat=0.995620 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1600 pos=0.016126 quat=0.986310 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1650 pos=0.029496 quat=0.884632 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1700 pos=0.033595 quat=0.106626 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1750 pos=0.054443 quat=0.417324 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1800 pos=0.026534 quat=0.986219 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1850 pos=0.018730 quat=0.952883 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1900 pos=0.011834 quat=0.970835 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1950 pos=0.003141 quat=0.985629 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2000 pos=0.009672 quat=0.410508 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2050 pos=0.014988 quat=0.219178 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2100 pos=0.018651 quat=0.268626 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2150 pos=0.017044 quat=0.275648 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2200 pos=0.019940 quat=0.378993 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2250 pos=0.040932 quat=0.191411 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2300 pos=0.036950 quat=0.889956 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2350 pos=0.030944 quat=0.044237 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2400 pos=0.033128 quat=0.407597 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2450 pos=0.033013 quat=0.873322 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2500 pos=0.035697 quat=0.276281 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2550 pos=0.034618 quat=0.139694 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2600 pos=0.035658 quat=0.155994 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2650 pos=0.031243 quat=0.155952 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2700 pos=0.028332 quat=0.099254 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2750 pos=0.011909 quat=0.075451 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2800 pos=0.025319 quat=0.322711 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2850 pos=0.022206 quat=0.252350 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2900 pos=0.055630 quat=0.988526 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2950 pos=0.005733 quat=0.995065 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3000 pos=0.032933 quat=0.601005 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3050 pos=0.049421 quat=0.980142 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3100 pos=0.001092 quat=0.925974 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3150 pos=0.029212 quat=0.764357 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3200 pos=0.003283 quat=0.684150 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3250 pos=0.022042 quat=0.454694 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3300 pos=0.005833 quat=0.430784 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3350 pos=0.002219 quat=0.304092 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3400 pos=0.012070 quat=0.354682 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3450 pos=0.002763 quat=0.516803 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3500 pos=0.008597 quat=0.580258 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3550 pos=0.014587 quat=0.552351 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3600 pos=0.016248 quat=0.509095 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3650 pos=0.027009 quat=0.335187 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3700 pos=0.028052 quat=0.098344 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3750 pos=0.025732 quat=0.993770 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3800 pos=0.013587 quat=0.287345 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3850 pos=0.027977 quat=0.034688 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3900 pos=0.026297 quat=0.901821 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3950 pos=0.013345 quat=0.999750 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4000 pos=0.039832 quat=0.509058 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4050 pos=0.053048 quat=0.218469 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4100 pos=0.050767 quat=0.546695 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4150 pos=0.027202 quat=0.856965 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4200 pos=0.016890 quat=0.988670 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4250 pos=0.037999 quat=0.999336 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4300 pos=0.038979 quat=0.997235 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4350 pos=0.020294 quat=0.968966 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4400 pos=0.040369 quat=0.460088 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4450 pos=0.018818 quat=0.012483 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4500 pos=0.019507 quat=0.011873 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4550 pos=0.022793 quat=0.036976 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4600 pos=0.022437 quat=0.151444 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4650 pos=0.033943 quat=0.080888 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4700 pos=0.044069 quat=0.173132 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4750 pos=0.055989 quat=0.271792 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4800 pos=0.034451 quat=0.291354 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4850 pos=0.022287 quat=0.532815 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4900 pos=0.041590 quat=0.036641 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4950 pos=0.009027 quat=0.769155 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/3 | — | 100.895 ± 14.498 (n=326) |
+| qp | 0/3 | — | 114.859 ± 39.946 (n=15000) |
+| scm | 1/4 | 53.104 ± 0.000 (n=1) | 16.794 ± 4.252 (n=17917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=rubber_duck seed=3
+direct_force solver=acados object=rubber_duck seed=3 step=0 pos=0.043869 quat=0.991666 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=50 pos=0.042855 quat=0.895153 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=100 pos=0.043634 quat=0.910163 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=150 pos=0.046578 quat=0.927923 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=200 pos=0.048212 quat=0.945560 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=250 pos=0.043739 quat=0.996422 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=300 pos=0.042279 quat=0.838830 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=350 pos=0.033349 quat=0.809066 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=400 pos=0.041716 quat=0.762458 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=450 pos=0.038273 quat=0.698691 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=500 pos=0.031480 quat=0.668073 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=550 pos=0.029432 quat=0.609564 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=600 pos=0.034573 quat=0.541368 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=650 pos=0.022500 quat=0.502785 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=700 pos=0.030544 quat=0.484665 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=750 pos=0.022378 quat=0.469533 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=800 pos=0.032598 quat=0.449514 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=850 pos=0.020180 quat=0.426987 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=900 pos=0.031875 quat=0.418506 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=950 pos=0.020154 quat=0.388279 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1000 pos=0.023335 quat=0.369793 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1050 pos=0.028915 quat=0.350820 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1100 pos=0.019133 quat=0.316616 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1150 pos=0.012048 quat=0.317589 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1200 pos=0.021792 quat=0.280687 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1250 pos=0.026328 quat=0.265118 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1300 pos=0.018408 quat=0.232420 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1350 pos=0.011274 quat=0.235589 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1400 pos=0.020450 quat=0.208494 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1450 pos=0.024654 quat=0.195956 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1500 pos=0.017434 quat=0.170201 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1550 pos=0.024722 quat=0.138806 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1600 pos=0.019074 quat=0.150340 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1650 pos=0.012512 quat=0.154823 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1700 pos=0.016202 quat=0.176250 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1750 pos=0.019831 quat=0.212449 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1800 pos=0.018828 quat=0.190951 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1850 pos=0.019799 quat=0.208735 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1900 pos=0.021121 quat=0.189565 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=1950 pos=0.024562 quat=0.096604 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2000 pos=0.030373 quat=0.110716 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2050 pos=0.029350 quat=0.090620 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2100 pos=0.036090 quat=0.265071 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2150 pos=0.038416 quat=0.151511 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2200 pos=0.042231 quat=0.200824 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2250 pos=0.044660 quat=0.316919 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2300 pos=0.045149 quat=0.277928 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2350 pos=0.045974 quat=0.247446 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2400 pos=0.047819 quat=0.291221 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2450 pos=0.044985 quat=0.122563 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2500 pos=0.039865 quat=0.106717 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2550 pos=0.038154 quat=0.008102 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2600 pos=0.033665 quat=0.017160 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2650 pos=0.025150 quat=0.168332 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2700 pos=0.031272 quat=0.231669 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2750 pos=0.033788 quat=0.264447 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2800 pos=0.025684 quat=0.234376 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2850 pos=0.029058 quat=0.209315 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2900 pos=0.029143 quat=0.220755 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=2950 pos=0.030594 quat=0.315132 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3000 pos=0.040572 quat=0.515668 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3050 pos=0.040602 quat=0.583599 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3100 pos=0.035726 quat=0.603568 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3150 pos=0.036691 quat=0.501986 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3200 pos=0.045748 quat=0.604212 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3250 pos=0.037763 quat=0.614607 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3300 pos=0.038174 quat=0.613260 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3350 pos=0.041016 quat=0.596671 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3400 pos=0.040934 quat=0.469554 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3450 pos=0.039086 quat=0.629620 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3500 pos=0.039238 quat=0.850092 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3550 pos=0.034641 quat=0.848836 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3600 pos=0.034748 quat=0.920043 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3650 pos=0.031592 quat=0.921841 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3700 pos=0.035113 quat=0.971009 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3750 pos=0.036206 quat=0.875763 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3800 pos=0.037498 quat=0.837545 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3850 pos=0.039402 quat=0.911605 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3900 pos=0.039468 quat=0.796580 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=3950 pos=0.038820 quat=0.807652 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4000 pos=0.041158 quat=0.794910 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4050 pos=0.044214 quat=0.777484 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4100 pos=0.044401 quat=0.675733 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4150 pos=0.044917 quat=0.799128 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4200 pos=0.045134 quat=0.846361 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4250 pos=0.047023 quat=0.878924 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4300 pos=0.043772 quat=0.911840 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4350 pos=0.043382 quat=0.908565 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4400 pos=0.047997 quat=0.959052 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4450 pos=0.037999 quat=0.991444 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4500 pos=0.030821 quat=0.989823 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4550 pos=0.026739 quat=0.957767 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4600 pos=0.027666 quat=0.981172 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4650 pos=0.030320 quat=0.984175 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4700 pos=0.031052 quat=0.961804 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4750 pos=0.034133 quat=0.951392 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4800 pos=0.037480 quat=0.941660 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4850 pos=0.038013 quat=0.981253 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4900 pos=0.039594 quat=0.987254 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=4950 pos=0.038705 quat=0.984620 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/3 | — | 100.895 ± 14.498 (n=326) |
+| qp | 0/4 | — | 116.325 ± 37.811 (n=20000) |
+| scm | 1/4 | 53.104 ± 0.000 (n=1) | 16.794 ± 4.252 (n=17917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=rubber_duck seed=3
+direct_force solver=acados object=rubber_duck seed=3 step=0 pos=0.043869 quat=0.991666 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=3 step=50 pos=0.042425 quat=0.901936 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 8.649e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/4 | — | 100.953 ± 15.860 (n=416) |
+| qp | 0/4 | — | 116.325 ± 37.811 (n=20000) |
+| scm | 1/4 | 53.104 ± 0.000 (n=1) | 16.794 ± 4.252 (n=17917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=rubber_duck seed=4
+direct_force solver=acados object=rubber_duck seed=4 step=0 pos=0.085190 quat=0.945256 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=50 pos=0.042309 quat=0.929845 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=100 pos=0.045797 quat=0.999967 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=150 pos=0.034440 quat=0.988061 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=200 pos=0.025324 quat=0.952797 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=250 pos=0.018741 quat=0.786499 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=300 pos=0.009329 quat=0.381304 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=350 pos=0.008709 quat=0.019225 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=400 pos=0.011408 quat=0.175528 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=450 pos=0.021711 quat=0.166509 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=500 pos=0.044012 quat=0.245611 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=550 pos=0.034680 quat=0.176246 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=600 pos=0.046562 quat=0.882096 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=650 pos=0.012603 quat=0.904794 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=700 pos=0.011200 quat=0.939588 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=750 pos=0.019308 quat=0.860895 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=800 pos=0.025287 quat=0.784262 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=850 pos=0.013201 quat=0.566564 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=900 pos=0.029640 quat=0.492180 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=950 pos=0.042749 quat=0.166164 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1000 pos=0.027245 quat=0.235854 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1050 pos=0.046204 quat=0.091821 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1100 pos=0.045731 quat=0.091381 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1150 pos=0.079022 quat=0.031374 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1200 pos=0.065719 quat=0.055135 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1250 pos=0.037091 quat=0.822505 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1300 pos=0.039069 quat=0.264289 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1350 pos=0.052078 quat=0.893717 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1400 pos=0.057875 quat=0.699275 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1450 pos=0.036561 quat=0.378296 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1500 pos=0.059717 quat=0.960713 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1550 pos=0.038200 quat=0.995592 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1600 pos=0.015485 quat=0.716459 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1650 pos=0.053521 quat=0.731208 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1700 pos=0.032173 quat=0.894122 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1750 pos=0.030407 quat=0.577259 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1800 pos=0.039916 quat=0.681480 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1850 pos=0.022548 quat=0.657940 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1900 pos=0.008294 quat=0.721048 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1950 pos=0.007864 quat=0.880585 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2000 pos=0.036806 quat=0.923980 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2050 pos=0.022597 quat=0.837322 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2100 pos=0.024018 quat=0.677032 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2150 pos=0.021639 quat=0.107004 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2200 pos=0.043925 quat=0.480684 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2250 pos=0.038201 quat=0.687310 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2300 pos=0.055704 quat=0.261223 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2350 pos=0.052166 quat=0.960531 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2400 pos=0.021923 quat=0.922467 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2450 pos=0.053626 quat=0.989938 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2500 pos=0.059779 quat=0.999995 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2550 pos=0.018384 quat=0.867375 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2600 pos=0.016542 quat=0.532539 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2650 pos=0.037620 quat=0.535048 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2700 pos=0.039694 quat=0.627327 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2750 pos=0.022430 quat=0.631243 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2800 pos=0.020062 quat=0.679167 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2850 pos=0.026166 quat=0.607428 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2900 pos=0.041763 quat=0.129421 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2950 pos=0.034546 quat=0.133518 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3000 pos=0.045366 quat=0.203561 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3050 pos=0.002713 quat=0.999875 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3100 pos=0.030885 quat=0.940648 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3150 pos=0.055168 quat=0.938014 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3200 pos=0.057115 quat=1.000000 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3250 pos=0.051477 quat=0.220704 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3300 pos=0.030954 quat=0.002078 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3350 pos=0.009360 quat=0.167705 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3400 pos=0.057062 quat=0.323619 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3450 pos=0.048969 quat=0.438603 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3500 pos=0.012194 quat=0.633432 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3550 pos=0.020216 quat=0.335238 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3600 pos=0.027969 quat=0.213636 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3650 pos=0.036686 quat=0.803789 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3700 pos=0.030091 quat=0.798197 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3750 pos=0.057807 quat=0.469508 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3800 pos=0.059324 quat=0.419900 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3850 pos=0.031500 quat=0.327876 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3900 pos=0.065286 quat=0.319054 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3950 pos=0.054995 quat=0.194983 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4000 pos=0.044800 quat=0.783141 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4050 pos=0.044385 quat=0.999515 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4100 pos=0.063663 quat=0.329181 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4150 pos=0.017261 quat=0.616275 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4200 pos=0.017026 quat=0.981273 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4250 pos=0.020449 quat=0.785402 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4300 pos=0.019126 quat=0.454404 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4350 pos=0.012009 quat=0.245417 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4400 pos=0.059008 quat=0.045503 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4450 pos=0.026934 quat=0.995880 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4500 pos=0.008109 quat=0.550559 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4550 pos=0.021092 quat=0.057524 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4600 pos=0.034559 quat=0.040872 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4650 pos=0.029524 quat=0.640035 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4700 pos=0.052449 quat=0.999991 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4750 pos=0.034076 quat=0.998897 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4800 pos=0.043032 quat=0.770841 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4850 pos=0.025661 quat=0.273300 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4900 pos=0.038720 quat=0.109814 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4950 pos=0.019068 quat=0.954002 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/4 | — | 100.953 ± 15.860 (n=416) |
+| qp | 0/4 | — | 116.325 ± 37.811 (n=20000) |
+| scm | 1/5 | 53.104 ± 0.000 (n=1) | 17.276 ± 4.522 (n=22917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=rubber_duck seed=4
+direct_force solver=acados object=rubber_duck seed=4 step=0 pos=0.085500 quat=0.946243 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=50 pos=0.045425 quat=0.422469 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=100 pos=0.029000 quat=0.658819 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=150 pos=0.037151 quat=0.703786 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=200 pos=0.027759 quat=0.741474 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=250 pos=0.021750 quat=0.809486 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=300 pos=0.032229 quat=0.842812 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=350 pos=0.018238 quat=0.872815 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=400 pos=0.024408 quat=0.922696 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=450 pos=0.023181 quat=0.935970 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=500 pos=0.020813 quat=0.959527 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=550 pos=0.025448 quat=0.977867 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=600 pos=0.012780 quat=0.988667 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=650 pos=0.021297 quat=0.996247 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=700 pos=0.012184 quat=0.999065 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=750 pos=0.012345 quat=0.999701 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=800 pos=0.018205 quat=0.999982 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=850 pos=0.015521 quat=0.999890 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=900 pos=0.009066 quat=0.999669 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=950 pos=0.004931 quat=0.999665 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1000 pos=0.007962 quat=0.998090 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1050 pos=0.015718 quat=0.997528 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1100 pos=0.003061 quat=0.994250 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1150 pos=0.004361 quat=0.994950 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1200 pos=0.005678 quat=0.992641 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1250 pos=0.011154 quat=0.984595 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1300 pos=0.009152 quat=0.981494 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1350 pos=0.013549 quat=0.997038 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1400 pos=0.018024 quat=0.999829 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1450 pos=0.024946 quat=0.999290 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1500 pos=0.026707 quat=0.999884 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1550 pos=0.028108 quat=0.999427 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1600 pos=0.030686 quat=0.992652 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1650 pos=0.037849 quat=0.965653 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1700 pos=0.039189 quat=0.927586 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1750 pos=0.039025 quat=0.912001 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1800 pos=0.041136 quat=0.880781 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1850 pos=0.046453 quat=0.862992 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1900 pos=0.041964 quat=0.855057 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=1950 pos=0.039983 quat=0.802882 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2000 pos=0.049486 quat=0.751324 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2050 pos=0.039310 quat=0.728669 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2100 pos=0.044433 quat=0.637523 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2150 pos=0.046819 quat=0.627637 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2200 pos=0.047342 quat=0.652788 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2250 pos=0.039404 quat=0.648688 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2300 pos=0.044835 quat=0.607027 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2350 pos=0.038220 quat=0.566939 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2400 pos=0.042278 quat=0.540029 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2450 pos=0.045466 quat=0.352481 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2500 pos=0.036824 quat=0.268844 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2550 pos=0.039316 quat=0.141360 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2600 pos=0.044157 quat=0.097840 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2650 pos=0.031171 quat=0.050685 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2700 pos=0.029694 quat=0.005130 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2750 pos=0.035602 quat=0.008083 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2800 pos=0.026886 quat=0.000625 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2850 pos=0.025157 quat=0.001960 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2900 pos=0.027444 quat=0.009583 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=2950 pos=0.018817 quat=0.010973 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3000 pos=0.027926 quat=0.021802 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3050 pos=0.016591 quat=0.014092 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3100 pos=0.015162 quat=0.016863 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3150 pos=0.022364 quat=0.032664 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3200 pos=0.015100 quat=0.026365 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3250 pos=0.021783 quat=0.051165 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3300 pos=0.022463 quat=0.054456 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3350 pos=0.010043 quat=0.037670 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3400 pos=0.010197 quat=0.043474 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3450 pos=0.012930 quat=0.046774 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3500 pos=0.014772 quat=0.032190 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3550 pos=0.023631 quat=0.078209 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3600 pos=0.020795 quat=0.011806 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3650 pos=0.023883 quat=0.046842 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3700 pos=0.028061 quat=0.046417 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3750 pos=0.032977 quat=0.027563 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3800 pos=0.037048 quat=0.052864 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3850 pos=0.035674 quat=0.012556 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3900 pos=0.037863 quat=0.006457 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=3950 pos=0.039279 quat=0.022117 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4000 pos=0.042823 quat=0.040630 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4050 pos=0.047487 quat=0.029241 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4100 pos=0.053439 quat=0.020708 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4150 pos=0.056463 quat=0.003845 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4200 pos=0.062410 quat=0.016609 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4250 pos=0.065900 quat=0.032100 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4300 pos=0.068167 quat=0.049144 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4350 pos=0.065563 quat=0.013895 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4400 pos=0.067032 quat=0.005317 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4450 pos=0.067696 quat=0.027730 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4500 pos=0.063077 quat=0.095764 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4550 pos=0.065833 quat=0.096547 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4600 pos=0.065639 quat=0.115536 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4650 pos=0.066511 quat=0.084156 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4700 pos=0.070988 quat=0.083813 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4750 pos=0.070063 quat=0.074182 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4800 pos=0.075771 quat=0.104591 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4850 pos=0.078372 quat=0.045693 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4900 pos=0.078249 quat=0.018554 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=4950 pos=0.070242 quat=0.147162 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/4 | — | 100.953 ± 15.860 (n=416) |
+| qp | 0/5 | — | 118.228 ± 36.461 (n=25000) |
+| scm | 1/5 | 53.104 ± 0.000 (n=1) | 17.276 ± 4.522 (n=22917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=rubber_duck seed=4
+direct_force solver=acados object=rubber_duck seed=4 step=0 pos=0.085500 quat=0.946243 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=50 pos=0.032195 quat=0.358417 hold=0 success=False
+direct_force solver=acados object=rubber_duck seed=4 step=100 pos=0.030330 quat=0.561286 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 2.240e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/5 | — | 103.675 ± 18.346 (n=522) |
+| qp | 0/5 | — | 118.228 ± 36.461 (n=25000) |
+| scm | 1/5 | 53.104 ± 0.000 (n=1) | 17.276 ± 4.522 (n=22917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 0/5 | — | 103.675 ± 18.346 (n=522) |
+| qp | 0/5 | — | 118.228 ± 36.461 (n=25000) |
+| scm | 1/5 | 53.104 ± 0.000 (n=1) | 17.276 ± 4.522 (n=22917) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.

@@ -1,0 +1,184 @@
+{
+  "alignment": "Exclude current 55-frame and historical 54-frame start ramps; compare the same 195 original source frames in identical frame_indices order. Controller frame is right_arm_neutral, commanded link is right_arm_link6.",
+  "current_final_frames": 250,
+  "historical_final_frames": 249,
+  "compared_action_frames": 195,
+  "follow_right_position": {
+    "exact_equal": false,
+    "different_frames": 195,
+    "distance_mm": {
+      "min": 30.608882316300743,
+      "mean": 35.80913962058455,
+      "median": 33.93839600723872,
+      "p95": 43.423110400773226,
+      "max": 44.15855993011784,
+      "rms": 36.117071704297786
+    },
+    "max_abs_xyz_diff_mm": [
+      31.831466126570064,
+      29.855642314670973,
+      27.62257633126644
+    ],
+    "mean_xyz_delta_mm": [
+      -5.861711542564588,
+      21.222819532374903,
+      -22.172667650081173
+    ],
+    "worst_frame": {
+      "source_frame_index": 126,
+      "source_elapsed_time_s": 4.239852032,
+      "current_json_index": 181,
+      "historical_json_index": 180,
+      "current_position_m": [
+        0.24465180814320975,
+        0.2299182843343353,
+        0.0017671400368697299
+      ],
+      "historical_position_m": [
+        0.2764832742697798,
+        0.2153324435669574,
+        0.028674191685898992
+      ],
+      "delta_current_minus_historical_mm": [
+        -31.831466126570064,
+        14.5858407673779,
+        -26.907051649029263
+      ],
+      "position_distance_mm": 44.15855993011784,
+      "current_rotation_6d": [
+        0.9196290735589709,
+        0.24491716828031265,
+        -0.30707970910925014,
+        -0.22727893488987125,
+        -0.30582557036948094,
+        -0.9245620618776804
+      ],
+      "historical_rotation_6d": [
+        0.6883849961296363,
+        0.39733039052289,
+        -0.6068398947585176,
+        -0.4863688015160524,
+        -0.36782431209553457,
+        -0.7925595651705214
+      ],
+      "rotation_difference_deg": 23.655417765952294
+    }
+  },
+  "follow_right_ee_rotation_6D": {
+    "exact_equal": false,
+    "different_frames": 195,
+    "max_abs_component_diff": 0.3246505463353644,
+    "rotation_difference_deg": {
+      "min": 22.897031105094474,
+      "mean": 23.21250117495572,
+      "median": 23.168579851510547,
+      "p95": 23.62866812656554,
+      "max": 23.681586868293614,
+      "rms": 23.21394461334914
+    },
+    "relative_rotation_variation_from_first_frame_deg": {
+      "min": 0.0,
+      "mean": 0.8271159896245678,
+      "median": 0.8812020018041955,
+      "p95": 1.607483288704345,
+      "max": 1.7488511414017847,
+      "rms": 1.0253961400599767
+    },
+    "worst_frame": {
+      "source_frame_index": 50,
+      "source_elapsed_time_s": 1.683910912,
+      "current_json_index": 105,
+      "historical_json_index": 104,
+      "current_position_m": [
+        0.2430868706042233,
+        0.07087241697601898,
+        -0.0161573777571834
+      ],
+      "historical_position_m": [
+        0.2569656395401475,
+        0.0568041959770596,
+        0.011431262109934087
+      ],
+      "delta_current_minus_historical_mm": [
+        -13.878768935924214,
+        14.06822099895938,
+        -27.588639867117486
+      ],
+      "position_distance_mm": 33.93623607546719,
+      "current_rotation_6d": [
+        0.9725423467041062,
+        -0.004127506750755106,
+        -0.2326893799796046,
+        -0.22557724176381855,
+        -0.2626297571117399,
+        -0.9381580456818867
+      ],
+      "historical_rotation_6d": [
+        0.8107124320702942,
+        0.19140242507046903,
+        -0.5532725044350323,
+        -0.5026610216858994,
+        -0.25690761184817057,
+        -0.8254273900544847
+      ],
+      "rotation_difference_deg": 23.681586868293614
+    }
+  },
+  "right_finger_joint_q": {
+    "current_shape": [
+      195,
+      20
+    ],
+    "historical_shape": [
+      195,
+      20
+    ],
+    "exact_equal": true,
+    "current_finite": true,
+    "historical_finite": true,
+    "max_abs_diff": 0.0,
+    "rmse": 0.0,
+    "different_elements": 0,
+    "total_elements": 3900,
+    "max_abs_diff_deg": 0.0
+  },
+  "first_frame": {
+    "source_frame_index": 0,
+    "source_elapsed_time_s": 0.0,
+    "current_json_index": 55,
+    "historical_json_index": 54,
+    "current_position_m": [
+      0.21830344835318805,
+      0.03842134256998761,
+      0.05198744989484094
+    ],
+    "historical_position_m": [
+      0.2017160230363747,
+      0.015592671974821282,
+      0.06825918241038265
+    ],
+    "delta_current_minus_historical_mm": [
+      16.58742531681334,
+      22.82867059516633,
+      -16.271732515541704
+    ],
+    "position_distance_mm": 32.57391838328341,
+    "current_rotation_6d": [
+      0.9718918347291844,
+      -0.17195296852362685,
+      0.1608055913289491,
+      0.16083882605734676,
+      -0.013832176453540658,
+      -0.9868837535024342
+    ],
+    "historical_rotation_6d": [
+      0.9868130245993862,
+      0.10506125460913841,
+      -0.12313483366198856,
+      -0.12461099490215406,
+      0.007578781194754417,
+      -0.9921767292297767
+    ],
+    "rotation_difference_deg": 22.906298426497212
+  }
+}

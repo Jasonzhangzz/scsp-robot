@@ -1,0 +1,20 @@
+{
+  "geometry": {
+    "initial": {
+      "mesh_bottom_z": 0.352,
+      "upstream_tabletop_z": 0.4,
+      "gap_to_upstream_table": -0.04800000000000004
+    },
+    "goal": {
+      "mesh_bottom_z": 0.35,
+      "upstream_tabletop_z": 0.4,
+      "gap_to_upstream_table": -0.050000000000000044
+    }
+  },
+  "icp": {
+    "known_rotation_degrees": 5,
+    "actual_rotation_equals_inverse": true,
+    "actual_one_step_corresponding_point_rmse_m": 0.004233738696248291,
+    "correct_one_step_corresponding_point_rmse_m": 1.0405279793353345e-17
+  }
+}

@@ -1,0 +1,308 @@
+{
+  "mujoco_version": "3.11.0",
+  "casadi_version": "3.7.2",
+  "seed_range": [
+    0,
+    9
+  ],
+  "position_threshold_m": 0.02,
+  "quaternion_error_threshold": 0.015,
+  "min_unforced_hold_steps": 10,
+  "linear_speed_threshold_m_s": 0.05,
+  "angular_speed_threshold_rad_s": 0.5,
+  "force_bound_N": 0.2,
+  "pose_overwrites_during_rollout": 0,
+  "objects": {
+    "foam_brick": {
+      "successes": 10,
+      "trials": 10,
+      "min_steps": 44,
+      "max_steps": 138,
+      "max_final_position_error_m": 0.019256348069039485,
+      "max_final_quaternion_error": 0.010156884171024672,
+      "unstable_steps": 0,
+      "trial_summaries": [
+        {
+          "seed": 0,
+          "steps": 100,
+          "success": true,
+          "final_pos": 0.018831358818562443,
+          "final_quat": 0.0002165523535988534,
+          "settled": true
+        },
+        {
+          "seed": 1,
+          "steps": 44,
+          "success": true,
+          "final_pos": 0.01807694066923079,
+          "final_quat": 0.003088465370906901,
+          "settled": true
+        },
+        {
+          "seed": 2,
+          "steps": 114,
+          "success": true,
+          "final_pos": 0.016040063963321596,
+          "final_quat": 0.003047098355077993,
+          "settled": true
+        },
+        {
+          "seed": 3,
+          "steps": 62,
+          "success": true,
+          "final_pos": 0.019256348069039485,
+          "final_quat": 0.00031324677889632557,
+          "settled": true
+        },
+        {
+          "seed": 4,
+          "steps": 64,
+          "success": true,
+          "final_pos": 0.008591226042993765,
+          "final_quat": 0.01009686083155148,
+          "settled": true
+        },
+        {
+          "seed": 5,
+          "steps": 98,
+          "success": true,
+          "final_pos": 0.007149856165076281,
+          "final_quat": 0.0064373632920550206,
+          "settled": true
+        },
+        {
+          "seed": 6,
+          "steps": 138,
+          "success": true,
+          "final_pos": 0.01920572329374359,
+          "final_quat": 0.0025085141331068206,
+          "settled": true
+        },
+        {
+          "seed": 7,
+          "steps": 61,
+          "success": true,
+          "final_pos": 0.006174936798044374,
+          "final_quat": 0.010156884171024672,
+          "settled": true
+        },
+        {
+          "seed": 8,
+          "steps": 86,
+          "success": true,
+          "final_pos": 0.018718958750509662,
+          "final_quat": 0.0032560810971921095,
+          "settled": true
+        },
+        {
+          "seed": 9,
+          "steps": 52,
+          "success": true,
+          "final_pos": 0.01913106611270198,
+          "final_quat": 0.000922309524883369,
+          "settled": true
+        }
+      ]
+    },
+    "elephant": {
+      "successes": 10,
+      "trials": 10,
+      "min_steps": 32,
+      "max_steps": 62,
+      "max_final_position_error_m": 0.018197884784020048,
+      "max_final_quaternion_error": 0.011610724390520133,
+      "unstable_steps": 0,
+      "trial_summaries": [
+        {
+          "seed": 0,
+          "steps": 44,
+          "success": true,
+          "final_pos": 0.011976255082024424,
+          "final_quat": 0.003957638397660945,
+          "settled": true
+        },
+        {
+          "seed": 1,
+          "steps": 62,
+          "success": true,
+          "final_pos": 0.007464973863134075,
+          "final_quat": 0.0014794120282763945,
+          "settled": true
+        },
+        {
+          "seed": 2,
+          "steps": 57,
+          "success": true,
+          "final_pos": 0.01740228957713622,
+          "final_quat": 0.00484428348202981,
+          "settled": true
+        },
+        {
+          "seed": 3,
+          "steps": 61,
+          "success": true,
+          "final_pos": 0.014850191818785783,
+          "final_quat": 0.009433339202610691,
+          "settled": true
+        },
+        {
+          "seed": 4,
+          "steps": 44,
+          "success": true,
+          "final_pos": 0.01687341306412169,
+          "final_quat": 0.0008509834294864183,
+          "settled": true
+        },
+        {
+          "seed": 5,
+          "steps": 56,
+          "success": true,
+          "final_pos": 0.006676177307790178,
+          "final_quat": 0.009675440896404819,
+          "settled": true
+        },
+        {
+          "seed": 6,
+          "steps": 40,
+          "success": true,
+          "final_pos": 0.014252179295863632,
+          "final_quat": 0.00047964556638446787,
+          "settled": true
+        },
+        {
+          "seed": 7,
+          "steps": 32,
+          "success": true,
+          "final_pos": 0.018197884784020048,
+          "final_quat": 0.011610724390520133,
+          "settled": true
+        },
+        {
+          "seed": 8,
+          "steps": 40,
+          "success": true,
+          "final_pos": 0.015213743268624343,
+          "final_quat": 0.00757969650192436,
+          "settled": true
+        },
+        {
+          "seed": 9,
+          "steps": 37,
+          "success": true,
+          "final_pos": 0.014853837666666342,
+          "final_quat": 1.4905476159010611e-05,
+          "settled": true
+        }
+      ]
+    },
+    "stanford_bunny2": {
+      "successes": 10,
+      "trials": 10,
+      "min_steps": 27,
+      "max_steps": 76,
+      "max_final_position_error_m": 0.019293466551942928,
+      "max_final_quaternion_error": 0.013944748397039963,
+      "unstable_steps": 0,
+      "trial_summaries": [
+        {
+          "seed": 0,
+          "steps": 76,
+          "success": true,
+          "final_pos": 0.015956979532864866,
+          "final_quat": 0.0009443216772380136,
+          "settled": true
+        },
+        {
+          "seed": 1,
+          "steps": 27,
+          "success": true,
+          "final_pos": 0.008289509988065009,
+          "final_quat": 0.006984417538708931,
+          "settled": true
+        },
+        {
+          "seed": 2,
+          "steps": 34,
+          "success": true,
+          "final_pos": 0.004978955000218883,
+          "final_quat": 0.003987574215778111,
+          "settled": true
+        },
+        {
+          "seed": 3,
+          "steps": 69,
+          "success": true,
+          "final_pos": 0.005972725694764711,
+          "final_quat": 0.013944748397039963,
+          "settled": true
+        },
+        {
+          "seed": 4,
+          "steps": 68,
+          "success": true,
+          "final_pos": 0.004680841497126502,
+          "final_quat": 0.0012724768328252756,
+          "settled": true
+        },
+        {
+          "seed": 5,
+          "steps": 50,
+          "success": true,
+          "final_pos": 0.016126546440615945,
+          "final_quat": 0.00426415140551073,
+          "settled": true
+        },
+        {
+          "seed": 6,
+          "steps": 63,
+          "success": true,
+          "final_pos": 0.018887818504792892,
+          "final_quat": 0.00023615112364583357,
+          "settled": true
+        },
+        {
+          "seed": 7,
+          "steps": 44,
+          "success": true,
+          "final_pos": 0.018622208268914923,
+          "final_quat": 0.002728438583187276,
+          "settled": true
+        },
+        {
+          "seed": 8,
+          "steps": 51,
+          "success": true,
+          "final_pos": 0.019293466551942928,
+          "final_quat": 3.0054414607127988e-05,
+          "settled": true
+        },
+        {
+          "seed": 9,
+          "steps": 44,
+          "success": true,
+          "final_pos": 0.012477352052831656,
+          "final_quat": 0.002482636712378916,
+          "settled": true
+        }
+      ]
+    }
+  },
+  "regression_tests": {
+    "passed": 35,
+    "failed": 0
+  },
+  "original_entrypoint": {
+    "before": {
+      "steps": 160,
+      "success": false,
+      "final_pos": 0.081242,
+      "final_quat": 0.572863
+    },
+    "after": {
+      "steps": 100,
+      "success": true,
+      "final_pos": 0.018839,
+      "final_quat": 0.000213
+    }
+  }
+}

@@ -1,0 +1,3478 @@
+[
+  {
+    "object": "elephant",
+    "snapshot": "step_073.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 218.128968783189,
+        "cost_no_position": 134.05727055907045,
+        "first_action": [
+          0.0004328778375623165,
+          0.0022395319374103775,
+          0.004449394731765917
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.5578937332232954,
+        "predicted_xy_displacement_mm": 6.839685610672334,
+        "predicted_object_height_change_mm": -3.0279630658377465
+      },
+      {
+        "command": "-45.0",
+        "cost": 219.93451375252292,
+        "cost_no_position": 134.7927675192504,
+        "first_action": [
+          0.0006709623963078771,
+          0.0034712835468657405,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36593916303109836,
+        "predicted_tilt_reduction_deg": 1.2005784423902384,
+        "predicted_xy_displacement_mm": 5.972667403571205,
+        "predicted_object_height_change_mm": -3.3351916913904045
+      },
+      {
+        "command": "-30.0",
+        "cost": 219.30498349405667,
+        "cost_no_position": 134.57791314146647,
+        "first_action": [
+          0.0008217577537746834,
+          0.00425143672116982,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.309250913257813,
+        "predicted_xy_displacement_mm": 6.321700845456705,
+        "predicted_object_height_change_mm": -3.2854939149080664
+      },
+      {
+        "command": "-15.0",
+        "cost": 218.7346768476578,
+        "cost_no_position": 134.37795845078,
+        "first_action": [
+          0.0009165516783406425,
+          0.004741861508757551,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.4096564564679852,
+        "predicted_xy_displacement_mm": 6.634284312562152,
+        "predicted_object_height_change_mm": -3.2305443636884146
+      },
+      {
+        "command": "0.0",
+        "cost": 218.25980604358324,
+        "cost_no_position": 134.1997664022633,
+        "first_action": [
+          0.0009488841207009513,
+          0.004909136270820111,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.4984764547522644,
+        "predicted_xy_displacement_mm": 6.88400938254786,
+        "predicted_object_height_change_mm": -3.172832352574484
+      },
+      {
+        "command": "15.0",
+        "cost": 217.9118610562653,
+        "cost_no_position": 134.05069723473815,
+        "first_action": [
+          0.0009165516783406425,
+          0.004741861508757551,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.572158345439135,
+        "predicted_xy_displacement_mm": 7.049105631678186,
+        "predicted_object_height_change_mm": -3.11577862674145
+      },
+      {
+        "command": "30.0",
+        "cost": 217.7163447460669,
+        "cost_no_position": 133.93969431064542,
+        "first_action": [
+          0.0008217577537746834,
+          0.00425143672116982,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.626312314551086,
+        "predicted_xy_displacement_mm": 7.114947118109879,
+        "predicted_object_height_change_mm": -3.0636094138344894
+      },
+      {
+        "command": "45.0",
+        "cost": 217.69104285056278,
+        "cost_no_position": 133.87707962766248,
+        "first_action": [
+          0.0006709623963078771,
+          0.0034712835468657405,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.6557954337311145,
+        "predicted_xy_displacement_mm": 7.075637182070785,
+        "predicted_object_height_change_mm": -3.0209076686225633
+      },
+      {
+        "command": "60.0",
+        "cost": 217.84376023962318,
+        "cost_no_position": 133.87318452337158,
+        "first_action": [
+          0.0004744420603504758,
+          0.002454568135410056,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.6554127233426783,
+        "predicted_xy_displacement_mm": 6.934759443054683,
+        "predicted_object_height_change_mm": -2.9919756484759197
+      },
+      {
+        "command": "75.0",
+        "cost": 218.17007999275236,
+        "cost_no_position": 133.9363040386837,
+        "first_action": [
+          0.00024558928203276525,
+          0.0012705779618918107,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3662262260913849,
+        "predicted_tilt_reduction_deg": 1.6209722553333847,
+        "predicted_xy_displacement_mm": 6.7052216016276205,
+        "predicted_object_height_change_mm": -2.9803224886711943
+      }
+    ],
+    "best": "60.0",
+    "best_no_position": "60.0"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_093.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 164.65534699685932,
+        "cost_no_position": 138.83289403615169,
+        "first_action": [
+          0.002195467310713935,
+          0.004470478245859901,
+          0.0004413020970717308
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3719278949172641,
+        "predicted_tilt_reduction_deg": -0.2066365201812772,
+        "predicted_xy_displacement_mm": 3.7125563194539692,
+        "predicted_object_height_change_mm": -3.7670685248981095
+      },
+      {
+        "command": "-45.0",
+        "cost": 164.86887442802035,
+        "cost_no_position": 139.18521714591446,
+        "first_action": [
+          0.0015585120190266012,
+          0.0031734902373490343,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37080648827070073,
+        "predicted_tilt_reduction_deg": -0.39474615237267585,
+        "predicted_xy_displacement_mm": 3.95299987560973,
+        "predicted_object_height_change_mm": -3.815006320330605
+      },
+      {
+        "command": "-30.0",
+        "cost": 164.7372489525333,
+        "cost_no_position": 139.24769953665614,
+        "first_action": [
+          0.0019087796023049802,
+          0.0038867158926045066,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37157299704319574,
+        "predicted_tilt_reduction_deg": -0.42594072264719784,
+        "predicted_xy_displacement_mm": 4.255210390959422,
+        "predicted_object_height_change_mm": -3.83157152099195
+      },
+      {
+        "command": "-15.0",
+        "cost": 164.63313951585496,
+        "cost_no_position": 139.29251069173603,
+        "first_action": [
+          0.0021289670100937135,
+          0.004335068282880689,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37246123276984144,
+        "predicted_tilt_reduction_deg": -0.44792403886847865,
+        "predicted_xy_displacement_mm": 4.487392621623523,
+        "predicted_object_height_change_mm": -3.8373446101784836
+      },
+      {
+        "command": "0.0",
+        "cost": 164.5685101352385,
+        "cost_no_position": 139.32052703044968,
+        "first_action": [
+          0.002204068834428894,
+          0.004487992933717617,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3734106543423997,
+        "predicted_tilt_reduction_deg": -0.46125293127407474,
+        "predicted_xy_displacement_mm": 4.631295861822365,
+        "predicted_object_height_change_mm": -3.8320248028122506
+      },
+      {
+        "command": "15.0",
+        "cost": 164.54931403126778,
+        "cost_no_position": 139.3318329157044,
+        "first_action": [
+          0.0021289670100937135,
+          0.004335068282880689,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3737935708345352,
+        "predicted_tilt_reduction_deg": -0.46607413480195703,
+        "predicted_xy_displacement_mm": 4.6770549147733735,
+        "predicted_object_height_change_mm": -3.815335176430623
+      },
+      {
+        "command": "30.0",
+        "cost": 164.57483051745317,
+        "cost_no_position": 139.32510313938695,
+        "first_action": [
+          0.0019087796023049802,
+          0.0038867158926045066,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3738449051547235,
+        "predicted_tilt_reduction_deg": -0.4617962580700379,
+        "predicted_xy_displacement_mm": 4.623486248299662,
+        "predicted_object_height_change_mm": -3.7874247204754408
+      },
+      {
+        "command": "45.0",
+        "cost": 164.6386160962537,
+        "cost_no_position": 139.29702606271852,
+        "first_action": [
+          0.0015585120190266012,
+          0.0031734902373490343,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37388902574878125,
+        "predicted_tilt_reduction_deg": -0.4467654890445374,
+        "predicted_xy_displacement_mm": 4.475764433130166,
+        "predicted_object_height_change_mm": -3.7500256733448145
+      },
+      {
+        "command": "60.0",
+        "cost": 164.73056212641995,
+        "cost_no_position": 139.24127307606295,
+        "first_action": [
+          0.0011020344172144475,
+          0.002243996466858809,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37391892075538635,
+        "predicted_tilt_reduction_deg": -0.417667992158286,
+        "predicted_xy_displacement_mm": 4.2406296879133505,
+        "predicted_object_height_change_mm": -3.70847666871571
+      },
+      {
+        "command": "75.0",
+        "cost": 164.83917606168973,
+        "cost_no_position": 139.14977337839116,
+        "first_action": [
+          0.0005704549910671124,
+          0.0011615780455316543,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37391892075538635,
+        "predicted_tilt_reduction_deg": -0.3701718746978031,
+        "predicted_xy_displacement_mm": 3.9249970407422103,
+        "predicted_object_height_change_mm": -3.6717614821005773
+      }
+    ],
+    "best": "15.0",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_176.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 147.6543407660084,
+        "cost_no_position": 135.7962204668855,
+        "first_action": [
+          -0.001097289777517543,
+          0.0012332512066599716,
+          0.002274672247593586
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38174704731176295,
+        "predicted_tilt_reduction_deg": 0.7366497412809423,
+        "predicted_xy_displacement_mm": 1.43383811301876,
+        "predicted_object_height_change_mm": -1.0180284458946587
+      },
+      {
+        "command": "-45.0",
+        "cost": 147.21769615693168,
+        "cost_no_position": 135.06832611472845,
+        "first_action": [
+          -0.0013210378189777053,
+          0.0014847231038490792,
+          -0.0019873458718282066
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3796784145031618,
+        "predicted_tilt_reduction_deg": 1.10833212503141,
+        "predicted_xy_displacement_mm": 1.918676521799142,
+        "predicted_object_height_change_mm": -2.431294075608881
+      },
+      {
+        "command": "-30.0",
+        "cost": 147.02312097222736,
+        "cost_no_position": 134.87269347843795,
+        "first_action": [
+          -0.0016179342937072748,
+          0.0018184070068757612,
+          -0.0014052657425328162
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3801155843688651,
+        "predicted_tilt_reduction_deg": 1.2072313313905028,
+        "predicted_xy_displacement_mm": 2.0106834409802876,
+        "predicted_object_height_change_mm": -2.4343910500302934
+      },
+      {
+        "command": "-15.0",
+        "cost": 146.90805771888012,
+        "cost_no_position": 134.76141006451758,
+        "first_action": [
+          -0.0018045712200835337,
+          0.0020281694774435233,
+          -0.0007274190751952566
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38062218338448817,
+        "predicted_tilt_reduction_deg": 1.2649937372621736,
+        "predicted_xy_displacement_mm": 2.0563733697711117,
+        "predicted_object_height_change_mm": -2.425191217072853
+      },
+      {
+        "command": "0.0",
+        "cost": 146.87718283770394,
+        "cost_no_position": 134.73810594497894,
+        "first_action": [
+          -0.0018682296000060443,
+          0.0020997155498320447,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3811641478732698,
+        "predicted_tilt_reduction_deg": 1.279321225294396,
+        "predicted_xy_displacement_mm": 2.047875687855783,
+        "predicted_object_height_change_mm": -2.4068744139795206
+      },
+      {
+        "command": "15.0",
+        "cost": 146.93874533361677,
+        "cost_no_position": 134.80858541631068,
+        "first_action": [
+          -0.0018045712200835337,
+          0.0020281694774435233,
+          0.0007274190751952566
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38170506314770036,
+        "predicted_tilt_reduction_deg": 1.246851008771884,
+        "predicted_xy_displacement_mm": 1.9864418184268144,
+        "predicted_object_height_change_mm": -2.3824287727934323
+      },
+      {
+        "command": "30.0",
+        "cost": 147.10278561780638,
+        "cost_no_position": 134.97843909072253,
+        "first_action": [
+          -0.0016179342937072748,
+          0.0018184070068757612,
+          0.0014052657425328162
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38220869607897545,
+        "predicted_tilt_reduction_deg": 1.1643373589122916,
+        "predicted_xy_displacement_mm": 1.8836031011942975,
+        "predicted_object_height_change_mm": -2.3557361915865216
+      },
+      {
+        "command": "45.0",
+        "cost": 147.36565595702206,
+        "cost_no_position": 135.23895964625046,
+        "first_action": [
+          -0.0013210378189777053,
+          0.0014847231038490792,
+          0.0019873458718282066
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3826412756152907,
+        "predicted_tilt_reduction_deg": 1.0338024859356096,
+        "predicted_xy_displacement_mm": 1.7621432811519917,
+        "predicted_object_height_change_mm": -2.3300249400283746
+      },
+      {
+        "command": "60.0",
+        "cost": 147.72543328403742,
+        "cost_no_position": 135.78570893357136,
+        "first_action": [
+          -0.0009341148000030223,
+          0.0010498577749160226,
+          0.0024339916642028424
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3829778820965962,
+        "predicted_tilt_reduction_deg": 0.7376069880929919,
+        "predicted_xy_displacement_mm": 1.4955606170243008,
+        "predicted_object_height_change_mm": -1.6009544285008892
+      },
+      {
+        "command": "75.0",
+        "cost": 148.125602704167,
+        "cost_no_position": 136.32460904960848,
+        "first_action": [
+          -0.00048353340110582864,
+          0.0005434463735944441,
+          0.0027147649470234637
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3831901698846683,
+        "predicted_tilt_reduction_deg": 0.45058658264667883,
+        "predicted_xy_displacement_mm": 1.2269522017295764,
+        "predicted_object_height_change_mm": -0.9408122928737939
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_196.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 170.45287265117645,
+        "cost_no_position": 146.52060072400627,
+        "first_action": [
+          -0.0007960356898703166,
+          -0.0011335786551051987,
+          0.0002603162021056266
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "-45.0",
+        "cost": 170.45321932063837,
+        "cost_no_position": 146.52094739346816,
+        "first_action": [
+          -0.0005727360415053466,
+          -0.0008155932704043393,
+          -0.0009966037105931622
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3805878585180698,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "-30.0",
+        "cost": 170.4531269941766,
+        "cost_no_position": 146.5208550670064,
+        "first_action": [
+          -0.0007014555294947935,
+          -0.000998893675069208,
+          -0.0007047052419161005
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "-15.0",
+        "cost": 170.45307079846748,
+        "cost_no_position": 146.5207988712973,
+        "first_action": [
+          -0.000782371982359242,
+          -0.0011141211265279585,
+          -0.00036478227558293204
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "0.0",
+        "cost": 170.45305456315572,
+        "cost_no_position": 146.5207826359855,
+        "first_action": [
+          -0.0008099710775567409,
+          -0.0011534230643860436,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "15.0",
+        "cost": 170.45307939465096,
+        "cost_no_position": 146.52080746748075,
+        "first_action": [
+          -0.000782371982359242,
+          -0.0011141211265279585,
+          0.00036478227558293204
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "30.0",
+        "cost": 170.45314360072783,
+        "cost_no_position": 146.52087167355762,
+        "first_action": [
+          -0.0007014555294947935,
+          -0.000998893675069208,
+          0.0007047052419161005
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "45.0",
+        "cost": 170.4532428058483,
+        "cost_no_position": 146.52097087867813,
+        "first_action": [
+          -0.0005727360415053466,
+          -0.0008155932704043393,
+          0.0009966037105931622
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "60.0",
+        "cost": 170.45337024934742,
+        "cost_no_position": 146.5210983221772,
+        "first_action": [
+          -0.00040498553877837056,
+          -0.000576711532193022,
+          0.001220585283358803
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      },
+      {
+        "command": "75.0",
+        "cost": 170.45351724616125,
+        "cost_no_position": 146.52124531899102,
+        "first_action": [
+          -0.00020963594085389548,
+          -0.00029852785612361914,
+          0.0013613859861760945
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3807750344276428,
+        "predicted_tilt_reduction_deg": -3.0429298276715997,
+        "predicted_xy_displacement_mm": 9.333564662298246,
+        "predicted_object_height_change_mm": -2.11074191906091
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_216.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 171.85036222643936,
+        "cost_no_position": 135.65979653710593,
+        "first_action": [
+          -0.0038612148827373424,
+          0.003172666803776004,
+          0.00015876076828172717
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.7151176371729804,
+        "predicted_xy_displacement_mm": 2.164141071187897,
+        "predicted_object_height_change_mm": -3.705187466722548
+      },
+      {
+        "command": "-45.0",
+        "cost": 173.31036155649696,
+        "cost_no_position": 137.46439836803592,
+        "first_action": [
+          -0.002731668607594868,
+          0.0022445459715231303,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37993810621403096,
+        "predicted_tilt_reduction_deg": 1.8211308787365823,
+        "predicted_xy_displacement_mm": 1.6088209936210818,
+        "predicted_object_height_change_mm": -3.6139999371986864
+      },
+      {
+        "command": "-30.0",
+        "cost": 172.8241988346295,
+        "cost_no_position": 136.87565811055973,
+        "first_action": [
+          -0.0033455971174932183,
+          0.002748996167225606,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38069584002181295,
+        "predicted_tilt_reduction_deg": 2.113333601578674,
+        "predicted_xy_displacement_mm": 1.8549540329165182,
+        "predicted_object_height_change_mm": -3.613858465593145
+      },
+      {
+        "command": "-15.0",
+        "cost": 172.28370097110547,
+        "cost_no_position": 136.24881567833793,
+        "first_action": [
+          -0.003731528712695055,
+          0.0030661068170626193,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.417272282451634,
+        "predicted_xy_displacement_mm": 2.0689175172598198,
+        "predicted_object_height_change_mm": -3.774531941307835
+      },
+      {
+        "command": "0.0",
+        "cost": 171.93975870006972,
+        "cost_no_position": 135.83101116790442,
+        "first_action": [
+          -0.0038631627927694905,
+          0.0031742673542979054,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.6248762567160497,
+        "predicted_xy_displacement_mm": 2.206026670812699,
+        "predicted_object_height_change_mm": -3.7956301730205366
+      },
+      {
+        "command": "15.0",
+        "cost": 171.77055715654038,
+        "cost_no_position": 135.613557518379,
+        "first_action": [
+          -0.003731528712695055,
+          0.0030661068170626193,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.7366191980680696,
+        "predicted_xy_displacement_mm": 2.2603574608547596,
+        "predicted_object_height_change_mm": -3.7487561845146455
+      },
+      {
+        "command": "30.0",
+        "cost": 171.73950091022317,
+        "cost_no_position": 135.5679435834201,
+        "first_action": [
+          -0.0033455971174932183,
+          0.002748996167225606,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.7617735576379516,
+        "predicted_xy_displacement_mm": 2.232964245738075,
+        "predicted_object_height_change_mm": -3.7137373907447646
+      },
+      {
+        "command": "45.0",
+        "cost": 171.88762349977515,
+        "cost_no_position": 135.7390719716993,
+        "first_action": [
+          -0.002731668607594868,
+          0.0022445459715231303,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.679711623304655,
+        "predicted_xy_displacement_mm": 2.1214613314535224,
+        "predicted_object_height_change_mm": -3.668358875296429
+      },
+      {
+        "command": "60.0",
+        "cost": 172.30848330544688,
+        "cost_no_position": 136.21743905255198,
+        "first_action": [
+          -0.001931581396384746,
+          0.0015871336771489531,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.450900056498071,
+        "predicted_xy_displacement_mm": 1.9285608437241657,
+        "predicted_object_height_change_mm": -3.5098004153671924
+      },
+      {
+        "command": "75.0",
+        "cost": 172.85833012676105,
+        "cost_no_position": 136.86120243643347,
+        "first_action": [
+          -0.0009998601051001868,
+          0.0008215608455394888,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38145264983177185,
+        "predicted_tilt_reduction_deg": 2.1380186289093785,
+        "predicted_xy_displacement_mm": 1.6822832460062431,
+        "predicted_object_height_change_mm": -3.4187829698308914
+      }
+    ],
+    "best": "30.0",
+    "best_no_position": "30.0"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_236.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 201.55720156015673,
+        "cost_no_position": 129.48097268101174,
+        "first_action": [
+          -0.004307849815292074,
+          -0.002094633411394879,
+          0.00143350648437888
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.8101934825562438,
+        "predicted_xy_displacement_mm": 1.5751762780445537,
+        "predicted_object_height_change_mm": -3.5129962290886274
+      },
+      {
+        "command": "-45.0",
+        "cost": 202.52907453900042,
+        "cost_no_position": 130.8412971842252,
+        "first_action": [
+          -0.003179588881694905,
+          -0.0015460318701120438,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39638727535990576,
+        "predicted_tilt_reduction_deg": 1.1057561533808666,
+        "predicted_xy_displacement_mm": 1.064861023497537,
+        "predicted_object_height_change_mm": -3.928837429716614
+      },
+      {
+        "command": "-30.0",
+        "cost": 202.32695405454774,
+        "cost_no_position": 130.4092310489981,
+        "first_action": [
+          -0.0038941851759895538,
+          -0.001893494603927673,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3971568426114095,
+        "predicted_tilt_reduction_deg": 1.326090299032245,
+        "predicted_xy_displacement_mm": 1.2770496825128264,
+        "predicted_object_height_change_mm": -3.807154394792178
+      },
+      {
+        "command": "-15.0",
+        "cost": 202.1203330309975,
+        "cost_no_position": 130.0257809534504,
+        "first_action": [
+          -0.004343399185985795,
+          -0.0021119188096334154,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.5229960847004662,
+        "predicted_xy_displacement_mm": 1.450546196569226,
+        "predicted_object_height_change_mm": -3.69065599492846
+      },
+      {
+        "command": "0.0",
+        "cost": 201.92853112687618,
+        "cost_no_position": 129.72387261932005,
+        "first_action": [
+          -0.004496617719263638,
+          -0.0021864192385734915,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.6794007116648686,
+        "predicted_xy_displacement_mm": 1.567007118096144,
+        "predicted_object_height_change_mm": -3.590133723198108
+      },
+      {
+        "command": "15.0",
+        "cost": 201.7767133330519,
+        "cost_no_position": 129.53866311554464,
+        "first_action": [
+          -0.004343399185985795,
+          -0.0021119188096334154,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.7769715957531247,
+        "predicted_xy_displacement_mm": 1.6138975564195654,
+        "predicted_object_height_change_mm": -3.5186534667017155
+      },
+      {
+        "command": "30.0",
+        "cost": 201.69243545039552,
+        "cost_no_position": 129.50305454890156,
+        "first_action": [
+          -0.0038941851759895538,
+          -0.001893494603927673,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.7983585080983602,
+        "predicted_xy_displacement_mm": 1.5838723302208169,
+        "predicted_object_height_change_mm": -3.489635075960562
+      },
+      {
+        "command": "45.0",
+        "cost": 201.6990926882505,
+        "cost_no_position": 129.63951654684516,
+        "first_action": [
+          -0.003179588881694905,
+          -0.0015460318701120438,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.7315276967194393,
+        "predicted_xy_displacement_mm": 1.4761946991602883,
+        "predicted_object_height_change_mm": -3.513218544708596
+      },
+      {
+        "command": "60.0",
+        "cost": 201.80827135634945,
+        "cost_no_position": 129.95103707318285,
+        "first_action": [
+          -0.0022483088596318194,
+          -0.0010932096192867462,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.5746722473637362,
+        "predicted_xy_displacement_mm": 1.2994322423309161,
+        "predicted_object_height_change_mm": -3.592464203415524
+      },
+      {
+        "command": "75.0",
+        "cost": 202.0159674177164,
+        "cost_no_position": 130.41775964676796,
+        "first_action": [
+          -0.0011638103042908893,
+          -0.0005658869395213715,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3974775969982147,
+        "predicted_tilt_reduction_deg": 1.3380331622182666,
+        "predicted_xy_displacement_mm": 1.0739021409908194,
+        "predicted_object_height_change_mm": -3.7221915918604354
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_257.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 244.6514867416052,
+        "cost_no_position": 126.9541288212661,
+        "first_action": [
+          6.245004513516506e-17,
+          -0.001998349718920588,
+          -0.0013349416406678455
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4028329697639967,
+        "predicted_tilt_reduction_deg": -2.504757755865654,
+        "predicted_xy_displacement_mm": 2.2099204322867676,
+        "predicted_object_height_change_mm": -2.5519021362099825
+      },
+      {
+        "command": "-45.0",
+        "cost": 245.73558117017674,
+        "cost_no_position": 127.09003350449186,
+        "first_action": [
+          5.3105556056782074e-17,
+          -0.0016993338081582078,
+          -0.0016993338081582076
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4037466555920742,
+        "predicted_tilt_reduction_deg": -2.571117648639344,
+        "predicted_xy_displacement_mm": 2.0981929066712834,
+        "predicted_object_height_change_mm": -2.1287642795372874
+      },
+      {
+        "command": "-30.0",
+        "cost": 245.92217050213583,
+        "cost_no_position": 127.15643782367717,
+        "first_action": [
+          6.504075742294238e-17,
+          -0.0020812503663241036,
+          -0.001201610459248228
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4041203889402337,
+        "predicted_tilt_reduction_deg": -2.605489182883062,
+        "predicted_xy_displacement_mm": 2.112080689421264,
+        "predicted_object_height_change_mm": -2.0653414293108074
+      },
+      {
+        "command": "-15.0",
+        "cost": 246.02245424674896,
+        "cost_no_position": 127.18628103891139,
+        "first_action": [
+          7.254353865566287e-17,
+          -0.0023213331514538634,
+          -0.0006219993432956557
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4045556824509019,
+        "predicted_tilt_reduction_deg": -2.620087962509899,
+        "predicted_xy_displacement_mm": 2.117962800917807,
+        "predicted_object_height_change_mm": -2.0187799456417577
+      },
+      {
+        "command": "0.0",
+        "cost": 246.03265607427716,
+        "cost_no_position": 127.17802170829921,
+        "first_action": [
+          7.510259761286587e-17,
+          -0.0024032209184964566,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40502289671972086,
+        "predicted_tilt_reduction_deg": -2.614339167364477,
+        "predicted_xy_displacement_mm": 2.113027754095768,
+        "predicted_object_height_change_mm": -1.990534123057941
+      },
+      {
+        "command": "15.0",
+        "cost": 245.96709937081303,
+        "cost_no_position": 127.14167366905963,
+        "first_action": [
+          7.254353865566287e-17,
+          -0.0023213331514538634,
+          0.0006219993432956557
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40546702358281184,
+        "predicted_tilt_reduction_deg": -2.5937085996877016,
+        "predicted_xy_displacement_mm": 2.099902412075428,
+        "predicted_object_height_change_mm": -1.9800279104387752
+      },
+      {
+        "command": "30.0",
+        "cost": 245.84537154790945,
+        "cost_no_position": 127.09065074616834,
+        "first_action": [
+          6.504075742294238e-17,
+          -0.0020812503663241036,
+          0.001201610459248228
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.405689849605897,
+        "predicted_tilt_reduction_deg": -2.565371234067598,
+        "predicted_xy_displacement_mm": 2.085016365622536,
+        "predicted_object_height_change_mm": -1.9867435969682101
+      },
+      {
+        "command": "45.0",
+        "cost": 245.68828437478865,
+        "cost_no_position": 127.03705151377181,
+        "first_action": [
+          5.3105556056782074e-17,
+          -0.0016993338081582078,
+          0.0016993338081582076
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40579123100406,
+        "predicted_tilt_reduction_deg": -2.535713681677592,
+        "predicted_xy_displacement_mm": 2.075238095702083,
+        "predicted_object_height_change_mm": -2.00991358253938
+      },
+      {
+        "command": "60.0",
+        "cost": 245.51570631092386,
+        "cost_no_position": 126.99075338018693,
+        "first_action": [
+          3.755129880643294e-17,
+          -0.0012016104592482285,
+          0.002081250366324103
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40585115930860494,
+        "predicted_tilt_reduction_deg": -2.5099428713773904,
+        "predicted_xy_displacement_mm": 2.0758543855183893,
+        "predicted_object_height_change_mm": -2.048005430358213
+      },
+      {
+        "command": "75.0",
+        "cost": 245.34498701625176,
+        "cost_no_position": 126.95886018017481,
+        "first_action": [
+          1.94379825988808e-17,
+          -0.0006219993432956557,
+          0.0023213331514538634
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40588885103368744,
+        "predicted_tilt_reduction_deg": -2.4918388182821474,
+        "predicted_xy_displacement_mm": 2.0890984300433275,
+        "predicted_object_height_change_mm": -2.098275703648289
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_354.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 250.32491812544515,
+        "cost_no_position": 137.49681719678807,
+        "first_action": [
+          0.004360834556735848,
+          0.0020402451355370976,
+          0.0013492671179924584
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40502519873214715,
+        "predicted_tilt_reduction_deg": 2.056415411220428,
+        "predicted_xy_displacement_mm": 3.7286987306243384,
+        "predicted_object_height_change_mm": -4.054142563393204
+      },
+      {
+        "command": "-45.0",
+        "cost": 251.08052290573107,
+        "cost_no_position": 138.4501338373059,
+        "first_action": [
+          0.0032023794413146333,
+          0.0014982542887792376,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40198882073085385,
+        "predicted_tilt_reduction_deg": 1.56626653272221,
+        "predicted_xy_displacement_mm": 3.904480991858005,
+        "predicted_object_height_change_mm": -4.291372618186573
+      },
+      {
+        "command": "-30.0",
+        "cost": 250.72720898070554,
+        "cost_no_position": 138.23250783920224,
+        "first_action": [
+          0.003922097796999959,
+          0.001834979256222824,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4027440302505957,
+        "predicted_tilt_reduction_deg": 1.6778051817400694,
+        "predicted_xy_displacement_mm": 4.003824669074994,
+        "predicted_object_height_change_mm": -4.268400105555347
+      },
+      {
+        "command": "-15.0",
+        "cost": 250.45811193365205,
+        "cost_no_position": 138.01796426989952,
+        "first_action": [
+          0.004374531669392807,
+          0.002046653419801425,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40362093761285456,
+        "predicted_tilt_reduction_deg": 1.7880645495794738,
+        "predicted_xy_displacement_mm": 4.042206071160593,
+        "predicted_object_height_change_mm": -4.227241368801482
+      },
+      {
+        "command": "0.0",
+        "cost": 250.31842174141724,
+        "cost_no_position": 137.83667913312536,
+        "first_action": [
+          0.004528848437771929,
+          0.0021188515350752534,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4045615198012559,
+        "predicted_tilt_reduction_deg": 1.8811809873450045,
+        "predicted_xy_displacement_mm": 4.008159291961471,
+        "predicted_object_height_change_mm": -4.173058552330522
+      },
+      {
+        "command": "15.0",
+        "cost": 250.33508663554133,
+        "cost_no_position": 137.71171314632699,
+        "first_action": [
+          0.004374531669392807,
+          0.002046653419801425,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40496861282323265,
+        "predicted_tilt_reduction_deg": 1.9448973644393561,
+        "predicted_xy_displacement_mm": 3.8985580828858706,
+        "predicted_object_height_change_mm": -4.111645000087593
+      },
+      {
+        "command": "30.0",
+        "cost": 250.503760877104,
+        "cost_no_position": 137.65059517203508,
+        "first_action": [
+          0.003922097796999959,
+          0.001834979256222824,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40507445272137305,
+        "predicted_tilt_reduction_deg": 1.975229928548444,
+        "predicted_xy_displacement_mm": 3.722474894367262,
+        "predicted_object_height_change_mm": -4.047837268312815
+      },
+      {
+        "command": "45.0",
+        "cost": 250.7919250639137,
+        "cost_no_position": 137.64592193234648,
+        "first_action": [
+          0.0032023794413146333,
+          0.0014982542887792376,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4051187029973718,
+        "predicted_tilt_reduction_deg": 1.9762109601341677,
+        "predicted_xy_displacement_mm": 3.4994925612755114,
+        "predicted_object_height_change_mm": -3.9850541947677454
+      },
+      {
+        "command": "60.0",
+        "cost": 251.1529817367291,
+        "cost_no_position": 137.68186361667233,
+        "first_action": [
+          0.002264424218885965,
+          0.001059425767537627,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4051525646863428,
+        "predicted_tilt_reduction_deg": 1.9563535921402035,
+        "predicted_xy_displacement_mm": 3.25385404007217,
+        "predicted_object_height_change_mm": -3.9258948079826106
+      },
+      {
+        "command": "75.0",
+        "cost": 251.29899631076043,
+        "cost_no_position": 137.6475538038286,
+        "first_action": [
+          0.0011721522280781734,
+          0.0005483991310221872,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40517314420162026,
+        "predicted_tilt_reduction_deg": 1.9614478921286036,
+        "predicted_xy_displacement_mm": 3.091092512083701,
+        "predicted_object_height_change_mm": -3.8325172180050937
+      }
+    ],
+    "best": "0.0",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_374.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 198.77328898470674,
+        "cost_no_position": 140.39540128565056,
+        "first_action": [
+          0.0031029280029007,
+          0.003913779709562667,
+          0.00023273631824500415
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39400925841579704,
+        "predicted_tilt_reduction_deg": 0.5813269561073895,
+        "predicted_xy_displacement_mm": 3.272744792684239,
+        "predicted_object_height_change_mm": -0.7122324657259926
+      },
+      {
+        "command": "-45.0",
+        "cost": 199.03447700476391,
+        "cost_no_position": 139.54806835119405,
+        "first_action": [
+          0.002196482224306489,
+          0.00277046310899561,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3913579368937685,
+        "predicted_tilt_reduction_deg": 1.0105193878907244,
+        "predicted_xy_displacement_mm": 2.1982745332192795,
+        "predicted_object_height_change_mm": -2.7740700525077377
+      },
+      {
+        "command": "-30.0",
+        "cost": 198.9242042121104,
+        "cost_no_position": 139.7231505952277,
+        "first_action": [
+          0.0026901303393221626,
+          0.00339311048412197,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39212198749083116,
+        "predicted_tilt_reduction_deg": 0.9343020060931622,
+        "predicted_xy_displacement_mm": 2.460412769493601,
+        "predicted_object_height_change_mm": -2.573541926665368
+      },
+      {
+        "command": "-15.0",
+        "cost": 198.8336745898091,
+        "cost_no_position": 139.67703728439616,
+        "first_action": [
+          0.0030004505173636137,
+          0.003784522987135619,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3930181449323073,
+        "predicted_tilt_reduction_deg": 0.9612681845506188,
+        "predicted_xy_displacement_mm": 2.4995441773353106,
+        "predicted_object_height_change_mm": -2.529029367228819
+      },
+      {
+        "command": "0.0",
+        "cost": 198.79774522842615,
+        "cost_no_position": 139.61342535348672,
+        "first_action": [
+          0.0031062949511256595,
+          0.003918026502795922,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3939607189381338,
+        "predicted_tilt_reduction_deg": 0.9974327107213838,
+        "predicted_xy_displacement_mm": 2.4636349411973235,
+        "predicted_object_height_change_mm": -2.4816164368490212
+      },
+      {
+        "command": "15.0",
+        "cost": 198.7439692279259,
+        "cost_no_position": 140.25207546705482,
+        "first_action": [
+          0.0030004505173636137,
+          0.003784522987135619,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39404216408729553,
+        "predicted_tilt_reduction_deg": 0.6839356530815621,
+        "predicted_xy_displacement_mm": 3.0892842479288247,
+        "predicted_object_height_change_mm": -1.7017202615601246
+      },
+      {
+        "command": "30.0",
+        "cost": 198.69330461496423,
+        "cost_no_position": 141.25375944582402,
+        "first_action": [
+          0.0026901303393221626,
+          0.00339311048412197,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39404216408729553,
+        "predicted_tilt_reduction_deg": 0.13202527061820035,
+        "predicted_xy_displacement_mm": 4.153573094872195,
+        "predicted_object_height_change_mm": -0.12921494351386675
+      },
+      {
+        "command": "45.0",
+        "cost": 198.85391771530516,
+        "cost_no_position": 141.16933110666338,
+        "first_action": [
+          0.002196482224306489,
+          0.00277046310899561,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39404216408729553,
+        "predicted_tilt_reduction_deg": 0.17656344819181413,
+        "predicted_xy_displacement_mm": 3.8355568662835284,
+        "predicted_object_height_change_mm": -0.13579308866956685
+      },
+      {
+        "command": "60.0",
+        "cost": 199.1171668714823,
+        "cost_no_position": 140.9795377396014,
+        "first_action": [
+          0.00155314747556283,
+          0.0019590132513979614,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39404216408729553,
+        "predicted_tilt_reduction_deg": 0.2762109300358304,
+        "predicted_xy_displacement_mm": 3.3234212262854763,
+        "predicted_object_height_change_mm": -0.20598418528050555
+      },
+      {
+        "command": "75.0",
+        "cost": 199.48170264090135,
+        "cost_no_position": 140.7976408274635,
+        "first_action": [
+          0.0008039682930571244,
+          0.0010140598781400094,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39404216408729553,
+        "predicted_tilt_reduction_deg": 0.368181771590784,
+        "predicted_xy_displacement_mm": 2.7429152576036913,
+        "predicted_object_height_change_mm": -0.27766561780789845
+      }
+    ],
+    "best": "30.0",
+    "best_no_position": "15.0"
+  },
+  {
+    "object": "elephant",
+    "snapshot": "step_394.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 171.45471623206885,
+        "cost_no_position": 141.01970277574998,
+        "first_action": [
+          -0.0033241738029883582,
+          0.0028639356814804395,
+          -0.0023974446687815513
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39887040469289753,
+        "predicted_tilt_reduction_deg": 2.295515054757928,
+        "predicted_xy_displacement_mm": 0.8680003479309238,
+        "predicted_object_height_change_mm": -4.587751866269918
+      },
+      {
+        "command": "-45.0",
+        "cost": 171.347101206399,
+        "cost_no_position": 140.59420520538325,
+        "first_action": [
+          -0.0026785384231753128,
+          0.002307689735552314,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39833250486916694,
+        "predicted_tilt_reduction_deg": 2.504818757061699,
+        "predicted_xy_displacement_mm": 0.6346485812509061,
+        "predicted_object_height_change_mm": -5.223384819205979
+      },
+      {
+        "command": "-30.0",
+        "cost": 171.46484212867105,
+        "cost_no_position": 141.07381455704316,
+        "first_action": [
+          -0.0032805261966092785,
+          0.0028263311683807088,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3990910815949613,
+        "predicted_tilt_reduction_deg": 2.268145078583302,
+        "predicted_xy_displacement_mm": 0.9340641793405435,
+        "predicted_object_height_change_mm": -4.559181110561806
+      },
+      {
+        "command": "-15.0",
+        "cost": 171.5752488522678,
+        "cost_no_position": 141.10523543730898,
+        "first_action": [
+          -0.0036589515310701906,
+          0.003152362802817054,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39998539728304394,
+        "predicted_tilt_reduction_deg": 2.2568388869418783,
+        "predicted_xy_displacement_mm": 0.8122816567839714,
+        "predicted_object_height_change_mm": -4.453310718925296
+      },
+      {
+        "command": "0.0",
+        "cost": 171.6661638613476,
+        "cost_no_position": 141.05159328408848,
+        "first_action": [
+          -0.0037880253653919723,
+          0.003263566121767263,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4009458175838918,
+        "predicted_tilt_reduction_deg": 2.2895290244623823,
+        "predicted_xy_displacement_mm": 0.655288186784315,
+        "predicted_object_height_change_mm": -4.420617668079774
+      },
+      {
+        "command": "15.0",
+        "cost": 171.80518256411858,
+        "cost_no_position": 141.8578367454277,
+        "first_action": [
+          -0.0036589515310701906,
+          0.003152362802817054,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40144138723054157,
+        "predicted_tilt_reduction_deg": 1.8649733699799782,
+        "predicted_xy_displacement_mm": 1.7127622071309279,
+        "predicted_object_height_change_mm": -2.072589235358968
+      },
+      {
+        "command": "30.0",
+        "cost": 172.4905591222335,
+        "cost_no_position": 142.45260504328553,
+        "first_action": [
+          -0.0032805261966092785,
+          0.0028263311683807088,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4015340888438794,
+        "predicted_tilt_reduction_deg": 1.6180122511790955,
+        "predicted_xy_displacement_mm": 1.2601717085976791,
+        "predicted_object_height_change_mm": -1.9147040453544872
+      },
+      {
+        "command": "45.0",
+        "cost": 172.76902241786325,
+        "cost_no_position": 142.51817670118027,
+        "first_action": [
+          -0.0026785384231753128,
+          0.002307689735552314,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4015776039595006,
+        "predicted_tilt_reduction_deg": 1.6318783876378973,
+        "predicted_xy_displacement_mm": 0.7346295370174056,
+        "predicted_object_height_change_mm": -1.88956889367764
+      },
+      {
+        "command": "60.0",
+        "cost": 172.6258523480964,
+        "cost_no_position": 142.04709883236262,
+        "first_action": [
+          -0.0018940126826959866,
+          0.0016317830608836318,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40161187448781654,
+        "predicted_tilt_reduction_deg": 1.899221610644247,
+        "predicted_xy_displacement_mm": 0.6663533056178371,
+        "predicted_object_height_change_mm": -1.987546311573829
+      },
+      {
+        "command": "75.0",
+        "cost": 172.38524581569936,
+        "cost_no_position": 141.52150294425428,
+        "first_action": [
+          -0.0009804131078948776,
+          0.0008446730672647399,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4016334076842754,
+        "predicted_tilt_reduction_deg": 2.1951463129994266,
+        "predicted_xy_displacement_mm": 1.1079320323230344,
+        "predicted_object_height_change_mm": -2.0976840097401417
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_071.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 257.25123444434894,
+        "cost_no_position": 251.53084540899417,
+        "first_action": [
+          -0.0029830312095530244,
+          0.0033292499556371873,
+          -0.002240004360648079
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3781293288752788,
+        "predicted_tilt_reduction_deg": -8.81576691005938,
+        "predicted_xy_displacement_mm": 3.9815421065184116,
+        "predicted_object_height_change_mm": -2.247938905012681
+      },
+      {
+        "command": "-45.0",
+        "cost": 258.6224786083537,
+        "cost_no_position": 252.90915845562097,
+        "first_action": [
+          -0.002359332726061417,
+          0.0026331633234069635,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.37459452407461913,
+        "predicted_tilt_reduction_deg": -9.838108480182115,
+        "predicted_xy_displacement_mm": 4.101795498327989,
+        "predicted_object_height_change_mm": -2.4498018626775697
+      },
+      {
+        "command": "-30.0",
+        "cost": 258.3828924345327,
+        "cost_no_position": 252.67622623417964,
+        "first_action": [
+          -0.0028895806561500576,
+          0.0032249532758791112,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37533929321976817,
+        "predicted_tilt_reduction_deg": -9.648660316070334,
+        "predicted_xy_displacement_mm": 4.109821170513894,
+        "predicted_object_height_change_mm": -2.3953701972355135
+      },
+      {
+        "command": "-15.0",
+        "cost": 257.89184964245885,
+        "cost_no_position": 252.18460431103242,
+        "first_action": [
+          -0.0032229084397798874,
+          0.0035969679920873723,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3762180855773242,
+        "predicted_tilt_reduction_deg": -9.30343435184605,
+        "predicted_xy_displacement_mm": 4.0459913969202255,
+        "predicted_object_height_change_mm": -2.360463450742145
+      },
+      {
+        "command": "0.0",
+        "cost": 257.42710071446334,
+        "cost_no_position": 251.71387056067482,
+        "first_action": [
+          -0.003336600339346742,
+          0.00372385528390554,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37716148003901767,
+        "predicted_tilt_reduction_deg": -8.975628682194412,
+        "predicted_xy_displacement_mm": 3.990350133204274,
+        "predicted_object_height_change_mm": -2.32127468962795
+      },
+      {
+        "command": "15.0",
+        "cost": 257.00996598143354,
+        "cost_no_position": 251.28648275320595,
+        "first_action": [
+          -0.0032229084397798874,
+          0.0035969679920873723,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.378104998559535,
+        "predicted_tilt_reduction_deg": -8.680238417872602,
+        "predicted_xy_displacement_mm": 3.9433794244303577,
+        "predicted_object_height_change_mm": -2.2804551692131025
+      },
+      {
+        "command": "30.0",
+        "cost": 256.65729390750573,
+        "cost_no_position": 250.92074706452178,
+        "first_action": [
+          -0.0028895806561500576,
+          0.0032249532758791112,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3789841106389653,
+        "predicted_tilt_reduction_deg": -8.429053656437759,
+        "predicted_xy_displacement_mm": 3.9057629737982915,
+        "predicted_object_height_change_mm": -2.24072853499796
+      },
+      {
+        "command": "45.0",
+        "cost": 256.38106588153425,
+        "cost_no_position": 250.63024557651062,
+        "first_action": [
+          -0.002359332726061417,
+          0.0026331633234069635,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37973862633790084,
+        "predicted_tilt_reduction_deg": -8.230430039293992,
+        "predicted_xy_displacement_mm": 3.8782874508731116,
+        "predicted_object_height_change_mm": -2.2046323570455995
+      },
+      {
+        "command": "60.0",
+        "cost": 256.18956856939167,
+        "cost_no_position": 250.42488880065068,
+        "first_action": [
+          -0.0016683001696733712,
+          0.0018619276419527702,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3803168104363698,
+        "predicted_tilt_reduction_deg": -8.090191686999162,
+        "predicted_xy_displacement_mm": 3.861990948306452,
+        "predicted_object_height_change_mm": -2.1742805167309087
+      },
+      {
+        "command": "75.0",
+        "cost": 256.09280878775155,
+        "cost_no_position": 250.31612269280063,
+        "first_action": [
+          -0.0008635757137184705,
+          0.0009638046686804082,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3806789217197363,
+        "predicted_tilt_reduction_deg": -8.015532790716236,
+        "predicted_xy_displacement_mm": 3.8598087511950943,
+        "predicted_object_height_change_mm": -2.151082923311065
+      }
+    ],
+    "best": "-45.0",
+    "best_no_position": "-45.0"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_092.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 176.3075829125083,
+        "cost_no_position": 171.41954610711497,
+        "first_action": [
+          -0.0027472959271302665,
+          0.0010003090986572595,
+          0.0040560752946557765
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 8.72979581025119,
+        "predicted_xy_displacement_mm": 3.9290915156717086,
+        "predicted_object_height_change_mm": -1.6895485101006136
+      },
+      {
+        "command": "-45.0",
+        "cost": 179.87784210632532,
+        "cost_no_position": 174.93492281034605,
+        "first_action": [
+          -0.0033221692948634464,
+          0.0012096243947054429,
+          -0.003535533905932737
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 6.926814086065377,
+        "predicted_xy_displacement_mm": 3.316088512589665,
+        "predicted_object_height_change_mm": -2.3480398602529484
+      },
+      {
+        "command": "-30.0",
+        "cost": 179.02806687428307,
+        "cost_no_position": 174.09915376069313,
+        "first_action": [
+          -0.004068809805778618,
+          0.0014814812737256465,
+          -0.002499999999999999
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 7.355379996370587,
+        "predicted_xy_displacement_mm": 3.5440467834330094,
+        "predicted_object_height_change_mm": -2.2093015520600057
+      },
+      {
+        "command": "-15.0",
+        "cost": 178.1688395994754,
+        "cost_no_position": 173.253977609569,
+        "first_action": [
+          -0.004538167652456103,
+          0.0016523776522050098,
+          -0.0012940952255126035
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 7.789351062352466,
+        "predicted_xy_displacement_mm": 3.7425068165604203,
+        "predicted_object_height_change_mm": -2.063187771217001
+      },
+      {
+        "command": "0.0",
+        "cost": 177.37049574679497,
+        "cost_no_position": 172.46936510998324,
+        "first_action": [
+          -0.004698256873295348,
+          0.0017106672243697833,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 8.1926393928414,
+        "predicted_xy_displacement_mm": 3.8946949475062302,
+        "predicted_object_height_change_mm": -1.9215197993414646
+      },
+      {
+        "command": "15.0",
+        "cost": 176.715510697747,
+        "cost_no_position": 171.82671738555814,
+        "first_action": [
+          -0.004538167652456103,
+          0.0016523776522050098,
+          0.0012940952255126035
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 8.523133571608625,
+        "predicted_xy_displacement_mm": 3.9883891940310447,
+        "predicted_object_height_change_mm": -1.7989235698326889
+      },
+      {
+        "command": "30.0",
+        "cost": 176.28507528222258,
+        "cost_no_position": 171.4055515821137,
+        "first_action": [
+          -0.004068809805778618,
+          0.0014814812737256465,
+          0.002499999999999999
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 8.739547820966038,
+        "predicted_xy_displacement_mm": 4.015974373437103,
+        "predicted_object_height_change_mm": -1.7107014057215486
+      },
+      {
+        "command": "45.0",
+        "cost": 176.13933799493014,
+        "cost_no_position": 171.26409239615083,
+        "first_action": [
+          -0.0033221692948634464,
+          0.0012096243947054429,
+          0.003535533905932737
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 8.811649381461791,
+        "predicted_xy_displacement_mm": 3.975187439572838,
+        "predicted_object_height_change_mm": -1.6691168242252696
+      },
+      {
+        "command": "60.0",
+        "cost": 176.30178521894152,
+        "cost_no_position": 171.4241945661139,
+        "first_action": [
+          -0.0023491284366476744,
+          0.0008553336121848918,
+          0.004330127018922192
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 8.728249316140108,
+        "predicted_xy_displacement_mm": 3.870297408922946,
+        "predicted_object_height_change_mm": -1.680143767812281
+      },
+      {
+        "command": "75.0",
+        "cost": 176.7571177598088,
+        "cost_no_position": 171.86966710286887,
+        "first_action": [
+          -0.0012159983575926567,
+          0.0004427532574995669,
+          0.004829629131445341
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3698696792125702,
+        "predicted_tilt_reduction_deg": 8.497988918820923,
+        "predicted_xy_displacement_mm": 3.712356203961368,
+        "predicted_object_height_change_mm": -1.7428218739940493
+      }
+    ],
+    "best": "45.0",
+    "best_no_position": "45.0"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_112.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 119.0697872036809,
+        "cost_no_position": 104.34887299795068,
+        "first_action": [
+          -0.0038723147249678028,
+          0.0030243340540512483,
+          0.0009265971078648331
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": 0.6423239268368235,
+        "predicted_xy_displacement_mm": 2.3867517174106228,
+        "predicted_object_height_change_mm": -2.9572640482801726
+      },
+      {
+        "command": "-45.0",
+        "cost": 122.52819906146432,
+        "cost_no_position": 107.87964280947536,
+        "first_action": [
+          -0.002786405175205227,
+          0.002176222920472424,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3890897112784738,
+        "predicted_tilt_reduction_deg": -1.2460439581020921,
+        "predicted_xy_displacement_mm": 1.8032448285190539,
+        "predicted_object_height_change_mm": -3.79506903986615
+      },
+      {
+        "command": "-30.0",
+        "cost": 121.54849439249706,
+        "cost_no_position": 106.87842903441239,
+        "first_action": [
+          -0.003412635447951584,
+          0.002665317860853427,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3898459229749802,
+        "predicted_tilt_reduction_deg": -0.7175773975424562,
+        "predicted_xy_displacement_mm": 2.0027763281365596,
+        "predicted_object_height_change_mm": -3.5823149666813214
+      },
+      {
+        "command": "-15.0",
+        "cost": 120.59613964469423,
+        "cost_no_position": 105.90406103045582,
+        "first_action": [
+          -0.0038063002545667703,
+          0.002972775793663293,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": -0.19919047854588712,
+        "predicted_xy_displacement_mm": 2.1807450384414966,
+        "predicted_object_height_change_mm": -3.360264735845553
+      },
+      {
+        "command": "0.0",
+        "cost": 119.76095192361016,
+        "cost_no_position": 105.04627397633335,
+        "first_action": [
+          -0.003940571989041812,
+          0.0030776439688792873,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": 0.26078317368489934,
+        "predicted_xy_displacement_mm": 2.3199012358041187,
+        "predicted_object_height_change_mm": -3.1498210525406356
+      },
+      {
+        "command": "15.0",
+        "cost": 119.14717975319854,
+        "cost_no_position": 104.40913576223133,
+        "first_action": [
+          -0.0038063002545667703,
+          0.002972775793663293,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": 0.6050503131270801,
+        "predicted_xy_displacement_mm": 2.410049139792616,
+        "predicted_object_height_change_mm": -2.9789297655563596
+      },
+      {
+        "command": "30.0",
+        "cost": 118.84179303074055,
+        "cost_no_position": 104.08101598795048,
+        "first_action": [
+          -0.003412635447951584,
+          0.002665317860853427,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": 0.7841411467826731,
+        "predicted_xy_displacement_mm": 2.44493534765791,
+        "predicted_object_height_change_mm": -2.874413167271883
+      },
+      {
+        "command": "45.0",
+        "cost": 118.88193182560661,
+        "cost_no_position": 104.10179816619788,
+        "first_action": [
+          -0.002786405175205227,
+          0.002176222920472424,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": 0.7755678580794125,
+        "predicted_xy_displacement_mm": 2.422140113704386,
+        "predicted_object_height_change_mm": -2.8506941009894815
+      },
+      {
+        "command": "60.0",
+        "cost": 119.2543935990704,
+        "cost_no_position": 104.46064132163967,
+        "first_action": [
+          -0.0019702859945209066,
+          0.0015388219844396438,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": 0.5854834528409327,
+        "predicted_xy_displacement_mm": 2.345578546498522,
+        "predicted_object_height_change_mm": -2.9075607866870246
+      },
+      {
+        "command": "75.0",
+        "cost": 119.91465317132467,
+        "cost_no_position": 105.11402167503833,
+        "first_action": [
+          -0.0010198950793615428,
+          0.0007965528731908692,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3901808559894562,
+        "predicted_tilt_reduction_deg": 0.23828500364122362,
+        "predicted_xy_displacement_mm": 2.2265891228795,
+        "predicted_object_height_change_mm": -3.035460965050696
+      }
+    ],
+    "best": "30.0",
+    "best_no_position": "30.0"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_141.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 215.8525377538225,
+        "cost_no_position": 206.37895270208696,
+        "first_action": [
+          0.0022353210227419327,
+          0.0018562287875083505,
+          -0.001917686939425257
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40478258124999056,
+        "predicted_tilt_reduction_deg": -4.566599443261239,
+        "predicted_xy_displacement_mm": 1.3114629618903926,
+        "predicted_object_height_change_mm": -4.114337440610349
+      },
+      {
+        "command": "-45.0",
+        "cost": 217.78100222686356,
+        "cost_no_position": 208.38109700593134,
+        "first_action": [
+          0.0018938391177423625,
+          0.0015726594316867579,
+          -0.002461683223317835
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40207553095610615,
+        "predicted_tilt_reduction_deg": -5.69462279725515,
+        "predicted_xy_displacement_mm": 1.6463164734846336,
+        "predicted_object_height_change_mm": -4.6097160563915995
+      },
+      {
+        "command": "-30.0",
+        "cost": 217.64267160064742,
+        "cost_no_position": 208.27293946654424,
+        "first_action": [
+          0.00231946974669573,
+          0.0019261065734039674,
+          -0.0017406729003411991
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4025518167718675,
+        "predicted_tilt_reduction_deg": -5.634128601052211,
+        "predicted_xy_displacement_mm": 1.6742233390192627,
+        "predicted_object_height_change_mm": -4.481099643675823
+      },
+      {
+        "command": "-15.0",
+        "cost": 217.47780789647152,
+        "cost_no_position": 208.12589133244725,
+        "first_action": [
+          0.0025870323455167757,
+          0.002148292735185309,
+          -0.0009010385958042889
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4031105370039212,
+        "predicted_tilt_reduction_deg": -5.552413221638474,
+        "predicted_xy_displacement_mm": 1.6985845054065365,
+        "predicted_object_height_change_mm": -4.342453710415528
+      },
+      {
+        "command": "0.0",
+        "cost": 217.30545250655493,
+        "cost_no_position": 207.95917933058143,
+        "first_action": [
+          0.0026782929652639457,
+          0.0022240762972853766,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40371392014524954,
+        "predicted_tilt_reduction_deg": -5.460611521634775,
+        "predicted_xy_displacement_mm": 1.7176816246573698,
+        "predicted_object_height_change_mm": -4.2039101914457255
+      },
+      {
+        "command": "15.0",
+        "cost": 217.14508388631523,
+        "cost_no_position": 207.79391666636042,
+        "first_action": [
+          0.0025870323455167757,
+          0.002148292735185309,
+          0.0009010385958042889
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4043212274408952,
+        "predicted_tilt_reduction_deg": -5.370985682653952,
+        "predicted_xy_displacement_mm": 1.7322945459281127,
+        "predicted_object_height_change_mm": -4.075689700111518
+      },
+      {
+        "command": "30.0",
+        "cost": 217.01309061770291,
+        "cost_no_position": 207.64955777334973,
+        "first_action": [
+          0.00231946974669573,
+          0.0019261065734039674,
+          0.0017406729003411991
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.4048915104147415,
+        "predicted_tilt_reduction_deg": -5.2948648160796665,
+        "predicted_xy_displacement_mm": 1.7445192995195213,
+        "predicted_object_height_change_mm": -3.9673079947769585
+      },
+      {
+        "command": "45.0",
+        "cost": 216.90257638757038,
+        "cost_no_position": 207.54720834403992,
+        "first_action": [
+          0.0018938391177423625,
+          0.0015726594316867579,
+          0.002461683223317835
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40541912536195707,
+        "predicted_tilt_reduction_deg": -5.244479561080695,
+        "predicted_xy_displacement_mm": 1.6977473784447399,
+        "predicted_object_height_change_mm": -2.6985066712827965
+      },
+      {
+        "command": "60.0",
+        "cost": 216.67762581112993,
+        "cost_no_position": 207.29538978615489,
+        "first_action": [
+          0.0013391464826319733,
+          0.0011120381486426885,
+          0.003014933902749234
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40580647141313736,
+        "predicted_tilt_reduction_deg": -5.101169534431378,
+        "predicted_xy_displacement_mm": 1.6602014283912339,
+        "predicted_object_height_change_mm": -2.6502234317081763
+      },
+      {
+        "command": "75.0",
+        "cost": 216.47690576799488,
+        "cost_no_position": 207.0559339295736,
+        "first_action": [
+          0.0006931932277744132,
+          0.0005756333034985513,
+          0.0033627218191221242
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.40600793632952453,
+        "predicted_tilt_reduction_deg": -4.965667378365538,
+        "predicted_xy_displacement_mm": 1.610935293990892,
+        "predicted_object_height_change_mm": -2.626259886893134
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_163.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 232.53184364860357,
+        "cost_no_position": 220.89295895688898,
+        "first_action": [
+          -0.0009790120174575307,
+          0.00017950356517910785,
+          0.00015684088922284634
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40081594108911733,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "-45.0",
+        "cost": 232.53205435036898,
+        "cost_no_position": 220.8931696586544,
+        "first_action": [
+          -0.0007008079350110352,
+          0.00012849436022959381,
+          -0.0007124903945915648
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40021056442822506,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "-30.0",
+        "cost": 232.53201734614106,
+        "cost_no_position": 220.89313265442647,
+        "first_action": [
+          -0.0008583109242352954,
+          0.0001573728086939384,
+          -0.0005038067895459745
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4003674481684582,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "-15.0",
+        "cost": 232.53199111258715,
+        "cost_no_position": 220.89310642087258,
+        "first_action": [
+          -0.000957321442398788,
+          0.00017552656031665398,
+          -0.00026078958437291154
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4005501431534342,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "0.0",
+        "cost": 232.53197743748066,
+        "cost_no_position": 220.89309274576607,
+        "first_action": [
+          -0.0009910920863112885,
+          0.0001817184669251456,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4007461990218447,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "15.0",
+        "cost": 232.53197725275743,
+        "cost_no_position": 220.89309256104283,
+        "first_action": [
+          -0.000957321442398788,
+          0.00017552656031665398,
+          0.00026078958437291154
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40089223238561805,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "30.0",
+        "cost": 232.53199057100605,
+        "cost_no_position": 220.89310587929145,
+        "first_action": [
+          -0.0008583109242352954,
+          0.0001573728086939384,
+          0.0005038067895459745
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4009370366919848,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "45.0",
+        "cost": 232.53201648460993,
+        "cost_no_position": 220.89313179289536,
+        "first_action": [
+          -0.0007008079350110352,
+          0.00012849436022959381,
+          0.0007124903945915648
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.40095718409768305,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "60.0",
+        "cost": 232.53205322759976,
+        "cost_no_position": 220.89316853588517,
+        "first_action": [
+          -0.0004955460431556443,
+          9.085923346257282e-05,
+          0.0008726189566917886
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4009641120154476,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      },
+      {
+        "command": "75.0",
+        "cost": 232.5320982960015,
+        "cost_no_position": 220.89321360428693,
+        "first_action": [
+          -0.00025651350738775273,
+          4.703220008706018e-05,
+          0.0009732799789644765
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.4009684670866183,
+        "predicted_tilt_reduction_deg": -3.361872459869147,
+        "predicted_xy_displacement_mm": 1.4365153565962854,
+        "predicted_object_height_change_mm": -0.6793508036452289
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_184.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 181.6469436696023,
+        "cost_no_position": 164.07748937864073,
+        "first_action": [
+          -0.00026423849912788526,
+          -0.00013758736646359658,
+          0.0010396447227454917
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3997528395623049,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "-45.0",
+        "cost": 181.6474533791877,
+        "cost_no_position": 164.07799908822614,
+        "first_action": [
+          -0.0006782855067065378,
+          -0.0003531791048094483,
+          -0.0007647265581122104
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39893402334957917,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "-30.0",
+        "cost": 181.64739296937893,
+        "cost_no_position": 164.07793867841738,
+        "first_action": [
+          -0.0008307266956780774,
+          -0.00043255429729804434,
+          -0.0005407433349945923
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3991024090058672,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "-15.0",
+        "cost": 181.64732870787913,
+        "cost_no_position": 164.0778744169176,
+        "first_action": [
+          -0.0009265552331799309,
+          -0.0004824516292555532,
+          -0.00027990934721770577
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3992984982557794,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "0.0",
+        "cost": 181.64726497400332,
+        "cost_no_position": 164.07781068304178,
+        "first_action": [
+          -0.0009592405627454926,
+          -0.0004994706799683106,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3995089279409869,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "15.0",
+        "cost": 181.6472061111098,
+        "cost_no_position": 164.07775182014825,
+        "first_action": [
+          -0.0009265552331799309,
+          -0.0004824516292555532,
+          0.00027990934721770577
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3996675886566137,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "30.0",
+        "cost": 181.64715613060747,
+        "cost_no_position": 164.07770183964593,
+        "first_action": [
+          -0.0008307266956780774,
+          -0.00043255429729804434,
+          0.0005407433349945923
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39971721031108465,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "45.0",
+        "cost": 181.64711843858498,
+        "cost_no_position": 164.07766414762347,
+        "first_action": [
+          -0.0006782855067065378,
+          -0.0003531791048094483,
+          0.0007647265581122104
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39974094530426874,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "60.0",
+        "cost": 181.6470956036914,
+        "cost_no_position": 164.07764131272984,
+        "first_action": [
+          -0.0004796202813727464,
+          -0.00024973533998415536,
+          0.0009365949300648716
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39974838114164596,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      },
+      {
+        "command": "75.0",
+        "cost": 181.64708918208697,
+        "cost_no_position": 164.0776348911254,
+        "first_action": [
+          -0.000248269726473393,
+          -0.0001292725244461049,
+          0.0010446359053299162
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.39975305550443313,
+        "predicted_tilt_reduction_deg": 3.545455998241664,
+        "predicted_xy_displacement_mm": 1.9639149954899893,
+        "predicted_object_height_change_mm": -0.34297892101237126
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_255.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 154.90857266602686,
+        "cost_no_position": 140.7855848774561,
+        "first_action": [
+          0.002601231098510587,
+          0.003011089607396262,
+          0.003027694857209296
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.13055451000738572,
+        "predicted_xy_displacement_mm": 8.284061359156391,
+        "predicted_object_height_change_mm": -2.697361542867205
+      },
+      {
+        "command": "-45.0",
+        "cost": 156.0818653997497,
+        "cost_no_position": 141.75940287600085,
+        "first_action": [
+          0.002311274151900069,
+          0.002675446092665411,
+          -0.003535533905932737
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3612419615239509,
+        "predicted_tilt_reduction_deg": -0.611337146499892,
+        "predicted_xy_displacement_mm": 7.868985811126775,
+        "predicted_object_height_change_mm": -2.97825923315731
+      },
+      {
+        "command": "-30.0",
+        "cost": 155.71581875633746,
+        "cost_no_position": 141.53290164282873,
+        "first_action": [
+          0.0028307211639195537,
+          0.0032767388806766284,
+          -0.002499999999999999
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.4985218438515773,
+        "predicted_xy_displacement_mm": 8.160213611539135,
+        "predicted_object_height_change_mm": -2.9287110570757613
+      },
+      {
+        "command": "-15.0",
+        "cost": 155.37480566470447,
+        "cost_no_position": 141.29947871345055,
+        "first_action": [
+          0.003157259206605827,
+          0.003654727329036767,
+          -0.0012940952255126035
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.3820780273102571,
+        "predicted_xy_displacement_mm": 8.387121803196079,
+        "predicted_object_height_change_mm": -2.8699021522102797
+      },
+      {
+        "command": "0.0",
+        "cost": 155.08910261186662,
+        "cost_no_position": 141.08156798416837,
+        "first_action": [
+          0.0032686352519794497,
+          0.003783652149645529,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.27331012880372896,
+        "predicted_xy_displacement_mm": 8.531201064511013,
+        "predicted_object_height_change_mm": -2.8087643500430692
+      },
+      {
+        "command": "15.0",
+        "cost": 154.8867042403581,
+        "cost_no_position": 140.90196348253613,
+        "first_action": [
+          0.003157259206605827,
+          0.003654727329036767,
+          0.0012940952255126035
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.18458123456602493,
+        "predicted_xy_displacement_mm": 8.579982701915888,
+        "predicted_object_height_change_mm": -2.7531454706990477
+      },
+      {
+        "command": "30.0",
+        "cost": 154.79494380409824,
+        "cost_no_position": 140.78615057614434,
+        "first_action": [
+          0.0028307211639195537,
+          0.0032767388806766284,
+          0.002499999999999999
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.12884212221190694,
+        "predicted_xy_displacement_mm": 8.528925712024813,
+        "predicted_object_height_change_mm": -2.7112395837033954
+      },
+      {
+        "command": "45.0",
+        "cost": 154.8257235334072,
+        "cost_no_position": 140.74734065055537,
+        "first_action": [
+          0.002311274151900069,
+          0.002675446092665411,
+          0.003535533905932737
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.11192102726009523,
+        "predicted_xy_displacement_mm": 8.381349904228193,
+        "predicted_object_height_change_mm": -2.6862659993956983
+      },
+      {
+        "command": "60.0",
+        "cost": 154.9748863873474,
+        "cost_no_position": 140.78595906554182,
+        "first_action": [
+          0.0016343176259897253,
+          0.001891826074822765,
+          0.004330127018922192
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.1337392233481154,
+        "predicted_xy_displacement_mm": 8.14846423803364,
+        "predicted_object_height_change_mm": -2.6783892373865026
+      },
+      {
+        "command": "75.0",
+        "cost": 155.2276315156224,
+        "cost_no_position": 140.89462705676027,
+        "first_action": [
+          0.0008459850547057584,
+          0.0009792812363713557,
+          0.004829629131445341
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.36196982860565186,
+        "predicted_tilt_reduction_deg": -0.1902905069595846,
+        "predicted_xy_displacement_mm": 7.84777349287224,
+        "predicted_object_height_change_mm": -2.6859290963970883
+      }
+    ],
+    "best": "30.0",
+    "best_no_position": "30.0"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_280.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 234.57259602687913,
+        "cost_no_position": 234.56673363218647,
+        "first_action": [
+          -0.00144337567297406,
+          -0.0014433756729740606,
+          0.003556624215267227
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -4.392634316776267,
+        "predicted_xy_displacement_mm": 2.0156214829371457,
+        "predicted_object_height_change_mm": -2.582875060284484
+      },
+      {
+        "command": "-45.0",
+        "cost": 234.2366637562045,
+        "cost_no_position": 234.23002283608957,
+        "first_action": [
+          -0.002050380603405856,
+          -0.002050380603405857,
+          -0.0028996760573632924
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -4.228723918685972,
+        "predicted_xy_displacement_mm": 1.9369929280313758,
+        "predicted_object_height_change_mm": -2.5922555979387973
+      },
+      {
+        "command": "-30.0",
+        "cost": 234.0618740662042,
+        "cost_no_position": 234.05472255869725,
+        "first_action": [
+          -0.002511193128422114,
+          -0.0025111931284221155,
+          -0.002050380603405856
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -4.117112526793704,
+        "predicted_xy_displacement_mm": 1.8612850732101243,
+        "predicted_object_height_change_mm": -2.606464030653788
+      },
+      {
+        "command": "-15.0",
+        "cost": 234.05970665202665,
+        "cost_no_position": 234.0525143714682,
+        "first_action": [
+          -0.0028008719916792655,
+          -0.002800871991679267,
+          -0.0010613550997404682
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -4.113453739799965,
+        "predicted_xy_displacement_mm": 1.8519974234980519,
+        "predicted_object_height_change_mm": -2.605553382952208
+      },
+      {
+        "command": "0.0",
+        "cost": 234.23585099348404,
+        "cost_no_position": 234.2291060341106,
+        "first_action": [
+          -0.002899676057363292,
+          -0.0028996760573632933,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -4.221173851497639,
+        "predicted_xy_displacement_mm": 1.909548322561396,
+        "predicted_object_height_change_mm": -2.588277410172868
+      },
+      {
+        "command": "15.0",
+        "cost": 234.57795081754892,
+        "cost_no_position": 234.5719685957412,
+        "first_action": [
+          -0.0028008719916792655,
+          -0.002800871991679267,
+          0.0010613550997404682
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -4.432272362084817,
+        "predicted_xy_displacement_mm": 2.030073141393131,
+        "predicted_object_height_change_mm": -2.5563723117891235
+      },
+      {
+        "command": "30.0",
+        "cost": 235.0636107607895,
+        "cost_no_position": 235.0584071648413,
+        "first_action": [
+          -0.002511193128422114,
+          -0.0025111931284221155,
+          0.002050380603405856
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -4.733020464147401,
+        "predicted_xy_displacement_mm": 2.2070718295247698,
+        "predicted_object_height_change_mm": -2.5124374120021886
+      },
+      {
+        "command": "45.0",
+        "cost": 235.64720107730875,
+        "cost_no_position": 235.64244288262847,
+        "first_action": [
+          -0.002050380603405856,
+          -0.002050380603405857,
+          0.0028996760573632924
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -5.096168720417921,
+        "predicted_xy_displacement_mm": 2.4299668135057053,
+        "predicted_object_height_change_mm": -2.461350844729815
+      },
+      {
+        "command": "60.0",
+        "cost": 236.27618406054864,
+        "cost_no_position": 236.27157577891262,
+        "first_action": [
+          -0.0014498380286816462,
+          -0.0014498380286816469,
+          0.0035513633799526757
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -5.4899874139210425,
+        "predicted_xy_displacement_mm": 2.6849779253226878,
+        "predicted_object_height_change_mm": -2.4074821499054933
+      },
+      {
+        "command": "75.0",
+        "cost": 236.9007647957783,
+        "cost_no_position": 236.8962730109675,
+        "first_action": [
+          -0.0007504913882734095,
+          -0.0007504913882734098,
+          0.003961031157103761
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3715835511684418,
+        "predicted_tilt_reduction_deg": -5.882966841992939,
+        "predicted_xy_displacement_mm": 2.9562939570071216,
+        "predicted_object_height_change_mm": -2.357783169695704
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_337.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 218.84302294369058,
+        "cost_no_position": 218.70265724613915,
+        "first_action": [
+          -0.0009072578253116133,
+          -0.002635684024714921,
+          -0.00024060583411182238
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3904968294413317,
+        "predicted_tilt_reduction_deg": 4.970837504271628,
+        "predicted_xy_displacement_mm": 2.764343784551749,
+        "predicted_object_height_change_mm": -2.6130326485059863
+      },
+      {
+        "command": "-45.0",
+        "cost": 220.17148596076262,
+        "cost_no_position": 220.04449153864348,
+        "first_action": [
+          -0.0006439136268580008,
+          -0.0018706400895720698,
+          -0.001978362733061767
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38870077250998,
+        "predicted_tilt_reduction_deg": 4.272039349327741,
+        "predicted_xy_displacement_mm": 2.4819517319542577,
+        "predicted_object_height_change_mm": -3.3407488769199856
+      },
+      {
+        "command": "-30.0",
+        "cost": 220.1833642490219,
+        "cost_no_position": 220.05571912215194,
+        "first_action": [
+          -0.0007886299121134939,
+          -0.0022910568559228956,
+          -0.001398913704194727
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38911709271573774,
+        "predicted_tilt_reduction_deg": 4.263706652787008,
+        "predicted_xy_displacement_mm": 2.490942130912806,
+        "predicted_object_height_change_mm": -3.312274029652451
+      },
+      {
+        "command": "-15.0",
+        "cost": 219.48981358577947,
+        "cost_no_position": 219.3477428622066,
+        "first_action": [
+          -0.0008796023721310029,
+          -0.002555341883693045,
+          -0.0007241310182010189
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.38955939960956715,
+        "predicted_tilt_reduction_deg": 4.625221350057728,
+        "predicted_xy_displacement_mm": 2.740948822898024,
+        "predicted_object_height_change_mm": -2.9869314762585586
+      },
+      {
+        "command": "0.0",
+        "cost": 219.1856483283882,
+        "cost_no_position": 219.03808218692467,
+        "first_action": [
+          -0.0009106313840994332,
+          -0.0026454845849916424,
+          0.0
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.390054098192788,
+        "predicted_tilt_reduction_deg": 4.776192218125985,
+        "predicted_xy_displacement_mm": 2.8332045548201936,
+        "predicted_object_height_change_mm": -2.822939286164894
+      },
+      {
+        "command": "15.0",
+        "cost": 219.14787879920374,
+        "cost_no_position": 219.0017801210887,
+        "first_action": [
+          -0.0008796023721310029,
+          -0.002555341883693045,
+          0.0007241310182010189
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3905603823009643,
+        "predicted_tilt_reduction_deg": 4.787691419346146,
+        "predicted_xy_displacement_mm": 2.8109479360443665,
+        "predicted_object_height_change_mm": -2.7474719359099065
+      },
+      {
+        "command": "30.0",
+        "cost": 219.08291393172533,
+        "cost_no_position": 218.93870552829082,
+        "first_action": [
+          -0.0007886299121134939,
+          -0.0022910568559228956,
+          0.001398913704194727
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.39102726325808157,
+        "predicted_tilt_reduction_deg": 4.813157690666301,
+        "predicted_xy_displacement_mm": 2.7846736873676132,
+        "predicted_object_height_change_mm": -2.6649540886093392
+      },
+      {
+        "command": "45.0",
+        "cost": 218.91761219677232,
+        "cost_no_position": 218.77344106612313,
+        "first_action": [
+          -0.0006439136268580008,
+          -0.0018706400895720698,
+          0.001978362733061767
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3914262957550972,
+        "predicted_tilt_reduction_deg": 4.901041042568508,
+        "predicted_xy_displacement_mm": 2.7951696227501333,
+        "predicted_object_height_change_mm": -2.2035471655822425
+      },
+      {
+        "command": "60.0",
+        "cost": 218.8309047472714,
+        "cost_no_position": 218.68671633575133,
+        "first_action": [
+          -0.00045531569204971666,
+          -0.0013227422924958214,
+          0.0024229896110696467
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3917418265117793,
+        "predicted_tilt_reduction_deg": 4.932582081580264,
+        "predicted_xy_displacement_mm": 2.791316176466553,
+        "predicted_object_height_change_mm": -1.6786588728744944
+      },
+      {
+        "command": "75.0",
+        "cost": 218.38560233265372,
+        "cost_no_position": 218.23776412395284,
+        "first_action": [
+          -0.0002356887452730021,
+          -0.0006847017941209753,
+          0.002702493751262786
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.391939615052072,
+        "predicted_tilt_reduction_deg": 5.178065995696471,
+        "predicted_xy_displacement_mm": 2.8701505436365924,
+        "predicted_object_height_change_mm": -1.4871375649936347
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_357.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 227.3421526776139,
+        "cost_no_position": 227.0274029637825,
+        "first_action": [
+          -0.0004722081049439089,
+          -0.0005070574941817774,
+          -0.000510217668494932
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38583787584308393,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "-45.0",
+        "cost": 227.34224460653095,
+        "cost_no_position": 227.0274948926995,
+        "first_action": [
+          -0.0004146619677655437,
+          -0.00044526439954404613,
+          -0.0006084446836093751
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3856021543570749,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "-30.0",
+        "cost": 227.34224947363532,
+        "cost_no_position": 227.0274997598039,
+        "first_action": [
+          -0.0005078551183819941,
+          -0.0005453352897548259,
+          -0.00043023536175709255
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38573612820207565,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "-15.0",
+        "cost": 227.3422644653113,
+        "cost_no_position": 227.02751475147988,
+        "first_action": [
+          -0.0005664387819509767,
+          -0.0006082424811779912,
+          -0.00022270621099861656
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38589214404899036,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "0.0",
+        "cost": 227.34228855990096,
+        "cost_no_position": 227.02753884606955,
+        "first_action": [
+          -0.000586420578614347,
+          -0.0006296989526771025,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38605956967567995,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "15.0",
+        "cost": 227.3423201153978,
+        "cost_no_position": 227.02757040156638,
+        "first_action": [
+          -0.0005664387819509767,
+          -0.0006082424811779912,
+          0.00022270621099861656
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3862269953023696,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "30.0",
+        "cost": 227.34235698134688,
+        "cost_no_position": 227.02760726751546,
+        "first_action": [
+          -0.0005078551183819941,
+          -0.0005453352897548259,
+          0.00043023536175709255
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38634466826988306,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "45.0",
+        "cost": 227.34239664539467,
+        "cost_no_position": 227.02764693156325,
+        "first_action": [
+          -0.0004146619677655437,
+          -0.00044526439954404613,
+          0.0006084446836093751
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38640195580926834,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "60.0",
+        "cost": 227.34243640450188,
+        "cost_no_position": 227.02768669067046,
+        "first_action": [
+          -0.00029321028930717356,
+          -0.0003148494763385513,
+          0.0007451895057760603
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3864403498991854,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      },
+      {
+        "command": "75.0",
+        "cost": 227.34247354915104,
+        "cost_no_position": 227.02772383531962,
+        "first_action": [
+          -0.000151776814185433,
+          -0.00016297808163394506,
+          0.0008311508946079918
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.38645383179522774,
+        "predicted_tilt_reduction_deg": -5.822314250733484,
+        "predicted_xy_displacement_mm": 2.6493654231521844,
+        "predicted_object_height_change_mm": -0.9645961846407314
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_377.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 215.43545753669184,
+        "cost_no_position": 210.79070348617046,
+        "first_action": [
+          -0.004640041027592185,
+          -0.0018462637047668984,
+          0.00024764812682850576
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3780479237021536,
+        "predicted_tilt_reduction_deg": 0.07009991857439957,
+        "predicted_xy_displacement_mm": 1.5913444700723671,
+        "predicted_object_height_change_mm": -1.2646238082386074
+      },
+      {
+        "command": "-45.0",
+        "cost": 218.014812491444,
+        "cost_no_position": 213.43750968388497,
+        "first_action": [
+          -0.0032850363488024677,
+          -0.0013071098603585512,
+          -0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37479371568301895,
+        "predicted_tilt_reduction_deg": -1.4283230208688025,
+        "predicted_xy_displacement_mm": 1.3818442207849513,
+        "predicted_object_height_change_mm": -2.2034023343189824
+      },
+      {
+        "command": "-30.0",
+        "cost": 217.30849061256015,
+        "cost_no_position": 212.72855533405334,
+        "first_action": [
+          -0.004023331420530773,
+          -0.0016008760978195116,
+          -0.0024999999999999996
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3755663025426524,
+        "predicted_tilt_reduction_deg": -1.031693487938469,
+        "predicted_xy_displacement_mm": 1.3369532293912532,
+        "predicted_object_height_change_mm": -2.410630901980737
+      },
+      {
+        "command": "-15.0",
+        "cost": 216.92483596710036,
+        "cost_no_position": 212.30546911077448,
+        "first_action": [
+          -0.004487443104819449,
+          -0.001785545274786911,
+          -0.0012940952255126037
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3764561012972574,
+        "predicted_tilt_reduction_deg": -0.7913549518696357,
+        "predicted_xy_displacement_mm": 1.4448743031106277,
+        "predicted_object_height_change_mm": -2.279485573650042
+      },
+      {
+        "command": "0.0",
+        "cost": 216.34691906336855,
+        "cost_no_position": 211.66471511799227,
+        "first_action": [
+          -0.004645742957365043,
+          -0.0018485324920306653,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.3774149817904249,
+        "predicted_tilt_reduction_deg": -0.4348471154985276,
+        "predicted_xy_displacement_mm": 1.6147305914707573,
+        "predicted_object_height_change_mm": -1.8989746729429768
+      },
+      {
+        "command": "15.0",
+        "cost": 216.0971163359673,
+        "cost_no_position": 211.46639205871963,
+        "first_action": [
+          -0.004487443104819449,
+          -0.001785545274786911,
+          0.0012940952255126037
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37807633387959516,
+        "predicted_tilt_reduction_deg": -0.3273051557673341,
+        "predicted_xy_displacement_mm": 1.449471008169922,
+        "predicted_object_height_change_mm": -1.8547736431298034
+      },
+      {
+        "command": "30.0",
+        "cost": 215.282048500952,
+        "cost_no_position": 210.63597534575496,
+        "first_action": [
+          -0.004023331420530773,
+          -0.0016008760978195116,
+          0.0024999999999999996
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37826546242374376,
+        "predicted_tilt_reduction_deg": 0.16299973511952714,
+        "predicted_xy_displacement_mm": 1.4635378899673868,
+        "predicted_object_height_change_mm": -1.2723918430213033
+      },
+      {
+        "command": "45.0",
+        "cost": 215.86986464959074,
+        "cost_no_position": 211.3406259705546,
+        "first_action": [
+          -0.0032850363488024677,
+          -0.0013071098603585512,
+          0.0035355339059327372
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3783131547192425,
+        "predicted_tilt_reduction_deg": -0.18496140074431366,
+        "predicted_xy_displacement_mm": 1.1333744988281735,
+        "predicted_object_height_change_mm": -0.688385987904494
+      },
+      {
+        "command": "60.0",
+        "cost": 218.16507070204827,
+        "cost_no_position": 213.8753089099467,
+        "first_action": [
+          -0.002322871478682522,
+          -0.0009242662460153329,
+          0.004330127018922193
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.378347532569583,
+        "predicted_tilt_reduction_deg": -1.698763608262439,
+        "predicted_xy_displacement_mm": 0.7048474446315238,
+        "predicted_object_height_change_mm": -0.7856893409223797
+      },
+      {
+        "command": "75.0",
+        "cost": 219.43792952853653,
+        "cost_no_position": 215.2738492829836,
+        "first_action": [
+          -0.001202406756016981,
+          -0.00047843541442835983,
+          0.004829629131445342
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37836914338974786,
+        "predicted_tilt_reduction_deg": -2.571613926331537,
+        "predicted_xy_displacement_mm": 0.8685134219831416,
+        "predicted_object_height_change_mm": -0.8244747515894213
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  },
+  {
+    "object": "stanford_bunny2",
+    "snapshot": "step_397.npz",
+    "evaluations": [
+      {
+        "command": "optimized",
+        "cost": 211.05801026398532,
+        "cost_no_position": 188.2696733475056,
+        "first_action": [
+          -0.002754823998355991,
+          -0.004138613464068113,
+          0.0005318113698634489
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.37974101305007935,
+        "predicted_tilt_reduction_deg": 4.354795611637371,
+        "predicted_xy_displacement_mm": 2.704432584252941,
+        "predicted_object_height_change_mm": -1.8170147699650419
+      },
+      {
+        "command": "-45.0",
+        "cost": 212.10770795368046,
+        "cost_no_position": 189.4078457377958,
+        "first_action": [
+          -0.0019590676503954923,
+          -0.0029431367520341084,
+          -0.003535533905932737
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.3780568579319988,
+        "predicted_tilt_reduction_deg": 3.729399227313081,
+        "predicted_xy_displacement_mm": 2.5740371642154978,
+        "predicted_object_height_change_mm": -2.0322499168929364
+      },
+      {
+        "command": "-30.0",
+        "cost": 212.65080261459676,
+        "cost_no_position": 190.02061217852554,
+        "first_action": [
+          -0.0023993580575310497,
+          -0.0036045916428578736,
+          -0.002499999999999999
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37883349526418464,
+        "predicted_tilt_reduction_deg": 3.429646627122807,
+        "predicted_xy_displacement_mm": 2.437522663242434,
+        "predicted_object_height_change_mm": -2.4843792910889118
+      },
+      {
+        "command": "-15.0",
+        "cost": 212.19353533767594,
+        "cost_no_position": 189.48719829709432,
+        "first_action": [
+          -0.002676136178172534,
+          -0.004020399570090214,
+          -0.0012940952255126035
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37972134551316106,
+        "predicted_tilt_reduction_deg": 3.7217022093691696,
+        "predicted_xy_displacement_mm": 2.5634250393659537,
+        "predicted_object_height_change_mm": -2.4505114837760633
+      },
+      {
+        "command": "0.0",
+        "cost": 211.88400789430796,
+        "cost_no_position": 189.14987912668656,
+        "first_action": [
+          -0.002770540040795698,
+          -0.0041622239106453365,
+          0.0
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.37974101305007935,
+        "predicted_tilt_reduction_deg": 3.907693234471381,
+        "predicted_xy_displacement_mm": 2.6075913863145352,
+        "predicted_object_height_change_mm": -2.4127011826822753
+      },
+      {
+        "command": "15.0",
+        "cost": 211.41000291427616,
+        "cost_no_position": 188.62383664537123,
+        "first_action": [
+          -0.002676136178172534,
+          -0.004020399570090214,
+          0.0012940952255126035
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.37974101305007935,
+        "predicted_tilt_reduction_deg": 4.181450648670392,
+        "predicted_xy_displacement_mm": 2.699134454522994,
+        "predicted_object_height_change_mm": -2.137148703524494
+      },
+      {
+        "command": "30.0",
+        "cost": 211.1342429369726,
+        "cost_no_position": 188.34978417237153,
+        "first_action": [
+          -0.0023993580575310497,
+          -0.0036045916428578736,
+          0.002499999999999999
+        ],
+        "first_within_slew_box": true,
+        "horizon_min_tip_height_m": 0.37974101305007935,
+        "predicted_tilt_reduction_deg": 4.313861557731229,
+        "predicted_xy_displacement_mm": 2.665254247944928,
+        "predicted_object_height_change_mm": -1.9275422798605835
+      },
+      {
+        "command": "45.0",
+        "cost": 209.94056285405682,
+        "cost_no_position": 186.93513497907006,
+        "first_action": [
+          -0.0019590676503954923,
+          -0.0029431367520341084,
+          0.003535533905932737
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37974101305007935,
+        "predicted_tilt_reduction_deg": 5.121600904056123,
+        "predicted_xy_displacement_mm": 3.019501518175196,
+        "predicted_object_height_change_mm": -0.8821831044244499
+      },
+      {
+        "command": "60.0",
+        "cost": 210.2133415849272,
+        "cost_no_position": 187.25802695600618,
+        "first_action": [
+          -0.0013852700203978495,
+          -0.002081111955322669,
+          0.004330127018922192
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37974101305007935,
+        "predicted_tilt_reduction_deg": 4.930948062476531,
+        "predicted_xy_displacement_mm": 2.9139947493919913,
+        "predicted_object_height_change_mm": -0.8946660448876931
+      },
+      {
+        "command": "75.0",
+        "cost": 210.21360161476343,
+        "cost_no_position": 187.25828698584237,
+        "first_action": [
+          -0.0007170685277770414,
+          -0.0010772628180561058,
+          0.004829629131445341
+        ],
+        "first_within_slew_box": false,
+        "horizon_min_tip_height_m": 0.37974101305007935,
+        "predicted_tilt_reduction_deg": 4.930948062476531,
+        "predicted_xy_displacement_mm": 2.9139947493919913,
+        "predicted_object_height_change_mm": -0.8946660448876931
+      }
+    ],
+    "best": "optimized",
+    "best_no_position": "optimized"
+  }
+]

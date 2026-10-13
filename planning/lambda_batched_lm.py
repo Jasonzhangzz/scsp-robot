@@ -1,4 +1,4 @@
-"""Independent, bounded contact-force LM solves for discrete contact pairs.
+"""Independent, bounded contact-force LM solves for discrete n-contact sets.
 
 All dynamics, residuals, finite differences, matrix factorizations and LM
 updates run in Warp.  Poses use ``[xyz, qw, qx, qy, qz]``; velocities and the
@@ -15,20 +15,29 @@ from time import perf_counter
 import numpy as np
 
 
-_KERNELS = None
+_KERNELS = {}
 
 
-def ensure_kernels():
+def ensure_kernels(num_contacts=2, friction_cone="box"):
     global _KERNELS
-    if _KERNELS is not None:
-        return _KERNELS
+    if int(num_contacts) != num_contacts or num_contacts < 1:
+        raise ValueError("num_contacts must be a positive integer")
+    if friction_cone not in ("box", "coulomb"):
+        raise ValueError("friction_cone must be box or coulomb")
+    cache_key = (int(num_contacts), friction_cone)
+    if cache_key in _KERNELS:
+        return _KERNELS[cache_key]
     import warp as wp
 
     wp.init()
     Vec6 = wp.types.vector(length=6, dtype=wp.float32)
-    Vec12 = wp.types.vector(length=12, dtype=wp.float32)
+    NC, NF, NR = wp.constant(int(num_contacts)), wp.constant(3 * int(num_contacts)), wp.constant(6 + 3 * int(num_contacts))
+    CIRCULAR = wp.constant(friction_cone == "coulomb")
+    VecForce = wp.types.vector(length=3 * int(num_contacts), dtype=wp.float32)
+    VecResidual = wp.types.vector(length=6 + 3 * int(num_contacts), dtype=wp.float32)
+    MatForce = wp.types.matrix(shape=(3 * int(num_contacts), 3 * int(num_contacts)), dtype=wp.float32)
     Mat6 = wp.types.matrix(shape=(6, 6), dtype=wp.float32)
-    Jac = wp.types.matrix(shape=(12, 6), dtype=wp.float32)
+    Jac = wp.types.matrix(shape=(6 + 3 * int(num_contacts), 3 * int(num_contacts)), dtype=wp.float32)
 
     @wp.struct
     class Physics:
@@ -137,6 +146,40 @@ def ensure_kernels():
         return result
 
     @wp.func
+    def force_cholesky(matrix: MatForce):
+        lower = MatForce(0.0)
+        valid = int(1)
+        for row in range(NF):
+            for col in range(row + 1):
+                value = matrix[row, col]
+                for k in range(col):
+                    value -= lower[row, k] * lower[col, k]
+                if row == col:
+                    if not wp.isfinite(value) or value <= 1.0e-25:
+                        valid = 0
+                    lower[row, col] = wp.sqrt(wp.max(value, 1.0e-25))
+                else:
+                    lower[row, col] = value / lower[col, col]
+        return lower, valid
+
+    @wp.func
+    def force_triangular_solve(lower: MatForce, rhs: VecForce):
+        interim = VecForce(0.0)
+        result = VecForce(0.0)
+        for row in range(NF):
+            value = rhs[row]
+            for col in range(row):
+                value -= lower[row, col] * interim[col]
+            interim[row] = value / lower[row, row]
+        for reverse in range(NF):
+            row = NF - 1 - reverse
+            value = interim[row]
+            for col in range(row + 1, NF):
+                value -= lower[col, row] * result[col]
+            result[row] = value / lower[row, row]
+        return result
+
+    @wp.func
     def frame(normal: wp.vec3):
         n = wp.normalize(normal)
         helper = wp.vec3(1.0, 0.0, 0.0)
@@ -146,12 +189,25 @@ def ensure_kernels():
         return n, tangent, wp.cross(n, tangent)
 
     @wp.func
-    def projected_force(force: Vec6, mu: float, limit: float):
-        result = Vec6(0.0)
+    def projected_force(force: VecForce, mu: float, limit: float):
+        result = VecForce(0.0)
         normal_limit = limit / wp.sqrt(1.0 + 2.0 * mu * mu)
-        for contact in range(2):
+        if CIRCULAR:
+            normal_limit = limit / wp.sqrt(1.0 + mu * mu)
+        for contact in range(NC):
             offset = 3 * contact
             normal = force[offset]
+            if CIRCULAR:
+                radius = wp.sqrt(force[offset+1]*force[offset+1] + force[offset+2]*force[offset+2])
+                fn = normal
+                if radius > mu * normal:
+                    fn = (normal + mu*radius)/(1.0+mu*mu)
+                fn = wp.clamp(fn, 0.0, normal_limit)
+                ratio = wp.min(1.0, mu*fn/wp.max(radius, 1.0e-20))
+                result[offset] = fn
+                result[offset+1] = ratio*force[offset+1]
+                result[offset+2] = ratio*force[offset+2]
+                continue
             a = wp.abs(force[offset + 1])
             b = wp.abs(force[offset + 2])
             lo = float(0.0)
@@ -175,14 +231,16 @@ def ensure_kernels():
         return result
 
     @wp.func
-    def predict(physics: Physics, force: Vec6, p0: wp.vec3, p1: wp.vec3,
-                n0: wp.vec3, n1: wp.vec3):
-        a, b, c = frame(n0)
-        d, e, f = frame(n1)
-        force0 = a * force[0] + b * force[1] + c * force[2]
-        force1 = d * force[3] + e * force[4] + f * force[5]
-        linear = wp.quat_rotate(physics.quaternion, force0 + force1)
-        angular = wp.cross(p0, force0) + wp.cross(p1, force1)
+    def predict(physics: Physics, force: VecForce, points: wp.array(dtype=wp.vec3),
+                normals: wp.array(dtype=wp.vec3), candidate: int):
+        total_force, angular = wp.vec3(0.0), wp.vec3(0.0)
+        if wp.length(force) > 0.0:
+            for contact in range(NC):
+                n, t1, t2 = frame(normals[NC * candidate + contact])
+                f = n * force[3 * contact] + t1 * force[3 * contact + 1] + t2 * force[3 * contact + 2]
+                total_force += f
+                angular += wp.cross(points[NC * candidate + contact], f)
+        linear = wp.quat_rotate(physics.quaternion, total_force)
         wrench = Vec6(linear[0], linear[1], linear[2], angular[0], angular[1], angular[2])
         velocity = physics.free_velocity + physics.dt * (physics.inverse * wrench)
         # Official ComFree: evaluate at smooth predicted velocity, then
@@ -209,18 +267,16 @@ def ensure_kernels():
         return pos_weight * wp.length_sq(position - physics.target_position) + ori_weight * wp.length_sq(orientation)
 
     @wp.func
-    def residual(job: Job, force: Vec6, candidate: int):
-        result = Vec12(0.0)
+    def residual(job: Job, force: VecForce, candidate: int):
+        result = VecResidual(0.0)
         physics = job.physics[0]
-        p, q, velocity = predict(physics, force, job.points[2 * candidate],
-                                job.points[2 * candidate + 1], job.normals[2 * candidate],
-                                job.normals[2 * candidate + 1])
+        p, q, velocity = predict(physics, force, job.points, job.normals, candidate)
         difference = wp.quat_inverse(physics.target_quaternion) * q
         position = p - physics.target_position
         for component in range(3):
             result[component] = wp.sqrt(job.pos_weight) * position[component]
             result[3 + component] = wp.sqrt(job.ori_weight) * difference[component]
-        for component in range(6):
+        for component in range(NF):
             weight = job.force_weight
             if component % 3 != 0:
                 weight += job.tangent_weight
@@ -286,7 +342,11 @@ def ensure_kernels():
         physics.support_gap = job.support_gap[0]
         invweight = (inverse[0, 0] + inverse[1, 1] + inverse[2, 2]) / 3.0
         x = wp.min(wp.abs(physics.support_gap) / 0.01, 1.0)
-        curve = wp.where(x < 0.5, 2.0*x*x, 1.0-2.0*(1.0-x)*(1.0-x))
+        curve = float(0.0)
+        if x < 0.5:
+            curve = 2.0 * x * x
+        else:
+            curve = 1.0 - 2.0 * (1.0 - x) * (1.0 - x)
         imp = 0.9 + 0.05*curve
         physics.support_mass = 1.0 / wp.max(invweight*(1.0-imp)/imp, 1.0e-15)
         physics.stiffness = job.support_stiffness
@@ -295,8 +355,7 @@ def ensure_kernels():
         job.physics[0] = physics
         # A zero force prediction still includes velocity, external wrench and
         # environment response, using exactly the same physics as every pair.
-        n = wp.vec3(1.0, 0.0, 0.0)
-        position, quaternion, next_velocity = predict(physics, Vec6(0.0), wp.vec3(0.0), wp.vec3(0.0), n, n)
+        position, quaternion, next_velocity = predict(physics, VecForce(0.0), job.points, job.normals, 0)
         for component in range(3):
             job.baseline_pose[component] = position[component]
         job.baseline_pose[3] = quaternion[3]
@@ -315,16 +374,16 @@ def ensure_kernels():
         job.trust[candidate] = job.initial_trust
         if job.mask[candidate] == 0 or job.physics[0].valid == 0:
             return
-        for contact in range(2):
-            if wp.length(job.normals[2 * candidate + contact]) < 1.0e-8:
+        for contact in range(NC):
+            if wp.length(job.normals[NC * candidate + contact]) < 1.0e-8:
                 return
             for component in range(3):
-                if not wp.isfinite(job.points[2 * candidate + contact][component]):
+                if not wp.isfinite(job.points[NC * candidate + contact][component]):
                     return
-                if not wp.isfinite(job.normals[2 * candidate + contact][component]):
+                if not wp.isfinite(job.normals[NC * candidate + contact][component]):
                     return
-        value = Vec6(0.0)
-        for component in range(6):
+        value = VecForce(0.0)
+        for component in range(NF):
             if job.use_initial[0] != 0:
                 value[component] = job.initial[candidate, component]
             elif component % 3 == 0:
@@ -334,7 +393,7 @@ def ensure_kernels():
         cost = wp.dot(terms, terms)
         if not wp.isfinite(cost):
             return
-        for component in range(6):
+        for component in range(NF):
             job.forces[candidate, component] = value[component]
         job.costs[candidate] = cost
         job.valid[candidate] = 1
@@ -344,32 +403,32 @@ def ensure_kernels():
         candidate = wp.tid()
         if job.valid[candidate] == 0:
             return
-        force = Vec6(0.0)
-        for component in range(6):
+        force = VecForce(0.0)
+        for component in range(NF):
             force[component] = job.forces[candidate, component]
         terms = residual(job, force, candidate)
         jacobian = Jac(0.0)
-        for parameter in range(6):
+        for parameter in range(NF):
             h = job.fd_step * (1.0 + wp.abs(force[parameter]))
-            positive = Vec6(force)
-            negative = Vec6(force)
+            positive = VecForce(force)
+            negative = VecForce(force)
             positive[parameter] += h
             negative[parameter] -= h
             rp = residual(job, positive, candidate)
             rn = residual(job, negative, candidate)
-            for row in range(12):
+            for row in range(NR):
                 jacobian[row, parameter] = (rp[row] - rn[row]) / (2.0 * h)
-        matrix = Mat6(0.0)
-        gradient = Vec6(0.0)
-        for row in range(6):
-            for residual_row in range(12):
+        matrix = MatForce(0.0)
+        gradient = VecForce(0.0)
+        for row in range(NF):
+            for residual_row in range(NR):
                 gradient[row] += jacobian[residual_row, row] * terms[residual_row]
-            for col in range(6):
-                for residual_row in range(12):
+            for col in range(NF):
+                for residual_row in range(NR):
                     matrix[row, col] += jacobian[residual_row, row] * jacobian[residual_row, col]
             matrix[row, row] += job.damping[candidate] * wp.max(matrix[row, row], 1.0e-12)
-        lower, good = cholesky(matrix)
-        delta = triangular_solve(lower, -gradient)
+        lower, good = force_cholesky(matrix)
+        delta = force_triangular_solve(lower, -gradient)
         if good == 0 or not wp.isfinite(wp.length(delta)):
             job.damping[candidate] = wp.min(job.damping[candidate] * 10.0, 1.0e12)
             return
@@ -385,7 +444,7 @@ def ensure_kernels():
         actual_reduction = job.costs[candidate] - trial_cost
         if wp.isfinite(trial_cost) and actual_reduction > 0.0 and predicted_reduction > 0.0:
             ratio = actual_reduction / predicted_reduction
-            for component in range(6):
+            for component in range(NF):
                 job.forces[candidate, component] = proposal[component]
             job.costs[candidate] = trial_cost
             job.accepted[candidate] = job.accepted[candidate] + 1
@@ -407,19 +466,18 @@ def ensure_kernels():
             job.reductions[candidate] = -wp.inf
             job.baseline_reductions[candidate] = -wp.inf
             return
-        force = Vec6(0.0)
-        for component in range(6):
+        force = VecForce(0.0)
+        for component in range(NF):
             force[component] = job.forces[candidate, component]
         # A feasible no-contact fallback prevents a failed warm/LM solution
         # from being worse than doing nothing under the same physical rollout.
-        zero = Vec6(0.0)
+        zero = VecForce(0.0)
         terms = residual(job, zero, candidate)
         zero_cost = wp.dot(terms, terms)
         if zero_cost < job.costs[candidate]:
             force = zero
         physics = job.physics[0]
-        position, quaternion, velocity = predict(physics, force, job.points[2 * candidate], job.points[2 * candidate + 1],
-                                                job.normals[2 * candidate], job.normals[2 * candidate + 1])
+        position, quaternion, velocity = predict(physics, force, job.points, job.normals, candidate)
         terms = residual(job, force, candidate)
         cost = wp.dot(terms, terms)
         task_cost = pose_cost(physics, position, quaternion, job.pos_weight, job.ori_weight)
@@ -434,12 +492,13 @@ def ensure_kernels():
         job.pose_costs[candidate] = task_cost
         job.reductions[candidate] = job.current_pose_cost[0] - task_cost
         job.baseline_reductions[candidate] = job.baseline_cost[0] - task_cost
-        for contact in range(2):
-            n, t1, t2 = frame(job.normals[2 * candidate + contact])
+        for contact in range(NC):
+            n, t1, t2 = frame(job.normals[NC * candidate + contact])
             vector = n * force[3 * contact] + t1 * force[3 * contact + 1] + t2 * force[3 * contact + 2]
-            job.force_vectors_local[2 * candidate + contact] = vector
-        for component in range(6):
+            job.force_vectors_local[NC * candidate + contact] = vector
+        for component in range(NF):
             job.forces[candidate, component] = force[component]
+        for component in range(6):
             job.velocities[candidate, component] = velocity[component]
         for component in range(3):
             job.poses[candidate, component] = position[component]
@@ -465,9 +524,9 @@ def ensure_kernels():
             return
         total_force = wp.vec3(0.0)
         total_torque = wp.vec3(0.0)
-        for contact in range(2):
-            point = job.points[2 * best + contact]
-            normal = job.normals[2 * best + contact]
+        for contact in range(NC):
+            point = job.points[NC * best + contact]
+            normal = job.normals[NC * best + contact]
             n, t1, t2 = frame(normal)
             force = n * job.forces[best, 3 * contact] + t1 * job.forces[best, 3 * contact + 1]
             force += t2 * job.forces[best, 3 * contact + 2]
@@ -482,8 +541,9 @@ def ensure_kernels():
         for component in range(3):
             job.selected_wrench[component] = total_force[component]
             job.selected_wrench[3 + component] = total_torque[component]
-        for component in range(6):
+        for component in range(NF):
             job.selected_forces[component] = job.forces[best, component]
+        for component in range(6):
             job.selected_velocity[component] = job.velocities[best, component]
         for component in range(7):
             job.selected_pose[component] = job.poses[best, component]
@@ -493,22 +553,26 @@ def ensure_kernels():
         job.selected_statistics[3] = job.baseline_reductions[best]
         job.selected_statistics[4] = float(job.accepted[best])
 
-    _KERNELS = SimpleNamespace(wp=wp, Job=Job, Physics=Physics, prepare=prepare,
+    _KERNELS[cache_key] = SimpleNamespace(wp=wp, Job=Job, Physics=Physics, prepare=prepare,
                               initialize=initialize, iteration=iteration,
                               finalize=finalize, select=select, projected_force=projected_force)
-    return _KERNELS
+    return _KERNELS[cache_key]
 
 
 class BatchedLambdaLM:
-    """Batch independent LM solves over six physical contact-force components."""
+    """Batch independent LM solves over 3*n physical contact-force components."""
 
     solver_backend = "lambda_batched_lm_warp"
 
     def __init__(self, *, device="cuda:0", iterations=20, mu=0.9,
                  max_contact_force=10.0, mass=0.2, pos_coef=1.0, ori_coef=0.0005,
                  force_reg_coef=0.0, friction_reg_coef=0.0, damping=1.0e-3,
-                 trust_radius=2.0, fd_step=1.0e-3, initial_normal_force=0.01):
-        self.kernels = ensure_kernels()
+                 trust_radius=2.0, fd_step=1.0e-3, initial_normal_force=0.01, num_contacts=2,
+                 friction_cone="box"):
+        self.kernels = ensure_kernels(num_contacts, friction_cone)
+        self.friction_cone = friction_cone
+        self.num_contacts = int(num_contacts)
+        self.force_dim = 3 * self.num_contacts
         self.device = self.kernels.wp.get_device(device)
         self.iterations = int(iterations)
         if self.iterations < 1:
@@ -546,23 +610,23 @@ class BatchedLambdaLM:
         vector = lambda n: wp.zeros(n, dtype=wp.vec3, device=self.device)
         integer = lambda n: wp.zeros(n, dtype=int, device=self.device)
         matrix = lambda rows, cols: wp.zeros((rows, cols), dtype=float, device=self.device)
-        job.points, job.normals = vector(2 * count), vector(2 * count)
-        job.mask, job.initial, job.use_initial = integer(count), matrix(count, 6), integer(1)
+        job.points, job.normals = vector(self.num_contacts * count), vector(self.num_contacts * count)
+        job.mask, job.initial, job.use_initial = integer(count), matrix(count, self.force_dim), integer(1)
         job.physics = wp.empty(1, dtype=kernels.Physics, device=self.device)
         job.pose, job.target, job.velocity = scalar(7), scalar(7), scalar(6)
         job.external, job.bias, job.inertia = scalar(6), scalar(6), matrix(6, 6)
         job.use_default_gravity = integer(1)
         job.support_row, job.support_gap, job.dt = scalar(6), scalar(1), scalar(1)
-        job.forces, job.poses, job.velocities = matrix(count, 6), matrix(count, 7), matrix(count, 6)
-        job.force_vectors_local = vector(2 * count)
+        job.forces, job.poses, job.velocities = matrix(count, self.force_dim), matrix(count, 7), matrix(count, 6)
+        job.force_vectors_local = vector(self.num_contacts * count)
         for name in ("costs", "pose_costs", "reductions", "baseline_reductions", "damping", "trust"):
             setattr(job, name, scalar(count))
         job.valid, job.accepted = integer(count), integer(count)
         job.baseline_pose, job.baseline_cost, job.current_pose_cost = scalar(7), scalar(1), scalar(1)
         job.selected = integer(1)
         job.selection_override, job.selected_statistics = integer(1), scalar(5)
-        job.selected_points, job.selected_normals, job.selected_vectors = vector(2), vector(2), vector(2)
-        job.selected_forces, job.selected_pose, job.selected_velocity = scalar(6), scalar(7), scalar(6)
+        job.selected_points, job.selected_normals, job.selected_vectors = vector(self.num_contacts), vector(self.num_contacts), vector(self.num_contacts)
+        job.selected_forces, job.selected_pose, job.selected_velocity = scalar(self.force_dim), scalar(7), scalar(6)
         job.selected_wrench = scalar(6)
         for name, value in self.parameters.items():
             setattr(job, name, float(value))
@@ -596,7 +660,7 @@ class BatchedLambdaLM:
                      object_inertia, v_obj=None, tau_o=None, initial_forces=None,
                      valid_mask=None, valid=None, support_row=None, support_gap=0.0,
                      support_stiffness=0.2, support_damping=0.001, bias_wrench=None):
-        """Return device buffers; accept flat Warp vec3 arrays or host N×2×3.
+        """Return device buffers; accept flat Warp vec3 arrays or host (batch, num_contacts, 3).
 
         ``reductions`` compares the current pose with the resulting pose, as
         Isaac's contact-quality policy does.  ``baseline_reductions`` instead
@@ -605,19 +669,19 @@ class BatchedLambdaLM:
         """
         wp = self.kernels.wp
         if isinstance(points, wp.array):
-            if points.dtype != wp.vec3 or len(points.shape) != 1 or points.shape[0] % 2:
-                raise ValueError("device points must be a flat Warp vec3 array with two points per pair")
-            count = points.shape[0] // 2
+            if points.dtype != wp.vec3 or len(points.shape) != 1 or points.shape[0] % self.num_contacts:
+                raise ValueError("device points must be a flat Warp vec3 array with num_contacts points per candidate")
+            count = points.shape[0] // self.num_contacts
         else:
             points = np.asarray(points, dtype=np.float32)
-            if points.ndim != 3 or points.shape[1:] != (2, 3):
-                raise ValueError("points must have shape (N, 2, 3)")
+            if points.ndim != 3 or points.shape[1:] != (self.num_contacts, 3):
+                raise ValueError(f"points must have shape (N, {self.num_contacts}, 3)")
             count = points.shape[0]
             points = points.reshape(-1, 3)
         if count < 1:
             raise ValueError("at least one candidate pair is required")
         if not isinstance(normals, wp.array):
-            normals = np.asarray(normals, dtype=np.float32).reshape(2 * count, 3)
+            normals = np.asarray(normals, dtype=np.float32).reshape(self.num_contacts * count, 3)
         if not isinstance(object_inertia, wp.array):
             inertia = np.asarray(object_inertia, dtype=np.float32)
             if inertia.shape != (6, 6) or not np.isfinite(inertia).all() or not np.allclose(inertia, inertia.T, atol=1.e-7):
@@ -632,8 +696,8 @@ class BatchedLambdaLM:
         if valid is not None and valid_mask is not None:
             raise ValueError("specify only one of valid or valid_mask")
         job = self._allocate(count)
-        self._copy(job.points, points, (2 * count, 3) if not isinstance(points, wp.array) else (2 * count,), "points")
-        self._copy(job.normals, normals, (2 * count, 3) if not isinstance(normals, wp.array) else (2 * count,), "normals")
+        self._copy(job.points, points, (self.num_contacts * count, 3) if not isinstance(points, wp.array) else (self.num_contacts * count,), "points")
+        self._copy(job.normals, normals, (self.num_contacts * count, 3) if not isinstance(normals, wp.array) else (self.num_contacts * count,), "normals")
         self._copy(job.pose, current_x, (7,), "current_x")
         self._copy(job.target, x_d, (7,), "x_d")
         self._copy(job.inertia, object_inertia, (6, 6), "object_inertia")
@@ -667,8 +731,8 @@ class BatchedLambdaLM:
         job.selection_override.fill_(-1)
         if initial_forces is not None:
             if not isinstance(initial_forces, wp.array):
-                initial_forces = np.asarray(initial_forces, np.float32).reshape(count, 6)
-            self._copy(job.initial, initial_forces, (count, 6), "initial_forces")
+                initial_forces = np.asarray(initial_forces, np.float32).reshape(count, self.force_dim)
+            self._copy(job.initial, initial_forces, (count, self.force_dim), "initial_forces")
         with wp.ScopedDevice(self.device):
             if self.device.is_cuda:
                 if self.graph is None:
@@ -724,7 +788,7 @@ class BatchedLambdaLM:
         statistics = batch.selected_statistics.numpy().copy()
         return dict(selected_index=selected, points=batch.selected_points.numpy().copy(),
                     normals=batch.selected_normals.numpy().copy(),
-                    control_input=batch.selected_forces.numpy().reshape(2, 3).copy(),
+                    control_input=batch.selected_forces.numpy().reshape(self.num_contacts, 3).copy(),
                     force_vectors_local=batch.selected_vectors.numpy().copy(),
                     contact_force_world=wrench[:3], contact_torque_world=wrench[3:],
                     x_plus_opt=batch.selected_pose.numpy().copy(),

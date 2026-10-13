@@ -26,6 +26,7 @@ from scipy.spatial.transform import Rotation
 from utils import metrics, rotations
 import argparse
 import mujoco
+from planning.direct_contact_force import add_direct_force_args
 
 
 def add_rollout_via_args(parser):
@@ -116,9 +117,12 @@ def add_rollout_via_args(parser):
 def build_parser():
     parser = argparse.ArgumentParser()
     add_rollout_via_args(parser)
+    add_direct_force_args(parser)
     parser.add_argument('--viewer', action='store_true')
     parser.add_argument('--headless', action='store_true')
     mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--direct_force', '--direct-force', action='store_true',
+                      help='Apply lambda best_contact_point and optimal force directly in MuJoCo; replan until settled.')
     mode.add_argument('--ideal_object_pose', action='store_true',
                       help='Set object pose from lambda_optimizer x_plus_opt every cycle.')
     mode.add_argument('--ideal_contact_pose', action='store_true',
@@ -1652,6 +1656,46 @@ def compute_rollout_contact_via(
             value_tracker._holding_p_arm = useful
     value_info['measured_contact_gain'] = measured_gain
     value_info['switch_observed_contact'] = switch_observed_contact
+    # Evaluate RS immediately before committing its contact target, so a
+    # counterfactual also runs the normal CPO and MPC for the chosen branch.
+    rs_hook = getattr(param, 'rs_decision_hook', None)
+    if rs_hook is not None:
+        from utils.ranking_cdr import contact_decision_context
+        rs_context = contact_decision_context(
+            param.lambda_optimizer, curr_q, p_arm_idx, best_idx,
+            near_arm=near_arm, observed=actual_contact is not None,
+            accept=bool(value_info['accept_p_arm']), hold=bool(hold_occupied),
+            switch_observed=switch_observed_contact,
+            stage=object_cost_stage,
+        )
+        forced = rs_hook(rs_context)
+        if forced is not None:
+            if forced not in ('switch', 'stay') or not rs_context['eligible']:
+                raise ValueError('Counterfactual requires a distinct reachable switch/stay pair')
+            do_switch = forced == 'switch'
+            best_idx = int(rs_context['switch_idx'] if do_switch else p_arm_idx)
+            if do_switch:
+                best_contact_point = param.lambda_optimizer.sample_point[best_idx]
+                normal = param.lambda_optimizer.normal[best_idx]
+                cached_x_plus, cached_force, cached_cost = _candidate_solution(
+                    param.lambda_optimizer, best_idx)
+                best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
+                    curr_q[:3], r_obj_to_world, best_contact_point, normal,
+                    fingertip_radius, args.ideal_contact_surface_margin)
+            else:
+                best_contact_track_world, best_contact_world = p_arm_track_world, p_arm_surface_world
+                best_normal_world = -r_obj_to_world @ p_arm_normal_out
+                cached_x_plus, cached_force, cached_cost = x_plus_opt, info['control_input'], error
+            param.lambda_optimizer.last_selected_idx = best_idx
+            value_info['accept_p_arm'] = value_info['cost_ok'] = not do_switch
+            value_tracker._holding_p_arm = not do_switch
+            hold_occupied = not do_switch
+            switch_observed_contact = do_switch
+            value_info['switch_observed_contact'] = do_switch
+            value_info['rs_forced_decision'] = forced
+            arrived_at_best = arrived_hold = not do_switch
+            arrived_dest_idx = None if do_switch else best_idx
+            approach_via.reset()
     if transition is not None:
         value_info.update(contact_transition_stay_cost=transition['stay_cost'],
             contact_transition_switch_cost=transition['switch_cost'],
@@ -1772,6 +1816,11 @@ def compute_rollout_contact_via(
 def main(args=None):
     if args is None:
         args = build_parser().parse_args()
+    if getattr(args, 'direct_force', False):
+        from examples.mpc.fingertips.test.test_scm_mujoco import run_direct_force
+        if not run_direct_force(args):
+            raise SystemExit(1)
+        return
     os.environ['MUJOCO_HEADLESS'] = '0' if args.viewer else '1'
     use_ideal_object_pose = bool(args.ideal_object_pose)
     use_ideal_contact_pose = bool(args.ideal_contact_pose)

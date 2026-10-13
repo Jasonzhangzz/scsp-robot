@@ -1,0 +1,7 @@
+{
+  "frames": 470,
+  "source_skeleton_max_error_m": 0.0,
+  "source_skeleton_policy": "same calibrated EMF solve used for finger q and MCP alignment",
+  "ramp_frames": 54,
+  "actual_batch_staging_passed": true
+}

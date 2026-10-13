@@ -1,0 +1,50 @@
+
+******************************************************************************
+This program contains Ipopt, a library for large-scale nonlinear optimization.
+ Ipopt is released as open source code under the Eclipse Public License (EPL).
+         For more information visit https://github.com/coin-or/Ipopt
+******************************************************************************
+
+direct_force solver=ipopt object=piggy_bank seed=3 step=0 pos=0.040280 quat=0.992077 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=50 pos=0.056486 quat=0.278163 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=100 pos=0.040912 quat=0.828892 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=150 pos=0.047680 quat=0.862661 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=200 pos=0.044475 quat=0.021266 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=250 pos=0.033260 quat=0.964081 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=300 pos=0.036389 quat=0.881097 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=350 pos=0.033363 quat=0.974766 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=400 pos=0.026439 quat=0.996605 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=450 pos=0.017238 quat=0.058745 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=500 pos=0.016426 quat=0.140320 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=550 pos=0.020905 quat=0.954362 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=600 pos=0.025160 quat=0.073788 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=650 pos=0.022824 quat=0.508252 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=700 pos=0.024105 quat=0.934622 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=750 pos=0.035437 quat=0.644902 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=800 pos=0.035865 quat=0.479988 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=850 pos=0.019492 quat=0.683329 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=900 pos=0.036193 quat=0.444120 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=950 pos=0.025609 quat=0.047247 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1000 pos=0.017816 quat=0.592459 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1050 pos=0.031067 quat=0.876344 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1100 pos=0.030971 quat=0.977173 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1150 pos=0.023615 quat=0.995925 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1200 pos=0.023917 quat=0.100026 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1250 pos=0.014237 quat=0.049501 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1300 pos=0.016206 quat=0.822071 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1350 pos=0.011917 quat=0.889979 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1400 pos=0.018993 quat=0.731780 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1450 pos=0.022102 quat=0.699828 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1500 pos=0.013774 quat=0.014295 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1550 pos=0.022107 quat=0.325967 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1600 pos=0.021051 quat=0.737512 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1650 pos=0.029494 quat=0.552826 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1700 pos=0.019601 quat=0.101540 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1750 pos=0.015017 quat=0.032208 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1800 pos=0.023260 quat=0.139263 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1850 pos=0.028419 quat=0.946596 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1900 pos=0.034682 quat=0.485607 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=1950 pos=0.016172 quat=0.039588 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=2000 pos=0.021205 quat=0.938391 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=2050 pos=0.018961 quat=0.521459 hold=0 success=False
+direct_force solver=ipopt object=piggy_bank seed=3 step=2100 pos=0.052582 quat=0.957537 hold=0 success=False

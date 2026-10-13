@@ -1,0 +1,6 @@
+{
+  "compute_rollout_contact_via_identical_without_inactive_hook": true,
+  "run_mpc_planner_identical_without_inactive_hook": true,
+  "soft_scm_default_prediction_and_jacobian_max_abs_diff": 0.0,
+  "ablation_a1_a2_a3_flipping_forward_arguments_equal": true
+}

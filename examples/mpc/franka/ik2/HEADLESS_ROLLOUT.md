@@ -15,6 +15,18 @@
 两种模式的成功条件均复用 `run_mpc_planner()`；异步模式可能跳过观测，
 受求解器和物理引擎的墙钟速度影响，不能用同步结果代替它的成功率。
 
+CSO 的切向力惩罚 `--friction_reg_coef` 默认为 `0.03`（原值 `1.0`），
+保留正则化，同时减轻对翻转所需切向加载的抑制；命令行仍可覆盖该值。
+CSO 与 MPC 按接触对预测摩擦：Isaac 的指尖—物体为 `1.2`，桌面—物体
+为 `0.7`，由现有材料摩擦 `1.5`、`0.9`、`0.5` 按平均组合规则得到。
+MJWarp 的 Isaac 场景使用同一规则；legacy 场景按最大值组合，分别为
+`1.5` 和 `0.9`。普通及消融入口共用这些默认值，trial JSONL 记录实际
+切向惩罚与两类接触摩擦，便于区分修改前后的实验。
+Franka CSO 与 MPC 共用四射线摩擦锥，即 `|ft1| + |ft2| <= mu * fn`。
+这避免独立切向边界在对角方向额外允许过大的摩擦合力；acados、IPOPT
+与 Torch 求解使用同一约束，trial JSONL 的 `lambda_friction_cone` 记录为
+`pyramid`。
+
 ## acados 修复
 
 新版 acados（0.5.6 起）通过 `ocp.code_gen_options.json_file` 指定生成路径，

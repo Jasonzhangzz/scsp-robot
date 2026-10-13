@@ -111,6 +111,10 @@ from examples.mpc.franka.ik2.contact_frames import (
 from examples.mpc.franka.ik2.isaac_bus_ablation import PolicyActionSchedule, joint_hold_target
 from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
 from planning.contact_limits import DEFAULT_CONTACT_FORCE_LIMIT, contact_force_limit, contact_command_force_limit
+from examples.mpc.franka.ik2.scene_friction import (
+    DEFAULT_TANGENTIAL_FORCE_PENALTY, ROLLOUT_TABLE_FRICTION,
+    ROLLOUT_OBJECT_FRICTION, ROLLOUT_FINGERTIP_FRICTION, configure_scene_friction,
+)
 from models.soft_scm_contact import (
     SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
 )
@@ -179,8 +183,6 @@ ISAAC_TABLE_EDGE_GUARD_DISTANCE = 0.060
 # sent the Franka tip 15 cm from the COM before it could drop.
 ISAAC_ORBIT_EXTRA = 0.0
 NEAR_PRESS_SWITCH = CONTACT_NEAR_PRESS
-ROLLOUT_TABLE_FRICTION = 0.5
-ROLLOUT_OBJECT_FRICTION = 0.9
 
 
 def policy_control_substeps(control_substeps, sim_dt, policy_interval=POLICY_INTERVAL):
@@ -191,7 +193,6 @@ def policy_control_substeps(control_substeps, sim_dt, policy_interval=POLICY_INT
     return n
 
 
-ROLLOUT_FINGERTIP_FRICTION = 1.5
 SVG_SCREENSHOT_CAMERA_POSITION = np.array([0.7, 0.00, 0.63], dtype=np.float32)
 SVG_SCREENSHOT_CAMERA_TARGET = np.array([0.1, 0.00, 0.32], dtype=np.float32)
 
@@ -329,6 +330,8 @@ def _apply_dywa_physics_to_param(param):
     # (table 0.3--0.8, object 0.2--1.0) made some trials unflippable.
     param.table_friction_ = ROLLOUT_TABLE_FRICTION
     param.object_friction_ = ROLLOUT_OBJECT_FRICTION
+    param.fingertip_friction_ = ROLLOUT_FINGERTIP_FRICTION
+    configure_scene_friction(param)
     rollout_mass = float(getattr(param, "lambda_obj_mass_", 0.01))
     param.sim_obj_mass_ = rollout_mass
     param.obj_mass_ = rollout_mass
@@ -668,9 +671,10 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                     if 0 <= k < len(shape_props):
                         shape_props[k].filter = filt
                         if name == "fingertip":
-                            shape_props[k].friction = ROLLOUT_FINGERTIP_FRICTION
-                            shape_props[k].torsion_friction = ROLLOUT_FINGERTIP_FRICTION
-                            shape_props[k].rolling_friction = ROLLOUT_FINGERTIP_FRICTION
+                            fingertip_mu = float(getattr(self.param_, 'fingertip_friction_', ROLLOUT_FINGERTIP_FRICTION))
+                            shape_props[k].friction = fingertip_mu
+                            shape_props[k].torsion_friction = fingertip_mu
+                            shape_props[k].rolling_friction = fingertip_mu
                         assigned = True
         except Exception:
             assigned = False
@@ -1583,7 +1587,8 @@ class ContactIsaacCartesian:
         if_contact = False
 
         contacts_raw = simulator.gym.get_env_rigid_contacts(simulator.env)
-        mu = float(self.param_.mu_object_)
+        mu_fingertip = float(getattr(self.param_, 'mu_fingertip_object_', self.param_.mu_object_))
+        mu_table = float(getattr(self.param_, 'mu_table_object_', self.param_.mu_object_))
         fingertip_sim_idx = fingertip_body_index(simulator)
         quat_xyzw = np.array(
             [obj_quat_wxyz[1], obj_quat_wxyz[2], obj_quat_wxyz[3], obj_quat_wxyz[0]],
@@ -1658,7 +1663,7 @@ class ContactIsaacCartesian:
             # columns use -n_out with relative velocity obj-tip.
             n, t1, t2 = _tangent_basis_from_normal(-n_raw)
             con_jac = np.array(
-                _contact_jacobian(n, t1, t2, j_obj - j_other, mu),
+                _contact_jacobian(n, t1, t2, j_obj - j_other, mu_fingertip),
                 dtype=np.float32,
             )
             phi_vec[4 * row_idx : 4 * row_idx + 4] = dist
@@ -1683,7 +1688,7 @@ class ContactIsaacCartesian:
             # the same support geometry/gaps as MPC, excluding the fingertip.
             for env_idx, point in enumerate(support_points):
                 world_j, body_j = support_patch_jacobians(
-                    obj_pos, r_obj_to_world, point, nv, mu)
+                    obj_pos, r_obj_to_world, point, nv, mu_table)
                 gap = float(point[2] - table_height)
                 if row_idx < max_ncon:
                     phi_vec[4*row_idx:4*row_idx+4] = gap
@@ -2304,6 +2309,8 @@ def _print_rollout_step(
 
 def _add_rollout_policy_args(parser):
     add_rollout_via_args(parser)
+    # Allow tangential loading during a flip without removing regularization.
+    parser.set_defaults(friction_reg_coef=DEFAULT_TANGENTIAL_FORCE_PENALTY)
     parser.add_argument('--ablation-mode', choices=('full', 'a1', 'a2', 'a3'), default='full')
     parser.add_argument('--ablation-collision-weight', type=float, default=10000.0)
     parser.add_argument('--ablation-collision-radius', type=float, default=0.01)
@@ -2326,6 +2333,7 @@ def _add_rollout_policy_args(parser):
                         help='Auto uses surface contacts for mug/duck and dense mesh vertices for other objects.')
     # A flip starts on its side. Smaller explicit tilt ranges remain usable
     # for recovery experiments; --no_random_init_tilt fixes the side axis.
+    # Rotation starts stay upright regardless of these tilt options.
     parser.set_defaults(init_tilt_deg=90.0, init_tilt_min_deg=90.0)
     parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
     parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
@@ -2437,14 +2445,24 @@ def _add_rollout_policy_args(parser):
         help="Extra lower bound for the fingertip-center reference (m). "
              "Default 0.012 m keeps the 10 mm fingertip sphere above the table.",
     )
-    parser.add_argument(
+    task = parser.add_mutually_exclusive_group()
+    task.add_argument(
+        "--rotation", dest="target_type", action="store_const", const="rotation",
+        help="Start upright with the same up axis as the target; rotate without flipping. "
+             "Initial tilt options are ignored.",
+    )
+    task.add_argument(
+        "--flipping", dest="target_type", action="store_const", const="ground-rotation",
+        help="Start tilted and flip into the upright target pose (default).",
+    )
+    task.add_argument(
         "--target-type",
         dest="target_type",
         type=str,
-        default="ground-rotation",
         choices=("ground-rotation", "rotation"),
-        help="ground-rotation matches fingertips --rollout (90 deg pitch flip).",
+        help="Legacy task selector: ground-rotation is --flipping; rotation is --rotation.",
     )
+    parser.set_defaults(target_type="ground-rotation")
     parser.add_argument("--trial-start", type=int, default=0)
     parser.add_argument(
         "--control-substeps",
@@ -2980,6 +2998,10 @@ def run_mpc_planner(bus, args):
             "ablation_collision_weight": (float(args.ablation_collision_weight)
                 if args.ablation_mode == 'a3' else None),
             "target_type": str(getattr(args, "target_type", "")),
+            "friction_reg_coef": float(args.friction_reg_coef),
+            "lambda_friction_cone": str(getattr(param.lambda_optimizer, 'friction_cone', 'box')),
+            "fingertip_object_friction": float(param.mu_fingertip_object_),
+            "table_object_friction": float(param.mu_table_object_),
             "collision_geometry": getattr(param, 'collision_geometry_', 'hull'),
             "collision_part_count": len(getattr(param, 'collision_mesh_paths_', [])),
             "contact_sampling": getattr(param, 'contact_sampling_', 'vertices'),

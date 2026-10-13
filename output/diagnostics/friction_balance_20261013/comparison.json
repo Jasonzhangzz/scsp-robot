@@ -1,0 +1,42 @@
+[
+  {
+    "object": "elephant",
+    "config": "box_0.01",
+    "loaded_snapshots": 8,
+    "median_tangent_normal_ratio": 0.8469059523731712,
+    "max_mpc_cone_utilization": 2.0,
+    "median_mpc_cone_utilization": 0.9566909801510698,
+    "median_elevation_deg": 23.615852437898067,
+    "mean_predicted_tilt_gain_deg": 0.3167093434656145
+  },
+  {
+    "object": "elephant",
+    "config": "pyramid_0.03",
+    "loaded_snapshots": 8,
+    "median_tangent_normal_ratio": 0.32683547822191816,
+    "max_mpc_cone_utilization": 1.0000000000000002,
+    "median_mpc_cone_utilization": 0.359520659271778,
+    "median_elevation_deg": 11.665279295793994,
+    "mean_predicted_tilt_gain_deg": 0.20151235516096122
+  },
+  {
+    "object": "stanford_bunny2",
+    "config": "box_0.01",
+    "loaded_snapshots": 9,
+    "median_tangent_normal_ratio": 1.370267707412554,
+    "max_mpc_cone_utilization": 2.0,
+    "median_mpc_cone_utilization": 1.5512823371578868,
+    "median_elevation_deg": 27.823227145976826,
+    "mean_predicted_tilt_gain_deg": 0.5235646626109813
+  },
+  {
+    "object": "stanford_bunny2",
+    "config": "pyramid_0.03",
+    "loaded_snapshots": 8,
+    "median_tangent_normal_ratio": 0.733774122865533,
+    "max_mpc_cone_utilization": 1.0000000000000002,
+    "median_mpc_cone_utilization": 0.7961713328471957,
+    "median_elevation_deg": 14.927180030662903,
+    "mean_predicted_tilt_gain_deg": 0.4503924551869236
+  }
+]

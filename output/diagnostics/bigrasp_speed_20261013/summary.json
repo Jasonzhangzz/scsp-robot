@@ -1,0 +1,36 @@
+{
+  "before": {
+    "cycles": 600,
+    "contact_ids": [
+      0,
+      20
+    ],
+    "first_both_within_30mm_sim_seconds": 2.87,
+    "first_both_within_30mm_loop_wall_seconds": 9.775769184343517,
+    "first_bilateral_contact_sim_seconds": 1.46,
+    "solver_failures": 0,
+    "plan_median_ms": 9.69455498852767,
+    "plan_p95_ms": 11.728620523354039,
+    "height_gain_final_mm": 3.229531128278895,
+    "height_gain_max_mm": 11.657457081502676,
+    "net_horizontal_displacement_mm": 14.775237815429314,
+    "success": false
+  },
+  "after": {
+    "cycles": 600,
+    "contact_ids": [
+      0,
+      20
+    ],
+    "first_both_within_30mm_sim_seconds": 1.01,
+    "first_both_within_30mm_loop_wall_seconds": 3.7767703261924908,
+    "first_bilateral_contact_sim_seconds": 1.19,
+    "solver_failures": 0,
+    "plan_median_ms": 10.39272648631595,
+    "plan_p95_ms": 11.987756742746566,
+    "height_gain_final_mm": 43.65962660999156,
+    "height_gain_max_mm": 51.001450400154525,
+    "net_horizontal_displacement_mm": 41.271044543654845,
+    "success": false
+  }
+}

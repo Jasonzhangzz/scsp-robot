@@ -1,8 +1,8 @@
 """Offline/global and live/cone contact selection using batched Warp LM.
 
-Only mesh preprocessing and small simulator input/output transfers use the
-host. Candidate filtering, dynamics, LM and contact quality selection run on
-the selected Warp device.
+The two-contact policy keeps candidate filtering and selection on Warp.
+The n-contact policy builds bounded, assigned candidates on the host. Both
+policies use the same Warp dynamics, force projection and LM iterations.
 """
 
 from types import SimpleNamespace
@@ -280,17 +280,55 @@ def ensure_selection_kernels():
             summary[38] = pose_costs[row]
             summary[39] = reductions[row]
 
+    @wp.kernel(enable_backward=False)
+    def keep_loaded_pair(valid: wp.array(dtype=int), selected: wp.array(dtype=int)):
+        if valid[1] != 0:
+            selected[0] = 1
+            selected[1] = 0
+
+    @wp.kernel(enable_backward=False)
+    def retain_incumbent(valid: wp.array(dtype=int)):
+        valid[1] = 1
+
+    @wp.kernel(enable_backward=False)
+    def verify_pair(points: wp.array(dtype=wp.vec3), tips: wp.array(dtype=wp.vec3),
+                    reductions: wp.array(dtype=float), margin: float,
+                    selected: wp.array(dtype=int), verification: wp.array(dtype=float)):
+        """A summed distance gain cannot conceal the other arm's loss."""
+        row = int(selected[0])
+        accept = bool(row >= 0)
+        for arm in range(2):
+            gain = float(-1.e30)
+            if row >= 0:
+                gain = wp.length(points[2 + arm] - tips[arm]) - wp.length(points[2 * row + arm] - tips[arm])
+            verification[arm] = gain
+            accept = accept and wp.isfinite(gain) and gain >= -margin
+        # Both arms share the object's goal cost; never buy shorter reaches
+        # with a worse predicted object response.
+        if row >= 0:
+            accept = accept and wp.isfinite(reductions[row]) and reductions[row] >= reductions[1] - 1.e-9
+        verification[2] = float(accept)
+        if not accept:
+            selected[0] = 1
+        selected[1] = 0
+
     _SELECTION = SimpleNamespace(wp=wp, select_global=select_global,
         assemble_online=assemble_online, select_online=select_online,
         support_geometry=support_geometry, gather=gather, prepare_inputs=prepare_inputs,
-        assemble_device=assemble_device, support_device=support_device)
+        assemble_device=assemble_device, support_device=support_device, keep_loaded_pair=keep_loaded_pair,
+        retain_incumbent=retain_incumbent, verify_pair=verify_pair)
     return _SELECTION
 
 
 class LambdaContactBatchedLM:
-    """Two-arm lambda contact policy with an offline reference and live cones."""
+    """Shared Lambda policy; num_contacts defaults to the existing two-pad path."""
 
-    def __init__(self, mesh_path, *, scale_factors=(1.0, 1.0, 1.0), sample_num=70,
+    def __new__(cls, *args, num_contacts=2, **kwargs):
+        if cls is LambdaContactBatchedLM and num_contacts != 2:
+            return object.__new__(LambdaContactMultiLM)
+        return object.__new__(cls)
+
+    def __init__(self, mesh_path, *, num_contacts=2, scale_factors=(1.0, 1.0, 1.0), sample_num=70,
                  obj_mass=0.1, arm_friction=0.9, contact_stiffness=0.2,
                  time_step=0.01, pos_coef=1.0, ori_coef=0.0005,
                  tip_radius=0.01, device="cuda:0", seed=0, lm_iterations=20,
@@ -300,7 +338,8 @@ class LambdaContactBatchedLM:
                  max_contact_force=10.0, force_reg_coef=0.0, friction_reg_coef=0.0,
                  support_surface_point=None, support_surface_normal=None,
                  support_surface_clearance=0.0, body_sides=False,
-                 body_core_fraction=0.5, body_side_normal_cos=0.85, comfree_damping=0.001, **unused):
+                 body_core_fraction=0.5, body_side_normal_cos=0.85, comfree_damping=0.001,
+                 friction_cone="box", **unused):
         from models.comfree_gs_torch import GaussianCloud
         from planning.contact_candidates_warp import SurfaceContactCandidates
         from planning.lambda_batched_lm import BatchedLambdaLM
@@ -329,9 +368,10 @@ class LambdaContactBatchedLM:
         dense = self.surface.dense_points_local
         stride = max(1, len(dense) // 1024)
         self.cloud = GaussianCloud(np.vstack((self.sample_point, dense[::stride])), radius=0.004)
-        self.lm = BatchedLambdaLM(device=device, iterations=lm_iterations,
+        self.lm = BatchedLambdaLM(device=device, iterations=lm_iterations, num_contacts=num_contacts,
             mass=obj_mass, mu=arm_friction, max_contact_force=max_contact_force, pos_coef=pos_coef,
-            ori_coef=ori_coef, force_reg_coef=force_reg_coef, friction_reg_coef=friction_reg_coef)
+            ori_coef=ori_coef, force_reg_coef=force_reg_coef, friction_reg_coef=friction_reg_coef,
+            friction_cone=friction_cone)
         self.k = ensure_selection_kernels()
         wp = self.k.wp
         self._tips = wp.zeros(2, dtype=wp.vec3, device=device)
@@ -342,6 +382,7 @@ class LambdaContactBatchedLM:
         self._target = wp.zeros(7, dtype=float, device=device)
         self._choice = wp.zeros(2, dtype=int, device=device)
         self._diagnostics = wp.zeros(5, dtype=float, device=device)
+        self._verification = wp.zeros(3, dtype=float, device=device)
         self._summary = wp.zeros(40, dtype=float, device=device)
         self._chosen_ids = wp.zeros(2, dtype=int, device=device)
         self._offline_ids = wp.full(2, -1, dtype=int, device=device)
@@ -357,6 +398,7 @@ class LambdaContactBatchedLM:
         self.last_grasp_result = None
         self.enable_timing_prints = False
         self._online = None
+        self._fixed = None
         self._initialized = False
         self.offline_solve_count = 0
         self.online_solve_count = 0
@@ -364,6 +406,7 @@ class LambdaContactBatchedLM:
     def reset(self):
         self._initialized = False
         self.last_grasp_result = None
+        self._fixed = None
         self._offline_ids.fill_(-1)
         self._active_ids.fill_(-1)
         self.offline_solve_count = self.online_solve_count = 0
@@ -419,7 +462,7 @@ class LambdaContactBatchedLM:
                           support_stiffness=self.K_contact, support_damping=self.comfree_damping)
         return self.lm.solve_device(batch.points, batch.normals, **kwargs)
 
-    def _result(self, batch, result, prediction_dt, started, offline):
+    def _result(self, batch, result, prediction_dt, started, offline, locked=False):
         wp = self.k.wp
         row = int(self._choice.numpy()[0])
         if row < 0:
@@ -436,6 +479,7 @@ class LambdaContactBatchedLM:
         self._initialized = True
         diag = self._diagnostics.numpy().astype(float)
         info = dict(solver_backend="lambda_warp_batched_lm", solver_failed=False,
+            selection_failed=False,
             contact_model="asu_comfree", comfree_stiffness=self.K_contact,
             comfree_damping=self.comfree_damping,
             solve_time=time.perf_counter() - started, prediction_dt=float(prediction_dt),
@@ -455,6 +499,7 @@ class LambdaContactBatchedLM:
             curvature_mean=self.surface.curvature_mean[ids].copy(),
             contact_region="body_sides" if self.surface.body_sides else "all",
             offline_solve_count=self.offline_solve_count, online_solve_count=self.online_solve_count)
+        info["contact_pair_locked"] = bool(locked and row == 1)
         self.last_grasp_result = dict(info, contact_points=points.copy(),
             witness_contact_forces_local=coefficients.copy(), witness_force_vectors_local=vectors.copy(),
             total_cost=float(values[37]), valid=True)
@@ -480,9 +525,13 @@ class LambdaContactBatchedLM:
         return self._result(batch, result, dt, started, True)
 
     def update_contacts(self, x_d, current_x, *, tips_world, object_inertia,
-                        v_obj=None, tau_o=None, prediction_dt=None):
+                        v_obj=None, tau_o=None, prediction_dt=None, lock_contact_pair=False,
+                        freeze_contact_pair=False, joint_verify=False):
         if not self._initialized:
             return self.initialize_offline(x_d, current_x, tips_world=tips_world,
+                object_inertia=object_inertia, v_obj=v_obj, tau_o=tau_o, prediction_dt=prediction_dt)
+        if freeze_contact_pair:
+            return self.update_fixed_contacts(x_d, current_x, tips_world=tips_world,
                 object_inertia=object_inertia, v_obj=v_obj, tau_o=tau_o, prediction_dt=prediction_dt)
         from planning.contact_candidates_warp import PairCandidateBatch
         started = time.perf_counter()
@@ -507,10 +556,276 @@ class LambdaContactBatchedLM:
             float(np.cos(np.deg2rad(self.cone_half_angle_deg))), int(self.support_surface_normal is not None),
             self._support_local, self.tip_radius,
             self.support_surface_clearance, batch.points, batch.normals, batch.ids, batch.valid], device=self.device)
+        if joint_verify:
+            # The existing pair remains the comparison baseline even outside
+            # the search cones. Losing a cone alone does not authorize a switch.
+            wp.launch(self.k.retain_incumbent, dim=1, inputs=[batch.valid], device=self.device)
         result = self._solve(batch, pose, target, object_inertia=object_inertia,
                              v_obj=v_obj, tau_o=tau_o, prediction_dt=dt)
         wp.launch(self.k.select_online, dim=1, inputs=[result.reductions, result.valid, batch.points,
             self._tips, self._current, self._target, self.pos_coef, self.ori_coef,
             self.quality_fraction, self.switch_margin, self._choice, self._diagnostics], device=self.device)
+        if joint_verify:
+            wp.launch(self.k.verify_pair, dim=1, inputs=[batch.points, self._tips,
+                result.reductions, self.switch_margin, self._choice, self._verification], device=self.device)
+        if lock_contact_pair:
+            wp.launch(self.k.keep_loaded_pair, dim=1, inputs=[result.valid, self._choice], device=self.device)
+        chosen = int(self._choice.numpy()[0])
+        if chosen < 0 or not bool(result.valid.numpy()[chosen]):
+            # Live cone/support filtering may reject every row, including
+            # row 0. Preserve the current assignment rather than inventing a
+            # new pair or returning a stale pose/force prediction.
+            output = self._update_pair_forces(self._active_ids.numpy(), x_d, current_x,
+                tips_world=tips_world, object_inertia=object_inertia, v_obj=v_obj,
+                tau_o=tau_o, prediction_dt=dt)
+            output[4].update(source="incumbent_fallback", selection_failed=True,
+                selection_failure_reason="no_admissible_online_pair", contact_pair_frozen=False,
+                pair_switch_approved=False, rejected_candidate_capacity=batch.capacity,
+                solve_time=time.perf_counter() - started)
+            self.last_grasp_result.update(output[4])
+            return output
+        previous_ids = self._active_ids.numpy().copy() if joint_verify else None
         self.online_solve_count += 1
-        return self._result(batch, result, dt, started, False)
+        output = self._result(batch, result, dt, started, False, locked=lock_contact_pair)
+        if joint_verify:
+            verification = self._verification.numpy().astype(float)
+            switched = not np.array_equal(previous_ids, output[4]["contact_indices"])
+            output[4].update(verify_cost=verification[:2],
+                             pair_switch_approved=bool(verification[2]) and switched,
+                             contact_pair_frozen=False)
+            self.last_grasp_result.update(output[4])
+        return output
+
+    def update_fixed_contacts(self, x_d, current_x, *, tips_world, object_inertia,
+                              v_obj=None, tau_o=None, prediction_dt=None):
+        """Reoptimize forces at the initial assigned pair without reselection.
+
+        Cone membership and measured contact loss cannot change either anchor
+        or the left/right assignment in this diagnostic mode.
+        """
+        if not self._initialized:
+            return self.initialize_offline(x_d, current_x, tips_world=tips_world,
+                object_inertia=object_inertia, v_obj=v_obj, tau_o=tau_o, prediction_dt=prediction_dt)
+        return self._update_pair_forces(self._offline_ids.numpy(), x_d, current_x,
+            tips_world=tips_world, object_inertia=object_inertia, v_obj=v_obj,
+            tau_o=tau_o, prediction_dt=prediction_dt)
+
+    def _update_pair_forces(self, ids, x_d, current_x, *, tips_world, object_inertia,
+                            v_obj=None, tau_o=None, prediction_dt=None):
+        """Refresh forces/prediction at an already assigned, ordered pair."""
+        from planning.contact_candidates_warp import PairCandidateBatch
+        started = time.perf_counter()
+        dt = self.h if prediction_dt is None else float(prediction_dt)
+        pose, target, _, _ = self._inputs(x_d, current_x, tips_world)
+        wp = self.k.wp
+        ids = np.asarray(ids, dtype=int).reshape(2).copy()
+        if self._fixed is None or not np.array_equal(self._fixed.ids.numpy()[0], ids):
+            self._fixed = PairCandidateBatch(
+                wp.array(self.sample_point[ids], dtype=wp.vec3, device=self.device),
+                wp.array(self.normal[ids], dtype=wp.vec3, device=self.device),
+                wp.array(ids.reshape(1, 2), dtype=int, device=self.device),
+                wp.ones(1, dtype=int, device=self.device),
+                wp.zeros(1, dtype=float, device=self.device), 1)
+        result = self._solve(self._fixed, pose, target, object_inertia=object_inertia,
+                             v_obj=v_obj, tau_o=tau_o, prediction_dt=dt)
+        if not bool(result.valid.numpy()[0]):
+            raise FloatingPointError("Lambda force optimization failed for assigned pair %s" % ids.tolist())
+        self._choice.zero_()
+        self._diagnostics.zero_()
+        self.online_solve_count += 1
+        points, normals, predicted, cost, info = self._result(
+            self._fixed, result, dt, started, False)
+        info.update(source="fixed_pair", contact_pair_locked=True, contact_pair_frozen=True,
+                    verify_cost=np.zeros(2), pair_switch_approved=False)
+        self.last_grasp_result.update(info)
+        return points, normals, predicted, cost, info
+
+
+class LambdaContactMultiLM(LambdaContactBatchedLM):
+    """n-contact policy using the very same Warp force LM as the two-pad policy.
+
+    Bounded candidate generation and assignment run on the host; dynamics,
+    force projection and every LM iteration run on the requested Warp device.
+    Contacts remain in fingertip order, including when their forces are updated.
+    """
+
+    def __init__(self, *args, num_contacts=4, candidate_capacity=256, seed=0,
+                 require_force_closure=False, **kwargs):
+        super().__init__(*args, num_contacts=num_contacts, seed=seed, **kwargs)
+        self.num_contacts = int(num_contacts)
+        self.candidate_capacity = int(candidate_capacity)
+        if self.num_contacts < 1 or self.candidate_capacity < 1:
+            raise ValueError("Contact count and candidate capacity must be positive")
+        self.rng = np.random.default_rng(seed)
+        self.active_ids = self.offline_ids = None
+        self.last_batch_ids = None
+        self.require_force_closure = bool(require_force_closure)
+        self._closure_cache = {}
+
+    def reset(self):
+        self.lm.reset()
+        self.active_ids = self.offline_ids = None
+        self.last_grasp_result = None
+        self.offline_solve_count = self.online_solve_count = 0
+
+    def _inputs(self, x_d, current_x, tips_world):
+        from scipy.spatial.transform import Rotation
+        pose = np.asarray(current_x, float).reshape(7).copy()
+        target = np.asarray(x_d, float).reshape(7).copy()
+        tips = np.asarray(tips_world, float).reshape(self.num_contacts, 3)
+        if not all(np.isfinite(a).all() for a in (pose, target, tips)):
+            raise ValueError("Lambda poses and fingertips must be finite")
+        for q in (pose[3:], target[3:]):
+            length = np.linalg.norm(q)
+            if length < 1e-12:
+                raise ValueError("Lambda quaternion must be nonzero")
+            q /= length
+        rotation = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
+        return pose, target, (tips - pose[:3]) @ rotation, rotation
+
+    def _candidate_ids(self, pose, rotation, tips, *, offline):
+        from scipy.optimize import linear_sum_assignment
+        points, normals = self.sample_point, self.normal
+        eligible = np.ones(self.sample_num, dtype=bool)
+        if self.support_surface_point is not None:
+            centers = pose[:3] + (points - self.tip_radius * normals) @ rotation.T
+            clearance = (centers - self.support_surface_point) @ self.support_surface_normal - self.tip_radius
+            eligible &= clearance >= self.support_surface_clearance
+        pools = []
+        for tip in tips:
+            delta = points - tip
+            distance = np.linalg.norm(delta, axis=1)
+            keep = eligible.copy()
+            if not offline:
+                heading = self.surface.geometric_center_local - tip
+                length = np.linalg.norm(heading)
+                if length > 1e-8:
+                    along = delta @ (heading / length)
+                    keep &= (along > 0) & (along <= length + self.surface.object_radius)
+                    keep &= along / np.maximum(distance, 1e-10) >= np.cos(np.deg2rad(self.cone_half_angle_deg))
+                    keep &= np.einsum("ij,ij->i", -normals, tip - points) > 0
+                else:
+                    keep[:] = False
+            ids = np.flatnonzero(keep)
+            ids = ids[np.argsort(distance[ids])]
+            pools.append(ids if offline else ids[:self.max_per_arm])
+        candidates = []
+        if self.active_ids is not None:
+            candidates.append(self.active_ids.copy())
+        if any(len(pool) == 0 for pool in pools):
+            if candidates:
+                return np.asarray(candidates)
+            raise RuntimeError("No admissible Lambda surface patches above the support")
+        if offline:
+            ids = pools[0]
+            if len(ids) < self.num_contacts:
+                raise RuntimeError("Too few surface patches for the requested contacts")
+            # Also consider the nearest distinct assignment as a reachable seed.
+            _, columns = linear_sum_assignment(np.linalg.norm(tips[:, None] - points[ids], axis=2))
+            candidates.append(ids[columns])
+        attempts = max(self.candidate_capacity * 20, 100)
+        seen = {tuple(row) for row in candidates}
+        for _ in range(attempts):
+            if len(candidates) >= self.candidate_capacity:
+                break
+            if offline:
+                row = self.rng.choice(pools[0], self.num_contacts, replace=False)
+                _, assignment = linear_sum_assignment(np.linalg.norm(tips[:, None] - points[row], axis=2))
+                row = row[assignment]
+            else:
+                row = np.array([self.rng.choice(pool) for pool in pools])
+            if len(set(row)) != self.num_contacts or tuple(row) in seen:
+                continue
+            distances = np.linalg.norm(points[row, None] - points[row][None], axis=2)
+            distances += np.eye(self.num_contacts) * 1e6
+            if distances.min() < 2 * self.tip_radius:
+                continue
+            candidates.append(row)
+            seen.add(tuple(row))
+        if not candidates:
+            raise RuntimeError("No separated Lambda contact set is available")
+        return np.asarray(candidates, dtype=int)
+
+    def _solve_multi(self, ids, x_d, current_x, *, tips_world, object_inertia,
+                     v_obj=None, tau_o=None, prediction_dt=None, offline=False):
+        started = time.perf_counter()
+        pose, target, tips, rotation = self._inputs(x_d, current_x, tips_world)
+        ids = np.asarray(ids, int).reshape(-1, self.num_contacts)
+        if np.any(ids < 0) or np.any(ids >= self.sample_num):
+            raise ValueError("Contact indices must index the sampled surface")
+        dt = self.h if prediction_dt is None else float(prediction_dt)
+        self.last_batch_ids = ids.copy()
+        batch = self.lm.solve_device(self.sample_point[ids], self.normal[ids], current_x=pose,
+            x_d=target, object_inertia=object_inertia, v_obj=v_obj, tau_o=tau_o,
+            prediction_dt=dt)
+        reductions, valid = batch.reductions.numpy(), batch.valid.numpy().astype(bool)
+        closure = np.ones(len(ids), dtype=bool)
+        if self.require_force_closure:
+            from planning.grasp_verification import verify_grasp
+            for i, row in enumerate(ids):
+                key = tuple(sorted(row.tolist()))
+                if key not in self._closure_cache:
+                    self._closure_cache[key] = verify_grasp(self.sample_point[row], self.normal[row], self.mu_arm_obj)
+                closure[i] = self._closure_cache[key]["force_closure"]
+            valid &= closure
+        self.last_candidate_force_closure = closure
+        if not valid.any():
+            raise FloatingPointError("No valid n-contact Lambda result with the required force closure")
+        best = np.max(reductions[valid])
+        margin = max(self.quality_fraction * abs(float(best)), 1e-9)
+        quality = valid & (reductions >= best - margin)
+        distances = np.linalg.norm(self.sample_point[ids] - tips[None], axis=2)
+        geometry = distances.sum(axis=1) + self.curvature_penalty_weight * self.surface.curvature_mean[ids].sum(axis=1)
+        # Allegro has one thumb opposing a bank of fingers. Expose the
+        # quality shortlist so a caller can check its coupled kinematics.
+        self.last_candidate_quality = quality.copy()
+        self.last_candidate_reductions = reductions.copy()
+        self.last_candidate_valid = valid.copy()
+        self.last_candidate_geometry = geometry.copy()
+        selected = int(np.argmin(np.where(quality, geometry, np.inf)))
+        if not offline and self.active_ids is not None and len(ids) > 1:
+            # A shorter total reach must not hide a loss for another fingertip.
+            gains = distances[0] - distances[selected]
+            if reductions[selected] < reductions[0] - 1e-9 or np.any(gains < -self.switch_margin):
+                selected = 0
+        result = self.lm.gather_selected(selected, batch=batch)
+        self.active_ids = ids[selected].copy()
+        if offline:
+            self.offline_ids = self.active_ids.copy()
+            self.offline_solve_count += 1
+        else:
+            self.online_solve_count += 1
+        info = dict(result, contact_indices=self.active_ids.copy(),
+            contact_points=result["points"].copy(), contact_normals=result["normals"].copy(),
+            witness_contact_forces_local=result["control_input"].copy(),
+            witness_force_vectors_local=result["force_vectors_local"].copy(),
+            total_cost=result["cost"], cost_reduction=result["pose_reduction"],
+            candidate_capacity=len(ids), valid=True,
+            source="offline_global" if offline else "online_cones",
+            solve_time=time.perf_counter() - started, prediction_dt=dt)
+        self.last_grasp_result = info
+        if self.require_force_closure:
+            info["force_closure_certificate"] = self._closure_cache[tuple(sorted(self.active_ids.tolist()))].copy()
+        if self.enable_timing_prints:
+            print(f"lambda LM n={self.num_contacts}: candidates={len(ids)} time={info['solve_time']*1000:.1f}ms")
+        return result["points"], result["normals"], result["x_plus_opt"], result["cost"], info
+
+    def initialize_offline(self, x_d, current_x, *, tips_world, **kwargs):
+        pose, _, tips, rotation = self._inputs(x_d, current_x, tips_world)
+        ids = self._candidate_ids(pose, rotation, tips, offline=True)
+        return self._solve_multi(ids, x_d, current_x, tips_world=tips_world, offline=True, **kwargs)
+
+    def update_contacts(self, x_d, current_x, *, tips_world, freeze_contact_pair=True,
+                        lock_contact_pair=False, joint_verify=True, **kwargs):
+        if self.active_ids is None:
+            return self.initialize_offline(x_d, current_x, tips_world=tips_world, **kwargs)
+        if freeze_contact_pair or lock_contact_pair:
+            ids = self.active_ids[None]
+        else:
+            pose, _, tips, rotation = self._inputs(x_d, current_x, tips_world)
+            ids = self._candidate_ids(pose, rotation, tips, offline=False)
+        return self._solve_multi(ids, x_d, current_x, tips_world=tips_world, **kwargs)
+
+    def update_fixed_contacts(self, contact_indices, x_d, current_x, *, tips_world, **kwargs):
+        return self._solve_multi(np.asarray(contact_indices).reshape(1, self.num_contacts),
+            x_d, current_x, tips_world=tips_world, **kwargs)

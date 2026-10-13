@@ -1,0 +1,27 @@
+[
+  {
+    "name": "original_native",
+    "wall_s": 2.2989997221156955,
+    "cpu_s": 3.235285928
+  },
+  {
+    "name": "current_native",
+    "wall_s": 2.044209591113031,
+    "cpu_s": 2.869810330000001
+  },
+  {
+    "name": "original_camera",
+    "wall_s": 0.9084799271076918,
+    "cpu_s": 0.9088468669999994
+  },
+  {
+    "name": "current_camera",
+    "wall_s": 0.9010260510258377,
+    "cpu_s": 0.8389361730000005
+  },
+  {
+    "name": "original_with_corrected_input",
+    "wall_s": 2.1008027577772737,
+    "cpu_s": 2.7623424660000016
+  }
+]

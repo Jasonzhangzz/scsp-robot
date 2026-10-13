@@ -58,6 +58,7 @@ def test_trial_reward_uses_observed_success(
     param = SimpleNamespace(
         target_p_=np.zeros(3), target_q_=np.array([1, 0, 0, 0]),
         lambda_optimizer=SimpleNamespace(contact_switch_confidence=1, sample_point=np.zeros((1, 3))), table_height=0,
+        mu_fingertip_object_=1.2, mu_table_object_=0.7,
     )
     policy = {
         'value_info': {}, 'escape_on': False,
@@ -94,7 +95,8 @@ def test_trial_reward_uses_observed_success(
     exec(compile(ast.Module(body=[run], type_ignores=[]), str(source), 'exec'), namespace)
     output = tmp_path / 'trials.jsonl'
     args = SimpleNamespace(trial_start=0, trial_num=1, max_rollout_length=1,
-                           control_substeps=0, obj='fixture', ranking_metrics_jsonl=str(output))
+                           control_substeps=0, obj='fixture', ranking_metrics_jsonl=str(output),
+                           friction_reg_coef=0.01)
     assert namespace['run_mpc_planner'](bus, args) is aborted
     record = json.loads(output.read_text())
     assert bool(record['success']) is success
@@ -102,4 +104,7 @@ def test_trial_reward_uses_observed_success(
     assert record['completion_steps'] == (steps if success else None)
     assert record['terminal_reward'] == pytest.approx(0.9**steps if success else 0)
     assert record['aborted'] is aborted
+    assert record['friction_reg_coef'] == 0.01
+    assert record['fingertip_object_friction'] == 1.2
+    assert record['table_object_friction'] == 0.7
     assert len([cmd for cmd in bus.actions if cmd.get('kind') == 'via']) == steps

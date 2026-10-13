@@ -1,0 +1,6 @@
+surrogate summary: steps=100 final_pos=0.018839 final_quat=0.000213 success=True
+surrogate direction_error mean=9.197045e-01
+surrogate magnitude_error mean=5.318840e-02
+surrogate lambda_gap_D mean=3.646517e-02
+surrogate gamma_env mean=1.452945e+00
+surrogate coupling_norm mean=3.825208e-02

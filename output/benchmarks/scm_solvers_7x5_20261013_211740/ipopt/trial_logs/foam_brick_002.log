@@ -1,0 +1,28 @@
+
+******************************************************************************
+This program contains Ipopt, a library for large-scale nonlinear optimization.
+ Ipopt is released as open source code under the Eclipse Public License (EPL).
+         For more information visit https://github.com/coin-or/Ipopt
+******************************************************************************
+
+direct_force solver=ipopt object=foam_brick seed=2 step=0 pos=0.135122 quat=0.651477 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=50 pos=0.071406 quat=0.555555 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=100 pos=0.057144 quat=0.639908 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=150 pos=0.038819 quat=0.999994 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=200 pos=0.035584 quat=0.605921 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=250 pos=0.032345 quat=0.177616 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=300 pos=0.025771 quat=0.118365 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=350 pos=0.024427 quat=0.116608 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=400 pos=0.023709 quat=0.105840 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=450 pos=0.022349 quat=0.100831 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=500 pos=0.022258 quat=0.100138 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=550 pos=0.022324 quat=0.099507 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=600 pos=0.022332 quat=0.099327 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=650 pos=0.022323 quat=0.001445 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=700 pos=0.020289 quat=0.001433 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=750 pos=0.018803 quat=0.000419 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=800 pos=0.017827 quat=0.000139 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=850 pos=0.016991 quat=0.000129 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=900 pos=0.016063 quat=0.000098 hold=3 success=False
+direct_force solver=ipopt object=foam_brick seed=2 step=909 pos=0.016221 quat=0.000166 hold=12 success=True
+TRIAL_RESULT {"solver": "ipopt", "object": "foam_brick", "seed": 2, "steps": 910, "success": true, "settled": true, "final_pos": 0.016220751950527725, "final_quat": 0.00016570515666936014, "solver_backends": ["ipopt"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T23:15:08+08:00", "completed_at": "2026-10-13T23:24:28+08:00", "execution_time_s": 557.3288178740186, "elapsed_wall_time_s": 557.3288178740186, "simulation_time_s": 18.200000000002934, "planning_time_ms": {"n": 910, "mean": 610.6858055592786, "std": 279.2140654709665, "median": 521.7606284713838, "p95": 1223.4990153228864, "min": 272.12696900824085, "max": 2047.7153430110775}, "planning_rounds": 910}

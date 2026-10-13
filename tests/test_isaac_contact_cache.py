@@ -283,11 +283,12 @@ def test_episode_end_is_delivered_after_an_occupied_action_queue():
 
 @pytest.mark.parametrize('gap,physical', [(.0005,False),(-.0005,True)])
 @pytest.mark.parametrize('reverse', [False, True])
-def test_contact_observation_uses_surface_gap_and_inward_object_jacobian(gap, physical, reverse):
+@pytest.mark.parametrize('entry', ['test_mpc_isaac', 'test_mpc_isaac_ablation'])
+def test_contact_observation_uses_surface_gap_and_inward_object_jacobian(gap, physical, reverse, entry):
     from scipy.spatial.transform import Rotation
     from examples.mpc.franka.ik2 import physx_contact as pc
     from examples.mpc.franka.ik2 import contact_frames as cf
-    source = Path(__file__).resolve().parents[1]/'examples/mpc/franka/ik2/test_mpc_isaac.py'
+    source = Path(__file__).resolve().parents[1]/('examples/mpc/franka/ik2/'+entry+'.py')
     tree = ast.parse(source.read_text())
     cls = next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='ContactIsaacCartesian')
     ns = dict(np=np, Rotation=Rotation, **{k:getattr(pc,k) for k in
@@ -297,6 +298,7 @@ def test_contact_observation_uses_surface_gap_and_inward_object_jacobian(gap, ph
         contact_jacobian_angular_body_frame=cf.contact_jacobian_angular_body_frame)
     exec(compile(ast.Module(body=[cls],type_ignores=[]),str(source),'exec'),ns)
     p=SimpleNamespace(n_qvel_=9,max_ncon_=10,mu_object_=.5,table_height=.35,
+        mu_fingertip_object_=1.2,mu_table_object_=.7,
         object_vertices_=np.array([[0,0,-.04],[0,0,.04]]))
     obj=np.array([.4,0,.39]); surface=obj+np.array([.04,0,0]); tip=surface+np.array([.01+gap,0,0])
     row=np.array((max(0.,-gap),0.),dtype=[('initial_overlap',float),('lambda',float)])
@@ -318,3 +320,7 @@ def test_contact_observation_uses_surface_gap_and_inward_object_jacobian(gap, ph
     assert detector.env_phi[0] == pytest.approx(0.,abs=1e-7)
     assert phi[4] == pytest.approx(detector.env_phi[0])
     assert np.mean(env_j[:4],axis=0)[2] == pytest.approx(1.)
+    # Distinct measured pairs must reach both MPC and CSO support matrices.
+    assert np.linalg.norm((j[0,:3]-j[2,:3])/2) == pytest.approx(1.2,abs=1e-7)
+    assert np.linalg.norm((j[4,:3]-j[6,:3])/2) == pytest.approx(.7,abs=1e-7)
+    assert np.linalg.norm((env_j[0,:3]-env_j[2,:3])/2) == pytest.approx(.7,abs=1e-7)

@@ -1,0 +1,56 @@
+{
+  "trial": {
+    "success": false,
+    "cycles": 600,
+    "initial_contact_indices": [
+      0,
+      20
+    ],
+    "unique_contact_pairs": [
+      [
+        0,
+        20
+      ]
+    ],
+    "switches": 0,
+    "bilateral_physical_contact_cycles": 0,
+    "bilateral_selected_loaded_cycles": 0,
+    "manipulation_cycles": 0,
+    "final_height_gain_mm": -1.537687397735965,
+    "max_height_gain_mm": -0.6371064065681109,
+    "final_horizontal_drift_mm": 0.9236176530755958,
+    "final_tip_errors_mm": [
+      25.930579927442903,
+      14.897045407604626
+    ],
+    "fingertip_max_pitch": 0.35,
+    "prediction_error_mean_mm": 0.16098510918964737
+  },
+  "tilted_trial": {
+    "success": false,
+    "cycles": 600,
+    "initial_contact_indices": [
+      0,
+      20
+    ],
+    "unique_contact_pairs": [
+      [
+        0,
+        20
+      ]
+    ],
+    "switches": 0,
+    "bilateral_physical_contact_cycles": 456,
+    "bilateral_selected_loaded_cycles": 0,
+    "manipulation_cycles": 0,
+    "final_height_gain_mm": 4.347524546259085,
+    "max_height_gain_mm": 6.899158921099213,
+    "final_horizontal_drift_mm": 15.27244701767766,
+    "final_tip_errors_mm": [
+      59.93202820847968,
+      35.97543949834334
+    ],
+    "fingertip_max_pitch": 0.9,
+    "prediction_error_mean_mm": 0.2266370711075747
+  }
+}

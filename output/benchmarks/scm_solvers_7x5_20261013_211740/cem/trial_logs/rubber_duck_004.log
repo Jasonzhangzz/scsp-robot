@@ -1,0 +1,6 @@
+direct_force solver=cem object=rubber_duck seed=4 step=0 pos=0.085256 quat=0.945531 hold=0 success=False
+direct_force solver=cem object=rubber_duck seed=4 step=50 pos=0.040786 quat=0.774213 hold=0 success=False
+direct_force solver=cem object=rubber_duck seed=4 step=100 pos=0.050644 quat=0.999379 hold=0 success=False
+direct_force solver=cem object=rubber_duck seed=4 step=150 pos=0.044020 quat=0.966836 hold=0 success=False
+direct_force solver=cem object=rubber_duck seed=4 step=200 pos=0.037045 quat=0.982440 hold=0 success=False
+direct_force solver=cem object=rubber_duck seed=4 step=250 pos=0.032317 quat=0.694696 hold=0 success=False

@@ -1,0 +1,147 @@
+{
+  "observed_at": "2026-10-13T21:44:28+08:00",
+  "first_results": {
+    "acados": {
+      "solver": "acados",
+      "object": "foam_brick",
+      "seed": 1,
+      "steps": 577,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.01616481687330306,
+      "final_quat": 6.752865155468246e-05,
+      "solver_backends": [
+        "acados"
+      ],
+      "fallback_rounds": 0,
+      "unstable_rounds": 0,
+      "error": null,
+      "started_at": "2026-10-13T21:19:35+08:00",
+      "completed_at": "2026-10-13T21:19:50+08:00",
+      "execution_time_s": 10.622853771026712,
+      "elapsed_wall_time_s": 10.622853771026712,
+      "simulation_time_s": 11.540000000002612,
+      "planning_time_ms": {
+        "n": 577,
+        "mean": 16.446283784617496,
+        "std": 7.228737029191546,
+        "median": 14.949581993278116,
+        "p95": 20.441549422685053,
+        "min": 12.210668995976448,
+        "max": 151.38891397509724
+      },
+      "planning_rounds": 577,
+      "worker_exit_code": 0,
+      "result_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_foam_brick_001.json",
+      "log_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_logs/foam_brick_001.log"
+    },
+    "cem": {
+      "solver": "cem",
+      "object": "foam_brick",
+      "seed": 1,
+      "steps": 717,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.01617980866079034,
+      "final_quat": 0.0001556835276778079,
+      "solver_backends": [
+        "cem"
+      ],
+      "fallback_rounds": 0,
+      "unstable_rounds": 0,
+      "error": null,
+      "started_at": "2026-10-13T21:19:35+08:00",
+      "completed_at": "2026-10-13T21:28:33+08:00",
+      "execution_time_s": 532.4607314749737,
+      "elapsed_wall_time_s": 532.4607314749737,
+      "simulation_time_s": 14.340000000006034,
+      "planning_time_ms": {
+        "n": 717,
+        "mean": 738.4389125220179,
+        "std": 171.61631021872392,
+        "median": 778.8603040389717,
+        "p95": 990.8298162044956,
+        "min": 388.60717095667496,
+        "max": 1204.9512719968334
+      },
+      "planning_rounds": 717,
+      "worker_exit_code": 0,
+      "result_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cem/trial_foam_brick_001.json",
+      "log_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cem/trial_logs/foam_brick_001.log"
+    },
+    "cma-es": {
+      "solver": "cma-es",
+      "object": "foam_brick",
+      "seed": 1,
+      "steps": 751,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.01605910919086727,
+      "final_quat": 0.00027593538105374904,
+      "solver_backends": [
+        "cma-es"
+      ],
+      "fallback_rounds": 0,
+      "unstable_rounds": 0,
+      "error": null,
+      "started_at": "2026-10-13T21:19:35+08:00",
+      "completed_at": "2026-10-13T21:37:21+08:00",
+      "execution_time_s": 1061.6894555809558,
+      "elapsed_wall_time_s": 1061.6894555809558,
+      "simulation_time_s": 15.020000000006865,
+      "planning_time_ms": {
+        "n": 751,
+        "mean": 1409.4310169193159,
+        "std": 316.9651428727238,
+        "median": 1496.7116710031405,
+        "p95": 1788.8297084718943,
+        "min": 676.2398530263454,
+        "max": 1977.9804659774527
+      },
+      "planning_rounds": 751,
+      "worker_exit_code": 0,
+      "result_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es/trial_foam_brick_001.json",
+      "log_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es/trial_logs/foam_brick_001.log"
+    },
+    "ipopt": {
+      "solver": "ipopt",
+      "object": "foam_brick",
+      "seed": 1,
+      "steps": 890,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.016180722027709246,
+      "final_quat": 0.00018749749899771295,
+      "solver_backends": [
+        "ipopt"
+      ],
+      "fallback_rounds": 0,
+      "unstable_rounds": 0,
+      "error": null,
+      "started_at": "2026-10-13T21:19:35+08:00",
+      "completed_at": "2026-10-13T21:43:16+08:00",
+      "execution_time_s": 1417.0075721620233,
+      "elapsed_wall_time_s": 1417.0075721620233,
+      "simulation_time_s": 17.800000000003866,
+      "planning_time_ms": {
+        "n": 890,
+        "mean": 1587.2978878915153,
+        "std": 618.5561106671701,
+        "median": 1513.700349983992,
+        "p95": 2653.5795560426777,
+        "min": 403.9398080203682,
+        "max": 4836.82199602481
+      },
+      "planning_rounds": 890,
+      "worker_exit_code": 0,
+      "result_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt/trial_foam_brick_001.json",
+      "log_file": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt/trial_logs/foam_brick_001.log"
+    }
+  },
+  "still_waiting": [],
+  "monitoring_finished_at": "2026-10-13T21:45:38+08:00",
+  "monitoring_status": "complete; controllers left running",
+  "first_trial_initial_states_matched": true,
+  "first_trial_force_constraints_verified": true,
+  "controllers_alive_at_monitoring_end": true
+}

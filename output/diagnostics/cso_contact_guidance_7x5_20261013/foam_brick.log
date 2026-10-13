@@ -1,0 +1,653 @@
+Command: ["taskset", "-c", "0", "/home/zz/miniconda3/envs/pi0/bin/python", "/home/zz/scsp-robot/examples/mpc/fingertips/test/benchmark_contact_models.py", "--objects", "foam_brick", "--models", "scm,qp,lcp", "--trials", "5", "--steps", "5000", "--output-dir", "/home/zz/scsp-robot/output/diagnostics/cso_contact_guidance_7x5_20261013/workers/foam_brick", "--resume"]
+benchmark model=scm object=foam_brick seed=0
+direct_force solver=acados object=foam_brick seed=0 step=0 pos=0.055120 quat=0.578640 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=50 pos=0.036440 quat=0.360453 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=100 pos=0.030576 quat=0.173159 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=150 pos=0.031850 quat=0.184990 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=200 pos=0.031009 quat=0.183964 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=250 pos=0.031462 quat=0.183109 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=300 pos=0.031488 quat=0.182896 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=350 pos=0.025879 quat=0.000444 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=400 pos=0.019841 quat=0.002013 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=450 pos=0.017623 quat=0.000524 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=487 pos=0.016052 quat=0.000781 hold=12 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| scm | 1/1 | 9.171 ± 0.000 (n=1) | 16.741 ± 3.961 (n=488) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=foam_brick seed=0
+direct_force solver=acados object=foam_brick seed=0 step=0 pos=0.054308 quat=0.549805 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=50 pos=0.033307 quat=0.558305 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=100 pos=0.032790 quat=0.556958 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=150 pos=0.032778 quat=0.556591 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=200 pos=0.007418 quat=0.054942 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=221 pos=0.014217 quat=0.001508 hold=14 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| qp | 1/1 | 25.632 ± 0.000 (n=1) | 113.479 ± 21.049 (n=222) |
+| scm | 1/1 | 9.171 ± 0.000 (n=1) | 16.741 ± 3.961 (n=488) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=foam_brick seed=0
+direct_force solver=acados object=foam_brick seed=0 step=0 pos=0.054308 quat=0.549806 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=50 pos=0.038769 quat=0.453803 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=100 pos=0.038729 quat=0.453514 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=150 pos=0.017905 quat=0.000144 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=200 pos=0.017396 quat=0.000090 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=250 pos=0.016433 quat=0.000083 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=290 pos=0.016360 quat=0.000113 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 30.432 ± 0.000 (n=1) | 102.497 ± 17.073 (n=291) |
+| qp | 1/1 | 25.632 ± 0.000 (n=1) | 113.479 ± 21.049 (n=222) |
+| scm | 1/1 | 9.171 ± 0.000 (n=1) | 16.741 ± 3.961 (n=488) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=foam_brick seed=1
+direct_force solver=acados object=foam_brick seed=1 step=0 pos=0.112029 quat=0.616384 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=50 pos=0.056379 quat=0.231699 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=100 pos=0.040040 quat=0.065177 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=150 pos=0.029246 quat=0.087809 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=200 pos=0.026100 quat=0.135735 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=250 pos=0.027421 quat=0.135705 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=300 pos=0.027097 quat=0.135940 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=350 pos=0.026974 quat=0.136032 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=400 pos=0.018718 quat=0.000185 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=450 pos=0.017792 quat=0.000112 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=500 pos=0.016781 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=550 pos=0.016288 quat=0.000103 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=576 pos=0.016165 quat=0.000068 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 30.432 ± 0.000 (n=1) | 102.497 ± 17.073 (n=291) |
+| qp | 1/1 | 25.632 ± 0.000 (n=1) | 113.479 ± 21.049 (n=222) |
+| scm | 2/2 | 9.848 ± 0.677 (n=2) | 16.473 ± 3.982 (n=1065) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=foam_brick seed=1
+direct_force solver=acados object=foam_brick seed=1 step=0 pos=0.112348 quat=0.607039 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=50 pos=0.028188 quat=0.081632 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=100 pos=0.029140 quat=0.081198 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=150 pos=0.027806 quat=0.000126 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=200 pos=0.027108 quat=0.000131 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=250 pos=0.026859 quat=0.000117 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=300 pos=0.026567 quat=0.000118 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=350 pos=0.026376 quat=0.000114 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=400 pos=0.026113 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=450 pos=0.025603 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=500 pos=0.025513 quat=0.000117 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=550 pos=0.025462 quat=0.000117 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=600 pos=0.025337 quat=0.000116 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=650 pos=0.025276 quat=0.000116 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=700 pos=0.025316 quat=0.000081 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=750 pos=0.025250 quat=0.000063 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=800 pos=0.025067 quat=0.000094 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=850 pos=0.025091 quat=0.000072 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=900 pos=0.025035 quat=0.000063 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=950 pos=0.024969 quat=0.000062 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1000 pos=0.024686 quat=0.000103 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1050 pos=0.024745 quat=0.000083 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1100 pos=0.024733 quat=0.000154 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1150 pos=0.024829 quat=0.000084 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1200 pos=0.024775 quat=0.000063 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1250 pos=0.024723 quat=0.000104 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1300 pos=0.024656 quat=0.000070 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1350 pos=0.024607 quat=0.000078 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1400 pos=0.024708 quat=0.000075 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1450 pos=0.024536 quat=0.000101 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1500 pos=0.024285 quat=0.000125 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1550 pos=0.023547 quat=0.000140 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1600 pos=0.023521 quat=0.000109 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1650 pos=0.023517 quat=0.000157 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1700 pos=0.023422 quat=0.000175 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1750 pos=0.023280 quat=0.000176 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1800 pos=0.023143 quat=0.000143 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1850 pos=0.023048 quat=0.000124 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1900 pos=0.022844 quat=0.000138 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1950 pos=0.022792 quat=0.000127 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2000 pos=0.022638 quat=0.000130 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2050 pos=0.022531 quat=0.000112 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2100 pos=0.022336 quat=0.000123 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2150 pos=0.022167 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2200 pos=0.022169 quat=0.000095 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2250 pos=0.021717 quat=0.000134 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2300 pos=0.021308 quat=0.000134 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2350 pos=0.021126 quat=0.000134 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2400 pos=0.020971 quat=0.000140 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2450 pos=0.020815 quat=0.000126 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2500 pos=0.020824 quat=0.000180 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2550 pos=0.020510 quat=0.000123 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2600 pos=0.020512 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2650 pos=0.020310 quat=0.000132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2700 pos=0.020135 quat=0.000114 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2750 pos=0.019951 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2800 pos=0.019778 quat=0.000122 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2850 pos=0.019545 quat=0.000124 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2900 pos=0.019379 quat=0.000125 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2950 pos=0.019182 quat=0.000123 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3000 pos=0.018933 quat=0.000112 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3050 pos=0.018775 quat=0.000105 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3100 pos=0.018591 quat=0.000122 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3150 pos=0.018387 quat=0.000132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3200 pos=0.018234 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3250 pos=0.018032 quat=0.000127 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3300 pos=0.017868 quat=0.000122 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3350 pos=0.017707 quat=0.000125 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3400 pos=0.017526 quat=0.000115 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3450 pos=0.017342 quat=0.000116 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3500 pos=0.017168 quat=0.000126 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3550 pos=0.016961 quat=0.000136 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3600 pos=0.016833 quat=0.000126 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3650 pos=0.016736 quat=0.000112 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3700 pos=0.016555 quat=0.000110 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3750 pos=0.016482 quat=0.000116 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3800 pos=0.016306 quat=0.000123 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3850 pos=0.016181 quat=0.000124 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3900 pos=0.016004 quat=0.000120 hold=1 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3909 pos=0.016201 quat=0.000093 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 30.432 ± 0.000 (n=1) | 102.497 ± 17.073 (n=291) |
+| qp | 2/2 | 237.043 ± 211.411 (n=2) | 112.553 ± 25.800 (n=4132) |
+| scm | 2/2 | 9.848 ± 0.677 (n=2) | 16.473 ± 3.982 (n=1065) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=foam_brick seed=1
+direct_force solver=acados object=foam_brick seed=1 step=0 pos=0.112348 quat=0.607039 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=50 pos=0.063220 quat=0.031828 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=100 pos=0.064920 quat=0.031150 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=150 pos=0.064306 quat=0.031334 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=200 pos=0.064570 quat=0.031343 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=250 pos=0.041192 quat=0.000525 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=300 pos=0.038382 quat=0.000364 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=350 pos=0.036411 quat=0.000273 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=400 pos=0.035136 quat=0.000245 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=450 pos=0.034024 quat=0.000240 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=500 pos=0.032854 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=550 pos=0.031802 quat=0.000162 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=600 pos=0.030826 quat=0.000145 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=650 pos=0.029572 quat=0.000102 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=700 pos=0.029502 quat=0.000164 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=750 pos=0.029352 quat=0.000101 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=800 pos=0.028903 quat=0.000146 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=850 pos=0.028776 quat=0.000150 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=900 pos=0.028731 quat=0.000337 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=950 pos=0.028253 quat=0.000187 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1000 pos=0.027417 quat=0.000132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1050 pos=0.027038 quat=0.000163 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1100 pos=0.026889 quat=0.000107 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1150 pos=0.026524 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1200 pos=0.026172 quat=0.000117 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1250 pos=0.025733 quat=0.000092 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1300 pos=0.025568 quat=0.000143 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1350 pos=0.025453 quat=0.000144 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1400 pos=0.025340 quat=0.000146 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1450 pos=0.025226 quat=0.000147 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1500 pos=0.025115 quat=0.000149 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1550 pos=0.025004 quat=0.000150 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1600 pos=0.024893 quat=0.000152 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1650 pos=0.024786 quat=0.000154 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1700 pos=0.024679 quat=0.000156 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1750 pos=0.024574 quat=0.000159 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1800 pos=0.024469 quat=0.000162 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1850 pos=0.024365 quat=0.000165 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1900 pos=0.024262 quat=0.000167 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=1950 pos=0.024161 quat=0.000170 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2000 pos=0.024060 quat=0.000173 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2050 pos=0.023961 quat=0.000177 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2100 pos=0.023863 quat=0.000180 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2150 pos=0.023766 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2200 pos=0.023671 quat=0.000186 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2250 pos=0.023576 quat=0.000190 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2300 pos=0.023483 quat=0.000193 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2350 pos=0.023391 quat=0.000197 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2400 pos=0.023300 quat=0.000201 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2450 pos=0.023210 quat=0.000204 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2500 pos=0.023122 quat=0.000208 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2550 pos=0.023035 quat=0.000212 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2600 pos=0.022950 quat=0.000216 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2650 pos=0.022866 quat=0.000221 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2700 pos=0.022784 quat=0.000226 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2750 pos=0.022702 quat=0.000231 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2800 pos=0.022640 quat=0.000213 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2850 pos=0.022639 quat=0.000210 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2900 pos=0.022631 quat=0.000209 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=2950 pos=0.022606 quat=0.000225 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3000 pos=0.022426 quat=0.000146 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3050 pos=0.022338 quat=0.000128 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3100 pos=0.022201 quat=0.000142 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3150 pos=0.022113 quat=0.000138 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3200 pos=0.022033 quat=0.000127 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3250 pos=0.021930 quat=0.000132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3300 pos=0.021850 quat=0.000151 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3350 pos=0.021765 quat=0.000236 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3400 pos=0.021647 quat=0.000277 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3450 pos=0.021564 quat=0.000280 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3500 pos=0.021483 quat=0.000282 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3550 pos=0.021430 quat=0.000329 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3600 pos=0.021366 quat=0.000324 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3650 pos=0.021296 quat=0.000321 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3700 pos=0.021251 quat=0.000310 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3750 pos=0.021157 quat=0.000336 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3800 pos=0.021024 quat=0.000399 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3850 pos=0.020634 quat=0.000330 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3900 pos=0.020514 quat=0.000394 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=3950 pos=0.020361 quat=0.000356 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4000 pos=0.019966 quat=0.000288 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4050 pos=0.019828 quat=0.000323 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4100 pos=0.019726 quat=0.000373 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4150 pos=0.019572 quat=0.000332 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4200 pos=0.019438 quat=0.000370 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4250 pos=0.019313 quat=0.000392 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4300 pos=0.019172 quat=0.000375 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4350 pos=0.018803 quat=0.000236 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4400 pos=0.018718 quat=0.000344 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4450 pos=0.018563 quat=0.000284 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4500 pos=0.018408 quat=0.000276 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4550 pos=0.018280 quat=0.000306 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4600 pos=0.018188 quat=0.000315 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4650 pos=0.018035 quat=0.000352 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4700 pos=0.017925 quat=0.000370 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4750 pos=0.017779 quat=0.000303 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4800 pos=0.017669 quat=0.000314 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4850 pos=0.017562 quat=0.000325 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4900 pos=0.017449 quat=0.000287 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=4950 pos=0.017349 quat=0.000388 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 30.432 ± 0.000 (n=1) | 115.212 ± 39.209 (n=5291) |
+| qp | 2/2 | 237.043 ± 211.411 (n=2) | 112.553 ± 25.800 (n=4132) |
+| scm | 2/2 | 9.848 ± 0.677 (n=2) | 16.473 ± 3.982 (n=1065) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=foam_brick seed=2
+direct_force solver=acados object=foam_brick seed=2 step=0 pos=0.135061 quat=0.647470 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=50 pos=0.096437 quat=0.732656 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=100 pos=0.017451 quat=0.799446 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=150 pos=0.022312 quat=0.584709 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=200 pos=0.021925 quat=0.475895 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=250 pos=0.020562 quat=0.510214 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=300 pos=0.020579 quat=0.508870 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=350 pos=0.020520 quat=0.508115 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=400 pos=0.020626 quat=0.507879 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=450 pos=0.019253 quat=0.003222 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=500 pos=0.017447 quat=0.000399 hold=11 success=False
+direct_force solver=acados object=foam_brick seed=2 step=503 pos=0.015786 quat=0.002520 hold=14 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 30.432 ± 0.000 (n=1) | 115.212 ± 39.209 (n=5291) |
+| qp | 2/2 | 237.043 ± 211.411 (n=2) | 112.553 ± 25.800 (n=4132) |
+| scm | 3/3 | 9.719 ± 0.582 (n=3) | 16.569 ± 3.929 (n=1569) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=foam_brick seed=2
+direct_force solver=acados object=foam_brick seed=2 step=0 pos=0.136277 quat=0.702570 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=50 pos=0.124375 quat=0.791586 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=100 pos=0.123558 quat=0.791007 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=150 pos=0.123702 quat=0.790570 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=200 pos=0.123844 quat=0.790381 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=250 pos=0.051235 quat=0.000861 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=300 pos=0.036833 quat=0.000523 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=350 pos=0.030348 quat=0.000256 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=400 pos=0.029522 quat=0.000196 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=450 pos=0.029463 quat=0.000187 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=500 pos=0.029388 quat=0.000186 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=550 pos=0.029307 quat=0.000185 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=600 pos=0.029262 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=650 pos=0.029166 quat=0.000187 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=700 pos=0.029095 quat=0.000182 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=750 pos=0.029009 quat=0.000188 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=800 pos=0.028938 quat=0.000174 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=850 pos=0.028898 quat=0.000179 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=900 pos=0.028828 quat=0.000184 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=950 pos=0.028784 quat=0.000179 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1000 pos=0.028701 quat=0.000184 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1050 pos=0.028622 quat=0.000173 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1100 pos=0.028563 quat=0.000192 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1150 pos=0.028557 quat=0.000179 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1200 pos=0.028455 quat=0.000190 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1250 pos=0.028390 quat=0.000178 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1300 pos=0.028308 quat=0.000173 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1350 pos=0.028251 quat=0.000188 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1400 pos=0.028194 quat=0.000179 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1450 pos=0.028134 quat=0.000191 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1500 pos=0.028129 quat=0.000176 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1550 pos=0.028029 quat=0.000188 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1600 pos=0.028016 quat=0.000174 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1650 pos=0.027953 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1700 pos=0.027899 quat=0.000174 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1750 pos=0.027831 quat=0.000177 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1800 pos=0.027766 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1850 pos=0.027719 quat=0.000179 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1900 pos=0.027534 quat=0.000182 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=1950 pos=0.027474 quat=0.000174 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2000 pos=0.027425 quat=0.000175 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2050 pos=0.027378 quat=0.000180 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2100 pos=0.027310 quat=0.000180 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2150 pos=0.027236 quat=0.000170 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2200 pos=0.027186 quat=0.000178 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2250 pos=0.027140 quat=0.000174 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2300 pos=0.026954 quat=0.000176 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2350 pos=0.026895 quat=0.000160 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2400 pos=0.026835 quat=0.000176 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2450 pos=0.026776 quat=0.000168 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2500 pos=0.026726 quat=0.000169 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2550 pos=0.026678 quat=0.000174 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2600 pos=0.026624 quat=0.000164 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2650 pos=0.026540 quat=0.000173 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2700 pos=0.026467 quat=0.000156 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2750 pos=0.026406 quat=0.000174 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2800 pos=0.026349 quat=0.000165 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2850 pos=0.026299 quat=0.000166 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2900 pos=0.026250 quat=0.000171 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=2950 pos=0.026194 quat=0.000161 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3000 pos=0.026109 quat=0.000169 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3050 pos=0.026031 quat=0.000154 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3100 pos=0.025971 quat=0.000170 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3150 pos=0.025910 quat=0.000162 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3200 pos=0.025862 quat=0.000162 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3250 pos=0.025809 quat=0.000166 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3300 pos=0.025751 quat=0.000158 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3350 pos=0.025662 quat=0.000164 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3400 pos=0.025578 quat=0.000151 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3450 pos=0.025517 quat=0.000166 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3500 pos=0.025450 quat=0.000159 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3550 pos=0.025401 quat=0.000159 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3600 pos=0.025346 quat=0.000162 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3650 pos=0.025286 quat=0.000154 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3700 pos=0.025193 quat=0.000160 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3750 pos=0.025105 quat=0.000147 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3800 pos=0.025041 quat=0.000162 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3850 pos=0.024972 quat=0.000155 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3900 pos=0.024920 quat=0.000155 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=3950 pos=0.024864 quat=0.000158 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4000 pos=0.024802 quat=0.000151 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4050 pos=0.024724 quat=0.000160 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4100 pos=0.024657 quat=0.000154 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4150 pos=0.024602 quat=0.000156 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4200 pos=0.024539 quat=0.000149 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4250 pos=0.024446 quat=0.000153 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4300 pos=0.024355 quat=0.000140 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4350 pos=0.024313 quat=0.000152 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4400 pos=0.024222 quat=0.000139 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4450 pos=0.024155 quat=0.000155 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4500 pos=0.024083 quat=0.000148 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4550 pos=0.024028 quat=0.000149 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4600 pos=0.024006 quat=0.000145 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4650 pos=0.023918 quat=0.000138 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4700 pos=0.023884 quat=0.000147 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4750 pos=0.023874 quat=0.000152 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4800 pos=0.023793 quat=0.000157 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4850 pos=0.023770 quat=0.000145 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4900 pos=0.023688 quat=0.000146 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=4950 pos=0.023625 quat=0.000152 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 30.432 ± 0.000 (n=1) | 115.212 ± 39.209 (n=5291) |
+| qp | 2/3 | 237.043 ± 211.411 (n=2) | 109.060 ± 22.349 (n=9132) |
+| scm | 3/3 | 9.719 ± 0.582 (n=3) | 16.569 ± 3.929 (n=1569) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=foam_brick seed=2
+direct_force solver=acados object=foam_brick seed=2 step=0 pos=0.136277 quat=0.702570 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=2 step=50 pos=0.098080 quat=0.661638 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.059e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/3 | 30.432 ± 0.000 (n=1) | 114.979 ± 39.038 (n=5360) |
+| qp | 2/3 | 237.043 ± 211.411 (n=2) | 109.060 ± 22.349 (n=9132) |
+| scm | 3/3 | 9.719 ± 0.582 (n=3) | 16.569 ± 3.929 (n=1569) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=foam_brick seed=3
+direct_force solver=acados object=foam_brick seed=3 step=0 pos=0.037423 quat=0.993003 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=50 pos=0.057621 quat=0.485712 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=100 pos=0.038049 quat=0.438508 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=150 pos=0.034649 quat=0.374021 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=200 pos=0.031732 quat=0.290339 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=250 pos=0.029823 quat=0.242488 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=300 pos=0.029525 quat=0.238855 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=350 pos=0.029541 quat=0.238751 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=400 pos=0.021764 quat=0.008802 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=450 pos=0.022869 quat=0.000579 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=500 pos=0.018447 quat=0.000112 hold=8 success=False
+direct_force solver=acados object=foam_brick seed=3 step=504 pos=0.016514 quat=0.001439 hold=12 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/3 | 30.432 ± 0.000 (n=1) | 114.979 ± 39.038 (n=5360) |
+| qp | 2/3 | 237.043 ± 211.411 (n=2) | 109.060 ± 22.349 (n=9132) |
+| scm | 4/4 | 9.575 ± 0.562 (n=4) | 16.475 ± 3.814 (n=2074) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=foam_brick seed=3
+direct_force solver=acados object=foam_brick seed=3 step=0 pos=0.038648 quat=0.987132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=50 pos=0.051712 quat=0.983439 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=100 pos=0.053120 quat=0.983796 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=150 pos=0.043352 quat=0.065672 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=200 pos=0.033579 quat=0.000529 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=250 pos=0.028634 quat=0.000242 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=300 pos=0.028315 quat=0.000233 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=350 pos=0.028201 quat=0.000232 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=400 pos=0.028111 quat=0.000221 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=450 pos=0.027980 quat=0.000220 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=500 pos=0.027849 quat=0.000218 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=550 pos=0.027718 quat=0.000216 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=600 pos=0.027579 quat=0.000217 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=650 pos=0.027410 quat=0.000222 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=700 pos=0.027261 quat=0.000218 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=750 pos=0.027137 quat=0.000200 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=800 pos=0.027099 quat=0.000178 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=850 pos=0.026937 quat=0.000176 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=900 pos=0.026754 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=950 pos=0.026558 quat=0.000198 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1000 pos=0.026371 quat=0.000209 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1050 pos=0.026207 quat=0.000210 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1100 pos=0.026095 quat=0.000187 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1150 pos=0.026003 quat=0.000163 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1200 pos=0.025894 quat=0.000160 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1250 pos=0.025695 quat=0.000169 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1300 pos=0.025499 quat=0.000186 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1350 pos=0.025311 quat=0.000197 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1400 pos=0.025160 quat=0.000193 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1450 pos=0.025050 quat=0.000169 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1500 pos=0.025028 quat=0.000145 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1550 pos=0.024862 quat=0.000144 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1600 pos=0.024667 quat=0.000153 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1650 pos=0.024459 quat=0.000172 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1700 pos=0.024260 quat=0.000186 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1750 pos=0.024115 quat=0.000177 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1800 pos=0.024078 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1850 pos=0.023987 quat=0.000127 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1900 pos=0.023813 quat=0.000132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=1950 pos=0.023632 quat=0.000138 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2000 pos=0.023438 quat=0.000151 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2050 pos=0.023226 quat=0.000162 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2100 pos=0.023188 quat=0.000124 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2150 pos=0.023088 quat=0.000121 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2200 pos=0.022954 quat=0.000117 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2250 pos=0.022803 quat=0.000116 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2300 pos=0.022485 quat=0.000151 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2350 pos=0.022455 quat=0.000117 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2400 pos=0.022178 quat=0.000152 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2450 pos=0.022176 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2500 pos=0.022008 quat=0.000110 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2550 pos=0.021754 quat=0.000125 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2600 pos=0.021739 quat=0.000107 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2650 pos=0.021476 quat=0.000122 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2700 pos=0.021405 quat=0.000102 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2750 pos=0.021129 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2800 pos=0.021016 quat=0.000116 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2850 pos=0.020930 quat=0.000095 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2900 pos=0.020652 quat=0.000110 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=2950 pos=0.020584 quat=0.000112 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3000 pos=0.020395 quat=0.000094 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3050 pos=0.020231 quat=0.000094 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3100 pos=0.019934 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3150 pos=0.019773 quat=0.000114 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3200 pos=0.019689 quat=0.000098 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3250 pos=0.019483 quat=0.000098 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3300 pos=0.019281 quat=0.000096 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3350 pos=0.019095 quat=0.000094 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3400 pos=0.018904 quat=0.000093 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3450 pos=0.018717 quat=0.000091 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3500 pos=0.018549 quat=0.000082 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3550 pos=0.018367 quat=0.000080 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3600 pos=0.018179 quat=0.000078 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3650 pos=0.017998 quat=0.000076 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3700 pos=0.017816 quat=0.000074 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3750 pos=0.017635 quat=0.000072 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3800 pos=0.017453 quat=0.000070 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3850 pos=0.017274 quat=0.000069 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3900 pos=0.017095 quat=0.000067 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=3950 pos=0.016916 quat=0.000065 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=4000 pos=0.016740 quat=0.000064 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=4050 pos=0.016564 quat=0.000062 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=4100 pos=0.016388 quat=0.000061 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=4150 pos=0.016215 quat=0.000059 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=4200 pos=0.016170 quat=0.000079 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=4214 pos=0.016178 quat=0.000068 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/3 | 30.432 ± 0.000 (n=1) | 114.979 ± 39.038 (n=5360) |
+| qp | 3/4 | 345.585 ± 230.996 (n=3) | 116.009 ± 29.183 (n=13347) |
+| scm | 4/4 | 9.575 ± 0.562 (n=4) | 16.475 ± 3.814 (n=2074) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=foam_brick seed=3
+direct_force solver=acados object=foam_brick seed=3 step=0 pos=0.038648 quat=0.987132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=3 step=50 pos=0.058306 quat=0.902064 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.131e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/4 | 30.432 ± 0.000 (n=1) | 114.966 ± 38.763 (n=5461) |
+| qp | 3/4 | 345.585 ± 230.996 (n=3) | 116.009 ± 29.183 (n=13347) |
+| scm | 4/4 | 9.575 ± 0.562 (n=4) | 16.475 ± 3.814 (n=2074) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=foam_brick seed=4
+direct_force solver=acados object=foam_brick seed=4 step=0 pos=0.082454 quat=0.926414 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=50 pos=0.088389 quat=0.927468 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=100 pos=0.089416 quat=0.927815 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=150 pos=0.089204 quat=0.927988 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=200 pos=0.083608 quat=0.944773 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=250 pos=0.050441 quat=0.977004 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=300 pos=0.020546 quat=0.313603 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=350 pos=0.031974 quat=0.034754 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=400 pos=0.031879 quat=0.027132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=450 pos=0.027766 quat=0.029245 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=500 pos=0.024182 quat=0.012591 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=550 pos=0.024591 quat=0.010520 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=600 pos=0.024626 quat=0.010487 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=650 pos=0.024626 quat=0.010516 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=700 pos=0.021615 quat=0.000360 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=750 pos=0.015981 quat=0.000105 hold=9 success=False
+direct_force solver=acados object=foam_brick seed=4 step=751 pos=0.016156 quat=0.000120 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/4 | 30.432 ± 0.000 (n=1) | 114.966 ± 38.763 (n=5461) |
+| qp | 3/4 | 345.585 ± 230.996 (n=3) | 116.009 ± 29.183 (n=13347) |
+| scm | 5/5 | 10.698 ± 2.302 (n=5) | 16.896 ± 4.094 (n=2826) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=foam_brick seed=4
+direct_force solver=acados object=foam_brick seed=4 step=0 pos=0.083997 quat=0.953485 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=50 pos=0.061342 quat=0.616633 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=100 pos=0.061339 quat=0.616362 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=150 pos=0.061307 quat=0.616778 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=200 pos=0.060240 quat=0.566320 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=250 pos=0.033984 quat=0.000468 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=300 pos=0.029703 quat=0.000292 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=350 pos=0.026412 quat=0.000258 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=400 pos=0.023096 quat=0.000182 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=450 pos=0.022456 quat=0.000139 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=500 pos=0.022283 quat=0.000140 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=550 pos=0.022143 quat=0.000130 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=600 pos=0.021912 quat=0.000139 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=650 pos=0.021775 quat=0.000131 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=700 pos=0.021591 quat=0.000129 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=750 pos=0.021388 quat=0.000130 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=800 pos=0.021191 quat=0.000134 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=850 pos=0.020983 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=900 pos=0.020784 quat=0.000134 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=950 pos=0.020649 quat=0.000128 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1000 pos=0.020463 quat=0.000122 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1050 pos=0.020259 quat=0.000128 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1100 pos=0.020067 quat=0.000129 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1150 pos=0.019861 quat=0.000130 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1200 pos=0.019710 quat=0.000123 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1250 pos=0.019502 quat=0.000129 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1300 pos=0.019304 quat=0.000129 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1350 pos=0.019150 quat=0.000125 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1400 pos=0.018781 quat=0.000132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1450 pos=0.018525 quat=0.000117 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1500 pos=0.018078 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1550 pos=0.017759 quat=0.000130 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1600 pos=0.017384 quat=0.000138 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1650 pos=0.017173 quat=0.000076 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1700 pos=0.016265 quat=0.000068 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=1725 pos=0.016054 quat=0.000086 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/4 | 30.432 ± 0.000 (n=1) | 114.966 ± 38.763 (n=5461) |
+| qp | 4/5 | 314.858 ± 207.006 (n=4) | 117.220 ± 29.528 (n=15073) |
+| scm | 5/5 | 10.698 ± 2.302 (n=5) | 16.896 ± 4.094 (n=2826) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=foam_brick seed=4
+direct_force solver=acados object=foam_brick seed=4 step=0 pos=0.083997 quat=0.953485 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=50 pos=0.059041 quat=0.486229 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=100 pos=0.058486 quat=0.484933 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=150 pos=0.023679 quat=0.000314 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=200 pos=0.021220 quat=0.000154 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=250 pos=0.021160 quat=0.000110 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=300 pos=0.021099 quat=0.000088 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=350 pos=0.021039 quat=0.000088 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=400 pos=0.019981 quat=0.000126 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.091e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/5 | 30.432 ± 0.000 (n=1) | 114.907 ± 37.860 (n=5887) |
+| qp | 4/5 | 314.858 ± 207.006 (n=4) | 117.220 ± 29.528 (n=15073) |
+| scm | 5/5 | 10.698 ± 2.302 (n=5) | 16.896 ± 4.094 (n=2826) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/5 | 30.432 ± 0.000 (n=1) | 114.907 ± 37.860 (n=5887) |
+| qp | 4/5 | 314.858 ± 207.006 (n=4) | 117.220 ± 29.528 (n=15073) |
+| scm | 5/5 | 10.698 ± 2.302 (n=5) | 16.896 ± 4.094 (n=2826) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.

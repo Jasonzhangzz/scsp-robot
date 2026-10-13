@@ -1,0 +1,292 @@
+{
+  "model": "coupled-quasi-dynamic-soft-scm",
+  "reference_factory": "examples.mpc.franka.ik2.params.build_lambda_optimizer",
+  "h_model": 0.02,
+  "physics_dt": 0.0005,
+  "force_apply_duration": 0.0005,
+  "pose_overwrites": 0,
+  "seed_range": [
+    0,
+    9
+  ],
+  "objects": {
+    "foam_brick": {
+      "successes": 10,
+      "total_trials": 10,
+      "min_steps": 488,
+      "max_steps": 752,
+      "max_final_pos": 0.016514395731705146,
+      "max_final_quat": 0.002519926474351175,
+      "unstable_steps": 0,
+      "clipped_steps": 0,
+      "trial_summaries": [
+        {
+          "seed": 0,
+          "steps": 488,
+          "success": true,
+          "final_pos": 0.016051977238886333,
+          "final_quat": 0.0007814875524717602,
+          "settled": true
+        },
+        {
+          "seed": 1,
+          "steps": 577,
+          "success": true,
+          "final_pos": 0.01616481687330306,
+          "final_quat": 6.752865155468246e-05,
+          "settled": true
+        },
+        {
+          "seed": 2,
+          "steps": 504,
+          "success": true,
+          "final_pos": 0.015785834219181213,
+          "final_quat": 0.002519926474351175,
+          "settled": true
+        },
+        {
+          "seed": 3,
+          "steps": 505,
+          "success": true,
+          "final_pos": 0.016514395731705146,
+          "final_quat": 0.0014391732933625168,
+          "settled": true
+        },
+        {
+          "seed": 4,
+          "steps": 752,
+          "success": true,
+          "final_pos": 0.016155974922943954,
+          "final_quat": 0.00011957497991399446,
+          "settled": true
+        },
+        {
+          "seed": 5,
+          "steps": 676,
+          "success": true,
+          "final_pos": 0.016075443826688598,
+          "final_quat": 0.0004527201364489253,
+          "settled": true
+        },
+        {
+          "seed": 6,
+          "steps": 516,
+          "success": true,
+          "final_pos": 0.01621562096296024,
+          "final_quat": 0.0007117464388718409,
+          "settled": true
+        },
+        {
+          "seed": 7,
+          "steps": 568,
+          "success": true,
+          "final_pos": 0.016238790961183004,
+          "final_quat": 0.00010692206928597514,
+          "settled": true
+        },
+        {
+          "seed": 8,
+          "steps": 493,
+          "success": true,
+          "final_pos": 0.01610003973494495,
+          "final_quat": 0.0002456622502656769,
+          "settled": true
+        },
+        {
+          "seed": 9,
+          "steps": 555,
+          "success": true,
+          "final_pos": 0.01609617244944283,
+          "final_quat": 0.0006477753014599852,
+          "settled": true
+        }
+      ]
+    },
+    "elephant": {
+      "successes": 10,
+      "total_trials": 10,
+      "min_steps": 172,
+      "max_steps": 3351,
+      "max_final_pos": 0.01606373822086642,
+      "max_final_quat": 0.0001245267450338261,
+      "unstable_steps": 0,
+      "clipped_steps": 0,
+      "trial_summaries": [
+        {
+          "seed": 0,
+          "steps": 172,
+          "success": true,
+          "final_pos": 0.015941028626524727,
+          "final_quat": 2.3896221884922575e-05,
+          "settled": true
+        },
+        {
+          "seed": 1,
+          "steps": 677,
+          "success": true,
+          "final_pos": 0.015969956783353743,
+          "final_quat": 0.0001245267450338261,
+          "settled": true
+        },
+        {
+          "seed": 2,
+          "steps": 463,
+          "success": true,
+          "final_pos": 0.015922007726453878,
+          "final_quat": 0.00011064719218067953,
+          "settled": true
+        },
+        {
+          "seed": 3,
+          "steps": 208,
+          "success": true,
+          "final_pos": 0.015945841600636064,
+          "final_quat": 6.567020567571635e-05,
+          "settled": true
+        },
+        {
+          "seed": 4,
+          "steps": 1240,
+          "success": true,
+          "final_pos": 0.015987071953222135,
+          "final_quat": 0.00010966358857988912,
+          "settled": true
+        },
+        {
+          "seed": 5,
+          "steps": 3351,
+          "success": true,
+          "final_pos": 0.01597875200074277,
+          "final_quat": 1.913668271347202e-05,
+          "settled": true
+        },
+        {
+          "seed": 6,
+          "steps": 1046,
+          "success": true,
+          "final_pos": 0.016002923915710107,
+          "final_quat": 2.206791961667509e-05,
+          "settled": true
+        },
+        {
+          "seed": 7,
+          "steps": 2405,
+          "success": true,
+          "final_pos": 0.01606373822086642,
+          "final_quat": 2.9112087265192876e-05,
+          "settled": true
+        },
+        {
+          "seed": 8,
+          "steps": 612,
+          "success": true,
+          "final_pos": 0.01598071151893856,
+          "final_quat": 9.295322228308756e-05,
+          "settled": true
+        },
+        {
+          "seed": 9,
+          "steps": 1160,
+          "success": true,
+          "final_pos": 0.015963935596068433,
+          "final_quat": 2.4924274633630894e-05,
+          "settled": true
+        }
+      ]
+    },
+    "stanford_bunny2": {
+      "successes": 10,
+      "total_trials": 10,
+      "min_steps": 171,
+      "max_steps": 1328,
+      "max_final_pos": 0.01678655280676232,
+      "max_final_quat": 0.004134860331018508,
+      "unstable_steps": 0,
+      "clipped_steps": 0,
+      "trial_summaries": [
+        {
+          "seed": 0,
+          "steps": 327,
+          "success": true,
+          "final_pos": 0.015934704175468196,
+          "final_quat": 0.0004735986762213207,
+          "settled": true
+        },
+        {
+          "seed": 1,
+          "steps": 267,
+          "success": true,
+          "final_pos": 0.015966434415346085,
+          "final_quat": 0.00032195070834362127,
+          "settled": true
+        },
+        {
+          "seed": 2,
+          "steps": 344,
+          "success": true,
+          "final_pos": 0.015919104892018927,
+          "final_quat": 6.923243556944403e-05,
+          "settled": true
+        },
+        {
+          "seed": 3,
+          "steps": 230,
+          "success": true,
+          "final_pos": 0.01678655280676232,
+          "final_quat": 0.0020317640912834722,
+          "settled": true
+        },
+        {
+          "seed": 4,
+          "steps": 484,
+          "success": true,
+          "final_pos": 0.015873745156159986,
+          "final_quat": 4.072171619295961e-05,
+          "settled": true
+        },
+        {
+          "seed": 5,
+          "steps": 540,
+          "success": true,
+          "final_pos": 0.01594770022705747,
+          "final_quat": 4.199419325701115e-05,
+          "settled": true
+        },
+        {
+          "seed": 6,
+          "steps": 1328,
+          "success": true,
+          "final_pos": 0.01602831278304144,
+          "final_quat": 1.030513788635723e-06,
+          "settled": true
+        },
+        {
+          "seed": 7,
+          "steps": 580,
+          "success": true,
+          "final_pos": 0.01589411782778583,
+          "final_quat": 0.00010482769003161696,
+          "settled": true
+        },
+        {
+          "seed": 8,
+          "steps": 171,
+          "success": true,
+          "final_pos": 0.004776678459298737,
+          "final_quat": 0.004134860331018508,
+          "settled": true
+        },
+        {
+          "seed": 9,
+          "steps": 419,
+          "success": true,
+          "final_pos": 0.01591580682842766,
+          "final_quat": 2.0536409285343282e-06,
+          "settled": true
+        }
+      ]
+    }
+  },
+  "successes": 30,
+  "total_trials": 30
+}

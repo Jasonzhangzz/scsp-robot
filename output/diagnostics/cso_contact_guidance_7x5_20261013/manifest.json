@@ -1,0 +1,82 @@
+{
+  "objects": [
+    "foam_brick",
+    "mug",
+    "rubber_duck",
+    "elephant",
+    "piggy_bank",
+    "stanford_bunny2",
+    "teapot"
+  ],
+  "models": [
+    "scm",
+    "qp",
+    "lcp"
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "steps": 5000,
+  "cpu_by_object": {
+    "foam_brick": 0,
+    "mug": 2,
+    "rubber_duck": 4,
+    "elephant": 6,
+    "piggy_bank": 8,
+    "stanford_bunny2": 10,
+    "teapot": 12
+  },
+  "physical_cores": [
+    [
+      "0",
+      "0"
+    ],
+    [
+      "0",
+      "4"
+    ],
+    [
+      "0",
+      "8"
+    ],
+    [
+      "0",
+      "12"
+    ],
+    [
+      "0",
+      "16"
+    ],
+    [
+      "0",
+      "20"
+    ],
+    [
+      "0",
+      "24"
+    ]
+  ],
+  "threads": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "execution_protocol": "Seven concurrent object workers, each pinned to a separate physical CPU core; models/seeds sequential within each worker. Wall times reflect this load.",
+  "source_sha256": {
+    "planning/point_contact_baselines.py": "7c667e0a09d26f04c64fb12a6145aa5cf05934dd1fe4a726b41aa9c29574686a",
+    "planning/direct_contact_force.py": "4cc093dcef5d4972fde2945f40966464ead9d6658986085d382cbf660be44f51",
+    "planning/mlqp_point.py": "7bcd3816b413273e8ab219ca038ecf70aabf89e3829a9c472467238f28557bf9",
+    "planning/object_pose_cost.py": "140dd6026ab46015fc3ee365c3f29cde0850979c8fcec698340324584469cfff",
+    "planning/rollout_timing.py": "2dd323a6825d8838669c53e9e865cdc5b3a5b3e79b1242d0fb79aa77d85c9193",
+    "models/soft_scm_contact.py": "45ddc31e4a787c719f2894ca03c8955f353db3390f36861aef6001a715978ec5",
+    "examples/mpc/franka/ik2/params.py": "5f4bc19063282d106151b93231a0ade041747eac7625732697c480b976ddb861",
+    "examples/mpc/fingertips/test/params.py": "76c3db7b9751ac0124aa18fd47fc070c4be3071c164e397a6e11996dac8a8a8f",
+    "examples/mpc/fingertips/test/test_scm_mujoco.py": "103ac7370d96f85a6efadb9445bbfc163d1bcc1cc58c0ec942e8a92a3092d2bd",
+    "examples/mpc/fingertips/test/benchmark_contact_models.py": "255e33dc09b35d23be06b5c104f214fd2e1fe27fd21ba0d4c38cdc83290392d7"
+  },
+  "started_at": "2026-10-13T20:48:53.027403+08:00"
+}

@@ -14,7 +14,10 @@ from models.soft_scm_contact import (
 from examples.mpc.fingertips.test.params import canonical_object_meshes
 from models.object_collision_mesh import decomposed_collision_mesh
 from planning.runtime_compat import resolve_solver_backend
-from planning.contact_limits import contact_force_limit, contact_command_force_limit
+from planning.contact_limits import contact_force_limit, contact_command_force_limit, CARTESIAN_TASK_STIFFNESS
+from examples.mpc.franka.ik2.scene_friction import (
+    DEFAULT_TANGENTIAL_FORCE_PENALTY, configure_scene_friction,
+)
 
 # Legacy yaw sampler's factorization; physical standing is handled separately.
 _GOAL_GEOM_Q = np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], dtype=np.float64)
@@ -36,7 +39,10 @@ def add_via_init_pose_args(parser):
 
 
 def _tilted_init_quaternion(args, yaw_angle, target_type="rotation"):
+    """Sample tilt only for flipping; rotation preserves the target's up axis."""
     yaw = float(np.asarray(yaw_angle, dtype=np.float64).reshape(-1)[0])
+    if target_type == "rotation":
+        return rotations.rpy_to_quaternion([yaw, 0.0, 0.0])
     tilt = np.pi / 2 if target_type == "ground-rotation" else 0.0
     axis_angle = 0.0
     if getattr(args, "random_init_tilt", False):
@@ -164,6 +170,23 @@ def _box_inertia_diag(mass, aabb_lo, aabb_hi):
     )
 
 
+def add_lambda_predictor_args(parser):
+    """One predictor configuration shared by Isaac and SCM MuJoCo checks."""
+    parser.set_defaults(friction_reg_coef=DEFAULT_TANGENTIAL_FORCE_PENALTY,
+                        two_stage_object_cost=True)
+    parser.add_argument('--collision-geometry', choices=('auto', 'hull', 'decomposed'), default='auto')
+    parser.add_argument('--contact-sampling', choices=('auto', 'surface', 'vertices'), default='auto')
+    parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
+    parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
+    parser.add_argument('--cso-guidance', choices=('cso', 'pose', 'random', 'nearest'), default='cso')
+    parser.add_argument('--contact-model', choices=('soft-scm', 'comfree'), default='soft-scm')
+    parser.add_argument('--soft-scm-response-time', '--force-response-time',
+                        dest='soft_scm_response_time', type=float, default=SOFT_SCM_RESPONSE_TIME)
+    parser.add_argument('--soft-scm-damping-ratio', type=float, default=SOFT_SCM_DAMPING_RATIO)
+    parser.add_argument('--soft-scm-regularization', type=float, default=SOFT_SCM_REGULARIZATION)
+    return parser
+
+
 def build_lambda_optimizer(param, args):
     """Same acados contact NLP as examples/mpc/fingertips/test/params.py."""
     runtime_cost = bool(getattr(param, 'runtime_object_cost_', False))
@@ -181,7 +204,8 @@ def build_lambda_optimizer(param, args):
     opt = LambdaContactControlOptimizer(
         mesh_path=param.mesh_path_,
         obj_mass=float(getattr(param, "lambda_obj_mass_", 0.01)),
-        arm_friction=param.mu_object_,
+        arm_friction=getattr(param, 'mu_fingertip_object_', param.mu_object_),
+        friction_cone='pyramid',
         contact_stiffness=param.model_params,
         time_step=(param.h_ if runtime_cost else getattr(param, 'lambda_h_', .05)),
         max_contacts=4 if grouped_response else 10,
@@ -189,9 +213,9 @@ def build_lambda_optimizer(param, args):
         top_k=getattr(args, "top_k", 2),
         pos_coef=args.pos_coef,
         ori_coef=args.ori_coef,
-        friction_reg_coef=getattr(args, "friction_reg_coef", 0.0),
+        friction_reg_coef=getattr(args, "friction_reg_coef", DEFAULT_TANGENTIAL_FORCE_PENALTY),
         force_reg_coef=getattr(args, "force_reg_coef", 0.01),
-        max_contact_force=(contact_command_force_limit(args, 600.) if runtime_cost else contact_force_limit(args)),
+        max_contact_force=(contact_command_force_limit(args, CARTESIAN_TASK_STIFFNESS) if runtime_cost else contact_force_limit(args)),
         contact_switch_radius=getattr(args, "contact_switch_radius", 0.03),
         contact_switch_margin_ratio=getattr(args, "contact_switch_margin_ratio", 0.2),
         contact_switch_margin_abs=getattr(args, "contact_switch_margin_abs", 1e-3),
@@ -201,11 +225,15 @@ def build_lambda_optimizer(param, args):
             getattr(args, "solver_backend", getattr(args, "solver", "auto"))
         ),
         torch_max_iter=getattr(args, "torch_max_iter", 100),
+        population_size=getattr(args, 'population_size', 24),
+        population_iterations=getattr(args, 'population_iterations', 12),
+        population_seed=int(getattr(param, 'trial_seed_', 0)) + int(getattr(args, 'solver_seed', 0)),
+        cem_elite_fraction=getattr(args, 'cem_elite_fraction', 0.25),
         obj_inertia=param.obj_inertia_ if runtime_cost else None,
         wrench_is_force=runtime_cost,
         contact_dynamics='quasi-dynamic' if runtime_cost else None,
         grouped_contact_response=grouped_response,
-        robot_stiffness=600. if grouped_response else None,
+        robot_stiffness=CARTESIAN_TASK_STIFFNESS if grouped_response else None,
         contact_model=getattr(param, 'contact_model', 'soft-scm'),
         soft_scm_response_time=getattr(param, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME),
         soft_scm_damping_ratio=getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO),
@@ -392,11 +420,13 @@ class ExplicitMPCParams:
             ],
             dtype=np.float64,
         )
-        if getattr(args, "random_init_tilt", False):
+        if target_type == "ground-rotation" and getattr(args, "random_init_tilt", False):
             self.init_fingertip_pos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
             self.init_fingertip_pos_[2] += 0.03 * float(np.random.rand())
 
-        self.mu_object_ = 0.5
+        combine_mode = ('max' if getattr(args, 'physics_backend', 'isaac') == 'mjwarp'
+                        and getattr(args, 'mjwarp_scene', 'isaac') == 'legacy' else 'average')
+        configure_scene_friction(self, combine_mode)
         self.n_mj_q_ = self.n_qpos_
         self.n_mj_v_ = self.n_qvel_
         self.max_ncon_ = 10
@@ -405,7 +435,7 @@ class ExplicitMPCParams:
         self.obj_inertia_[0:3, 0:3] = 50 * np.eye(3)
         self.obj_inertia_[3:, 3:] = 0.05 * np.eye(3)
         self.grouped_contact_response_ = self.runtime_object_cost_ and getattr(args, 'contact_model', 'soft-scm') == 'soft-scm'
-        self.robot_stiff_ = np.diag(self.n_cmd_ * [600 if self.runtime_object_cost_ else 100])
+        self.robot_stiff_ = np.diag(self.n_cmd_ * [CARTESIAN_TASK_STIFFNESS if self.runtime_object_cost_ else 100])
 
         Q = np.zeros((self.n_qvel_, self.n_qvel_))
         Q[:6, :6] = self.obj_inertia_

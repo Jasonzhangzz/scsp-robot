@@ -1,0 +1,41 @@
+[acados] generating solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_q19794238c7
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+External functions generated in 243.989 ms.
+Templated solver code generated in 770.823 ms.
+[acados] compiling solver (2 large maps); log: /tmp/contact_lambda_soft_scm_v25_m4_f3000_u1200_q19794238c7_codegen/build.log
+[acados] solver ready in 2.55s
+elephant penalty_0.01 complete
+[acados] generating solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qc33e1a0e89
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+External functions generated in 242.881 ms.
+Templated solver code generated in 782.300 ms.
+[acados] compiling solver (2 large maps); log: /tmp/contact_lambda_soft_scm_v25_m4_f3000_u1200_qc33e1a0e89_codegen/build.log
+[acados] solver ready in 2.52s
+elephant penalty_0.03 complete
+[acados] generating solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qf1d98bb512
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+External functions generated in 241.589 ms.
+Templated solver code generated in 788.202 ms.
+[acados] compiling solver (2 large maps); log: /tmp/contact_lambda_soft_scm_v25_m4_f3000_u1200_qf1d98bb512_codegen/build.log
+[acados] solver ready in 2.61s
+elephant penalty_0.05 complete
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+stanford_bunny2 penalty_0.01 complete
+stanford_bunny2 penalty_0.03 complete
+stanford_bunny2 penalty_0.05 complete
+elephant penalty_0.01 n 14 median elevation 0.0 mean gain deg 0.175052990060687 failures 0
+elephant penalty_0.03 n 14 median elevation 0.84208047952238 mean gain deg 0.131515580267459 failures 0
+elephant penalty_0.05 n 14 median elevation 1.0162238269841875 mean gain deg 0.11685975465784944 failures 0
+stanford_bunny2 penalty_0.01 n 11 median elevation 9.133854129041435 mean gain deg 0.42010489223143177 failures 0
+stanford_bunny2 penalty_0.03 n 11 median elevation 9.131828717169457 mean gain deg 0.34977008906987805 failures 0
+stanford_bunny2 penalty_0.05 n 11 median elevation 9.131147836858592 mean gain deg 0.3129787443036582 failures 0

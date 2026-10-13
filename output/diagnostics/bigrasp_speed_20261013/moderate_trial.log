@@ -1,0 +1,80 @@
+EE IK backend: mujoco
+MuJoCo viewer: off
+Warp UserWarning: Python 3.9 or newer is recommended for running Warp, detected sys.version_info(major=3, minor=8, micro=20, releaselevel='final', serial=0)
+Warp 1.3.1 initialized:
+   CUDA Toolkit 12.5, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.3.1
+[acados] generating solver: mpc_soft_scm_bimanual_v3_236a0fdc56_param_staged2_f135abdb38_current_h8_c6_x25_u6_profile_e8ddba0a_force0_v2_12000000
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+External functions generated in 4835.720 ms.
+Templated solver code generated in 1298.928 ms.
+[acados] compiling solver (5 large maps); log: /tmp/mpc_soft_scm_bimanual_v3_236a0fdc56_param_staged2_f135abdb38_current_h8_c6_x25_u6_profile_e8ddba0a_force0_v2_12000000_codegen/build.log
+[acados] solver ready in 22.80s
+Online bimanual MPC: solver=acados state=25 action=6 horizon=8 dt=0.010s
+Module planning.lambda_contact_lm 86272c8 load on device 'cpu' took 0.79 ms  (cached)
+Module planning.contact_candidates_warp ef8679c load on device 'cpu' took 0.10 ms  (cached)
+Module planning.lambda_batched_lm 2ee2ab9 load on device 'cpu' took 2346.74 ms  (compiled)
+Online MPC will optimize the two Cartesian actions
+Generated scene: envs/xmls/_generated_bigrasp_contact_latency.xml
+Mesh: /home/zz/scsp-robot/envs/assets/objects/elephant.stl
+Object pose: [0.58       0.         0.35484723] [1. 0. 0. 0.]
+Explicit MPC (mpc_ee): state_dim=25 action_dim=6 solver=acados
+Initial contact points local:
+ [[-0.01978669  0.0248369  -0.0029899 ]
+ [ 0.03565802 -0.02594373  0.01861562]]
+Initial desired contact forces local:
+ [[ 3.86092091 -3.49052572  4.56238461]
+ [-3.82573485  3.5019896   1.50825274]]
+Initial contact projection world:
+[[ 0.56021331  0.0248369   0.35185733]
+ [ 0.61565802 -0.02594373  0.37346285]]
+target object pose: [0.58       0.         0.41484723] [1. 0. 0. 0.]
+[0000] cost=62.4639 ready=[0, 0] hold=[0, 0] ee=0.1877/0.1624 tip_z=0.5300/0.5301 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00008  0.00005] obj_err=0.0606 target_z=0.4148 plan=27.3ms (36.6 Hz)
+[0001] cost=62.6754 ready=[0, 0] hold=[0, 0] ee=0.1877/0.1622 tip_z=0.5297/0.5299 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00006  0.     ] obj_err=0.0610 target_z=0.4148 plan=12.3ms (81.3 Hz)
+[0002] cost=61.9602 ready=[0, 0] hold=[0, 0] ee=0.1874/0.1618 tip_z=0.5291/0.5295 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00004 -0.     ] obj_err=0.0612 target_z=0.4148 plan=12.0ms (83.4 Hz)
+[0003] cost=61.1998 ready=[0, 0] hold=[0, 0] ee=0.1868/0.1611 tip_z=0.5283/0.5289 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00002 -0.     ] obj_err=0.0613 target_z=0.4148 plan=11.7ms (85.2 Hz)
+[0004] cost=60.3397 ready=[0, 0] hold=[0, 0] ee=0.1860/0.1603 tip_z=0.5275/0.5283 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00001 -0.     ] obj_err=0.0614 target_z=0.4148 plan=11.5ms (87.2 Hz)
+[0005] cost=59.5843 ready=[0, 0] hold=[0, 0] ee=0.1851/0.1592 tip_z=0.5266/0.5274 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0614 target_z=0.4148 plan=11.2ms (88.9 Hz)
+[0006] cost=58.8217 ready=[0, 0] hold=[0, 0] ee=0.1842/0.1581 tip_z=0.5257/0.5265 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=13.4ms (74.4 Hz)
+[0007] cost=58.4086 ready=[0, 0] hold=[0, 0] ee=0.1832/0.1569 tip_z=0.5248/0.5254 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.2ms (88.9 Hz)
+[0008] cost=57.4392 ready=[0, 0] hold=[0, 0] ee=0.1822/0.1555 tip_z=0.5238/0.5243 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.6ms (86.0 Hz)
+[0009] cost=56.8661 ready=[0, 0] hold=[0, 0] ee=0.1810/0.1542 tip_z=0.5228/0.5232 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.6ms (86.5 Hz)
+[0010] cost=55.9609 ready=[0, 0] hold=[0, 0] ee=0.1797/0.1528 tip_z=0.5216/0.5220 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=12.5ms (79.7 Hz)
+[0011] cost=55.3360 ready=[0, 0] hold=[0, 0] ee=0.1785/0.1514 tip_z=0.5204/0.5208 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.2ms (89.4 Hz)
+[0012] cost=54.5323 ready=[0, 0] hold=[0, 0] ee=0.1771/0.1498 tip_z=0.5192/0.5194 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=12.0ms (83.2 Hz)
+[0013] cost=53.6028 ready=[0, 0] hold=[0, 0] ee=0.1757/0.1483 tip_z=0.5180/0.5181 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=21.2ms (47.3 Hz)
+[0014] cost=52.9077 ready=[0, 0] hold=[0, 0] ee=0.1743/0.1468 tip_z=0.5167/0.5167 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=10.6ms (94.2 Hz)
+[0015] cost=52.0750 ready=[0, 0] hold=[0, 0] ee=0.1728/0.1453 tip_z=0.5154/0.5153 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.1ms (90.4 Hz)
+[0016] cost=51.3837 ready=[0, 0] hold=[0, 0] ee=0.1712/0.1436 tip_z=0.5139/0.5139 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=10.9ms (91.5 Hz)
+[0017] cost=50.4056 ready=[0, 0] hold=[0, 0] ee=0.1696/0.1420 tip_z=0.5124/0.5125 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.7ms (85.5 Hz)
+[0018] cost=49.6735 ready=[0, 0] hold=[0, 0] ee=0.1680/0.1403 tip_z=0.5109/0.5109 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=10.7ms (93.9 Hz)
+[0019] cost=48.7008 ready=[0, 0] hold=[0, 0] ee=0.1663/0.1386 tip_z=0.5094/0.5093 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.2ms (89.0 Hz)
+[0030] cost=40.1256 ready=[0, 0] hold=[0, 0] ee=0.1475/0.1188 tip_z=0.4895/0.4909 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=11.5ms (86.7 Hz)
+[0060] cost=22.8436 ready=[0, 0] hold=[0, 0] ee=0.0984/0.0581 tip_z=0.4367/0.4305 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=10.6ms (94.3 Hz)
+[0090] cost=14.4588 ready=[0, 1] hold=[0, 0] ee=0.0391/0.0140 tip_z=0.3819/0.3812 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0. -0.] obj_err=0.0615 target_z=0.4148 plan=10.3ms (97.2 Hz)
+[0120] cost=13.5374 ready=[0, 0] hold=[0, 0] ee=0.0161/0.0157 tip_z=0.3657/0.3869 phase=approach contacts=1/0 force=[0.012 0.   ] dxy=[ 0.00027 -0.00015] obj_err=0.0613 target_z=0.4148 plan=11.9ms (84.1 Hz)
+[0150] cost=19.3399 ready=[0, 0] hold=[0, 0] ee=0.0330/0.0254 tip_z=0.3809/0.3961 phase=approach contacts=1/1 force=[0.029 0.053] dxy=[0.00032 0.00016] obj_err=0.0585 target_z=0.4148 plan=11.2ms (89.5 Hz)
+[0180] cost=17.9756 ready=[0, 0] hold=[0, 0] ee=0.0355/0.0250 tip_z=0.4023/0.4052 phase=grasp_recovery contacts=1/1 force=[0.463 0.425] dxy=[0.00069 0.00058] obj_err=0.0486 target_z=0.4148 plan=10.9ms (91.5 Hz)
+[0210] cost=9.1062 ready=[0, 0] hold=[0, 0] ee=0.0360/0.0280 tip_z=0.4246/0.4379 phase=grasp_recovery contacts=1/1 force=[0.439 0.299] dxy=[-0.00067 -0.00033] obj_err=0.0208 target_z=0.4148 plan=10.5ms (95.2 Hz)
+[0240] cost=6.0842 ready=[0, 0] hold=[0, 0] ee=0.0360/0.0280 tip_z=0.4591/0.4678 phase=grasp_recovery contacts=1/1 force=[0.559 0.528] dxy=[-0.0002 -0.0001] obj_err=0.0189 target_z=0.4148 plan=10.4ms (96.3 Hz)
+[0270] cost=24.3041 ready=[0, 0] hold=[0, 0] ee=0.0364/0.0290 tip_z=0.4938/0.5018 phase=grasp_recovery contacts=1/1 force=[0.583 0.49 ] dxy=[-0.0006  -0.00038] obj_err=0.0557 target_z=0.4148 plan=11.8ms (84.5 Hz)
+[0300] cost=41.1224 ready=[0, 0] hold=[0, 0] ee=0.0389/0.0295 tip_z=0.5175/0.5224 phase=grasp_recovery contacts=1/1 force=[0.907 0.596] dxy=[-0.0004  -0.00033] obj_err=0.0822 target_z=0.4148 plan=10.6ms (94.4 Hz)
+[0330] cost=44.9970 ready=[0, 0] hold=[0, 0] ee=0.0381/0.0314 tip_z=0.5265/0.5354 phase=grasp_recovery contacts=1/1 force=[0.862 0.478] dxy=[-0.00059 -0.00017] obj_err=0.0995 target_z=0.4148 plan=11.3ms (88.5 Hz)
+[0360] cost=65.9824 ready=[0, 0] hold=[0, 0] ee=0.0388/0.0341 tip_z=0.5329/0.5444 phase=grasp_recovery contacts=1/1 force=[0.908 0.412] dxy=[-0.00074 -0.00028] obj_err=0.1177 target_z=0.4148 plan=11.3ms (88.3 Hz)
+[0390] cost=101.6991 ready=[0, 0] hold=[0, 0] ee=0.0357/0.0490 tip_z=0.5048/0.5199 phase=grasp_recovery contacts=1/0 force=[0.008 0.   ] dxy=[-0.0007   0.00001] obj_err=0.1139 target_z=0.4148 plan=11.4ms (87.7 Hz)
+[0420] cost=46788.0021 ready=[0, 0] hold=[0, 0] ee=0.3604/0.3707 tip_z=0.4544/0.4664 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00523 -0.00311] obj_err=0.3456 target_z=0.4148 plan=11.9ms (83.8 Hz)
+[0450] cost=5106.1319 ready=[0, 0] hold=[0, 0] ee=0.3240/0.4216 tip_z=0.3930/0.4040 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00062 -0.00225] obj_err=0.4357 target_z=0.4148 plan=10.8ms (92.7 Hz)
+[0480] cost=2767.3417 ready=[0, 0] hold=[0, 0] ee=0.3109/0.3752 tip_z=0.3508/0.3652 phase=approach contacts=0/0 force=[0. 0.] dxy=[-0.00036  0.00047] obj_err=0.4554 target_z=0.4148 plan=11.6ms (86.5 Hz)
+[0510] cost=2155.9962 ready=[0, 0] hold=[0, 0] ee=0.2616/0.3564 tip_z=0.3010/0.3457 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.4550 target_z=0.4148 plan=10.2ms (98.1 Hz)
+[0540] cost=2158.9816 ready=[0, 0] hold=[0, 0] ee=0.2426/0.3666 tip_z=0.2816/0.3440 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.4550 target_z=0.4148 plan=11.1ms (90.5 Hz)
+[0570] cost=2156.3572 ready=[0, 0] hold=[0, 0] ee=0.2063/0.3819 tip_z=0.2538/0.3346 phase=approach contacts=0/0 force=[0. 0.] dxy=[0. 0.] obj_err=0.4550 target_z=0.4148 plan=11.7ms (85.8 Hz)
+Contact diagnostics: min_ee=0.0128/0.0099 one_arm_steps=23 both_arm_steps=244 max_dxy_step=0.00753 net_xy=0.24052 max_normal_force=0.943
+Online MPC result: success=False height_gain=-0.3262 target_gain=0.0600
+Final object pose: [ 0.39293033 -0.15118579  0.02863462] [-0.21193701 -0.19868603 -0.66464924 -0.68836615]

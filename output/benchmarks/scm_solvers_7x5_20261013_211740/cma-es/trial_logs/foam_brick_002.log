@@ -1,0 +1,20 @@
+direct_force solver=cma-es object=foam_brick seed=2 step=0 pos=0.135163 quat=0.653185 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=50 pos=0.055456 quat=0.010035 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=100 pos=0.047465 quat=0.004876 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=150 pos=0.041783 quat=0.025323 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=200 pos=0.046566 quat=0.022360 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=250 pos=0.045815 quat=0.021582 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=300 pos=0.045276 quat=0.021283 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=350 pos=0.045468 quat=0.021220 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=400 pos=0.033100 quat=0.003290 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=450 pos=0.033484 quat=0.000790 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=500 pos=0.030854 quat=0.001135 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=550 pos=0.028021 quat=0.000629 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=600 pos=0.025005 quat=0.000492 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=650 pos=0.022803 quat=0.000169 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=700 pos=0.019246 quat=0.001425 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=750 pos=0.018402 quat=0.001143 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=800 pos=0.019017 quat=0.000218 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=850 pos=0.017085 quat=0.000067 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=2 step=892 pos=0.016046 quat=0.000067 hold=10 success=True
+TRIAL_RESULT {"solver": "cma-es", "object": "foam_brick", "seed": 2, "steps": 893, "success": true, "settled": true, "final_pos": 0.01604616227022318, "final_quat": 6.724419077674959e-05, "solver_backends": ["cma-es"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-14T00:03:01+08:00", "completed_at": "2026-10-14T00:13:25+08:00", "execution_time_s": 619.2762559329858, "elapsed_wall_time_s": 619.2762559329858, "simulation_time_s": 17.860000000003726, "planning_time_ms": {"n": 893, "mean": 691.479366347843, "std": 75.60739936307435, "median": 659.9801270058379, "p95": 843.2698377757333, "min": 575.2748949453235, "max": 1220.8285050000995}, "planning_rounds": 893}

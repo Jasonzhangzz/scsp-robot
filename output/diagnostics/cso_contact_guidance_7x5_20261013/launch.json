@@ -1,0 +1,22 @@
+{
+  "pid": 3033100,
+  "command": [
+    "/home/zz/miniconda3/envs/pi0/bin/python",
+    "/home/zz/scsp-robot/examples/mpc/fingertips/test/run_cso_contact_guidance.py",
+    "--output-dir",
+    "/home/zz/scsp-robot/output/diagnostics/cso_contact_guidance_7x5_20261013",
+    "--cpus",
+    "0,2,4,6,8,10,12"
+  ],
+  "log": "/home/zz/scsp-robot/output/diagnostics/cso_contact_guidance_7x5_20261013/main.log",
+  "launched_at": "2026-10-13T20:48:52.993419+08:00",
+  "tasks": 105,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "automatic_table_update": "tro_revision/experiment.tex:tab:cso_contact_guidance"
+}

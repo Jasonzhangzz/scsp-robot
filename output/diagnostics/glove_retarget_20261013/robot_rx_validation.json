@@ -1,0 +1,32 @@
+{
+  "live_binary_max_position_difference_m": 1.4901161193847656e-08,
+  "original": {
+    "first_mm": 117.53009940557558,
+    "min_median_max_mm": [
+      110.00592428718969,
+      123.28755370035759,
+      158.55711167418033
+    ]
+  },
+  "rx_corrected": {
+    "first_mm": 65.08896525972051,
+    "min_median_max_mm": [
+      14.210969428150582,
+      29.386748067785536,
+      71.16422300882516
+    ]
+  },
+  "trajectory_frames": 399,
+  "left_success": {
+    "frames": 399,
+    "succeeded": 399
+  },
+  "right_success": {
+    "frames": 399,
+    "succeeded": 399
+  },
+  "arm_ik_success": {
+    "frames": 399,
+    "succeeded": 399
+  }
+}

@@ -1,0 +1,6 @@
+Monitoring ended: 2026-10-13T21:45:38+08:00
+FIRST_RESULT solver=acados object=foam_brick seed=1 success=True settled=True steps=577 final_pos_m=0.016164817 final_quat_error=0.000067529 controller_pid=3073422 log=/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/acados.log
+FIRST_RESULT solver=ipopt object=foam_brick seed=1 success=True settled=True steps=890 final_pos_m=0.016180722 final_quat_error=0.000187497 controller_pid=3073423 log=/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt.log
+FIRST_RESULT solver=cma-es object=foam_brick seed=1 success=True settled=True steps=751 final_pos_m=0.016059109 final_quat_error=0.000275935 controller_pid=3073424 log=/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es.log
+FIRST_RESULT solver=cem object=foam_brick seed=1 success=True settled=True steps=717 final_pos_m=0.016179809 final_quat_error=0.000155684 controller_pid=3073425 log=/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cem.log
+All controllers remain running; remaining trials continue automatically.

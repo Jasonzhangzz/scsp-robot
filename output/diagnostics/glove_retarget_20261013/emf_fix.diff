@@ -1,0 +1,93 @@
+--- /tmp/retarget_diagnosis/emf_offline.py	2026-10-13 11:34:45.237799097 +0800
++++ /tmp/retarget_fix_20261013/utils/wuji_retarget/emf_offline.py	2026-10-13 12:10:43.781775701 +0800
+@@ -192,6 +192,14 @@
+                     raise RuntimeError(f'{side}: SDK did not load the pinned URDF')
+             elif pipeline.urdf_source != 'builtin_default':
+                 raise RuntimeError(f'{side}: expected builtin_default, got {pipeline.urdf_source}')
++            from wuji_retarget.glove_ik import glove_fk, initialize_glove_ik
++            initialization = initialize_glove_ik(
++                pipeline, urdf, side, int(ts[0]//1000), frame_ids[0])
++            if urdf:
++                arrays[f'{side}_tx_from_wrist'] = np.linalg.inv(
++                    glove_fk(urdf, side)['emf_tx_base'])
++            print(f"[emf-offline] {side} glove IK initialization={initialization['policy']}",
++                  flush=True)
+             model = HandModel.WujiHand if generation == "hand1" else HandModel.WujiHand2
+             if side == "left":
+                 print(
+@@ -234,8 +242,21 @@
+                 f'{side}_source_timestamp_ns':ts, f'{side}_source_seq':seq,
+                 f'{side}_action_timestamp_ns':ats, f'{side}_hand_q_names':np.asarray(actuated_joint_names(side,generation)),
+                 f'{side}_skeleton_joint_names':np.asarray(names)})
++            from wuji_retarget.glove_ik import recorded_world_from_wrist
++            world_from_wrist = recorded_world_from_wrist(
++                ep, h[side], side, ats, arrays.get(f'{side}_tx_from_wrist'))
++            if world_from_wrist is not None:
++                from scipy.spatial.transform import Rotation
++                world_rotation = world_from_wrist[:, :3, :3]
++                arrays[f'{side}_skeleton_position_world'] = (
++                    np.einsum('nij,nkj->nki', world_rotation, skeletons)
++                    + world_from_wrist[:, None, :3, 3])
++                local_rotations = Rotation.from_quat(rotations.reshape(-1, 4)).as_matrix().reshape(n, 21, 3, 3)
++                arrays[f'{side}_skeleton_orientation_world_xyzw'] = Rotation.from_matrix(
++                    (world_rotation[:, None] @ local_rotations).reshape(-1, 3, 3)).as_quat().reshape(n, 21, 4)
+             info['sides'][side] = {'frames':n, 'sn':sn,'urdf_source':pipeline.urdf_source,
+                 'urdf_source_path':pipeline.urdf_source_path,'urdf_sha256':config.get(f'{side}_sha256'),
++                'ik_initialization':initialization,
+                 'timestamp_start_ns':int(ts[0]),'timestamp_end_ns':int(ts[-1])}
+             lookups[side] = lookup
+     return arrays, info, lookups
+@@ -347,6 +368,7 @@
+     rows, timestamps, matches = [],[],{'left':[],'right':[]}
+     missing = {'left':[], 'right':[]}
+     nearest_used = {'left':[], 'right':[]}
++    world_transforms = {'left': [], 'right': []}
+     periods = {
+         side: _action_period_ns(native[f'{side}_action_timestamp_ns'])
+         for side in ('left', 'right')
+@@ -376,6 +398,27 @@
+                     else:
+                         nearest_used[side].append(frame_index)
+                 matches[side].append(index)
++                transform = None
++                world_msg = frame.get(f'{side}_glove_emf_poses_world')
++                tx_from_wrist = native.get(f'{side}_tx_from_wrist')
++                if (index >= 0 and tx_from_wrist is not None
++                        and f'{side}_skeleton_position_world' not in native
++                        and isinstance(msg, dict) and isinstance(world_msg, dict)):
++                    from wuji_retarget.glove_ik import world_from_emf
++                    transform = world_from_emf(msg, world_msg) @ tx_from_wrist
++                elif index >= 0 and tx_from_wrist is None:
++                    # With the builtin model the recorded wrist transform is still valid;
++                    # replace only its articulated bones with the freshly solved skeleton.
++                    joints = frame.get(f'{side}_glove_hand_skeleton_world', {}).get('joints', [])
++                    wrist = next((j for j in joints if j.get('name') == 'wrist'), None)
++                    if wrist is not None:
++                        from scipy.spatial.transform import Rotation
++                        pose = wrist['pose']
++                        transform = np.eye(4)
++                        transform[:3, 3] = [float(pose['position'][a]) for a in 'xyz']
++                        transform[:3, :3] = Rotation.from_quat(
++                            [float(pose['orientation'][a]) for a in 'xyzw']).as_matrix()
++                world_transforms[side].append(transform)
+     valid = np.logical_and(np.asarray(matches['left'])>=0,np.asarray(matches['right'])>=0)
+     if not valid.any():
+         raise RuntimeError('No camera frame has an EMF sample within one action period')
+@@ -391,6 +434,17 @@
+         for suffix in ('hand_q','skeleton_position','skeleton_orientation_xyzw','skeleton_confidence','source_timestamp_ns'):
+             output[f'{side}_{suffix}']=native[f'{side}_{suffix}'][indices]
+         output[f'{side}_hand_q_names']=native[f'{side}_hand_q_names']
++        selected_transforms = [t for t, keep in zip(world_transforms[side], valid) if keep]
++        if f'{side}_skeleton_position_world' in native:
++            for suffix in ('skeleton_position_world', 'skeleton_orientation_world_xyzw'):
++                output[f'{side}_{suffix}'] = native[f'{side}_{suffix}'][indices]
++        elif all(t is not None for t in selected_transforms):
++            from wuji_retarget.glove_ik import transform_skeleton
++            world = [transform_skeleton(native[f'{side}_skeleton_position'][i],
++                native[f'{side}_skeleton_orientation_xyzw'][i], t)
++                for i, t in zip(indices, selected_transforms)]
++            output[f'{side}_skeleton_position_world'] = np.stack([v[0] for v in world])
++            output[f'{side}_skeleton_orientation_world_xyzw'] = np.stack([v[1] for v in world])
+     output['wuji_hand_q']=np.concatenate([output['right_hand_q'],output['left_hand_q']],axis=1)
+     output['wuji_hand_q_names']=np.concatenate([output['right_hand_q_names'],output['left_hand_q_names']])
+     return output, {'camera_frames':len(rows),'paired_frames':int(valid.sum()),

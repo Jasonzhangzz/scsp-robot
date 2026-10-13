@@ -1,0 +1,125 @@
+{
+  "label": "restored_final",
+  "compared_frames": 195,
+  "source_frame_indices_equal": true,
+  "current_ramp_frames": 54,
+  "historical_ramp_frames": 54,
+  "published_json": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/restored_final_published/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17.json",
+  "control_fields": {
+    "follow_right_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0,
+      "different_elements": 0
+    },
+    "follow_right_ee_rotation_6D": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0,
+      "different_elements": 0
+    },
+    "follow_left_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0,
+      "different_elements": 0
+    },
+    "follow_left_ee_rotation_6D": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0,
+      "different_elements": 0
+    },
+    "wuji_right_joint_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0,
+      "different_elements": 0
+    },
+    "wuji_left_joint_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0,
+      "different_elements": 0
+    },
+    "right_arm_joint_controller_commands": {
+      "exact_equal": false,
+      "max_abs_diff": 0.0011339709162712097,
+      "different_elements": 1138
+    },
+    "left_arm_joint_controller_commands": {
+      "exact_equal": false,
+      "max_abs_diff": 0.00026935338973999023,
+      "different_elements": 1081
+    }
+  },
+  "raw_arrays": {
+    "world_to_base_transform": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "arm_q": {
+      "exact_equal": false,
+      "max_abs_diff": 0.0011339709162712097
+    },
+    "wuji_hand_q": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "left_wrist_position_base": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "right_wrist_position_base": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "left_wrist_quaternion_base_xyzw": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "right_wrist_quaternion_base_xyzw": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    }
+  },
+  "right_follow_exact_equal": true,
+  "full_final_frames": 249,
+  "full_control_fields": {
+    "follow_right_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "follow_right_ee_rotation_6D": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "follow_left_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "follow_left_ee_rotation_6D": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "wuji_right_joint_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "wuji_left_joint_position": {
+      "exact_equal": true,
+      "max_abs_diff": 0.0
+    },
+    "right_arm_joint_controller_commands": {
+      "exact_equal": false,
+      "max_abs_diff": 0.0011339709162712097
+    },
+    "left_arm_joint_controller_commands": {
+      "exact_equal": false,
+      "max_abs_diff": 0.00026935338973999023
+    }
+  },
+  "active_references_to_deleted_features": [],
+  "unit_tests": {
+    "run": 15,
+    "passed": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "modification_scope": "Restore recorded world skeletons and wrist targets; delete world wrist/TX reconstruction, SDK skeleton replacement, and their publication source override. Preserve the SDK finger solve, glove URDF selection, RX corrections and other unrelated changes."
+}

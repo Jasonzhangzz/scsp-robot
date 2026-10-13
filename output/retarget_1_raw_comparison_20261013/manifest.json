@@ -1,0 +1,22 @@
+{
+  "source_episode": "/mnt/jfs/x2robot-prod/x2robot-data/collection/18/RP001_VR/XRRD11ZD2604070080/20260918180420-pick_doll_CQQ_rpAAAA/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17",
+  "source_json_sha256": "22855f6088511fde395996732b6014998f7cf7c4a342446dbae50bcb30546730",
+  "head": "0da78fb17418fb77fe408eb04391ba2452abcea4",
+  "baseline": "adde3216860a76b70f3bfda462ab48e50ab9cba4",
+  "historical_code": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_comparison_20261013/historical_adde321",
+  "python": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/miniconda3/envs/pi0/bin/python",
+  "robot": "ex001_wuji",
+  "initial_position": [
+    0.37,
+    0.0,
+    0.245
+  ],
+  "model": {
+    "sdk_version": "2026.8.31",
+    "left_urdf": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/left_hand.urdf",
+    "left_sha256": "70def7b0e4a007d4c6bbb4ae4e7cb5a80909a2ff9836a73b7b2a2406ebc622e3",
+    "right_urdf": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/right_hand.urdf",
+    "right_sha256": "c09676d29d209420111aa218962cc31b8b033bf7e1581ca4054411af9171b800"
+  },
+  "comparison_parameters": "Both sides use the same original JSON/H5, target ex001_wuji, CQQ left/right glove URDFs, mcp anchor, 20 Hz output and move_from_start. Historical initial_position is changed in the generated batch parameter list because the old batch schema lacks the field and rejects CLI overrides. No solver math is modified. Current orientation correction rules do not target the Sep 18 recording."
+}

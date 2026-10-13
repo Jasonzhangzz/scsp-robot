@@ -1,0 +1,498 @@
+diff --git a/replay/calibrated/batch_replay.py b/replay/calibrated/batch_replay.py
+index bd36d3d..d25c7c3 100644
+--- a/replay/calibrated/batch_replay.py
++++ b/replay/calibrated/batch_replay.py
+@@ -52,6 +52,24 @@ Unknown options are forwarded to ``wuji_replay.py``.  For example::
+ 
+ from __future__ import annotations
+ 
++# Source updates invalidate bytecode. Atomic .pyc writes on CPFS can block
++# every importing trajectory thread; use the node's local cache before imports.
++# An explicit Python cache prefix or -B remains authoritative.
++import os
++import sys
++
++if sys.pycache_prefix is None and not sys.dont_write_bytecode:
++    _LOCAL_PYCACHE = os.path.join(
++        os.environ.get("TMPDIR") or "/tmp",
++        f"ego_fast_retarget_pycache_{os.getuid()}",
++    )
++    os.makedirs(_LOCAL_PYCACHE, exist_ok=True)
++    sys.pycache_prefix = _LOCAL_PYCACHE
++    os.environ["PYTHONPYCACHEPREFIX"] = _LOCAL_PYCACHE
++if __name__ == "__main__":
++    print(f"[batch_replay] Python bytecode cache: {sys.pycache_prefix}",
++          file=sys.stderr, flush=True)
++
+ import atexit
+ import argparse
+ from contextlib import contextmanager
+@@ -61,12 +79,10 @@ import io
+ import json
+ import logging
+ import math
+-import os
+ import random
+ import shutil
+ import shlex
+ import subprocess
+-import sys
+ import tempfile
+ import threading
+ import time
+@@ -538,6 +554,7 @@ _ROBOT_HAND_GENERATION = {
+ _DEFAULT_ROBOT = "ex001_wuji2"
+ _DEFAULT_COMPOSITE_URDF = _ROBOT_COMPOSITE_URDFS[_DEFAULT_ROBOT]
+ WUJI_GLOVE_OFFLINE_H5 = "wuji_glove_offline.h5"
++WUJI_GLOVE_TF_H5 = "wuji_glove_tf.h5"
+ _DEFAULT_COLLISION_CONFIG = (
+     _PKG_ROOT / "data/curobo_configs/ex001_composite_curobo.yml"
+ )
+@@ -829,6 +846,7 @@ class BatchYamlConfig:
+     right_hand_urdf: str | None = None
+     left_glove_urdf: str | None = None
+     right_glove_urdf: str | None = None
++    glove_emf_rx_corrections: str | None = None
+     grasp_type: int | None = None
+     which_to_track: str = "mcp"
+     anchor: str = "mcp"
+@@ -1130,6 +1148,7 @@ def _load_batch_yaml(path: Path) -> BatchYamlConfig:
+         "right_hand_urdf",
+         "left_glove_urdf",
+         "right_glove_urdf",
++        "glove_emf_rx_corrections",
+         "grasp_type",
+         "which_to_track",
+         "anchor",
+@@ -1297,6 +1316,8 @@ def _load_batch_yaml(path: Path) -> BatchYamlConfig:
+         right_hand_urdf=right_hand_urdf,
+         left_glove_urdf=left_glove_urdf,
+         right_glove_urdf=right_glove_urdf,
++        glove_emf_rx_corrections=_optional_yaml_path(
++            payload, "glove_emf_rx_corrections", yaml_dir=resolved.parent),
+         grasp_type=grasp_type,
+         which_to_track=which_to_track,
+         anchor=anchor,
+@@ -3731,6 +3752,13 @@ def _write_reference_episode(
+         alignment_cost_total = float(
+             np.asarray(archive.get("cost_total", np.nan)).item()
+         )
++        sdk_source_skeletons = {
++            side: np.asarray(archive[f"{side}_skeleton_position_world"], dtype=np.float64)
++            for side in ("left", "right")
++            if f"{side}_skeleton_position_world" in archive_names
++        }
++        sdk_emf_metadata = str(np.asarray(
++            archive.get("hand_sdk_emf_metadata_json", "")).item())
+     frame_count = len(relative_time)
+     if not math.isfinite(fps) or fps <= 0.0:
+         raise ValueError(f"Invalid interpolated playback_fps: {fps}")
+@@ -3819,10 +3847,31 @@ def _write_reference_episode(
+             continue
+         seen_raw.add(raw_index)
+         unique_raw.append(raw_index)
++    source_observations = [raw_frames[index] for index in unique_raw]
++    if sdk_source_skeletons:
++        # The source is the measured EMF derivative from this solve, not robot FK
++        # or the collection's older builtin-default hand skeleton. Hold it at the
++        # same original anchors as source Wuji q; never use interpolated bones.
++        from wuji_retarget.hand_retarget import STANDARD_MANO_TO_MEDIAPIPE
++        to_mano = np.argsort(STANDARD_MANO_TO_MEDIAPIPE)
++        for side, skeletons in sdk_source_skeletons.items():
++            if skeletons.shape != (frame_count, 21, 3) or not np.isfinite(skeletons).all():
++                raise ValueError(f"{side}: calibrated source skeleton is misaligned or nonfinite")
++        anchor_by_raw = {}
++        for execution_index in (source_execution_indices if len(source_execution_indices)
++                                else np.arange(frame_count)):
++            anchor_by_raw[int(raw_indices[execution_index])] = int(execution_index)
++        source_observations = []
++        for raw_index in unique_raw:
++            observation = dict(raw_frames[raw_index])
++            anchor_index = anchor_by_raw[raw_index]
++            for side, skeletons in sdk_source_skeletons.items():
++                observation[data_format.source_mano21_key(side)] = (
++                    skeletons[anchor_index, to_mano].reshape(-1).tolist())
++                observation[data_format.source_hand_joint_key(side)] = hand_q[side][anchor_index].tolist()
++            source_observations.append(observation)
+     converted_unique = data_format.transform_source_fields_world_to_base_many(
+-        _source_observation_fields_many(
+-            [raw_frames[index] for index in unique_raw]
+-        ),
++        _source_observation_fields_many(source_observations),
+         world_to_base,
+     )
+     source_by_raw = {
+@@ -3859,9 +3908,7 @@ def _write_reference_episode(
+     write_parts["dump+json_io"] = time.monotonic() - part_started
+ 
+     def _write_sidecars() -> None:
+-        data_format.write_replay_metadata(
+-            destination,
+-            data_format.replay_metadata_document(
++        metadata_document = data_format.replay_metadata_document(
+                 episode_id=episode_id,
+                 total=frame_count,
+                 fps=fps,
+@@ -3877,8 +3924,13 @@ def _write_reference_episode(
+                 arm_ik_failure_count=int(
+                     arm_ik_success.size - np.count_nonzero(arm_ik_success)
+                 ),
+-            ),
+-        )
++            )
++        if sdk_source_skeletons:
++            metadata_document["source_wuji_policy"] = "same calibrated EMF solve at previous source anchor"
++            metadata_document["source_skeleton_policy"] = "same calibrated EMF solve used for finger q and MCP alignment"
++        if sdk_emf_metadata:
++            metadata_document["hand_sdk_emf_metadata"] = json.loads(sdk_emf_metadata)
++        data_format.write_replay_metadata(destination, metadata_document)
+         data_format.write_action_npy(
+             episode_json,
+             frames,
+@@ -4171,6 +4223,7 @@ def _link_episode_inputs(source: Path, staging: Path, *, log_name: str) -> None:
+         data_format.TIMESTAMPS_NAME,
+         data_format.RAW_TIMESTAMPS_NAME,
+         WUJI_GLOVE_OFFLINE_H5,
++        WUJI_GLOVE_TF_H5,
+     )
+     source_h5 = source / WUJI_GLOVE_OFFLINE_H5
+     if not source_h5.is_file():
+@@ -5664,6 +5717,8 @@ def _with_batch_child_options(
+     # Do not inherit left_urdf / right_urdf from model_config.
+     options.extend(("--left_glove_urdf", left_glove or ""))
+     options.extend(("--right_glove_urdf", right_glove or ""))
++    if config.glove_emf_rx_corrections:
++        options.extend(("--glove_emf_rx_corrections", config.glove_emf_rx_corrections))
+     if config.grasp_type is not None:
+         options.extend(("--grasp_type", str(config.grasp_type)))
+     if config.anchor:
+diff --git a/replay/calibrated/batch_replay.yaml b/replay/calibrated/batch_replay.yaml
+index 73fd494..71f11ac 100644
+--- a/replay/calibrated/batch_replay.yaml
++++ b/replay/calibrated/batch_replay.yaml
+@@ -1,15 +1,20 @@
+ # Remote collection directory basenames or absolute paths below
+ # batch_replay.py's --remote-root.
+-list: ["/mnt/jfs/x2robot-prod/x2robot-data/collection/18/RP001_VR/XRRD11ZD2604070080/20261008110949-pick_pepper_CQQ_rpAAAA"]
++list: ["/mnt/jfs/x2robot-prod/x2robot-data/collection/18/RP001_VR/XRRD11ZD2604070080/20260918180420-pick_doll_CQQ_rpAAAA"]
+ 
+ # Absolute output root. Each episode directory that contains a JSON is
+ # written here directly, without the device or collection parents.
+-output: /mnt/cpfs/zbl-cpfs-new/share/egocentric/replay/ex001_wuji/calibrated_1008_pick_peppers_mcp
++output: /mnt/cpfs/zbl-cpfs-new/share/egocentric/replay/ex001_wuji/test/calibrated_0920_pick_peppers_mcp
+ # Wearer glove URDFs for the SDK offline pipeline (EMF→q) and glove
+ # measurement. null uses the SDK builtin_default model.
+ left_glove_urdf: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/left_hand.urdf
+ right_glove_urdf: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/right_hand.urdf
+ 
++# RX frame conversion: JSON rules select Oct 8, 2026 right thumb/index/middle
++# for the configured devices, including pick_pepper. Earlier/later dates and
++# the left hand retain their original EMF orientations. Use null to disable.
++glove_emf_rx_corrections: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq_v2/emf_rx_corrections.json
++
+ # Randomly process this many episodes from each collection. Use null for all.
+ num_per_folder: null
+ 
+diff --git a/replay/wuji_replay.py b/replay/wuji_replay.py
+index 7a9f3d4..ab7d9e9 100644
+--- a/replay/wuji_replay.py
++++ b/replay/wuji_replay.py
+@@ -616,6 +616,7 @@ def replay_episode(
+     composite_urdf: str | Path = DEFAULT_COMPOSITE_URDF,
+     hand_urdfs: Mapping[str, str | Path] = DEFAULT_HAND_URDFS,
+     glove_urdfs: Mapping[str, str | Path] | None = None,
++    glove_emf_rx_corrections: str | Path | None = None,
+     glove_sdk_user: str | None = None,
+     model_config: str | Path | None = None,
+     generation: str | None = None,
+@@ -823,6 +824,7 @@ def replay_episode(
+         composite_urdf=composite_urdf,
+         hand_urdfs=hand_urdfs,
+         glove_urdfs=glove_urdfs,
++        glove_emf_rx_corrections=glove_emf_rx_corrections,
+         glove_sdk_user=glove_sdk_user,
+         model_config=model_config,
+         generation=resolved_generation,
+@@ -869,6 +871,9 @@ def replay_episode(
+                 f"sample within one action period: {dropped[:20]}",
+                 flush=True,
+             )
++    from wuji_retarget.sdk_retarget import sequence_from_sdk
++    skeleton_sequence = sequence_from_sdk(skeleton_sequence, hand_result)
++    raw_skeleton_sequence = skeleton_sequence
+     _record_solve_timing(
+         solve_timings, "raw EMF SDK finger retarget", stage_started
+     )
+@@ -1394,6 +1399,8 @@ def main(argv: Sequence[str] | None = None) -> Path:
+             "Empty uses the SDK builtin model."
+         ),
+     )
++    parser.add_argument("--glove_emf_rx_corrections", default="",
++        help="JSON recording-to-calibration RX orientation frame conversions")
+     parser.add_argument(
+         "--glove_sdk_user",
+         default=os.environ.get("GEORT_WUJI_SDK_USER", ""),
+@@ -1708,6 +1715,7 @@ def main(argv: Sequence[str] | None = None) -> Path:
+         composite_urdf=args.composite_urdf,
+         hand_urdfs=hand_urdfs,
+         glove_urdfs=glove_urdfs,
++        glove_emf_rx_corrections=args.glove_emf_rx_corrections or None,
+         glove_sdk_user=args.glove_sdk_user or None,
+         model_config=args.model_config or None,
+         generation=args.generation,
+diff --git a/tests/test_emf_offline.py b/tests/test_emf_offline.py
+index caf7ac2..c4504b1 100644
+--- a/tests/test_emf_offline.py
++++ b/tests/test_emf_offline.py
+@@ -7,7 +7,7 @@ import numpy as np
+ from wuji_retarget.emf_offline import (load_model_config, solve_native, align_camera,
+                                       validate_stream, fingerprint, _nearest_action_index,
+                                       longest_consecutive_dropped, trajectory_frame_loss,
+-                                      DEFAULT_CONFIG)
++                                      DEFAULT_CONFIG, model_config_from_urdfs)
+ 
+ SOURCE=Path('/mnt/jfs/x2robot-prod/x2robot-data/collection/18/RP001_VR/XRRD11ZD2604070080/20260918180420-pick_doll_CQQ_rpAAAA/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17')
+ 
+@@ -24,7 +24,9 @@ class EmfOfflineTests(unittest.TestCase):
+                 for key in ('emf_poses/position','emf_poses/orientation_xyzw','emf_poses/confidence',
+                             'source_timestamp_ns','source_seq','source_frame_id','action_timestamp_ns'):
+                     dst.create_dataset(side+'/'+key,data=src[side+'/'+key][:8],dtype=src[side+'/'+key].dtype)
+-        self.cfg=load_model_config()
++        self.cfg = (load_model_config() if DEFAULT_CONFIG.is_file() else
++            model_config_from_urdfs({'right': Path(__file__).resolve().parents[1] /
++                                    'hand_models/cqq_v2/right_hand.urdf'}))
+ 
+     def test_native_matches_direct_sdk_without_stored_skeleton(self):
+         from wuji_sdk import (WujiGlove,RetargetSession,HandModel,Handedness,
+@@ -82,7 +84,7 @@ class EmfOfflineTests(unittest.TestCase):
+             with self.assertRaises(ValueError):validate_stream(h['right'],'right')
+ 
+     def test_model_hash_is_enforced(self):
+-        config=json.loads(Path(DEFAULT_CONFIG).read_text())
++        config=dict(self.cfg)
+         config['right_urdf']=self.cfg['right_urdf'];config['right_sha256']='wrong'
+         p=self.ep/'config.json';p.write_text(json.dumps(config))
+         with self.assertRaises(ValueError):load_model_config(p)
+diff --git a/utils/wuji2_retarget/official_retarget.py b/utils/wuji2_retarget/official_retarget.py
+index 91a7ae6..7929996 100644
+--- a/utils/wuji2_retarget/official_retarget.py
++++ b/utils/wuji2_retarget/official_retarget.py
+@@ -644,6 +644,7 @@ def retarget_episode_official(
+     composite_urdf: str | Path,
+     hand_urdfs: Mapping[str, str | Path] = DEFAULT_HAND_URDFS,
+     glove_urdfs: Mapping[str, str | Path] | None = None,
++    glove_emf_rx_corrections: str | Path | None = None,
+     glove_sdk_user: str | None = None,
+     stride: int = 1,
+     max_frames: int | None = None,
+@@ -700,6 +701,7 @@ def retarget_episode_official(
+         model_config=model_config,
+         generation=generation,
+         glove_urdfs=glove_urdfs,
++        glove_emf_rx_corrections=glove_emf_rx_corrections,
+     )
+     kept = np.asarray(sdk_emf_commands["frame_indices"], dtype=np.int64)
+     if not np.array_equal(kept, np.asarray(sequence.frame_indices, dtype=np.int64)):
+@@ -727,6 +729,8 @@ def retarget_episode_official(
+                 side: np.asarray(fallback_tip_masks[side])[rows]
+                 for side in fallback_tip_masks
+             }
++    from wuji_retarget.sdk_retarget import sequence_from_sdk
++    sequence = sequence_from_sdk(sequence, sdk_emf_commands)
+     frame_count = len(sequence.frame_indices)
+     output = sdk_metadata(generation)
+     output.update(frame_indices=sequence.frame_indices, timestamps=sequence.timestamps)
+diff --git a/utils/wuji_retarget/emf_offline.py b/utils/wuji_retarget/emf_offline.py
+index 9eda78a..4b19abc 100644
+--- a/utils/wuji_retarget/emf_offline.py
++++ b/utils/wuji_retarget/emf_offline.py
+@@ -177,6 +177,14 @@ def solve_native(ep, config, generation="hand1"):
+     arrays['hand_sdk_preserve_q'] = np.asarray(True)
+     info = {'sdk_version': SDK_VERSION, 'models': config, 'sides': {}}
+     lookups = {}
++    recording_episode = ep
++    if config.get('glove_emf_rx_corrections'):
++        # Batch workers use temporary directory names; the original episode
++        # JSON basename remains stable even when its content is cached.
++        try:
++            recording_episode = episode_json_path(ep).stem
++        except FileNotFoundError:
++            recording_episode = (ep/'wuji_glove_offline.h5').resolve().parent
+     with h5py.File(ep/'wuji_glove_offline.h5', 'r', locking=False) as h:
+         if _text(h.attrs.get('schema', '')) != 'rd001.wuji_offline_h5':
+             raise ValueError('Unsupported HDF5 schema')
+@@ -192,6 +200,20 @@ def solve_native(ep, config, generation="hand1"):
+                     raise RuntimeError(f'{side}: SDK did not load the pinned URDF')
+             elif pipeline.urdf_source != 'builtin_default':
+                 raise RuntimeError(f'{side}: expected builtin_default, got {pipeline.urdf_source}')
++            from wuji_retarget.glove_ik import glove_fk
++            initialization = {'policy': 'sdk_native_initialization', 'synthetic_frames': 0}
++            from wuji_retarget.emf_orientation import corrected_rx_orientations
++            ik_q, orientation_info = corrected_rx_orientations(
++                q, episode=recording_episode, side=side, sn=sn,
++                urdf_sha256=config.get(f'{side}_sha256'),
++                correction_path=config.get('glove_emf_rx_corrections'))
++            print(f"[emf-offline] {side} RX orientation={orientation_info['policy']} "
++                  f"frames={orientation_info['corrected_frames']}", flush=True)
++            if urdf:
++                arrays[f'{side}_tx_from_wrist'] = np.linalg.inv(
++                    glove_fk(urdf, side)['emf_tx_base'])
++            print(f"[emf-offline] {side} glove IK initialization={initialization['policy']}",
++                  flush=True)
+             model = HandModel.WujiHand if generation == "hand1" else HandModel.WujiHand2
+             if side == "left":
+                 print(
+@@ -212,7 +234,7 @@ def solve_native(ep, config, generation="hand1"):
+             names = None
+             for i in range(n):
+                 frame = EmfPoseArray(header=FrameHeader(seq=int(seq[i]),timestamp_us=int(ts[i]//1000),frame_id=frame_ids[i]),
+-                    poses=[EmfPose(pose=Pose(position=p[i,j].tolist(),orientation=Quaternion(*q[i,j].tolist())),
++                    poses=[EmfPose(pose=Pose(position=p[i,j].tolist(),orientation=Quaternion(*ik_q[i,j].tolist())),
+                                    confidence=float(c[i,j])) for j in range(5)])
+                 skeleton = pipeline.hand_skeleton().compute(frame)
+                 current_names = tuple(j.name for j in skeleton.joints)
+@@ -234,8 +256,21 @@ def solve_native(ep, config, generation="hand1"):
+                 f'{side}_source_timestamp_ns':ts, f'{side}_source_seq':seq,
+                 f'{side}_action_timestamp_ns':ats, f'{side}_hand_q_names':np.asarray(actuated_joint_names(side,generation)),
+                 f'{side}_skeleton_joint_names':np.asarray(names)})
++            from wuji_retarget.glove_ik import recorded_world_from_wrist
++            world_from_wrist = recorded_world_from_wrist(
++                ep, h[side], side, ats, arrays.get(f'{side}_tx_from_wrist'))
++            if world_from_wrist is not None:
++                from scipy.spatial.transform import Rotation
++                world_rotation = world_from_wrist[:, :3, :3]
++                arrays[f'{side}_skeleton_position_world'] = (
++                    np.einsum('nij,nkj->nki', world_rotation, skeletons)
++                    + world_from_wrist[:, None, :3, 3])
++                local_rotations = Rotation.from_quat(rotations.reshape(-1, 4)).as_matrix().reshape(n, 21, 3, 3)
++                arrays[f'{side}_skeleton_orientation_world_xyzw'] = Rotation.from_matrix(
++                    (world_rotation[:, None] @ local_rotations).reshape(-1, 3, 3)).as_quat().reshape(n, 21, 4)
+             info['sides'][side] = {'frames':n, 'sn':sn,'urdf_source':pipeline.urdf_source,
+                 'urdf_source_path':pipeline.urdf_source_path,'urdf_sha256':config.get(f'{side}_sha256'),
++                'ik_initialization':initialization, 'emf_rx_orientation':orientation_info,
+                 'timestamp_start_ns':int(ts[0]),'timestamp_end_ns':int(ts[-1])}
+             lookups[side] = lookup
+     return arrays, info, lookups
+@@ -347,6 +382,7 @@ def align_camera(ep, native, lookups, episode_json=None):
+     rows, timestamps, matches = [],[],{'left':[],'right':[]}
+     missing = {'left':[], 'right':[]}
+     nearest_used = {'left':[], 'right':[]}
++    world_transforms = {'left': [], 'right': []}
+     periods = {
+         side: _action_period_ns(native[f'{side}_action_timestamp_ns'])
+         for side in ('left', 'right')
+@@ -376,6 +412,27 @@ def align_camera(ep, native, lookups, episode_json=None):
+                     else:
+                         nearest_used[side].append(frame_index)
+                 matches[side].append(index)
++                transform = None
++                world_msg = frame.get(f'{side}_glove_emf_poses_world')
++                tx_from_wrist = native.get(f'{side}_tx_from_wrist')
++                if (index >= 0 and tx_from_wrist is not None
++                        and f'{side}_skeleton_position_world' not in native
++                        and isinstance(msg, dict) and isinstance(world_msg, dict)):
++                    from wuji_retarget.glove_ik import world_from_emf
++                    transform = world_from_emf(msg, world_msg) @ tx_from_wrist
++                elif index >= 0 and tx_from_wrist is None:
++                    # With the builtin model the recorded wrist transform is still valid;
++                    # replace only its articulated bones with the freshly solved skeleton.
++                    joints = frame.get(f'{side}_glove_hand_skeleton_world', {}).get('joints', [])
++                    wrist = next((j for j in joints if j.get('name') == 'wrist'), None)
++                    if wrist is not None:
++                        from scipy.spatial.transform import Rotation
++                        pose = wrist['pose']
++                        transform = np.eye(4)
++                        transform[:3, 3] = [float(pose['position'][a]) for a in 'xyz']
++                        transform[:3, :3] = Rotation.from_quat(
++                            [float(pose['orientation'][a]) for a in 'xyzw']).as_matrix()
++                world_transforms[side].append(transform)
+     valid = np.logical_and(np.asarray(matches['left'])>=0,np.asarray(matches['right'])>=0)
+     if not valid.any():
+         raise RuntimeError('No camera frame has an EMF sample within one action period')
+@@ -391,6 +448,17 @@ def align_camera(ep, native, lookups, episode_json=None):
+         for suffix in ('hand_q','skeleton_position','skeleton_orientation_xyzw','skeleton_confidence','source_timestamp_ns'):
+             output[f'{side}_{suffix}']=native[f'{side}_{suffix}'][indices]
+         output[f'{side}_hand_q_names']=native[f'{side}_hand_q_names']
++        selected_transforms = [t for t, keep in zip(world_transforms[side], valid) if keep]
++        if f'{side}_skeleton_position_world' in native:
++            for suffix in ('skeleton_position_world', 'skeleton_orientation_world_xyzw'):
++                output[f'{side}_{suffix}'] = native[f'{side}_{suffix}'][indices]
++        elif all(t is not None for t in selected_transforms):
++            from wuji_retarget.glove_ik import transform_skeleton
++            world = [transform_skeleton(native[f'{side}_skeleton_position'][i],
++                native[f'{side}_skeleton_orientation_xyzw'][i], t)
++                for i, t in zip(indices, selected_transforms)]
++            output[f'{side}_skeleton_position_world'] = np.stack([v[0] for v in world])
++            output[f'{side}_skeleton_orientation_world_xyzw'] = np.stack([v[1] for v in world])
+     output['wuji_hand_q']=np.concatenate([output['right_hand_q'],output['left_hand_q']],axis=1)
+     output['wuji_hand_q_names']=np.concatenate([output['right_hand_q_names'],output['left_hand_q_names']])
+     return output, {'camera_frames':len(rows),'paired_frames':int(valid.sum()),
+@@ -398,7 +466,7 @@ def align_camera(ep, native, lookups, episode_json=None):
+                     'nearest_action_frame_indices':nearest_used,'unmatched_by_side':missing}
+ 
+ 
+-def compute_episode(episode, config=None, *, generation="hand1", glove_urdfs=None):
++def compute_episode(episode, config=None, *, generation="hand1", glove_urdfs=None, glove_emf_rx_corrections=None):
+     from wuji_retarget.sdk_retarget import resolve_offline_h5, use_emf_input
+     h5 = resolve_offline_h5(episode)
+     ep = h5.parent
+@@ -411,6 +479,8 @@ def compute_episode(episode, config=None, *, generation="hand1", glove_urdfs=Non
+         cfg=apply_glove_urdf_overrides(load_model_config(config), glove_urdfs)
+     else:
+         cfg=model_config_from_urdfs(glove_urdfs)
++    if glove_emf_rx_corrections:
++        cfg['glove_emf_rx_corrections'] = str(Path(glove_emf_rx_corrections).expanduser().resolve())
+     native, info, lookup=solve_native(ep,cfg,generation)
+     camera,alignment=align_camera(ep,native,lookup,json_path)
+     info['alignment']=alignment
+diff --git a/utils/wuji_retarget/sdk_retarget.py b/utils/wuji_retarget/sdk_retarget.py
+index 54a7929..cc1d5d8 100644
+--- a/utils/wuji_retarget/sdk_retarget.py
++++ b/utils/wuji_retarget/sdk_retarget.py
+@@ -94,11 +94,12 @@ def use_emf_input(episode) -> bool:
+ 
+ 
+ 
+-def emf_commands_for_frames(episode, frame_indices, model_config=None, generation="hand1", glove_urdfs=None):
++def emf_commands_for_frames(episode, frame_indices, model_config=None, generation="hand1", glove_urdfs=None, glove_emf_rx_corrections=None):
+     from wuji_retarget.emf_offline import compute_episode
+     import json
+     _, camera, info = compute_episode(
+-        episode, model_config, generation=generation, glove_urdfs=glove_urdfs
++        episode, model_config, generation=generation, glove_urdfs=glove_urdfs,
++        glove_emf_rx_corrections=glove_emf_rx_corrections
+     )
+     lookup = {int(value): i for i, value in enumerate(camera["frame_indices"])}
+     kept = [int(i) for i in frame_indices if int(i) in lookup]
+@@ -118,9 +119,31 @@ def emf_commands_for_frames(episode, frame_indices, model_config=None, generatio
+     for side in ("left", "right"):
+         output[f"{side}_hand_q"] = camera[f"{side}_hand_q"][rows]
+         output[f"{side}_sdk_emf_source_timestamp_ns"] = camera[f"{side}_source_timestamp_ns"][rows]
++        for suffix in ("skeleton_position_world", "skeleton_orientation_world_xyzw"):
++            key = f"{side}_{suffix}"
++            if key not in camera:
++                raise ValueError(f"{side}: cannot reconstruct calibrated world skeleton from recorded EMF")
++            output[key] = camera[key][rows]
+     return output
+ 
+ 
++def sequence_from_sdk(sequence, commands):
++    """Use the same solved human bones for finger q, wrist alignment and source poses."""
++    from dataclasses import replace
++    from scipy.spatial.transform import Rotation
++    positions, rotations = {}, {}
++    tips = np.asarray([4, 8, 12, 16, 20])
++    for side in ("left", "right"):
++        positions[side] = np.asarray(commands[f"{side}_skeleton_position_world"], dtype=np.float64)
++        quaternion = np.asarray(commands[f"{side}_skeleton_orientation_world_xyzw"], dtype=np.float64)
++        if positions[side].shape != (len(sequence.frame_indices), 21, 3):
++            raise ValueError(f"{side}: SDK skeleton and requested frames are misaligned")
++        rotations[side] = Rotation.from_quat(quaternion.reshape(-1, 4)).as_matrix().reshape(-1, 21, 3, 3)
++    return replace(sequence, positions=positions, rotations=rotations,
++        tip_positions={side: positions[side][:, tips] for side in positions},
++        tip_rotations={side: rotations[side][:, tips] for side in rotations})
++
++
+ def main(argv=None):
+     parser = argparse.ArgumentParser(description="Raw EMF -> Wuji SDK offline pipeline -> joint angles")
+     parser.add_argument("--episode", "--test_data", "--tast_data", required=True)

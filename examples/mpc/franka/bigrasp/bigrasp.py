@@ -1,5 +1,6 @@
 import argparse
 import copy
+import json
 import logging
 import re
 import sys
@@ -45,7 +46,6 @@ except Exception as exc:  # pragma: no cover - runtime dependency
     _HAS_CUROBO = False
     _CUROBO_IMPORT_ERROR = exc
 
-from planning.mlqp_point_v2 import LambdaContactControlOptimizer
 from planning.mppi_bigrasp_ee import BimanualEEMPPI
 from planning.bigrasp_ee_cost import numpy_pose_state
 from planning.planner_mode import resolve_planner_backend, resolve_planner_mode
@@ -631,39 +631,6 @@ def build_bimanual_scene_xml(
             },
         )
 
-    ghost_specs = [
-        ("left_ghost_tip", "0.15 0.75 0.95 0.28"),
-        ("right_ghost_tip", "0.95 0.25 0.35 0.28"),
-    ]
-    for name, rgba in ghost_specs:
-        ghost_body = ET.SubElement(worldbody, "body", {"name": name, "pos": format_vec(object_pos)})
-        ET.SubElement(
-            ghost_body,
-            "geom",
-            {
-                "name": f"{name}_rod",
-                "type": "cylinder",
-                "size": "0.005 0.03",
-                "pos": "0 0 0.03",
-                "rgba": rgba,
-                "contype": "0",
-                "conaffinity": "0",
-            },
-        )
-        ET.SubElement(
-            ghost_body,
-            "geom",
-            {
-                "name": f"{name}_sphere",
-                "type": "sphere",
-                "size": "0.010",
-                "pos": "0 0 0.06",
-                "rgba": rgba,
-                "contype": "0",
-                "conaffinity": "0",
-            },
-        )
-
     robot_body = panda_root.find("./worldbody/body[@name='link0']")
     if robot_body is None:
         raise RuntimeError(f"Failed to find Panda root body in {PANDA_XML_PATH}")
@@ -740,7 +707,6 @@ class ArmHandles:
     body_id: int
     tip_geom_id: int
     tip_site_id: int
-    ghost_body_id: int
     base_pos: np.ndarray
     base_rot: np.ndarray
     body_ids_by_name: dict
@@ -877,7 +843,15 @@ class DualArmPlanOnceParams:
 
     def apply_planner_mode(self, mode: str):
         mode = str(mode).strip().lower()
-        if mode in {"mpc_ee", "mppi_ee"}:
+        if mode == "mpc_ee":
+            self.n_qpos_, self.n_qvel_, self.n_cmd_ = 25, 12, 6
+            self.n_state_, self.n_action_, self.n_robot_qpos_ = 25, 6, 6
+            self.mpc_model = "explicit"
+            self.planner_solver_ = self.planner_solver_ if self.planner_solver_ in {"acados", "ipopt"} else "acados"
+            self.mpc_u_lb_ = -np.full(6, self.planner_cmd_limit, dtype=np.float32)
+            self.mpc_u_ub_ = -self.mpc_u_lb_
+            return
+        if mode == "mppi_ee":
             squeeze = min(float(getattr(self, "_squeeze_depth", 0.0)), TIP_RADIUS * 0.9)
             self.adam_approach_offset_ = max(TIP_RADIUS - squeeze, 0.001)
             self.planner_contact_gate_scale_ = max(float(self.planner_contact_gate_scale_), 0.02)
@@ -885,7 +859,7 @@ class DualArmPlanOnceParams:
             self.planner_ee_position_weight_ = 160.0
             self.planner_object_target_weight_ = 40.0
             self.planner_object_lateral_weight_ = 40.0
-        if mode in {"mpc_ee", "mppi_ee"}:
+        if mode == "mppi_ee":
             from planning.mpc_explicit_adam import configure_adam_layout
 
             configure_adam_layout(self)
@@ -925,6 +899,9 @@ class BimanualPandaGrasper:
     def __init__(self, args):
         resolve_control_timing(args)
         requested_ik_backend = str(getattr(args, "ik_backend", "mink")).strip().lower()
+        if resolve_planner_mode(args) == "mpc_ee":
+            # Online Cartesian OSC needs Jacobians, not a separate IK/CA solver.
+            requested_ik_backend = "mujoco"
         if requested_ik_backend not in {"auto", "mink", "mujoco", "curobo"}:
             raise ValueError(f"Unsupported IK backend: {requested_ik_backend}")
         self._ik_backend = "mujoco"
@@ -945,7 +922,7 @@ class BimanualPandaGrasper:
         self.args = args
         self.planner_mode = resolve_planner_mode(args)
         self.planner_backend = self.planner_mode
-        self._position_control = self.planner_mode in {"mppi_joint", "mpc_joint", "mpc_ee", "mppi_ee"}
+        self._position_control = self.planner_mode in {"mppi_joint", "mpc_joint", "mppi_ee"}
         if self._use_curobo:
             logging.getLogger("curobo").setLevel(logging.WARNING)
         self.mesh_path = resolve_mesh_path(args.obj, args.mesh)
@@ -1064,6 +1041,10 @@ class BimanualPandaGrasper:
         if self.planner_mode in {"mpc_ee", "mppi_ee"}:
             from planning.lambda_contact_lm import LambdaContactBatchedLM
 
+            if self.planner_mode == "mpc_ee":
+                # MuJoCo's mesh-vs-pad collider uses this convex hull. Interior
+                # visual-mesh samples cannot be reached by the physical pad.
+                optimizer_kwargs["mesh_path"] = trimesh.load_mesh(self.mesh_path, process=False).convex_hull
             optimizer_kwargs.update(
                 contact_stiffness=args.comfree_stiffness,
                 comfree_damping=args.comfree_damping,
@@ -1073,7 +1054,9 @@ class BimanualPandaGrasper:
             )
             self.optimizer = LambdaContactBatchedLM(
                 tip_radius=TIP_RADIUS,
-                device=str(getattr(args, "mppi_device", None) or "cuda:0"),
+                device=str(getattr(args, "mppi_device", None) or
+                           ("cpu" if self.planner_mode == "mpc_ee" else
+                            ("cuda:0" if torch is not None and torch.cuda.is_available() else "cpu"))),
                 lm_iterations=int(getattr(args, "lambda_lm_iters", 20)),
                 cone_half_angle_deg=float(getattr(args, "lambda_cone_half_angle", 45.0)),
                 quality_fraction=float(getattr(args, "lambda_quality_fraction", 0.015)),
@@ -1089,6 +1072,8 @@ class BimanualPandaGrasper:
                 **optimizer_kwargs,
             )
         else:
+            from planning.mlqp_point_v2 import LambdaContactControlOptimizer
+
             self.optimizer = LambdaContactControlOptimizer(
                 curvature_neighbor_k=args.optimizer_curvature_neighbor_k,
                 region_max_mean_curvature=args.optimizer_max_region_mean_curvature,
@@ -1148,7 +1133,57 @@ class BimanualPandaGrasper:
                 **warp_kwargs,
             )
             self._arm_mppi = self.explicit_planner
-        elif planner_backend in {"mpc_ee", "mppi_ee"}:
+        elif planner_backend == "mpc_ee":
+            from planning.bimanual_online_mpc import BimanualOnlineMPC
+            from models.support_geometry import support_frame
+
+            self.plan_params.h_ = self._planner_tracking_steps() * float(self.model.opt.timestep)
+            self.plan_params.mppi_device_ = self.optimizer.device
+            self.plan_params.online_task_stiffness = float(args.online_task_stiffness)
+            self.plan_params.online_approach_speed = float(args.online_approach_speed)
+            self.plan_params.contact_command_force_limit_ = float(args.online_force_limit)
+            self.plan_params.contact_force_limit_ = float(args.online_force_limit)
+            self.plan_params.online_unilateral_force_limit = float(args.online_unilateral_force_limit)
+            self.plan_params.mpc_tip_effective_mass_ = float(args.online_tip_mass)
+            self.plan_params.mpc_tip_damping_ = float(args.online_task_damping)
+            self.plan_params.soft_scm_response_time = float(args.online_contact_time)
+            self.plan_params.soft_scm_damping_ratio = 1.0
+            self.plan_params.soft_scm_regularization = 1e-8
+            self.plan_params.mpc_patch_radius_ = float(args.online_patch_radius)
+            self.plan_params.online_contact_offset = max(TIP_RADIUS - float(args.squeeze_depth), .001)
+            self.plan_params.tip_radius = TIP_RADIUS
+            self.plan_params.online_object_velocity_weight = float(args.online_object_velocity_weight)
+            self.plan_params.online_max_horizontal_error = float(args.online_max_horizontal_error)
+            self.plan_params.online_horizontal_recovery_weight = float(args.online_horizontal_recovery_weight)
+            self.plan_params.online_sqp_iters = int(args.online_sqp_iters)
+            self.plan_params.online_ipopt_iters = int(args.online_ipopt_iters)
+            self.plan_params.online_ipopt_fallback = bool(args.online_ipopt_fallback)
+            self.plan_params.online_terminal_weight = 2.0
+            diagnostic_path = getattr(args, "diagnostics_output", None)
+            self.plan_params.mpc_failure_snapshot_ = str(
+                diagnostic_path.with_name(diagnostic_path.stem + "_solver_failure.npz")
+                if diagnostic_path is not None else
+                REPO_ROOT / "output" / "diagnostics" / "bigrasp_mpc_solver_failure.npz")
+            self.plan_params.support_surface_point_ = self.support_surface_point.copy()
+            _, self._online_support_tangents = support_frame(WORLD_UP, np.array([[1., 0., 0.], [0., 1., 0.]]))
+            self.plan_params.support_surface_half_extents_ = self.pedestal_size[:2].copy()
+            # The reduced predictor handles two pads and four finite supports.
+            self.plan_params.max_ncon_ = 6
+            self.plan_params.robot_stiff_ = float(args.online_task_stiffness) * np.eye(6)
+            self.planner = BimanualOnlineMPC(self.plan_params)
+            self.plan_params.planner_solver_ = self.planner.planner_solver_
+            self._online_contact_stable_steps = 0
+            self._online_contact_ids = None
+            self._online_grasp_active = False
+            self._online_grasp_confirm_streak = 0
+            self._online_grasp_release_streak = 0
+            self._online_approach_origin = object_pos.copy()
+            self._online_previous_object_cost = None
+            self._online_vertices = np.asarray(trimesh.load_mesh(self.mesh_path, process=False).vertices) * self.mesh_scale
+            print(f"Online bimanual MPC: solver={self.planner.planner_solver_} state=25 action=6 horizon={self.planner.horizon} dt={self.plan_params.h_:.3f}s")
+            if getattr(self, "_defer_viewer", False):
+                self._launch_viewer()
+        elif planner_backend == "mppi_ee":
             from models.dexforge_fast_step import DexForgeFastStep
             from models.dexforge_planner_scene import write_dexforge_planner_scene
             from planning.dexforge_retarget import DexForgeRetargetingMPC
@@ -1254,11 +1289,6 @@ class BimanualPandaGrasper:
             body_id=mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, f"{prefix}attachment"),
             tip_geom_id=mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{prefix}fingertip"),
             tip_site_id=mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f"{prefix}tip_center"),
-            ghost_body_id=mujoco.mj_name2id(
-                self.model,
-                mujoco.mjtObj.mjOBJ_BODY,
-                f"{prefix}ghost_tip",
-            ),
             base_pos=np.asarray(base_pos, dtype=np.float64).copy(),
             base_rot=np.asarray(base_rot, dtype=np.float64).reshape(3, 3).copy(),
             body_ids_by_name=body_ids_by_name,
@@ -1453,7 +1483,6 @@ class BimanualPandaGrasper:
         arm.orientation_d = current_tip_rot.copy()
         arm.p_d = current_tip_pos.copy()
         arm.R_d = current_tip_rot.copy()
-        self.set_ghost_pose(arm, *self.get_hand_pose(arm))
 
     def _setup_curobo(self):
         if not self._use_curobo:
@@ -1485,7 +1514,6 @@ class BimanualPandaGrasper:
             arm.orientation_d = tip_rot.copy()
             arm.p_d = tip_pos.copy()
             arm.R_d = tip_rot.copy()
-            self.set_ghost_pose(arm, *self.get_hand_pose(arm))
 
     def reset(self, object_pos, object_quat):
         self.data.qpos[self.left_arm.qpos_adr] = PANDA_HOME_Q
@@ -1500,8 +1528,6 @@ class BimanualPandaGrasper:
         self.data.qvel[:] = 0.0
         self.data.act[:] = 0.0
         mujoco.mj_forward(self.model, self.data)
-        self.set_ghost_pose(self.left_arm, *self.get_hand_pose(self.left_arm))
-        self.set_ghost_pose(self.right_arm, *self.get_hand_pose(self.right_arm))
         for arm in (self.left_arm, self.right_arm):
             tip_pos, tip_rot = self.get_tip_pose(arm)
             arm.position_d = tip_pos.copy()
@@ -3336,12 +3362,6 @@ class BimanualPandaGrasper:
         if quat is not None:
             self.model.body_quat[body_id] = np.asarray(quat, dtype=np.float64)
 
-    def set_ghost_pose(self, arm, hand_pos_world, hand_rot_world):
-        if arm.ghost_body_id < 0:
-            return
-        self.model.body_pos[arm.ghost_body_id] = np.asarray(hand_pos_world, dtype=np.float64)
-        self.model.body_quat[arm.ghost_body_id] = mat_to_quat_wxyz(hand_rot_world)
-
     @staticmethod
     def _constraint_scalar(value):
         if value is None:
@@ -3463,7 +3483,6 @@ class BimanualPandaGrasper:
         success = position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol)
         self.data.qpos[arm.qpos_adr] = q_initial
         mujoco.mj_forward(self.model, self.data)
-        self.set_ghost_pose(arm, solved_hand_pos, solved_hand_rot)
         return ArmIkResult(
             q_mj=q.copy(),
             success=bool(success),
@@ -3529,7 +3548,6 @@ class BimanualPandaGrasper:
         solved_tip_pos, solved_tip_rot = self.get_tip_pose(arm, data=configuration.data)
         solved_hand_pos, solved_hand_rot = self.tip_target_to_hand_pose(solved_tip_pos, solved_tip_rot)
         success = position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol)
-        self.set_ghost_pose(arm, solved_hand_pos, solved_hand_rot)
         return ArmIkResult(
             q_mj=np.asarray(configuration.q[arm.qpos_adr], dtype=np.float64).copy(),
             success=bool(success),
@@ -3608,7 +3626,6 @@ class BimanualPandaGrasper:
         )
         solved_tip_pos_world = solved_hand_pos_world + solved_hand_rot_world[:, 2] * TIP_CENTER_OFFSET
         solved_tip_rot_world = solved_hand_rot_world.copy()
-        self.set_ghost_pose(arm, solved_hand_pos_world, solved_hand_rot_world)
 
         return ArmIkResult(
             q_mj=q_mj,
@@ -3636,7 +3653,6 @@ class BimanualPandaGrasper:
             target_tip_pos_world,
             target_tip_rot_world,
         )
-        self.set_ghost_pose(arm, target_hand_pos_world, target_hand_rot_world)
         if reference_q_mj is None:
             q_mj = self.data.qpos[arm.qpos_adr].copy()
         else:
@@ -3661,7 +3677,12 @@ class BimanualPandaGrasper:
         )
 
     def get_planner_state(self):
-        if getattr(self, "planner_mode", "") in {"mpc_ee", "mppi_ee", "mppi_joint", "mpc_joint"}:
+        if getattr(self, "planner_mode", "") == "mpc_ee":
+            tip_velocities = [self.get_arm_jacobian(arm)[:3] @ self.get_current_joint_velocity(arm)
+                              for arm in (self.left_arm, self.right_arm)]
+            return np.concatenate([self.get_planner_state_tips(),
+                                   self.data.qvel[self.obj_dof_adr:self.obj_dof_adr + 6]] + tip_velocities)
+        if getattr(self, "planner_mode", "") in {"mppi_ee", "mppi_joint", "mpc_joint"}:
             return self.get_planner_state_joints()
         return self.get_planner_state_poses()
 
@@ -4055,13 +4076,23 @@ class BimanualPandaGrasper:
         return mass[np.ix_(dofs, dofs)], external
 
     def _update_warp_lambda_contacts(self, object_pos, object_quat, object_rot, *, initial=False):
-        """Solve contact forces and select an assigned pair before CA/FA."""
+        """Select contact anchors and forces for online MPC or FA MPPI."""
         tips_world = np.asarray([
             self.get_tip_pose(self.left_arm)[0],
             self.get_tip_pose(self.right_arm)[0],
         ], dtype=np.float64)
         object_inertia, external_wrench = self._lambda_object_dynamics(object_rot)
         solve = self.optimizer.initialize_offline if initial else self.optimizer.update_contacts
+        selection = {}
+        if not initial and getattr(self, "planner_mode", None) in {"mpc_ee", "mppi_ee"}:
+            # Both shared Lambda callers must honor the freeze flag, including
+            # the default MPPI path. Never silently resume candidate search.
+            selection["freeze_contact_pair"] = bool(getattr(self.args, "freeze_contact_pair", True))
+            selection["joint_verify"] = True
+        if not initial and getattr(self, "planner_mode", None) == "mpc_ee" and self.contact_points_local is not None:
+            # Continue optimizing forces at the physically loaded pair; do
+            # not replace a made grasp with nearby hypothetical mesh patches.
+            selection["lock_contact_pair"] = bool(np.all(self._online_measured_contact_mask(self.contact_points_local)))
         points, normals, predicted_pose, cost, info = solve(
             np.concatenate((self.object_target_pos, self.object_target_quat)),
             np.concatenate((object_pos, object_quat)),
@@ -4069,7 +4100,9 @@ class BimanualPandaGrasper:
             object_inertia=object_inertia,
             tau_o=external_wrench,
             v_obj=np.asarray(self.data.qvel[self.obj_dof_adr:self.obj_dof_adr + 6]),
-            prediction_dt=float(self.model.opt.timestep) * self.planner.knot_substeps,
+            prediction_dt=(float(self.plan_params.h_) if getattr(self, "planner_mode", None) == "mpc_ee" else
+                           float(self.model.opt.timestep) * self.planner.knot_substeps),
+            **selection,
         )
         targets = self._build_contact_targets_from_local_contacts(
             points, normals, object_pos, object_rot,
@@ -4079,7 +4112,131 @@ class BimanualPandaGrasper:
         )
         return targets, predicted_pose, cost, info
 
-    def _compute_arm_osc_torque(self, arm, remain, velocity, v_ref=None, k_task=600.0, d_task=40.0, force_limit=12.0):
+    def _online_mpc_contacts(self):
+        """Measured/nearest collision patches, independent of Lambda's anchors."""
+        from models.support_geometry import mesh_support_points, support_jacobians
+
+        obj_pos, _, rotation = self.get_object_pose()
+        gaps = np.ones(24)
+        rows = np.zeros((24, 12))
+        for side, arm in enumerate((self.left_arm, self.right_arm)):
+            segment = np.zeros(6)
+            gap = float(mujoco.mj_geomDistance(self.model, self.data, self.obj_geom_id,
+                                              arm.tip_geom_id, 10.0, segment))
+            delta = segment[:3] - segment[3:]
+            norm = np.linalg.norm(delta)
+            if norm <= 1e-9:
+                # Deepest measured patch is more reliable at exact tangency.
+                contacts = self.extract_object_contacts()["left" if side == 0 else "right"]
+                if not contacts:
+                    continue
+                patch = min(contacts, key=lambda item: item["dist"])
+                point, gap = patch["world_pos"], patch["dist"]
+                delta = obj_pos - self.get_tip_pos(arm)
+                norm = np.linalg.norm(delta)
+            else:
+                point = segment[:3]
+            # Positive gap: tip -> object. Inside overlap the closest segment
+            # reverses; recover the closing normal from the measured manifold.
+            inward = delta / max(norm, 1e-10)
+            if gap < 0:
+                inward *= -1
+            block, _ = support_jacobians(obj_pos, rotation, point, 12, float(self.args.arm_friction), inward)
+            block[:, 6 + 3 * side:9 + 3 * side] = -block[:, :3]
+            gaps[4 * side:4 * side + 4] = gap
+            rows[4 * side:4 * side + 4] = block
+        support = mesh_support_points(self._online_vertices, obj_pos, rotation,
+            self.support_surface_point, WORLD_UP, tangents=self._online_support_tangents,
+            half_extents=self.pedestal_size[:2], max_points=4)
+        for patch, point in enumerate(support, start=2):
+            block, _ = support_jacobians(obj_pos, rotation, point, 12, float(self.args.object_friction))
+            rows[4 * patch:4 * patch + 4] = block
+            gaps[4 * patch:4 * patch + 4] = point[2] - self.support_top
+        return gaps, rows
+
+    def _online_measured_contact_mask(self, contact_points_local):
+        """Loaded contacts at the currently assigned Lambda surface patches."""
+        contacts = self.extract_object_contacts()
+        mask = np.zeros(2, dtype=bool)
+        required = max(float(.35 * self.args.obj_mass * 9.81 if self.args.min_normal_force is None else
+                             self.args.min_normal_force), 1e-6)
+        tolerance = float(self.args.online_contact_tolerance)
+        for side, key in enumerate(("left", "right")):
+            mask[side] = any(item["normal_force"] >= required and
+                             np.linalg.norm(item["local_pos"] - contact_points_local[side]) <= tolerance
+                             for item in contacts[key])
+        return mask
+
+    def _online_selected_contacts(self, contact_points_local):
+        """Confirm the same bilateral pair over consecutive measurements."""
+        mask = self._online_measured_contact_mask(contact_points_local)
+        ids = np.asarray(getattr(self.optimizer, "last_grasp_result", {}).get("contact_indices", []))
+        changed = self._online_contact_ids is None or not np.array_equal(ids, self._online_contact_ids)
+        if changed:
+            self._online_contact_stable_steps = 0
+            self.planner.reset()
+        self._online_contact_ids = ids.copy()
+        self._online_contact_stable_steps = self._online_contact_stable_steps + 1 if np.all(mask) else 0
+        return mask, self._online_contact_stable_steps >= int(self.args.online_contact_confirm_steps)
+
+    def _online_grasp_observation(self):
+        """Latch actual bilateral load independently of the desired anchors."""
+        contacts = self.extract_object_contacts()
+        force = np.array([sum(max(float(item["normal_force"]), 0.) for item in contacts[key])
+                          for key in ("left", "right")])
+        required = max(float(.35 * self.args.obj_mass * 9.81 if self.args.min_normal_force is None else
+                             self.args.min_normal_force), 1e-6)
+        active = bool(getattr(self, "_online_grasp_active", False))
+        mask = force >= required * (.5 if active else 1.)
+        if active:
+            misses = 0 if np.all(mask) else getattr(self, "_online_grasp_release_streak", 0) + 1
+            self._online_grasp_release_streak = misses
+            if misses >= int(getattr(self.args, "online_grasp_release_steps", 3)):
+                active = False
+                self._online_grasp_confirm_streak = 0
+        else:
+            streak = getattr(self, "_online_grasp_confirm_streak", 0) + 1 if np.all(mask) else 0
+            self._online_grasp_confirm_streak = streak
+            if streak >= int(self.args.online_contact_confirm_steps):
+                active = True
+                self._online_grasp_release_streak = 0
+        self._online_grasp_active = active
+        return mask, force, active
+
+    def step_online_mpc_action(self, action):
+        """Execute the predictor's capped OSC with free-space velocity reference."""
+        from models.bimanual_rigid_contact import online_tip_velocity_reference
+
+        action = np.asarray(action, dtype=float).reshape(2, 3)
+        interval = self._planner_tracking_steps() * float(self.model.opt.timestep)
+        for _ in range(self._planner_tracking_steps()):
+            mujoco.mj_forward(self.model, self.data)
+            _, _, rotation = self.get_object_pose()
+            normals = np.asarray(self.normals_local) @ rotation.T
+            gaps, contact_rows = self._online_mpc_contacts()
+            pad_gaps = gaps[:8].reshape(2, 4).mean(axis=1)
+            physical_normals = contact_rows[:8].reshape(2, 4, 12).mean(axis=1)[:, :3]
+            for side, (arm, increment, normal) in enumerate(zip((self.left_arm, self.right_arm), action, normals)):
+                velocity = self.get_arm_jacobian(arm)[:3] @ self.get_current_joint_velocity(arm)
+                force_limit = float(self.args.online_force_limit)
+                v_ref = online_tip_velocity_reference(increment, pad_gaps[side],
+                    getattr(self, "_online_grasp_active", False), interval, float(self.args.online_approach_speed))
+                requested_force = (float(self.args.online_task_stiffness) * increment -
+                                   float(self.args.online_task_damping) * (velocity - v_ref))
+                if (not getattr(self, "_online_grasp_active", False) and
+                        pad_gaps[side] <= 1e-6 and pad_gaps[1 - side] > 1e-6 and
+                        np.dot(requested_force, physical_normals[side]) > 0):
+                    force_limit = min(force_limit, float(self.args.online_unilateral_force_limit))
+                torque = self._compute_arm_osc_torque(arm, increment, velocity, v_ref=v_ref,
+                    k_task=float(self.args.online_task_stiffness), d_task=float(self.args.online_task_damping),
+                    force_limit=force_limit,
+                    approach_direction=self._compute_preferred_tip_approach(normal))
+                self.set_control_torque(arm, torque)
+            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_forward(self.model, self.data)
+
+    def _compute_arm_osc_torque(self, arm, remain, velocity, v_ref=None, k_task=600.0, d_task=40.0, force_limit=12.0,
+                               approach_direction=None):
         from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque, isaac_task_force
 
         q = self.get_current_joint_position(arm)
@@ -4090,6 +4247,31 @@ class BimanualPandaGrasper:
         tau_null = franka_nullspace_posture_torque(
             jacobian, q, dq, arm.home_q, float(arm.nullspace_stiffness)
         )
+        if approach_direction is not None:
+            # A sphere does not constrain pad orientation. Use redundant
+            # directions to keep the wrists outside the contact normals.
+            full_jacobian = self.get_arm_jacobian(arm)
+            _, current_rotation = self.get_tip_pose(arm)
+            axis = current_rotation[:, 2]
+            angular = full_jacobian[3:] @ dq
+            angular -= axis * np.dot(axis, angular)
+            stiffness = float(self.args.online_orientation_stiffness)
+            orientation_torque = full_jacobian[3:].T @ (
+                stiffness * np.cross(axis, approach_direction) - 2 * np.sqrt(stiffness) * angular)
+            mass = np.empty((self.model.nv, self.model.nv))
+            try:
+                mujoco.mj_fullM(self.model, self.data, mass)
+            except TypeError:
+                mujoco.mj_fullM(self.model, mass, self.data.qM)
+            arm_mass = mass[np.ix_(arm.dof_adr, arm.dof_adr)]
+            inverse_jt = np.linalg.solve(arm_mass, jacobian.T)
+            task_inverse = np.linalg.pinv(jacobian @ inverse_jt, rcond=1e-8)
+            # J M^-1 N_tau = 0: wrist alignment must not introduce an
+            # unmodelled fingertip acceleration or unilateral contact push.
+            projector = np.eye(7) - jacobian.T @ task_inverse @ inverse_jt.T
+            posture = float(arm.nullspace_stiffness) * (arm.home_q - q)
+            posture -= 2 * np.sqrt(float(arm.nullspace_stiffness)) * dq
+            tau_null = projector @ (orientation_torque + .1 * posture)
         tau_bias = np.asarray(self.data.qfrc_bias[arm.dof_adr], dtype=np.float64)
         return np.clip(tau_task + np.asarray(tau_null, dtype=np.float64) + tau_bias, -arm.torque_limits, arm.torque_limits)
 
@@ -4484,6 +4666,13 @@ class BimanualPandaGrasper:
         touch_offset = TIP_RADIUS + float(self.args.touch_offset)
 
         if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            if self.planner_mode == "mpc_ee":
+                self._online_contact_ids = None
+                self._online_contact_stable_steps = 0
+                self._online_grasp_active = False
+                self._online_grasp_confirm_streak = 0
+                self._online_grasp_release_streak = 0
+                self._online_approach_origin = object_pos.copy()
             self.optimizer.reset()
             contact_targets, x_plus_opt, _, lambda_info = self._update_warp_lambda_contacts(
                 object_pos, object_quat, object_rot, initial=True,
@@ -4560,7 +4749,8 @@ class BimanualPandaGrasper:
             center_offset=touch_offset,
         )
         if self.planner_mode in {"mpc_ee", "mppi_ee"}:
-            print("ContactAware will compute the touch joint reference during each CA/FA cycle")
+            print("Online MPC will optimize the two Cartesian actions" if self.planner_mode == "mpc_ee" else
+                  "ContactAware will compute the touch joint reference during each CA/FA cycle")
             _, left_fixed_rot = self.get_tip_pose(self.left_arm)
             _, right_fixed_rot = self.get_tip_pose(self.right_arm)
             left_fixed_rot = _project_to_rotation_matrix(left_fixed_rot)
@@ -4801,7 +4991,25 @@ class BimanualPandaGrasper:
                     object_target_quat,
                     approach_q=approach_q,
                 )
-            elif self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            elif self.planner_mode == "mpc_ee":
+                phi_vec, jac_mat = self._online_mpc_contacts()
+                selected_mask, established = self._online_selected_contacts(contact_points_local)
+                physical_mask, physical_force, grasp_established = self._online_grasp_observation()
+                inertia, external = self._lambda_object_dynamics(current_rot)
+                planner_result = self.planner.plan_once(
+                    object_target_pos, object_target_quat, planner_state, phi_vec, jac_mat,
+                    contact_points_local=contact_points_local, normals_local=normals_local,
+                    desired_force_local=desired_normal_forces_local,
+                    object_inertia=inertia, external_wrench=external,
+                    contact_established=established, selected_contact_mask=selected_mask,
+                    grasp_established=grasp_established, measured_normal_force=physical_force,
+                    approach_origin=self._online_approach_origin,
+                )
+                planner_result["lambda_prediction"] = lambda_info
+                planner_result["lambda_x_plus_opt"] = x_plus_opt.copy()
+                planner_result["diagnostics"]["physical_contact_mask"] = physical_mask.copy()
+                self.plan_params.sol_guess_ = planner_result.get("sol_guess")
+            elif self.planner_mode == "mppi_ee":
                 # The live LM pair and predicted pose share this measured state.
                 planner_result = self.planner.plan_once(
                     object_target_pos,
@@ -4887,7 +5095,9 @@ class BimanualPandaGrasper:
                 self.step_joint_delta(action, substeps=self._arm_mppi.substeps)
             elif self.planner_mode == "mpc_joint":
                 self.step_joint_delta(action, substeps=max(int(getattr(self.args, "spider_substeps", 1)), 1))
-            elif self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            elif self.planner_mode == "mpc_ee":
+                self.step_online_mpc_action(action)
+            elif self.planner_mode == "mppi_ee":
                 self.step_joint_controls(planner_result["control_sequence"])
             elif self._arm_mppi is not None:
                 self.step_ee_pose_delta(action, hold_mask=hold_mask)
@@ -4933,7 +5143,18 @@ class BimanualPandaGrasper:
             post_right_pos, post_right_rot = self.get_tip_pose(self.right_arm)
             post_left_pos_err = float(np.linalg.norm(post_left_pos - post_targets["left_tip_pos"]))
             post_right_pos_err = float(np.linalg.norm(post_right_pos - post_targets["right_tip_pos"]))
-            if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            if self.planner_mode == "mpc_ee":
+                offset = float(self.plan_params.online_contact_offset)
+                anchors = (contact_points_local - offset * normals_local) @ quat_wxyz_to_mat(post_quat).T + post_pos
+                post_left_pos_err, post_right_pos_err = np.linalg.norm(
+                    np.asarray([post_left_pos, post_right_pos]) - anchors, axis=1)
+                ready_mask = np.array([post_left_pos_err, post_right_pos_err]) <= float(self.args.online_contact_tolerance)
+                diagnostics = planner_result["diagnostics"]
+                actual_cost = self.planner._object_cost(self.get_planner_state(), object_target_pos, object_target_quat)
+                diagnostics["actual_cost_reduction"] = diagnostics["object_cost_now"] - actual_cost
+                diagnostics["actual_horizontal_displacement"] = post_pos[:2] - current_pos[:2]
+                diagnostics["prediction_position_error"] = post_pos - planner_result["x_plus_opt"][:3]
+            elif self.planner_mode == "mppi_ee":
                 # FA tracks a body-local surface query against the lambda
                 # anchor, rather than the legacy touch-offset waypoint.
                 query_local = np.asarray(planner_result["query_local"]).reshape(2, 3)
@@ -4949,6 +5170,8 @@ class BimanualPandaGrasper:
             object_pos_error = float(np.linalg.norm(post_pos - object_target_pos))
             object_rot_error = float(np.linalg.norm(_rotation_error(quat_wxyz_to_mat(post_quat), quat_wxyz_to_mat(object_target_quat))))
             force_ok = bool(np.all(measured_force >= desired_normal_thresholds))
+            if self.planner_mode == "mpc_ee":
+                force_ok = established and bool(np.all(measured_force >= required_normal_force))
             object_ok = object_pos_error <= float(self.args.target_tol) and object_rot_error <= float(self.args.ik_rot_tol)
             if bool(np.all(ready_mask)) and force_ok and object_ok:
                 stable_steps += 1
@@ -4972,6 +5195,8 @@ class BimanualPandaGrasper:
             predicted_force_world = np.asarray(
                 terminal_diagnostics.get("predicted_force_world", np.zeros((2, 3))), dtype=np.float64
             ).reshape(-1, 3)
+            if self.planner_mode == "mpc_ee":
+                predicted_force_world = np.asarray(planner_result["diagnostics"]["predicted_force_world"], dtype=np.float64)
             predicted_contact_mask = np.asarray(
                 planner_result.get("contact_mask", np.zeros((0, 2))), dtype=bool
             )
@@ -4995,6 +5220,8 @@ class BimanualPandaGrasper:
                 "planner_diagnostics": self._copy_nested_value(planner_result.get("diagnostics")),
                 "retargeting": self._copy_nested_value(planner_result.get("retargeting")),
                 "lambda_prediction": self._copy_nested_value(planner_result.get("lambda_prediction")),
+                "x_plus_opt": self._copy_nested_value(planner_result.get("x_plus_opt")),
+                "lambda_x_plus_opt": self._copy_nested_value(planner_result.get("lambda_x_plus_opt")),
                 "object_pose": (post_pos.copy(), post_quat.copy()),
                 "object_target_pose": (object_target_pos.copy(), object_target_quat.copy()),
                 "object_position_error": object_pos_error,
@@ -5031,14 +5258,15 @@ class BimanualPandaGrasper:
             }
             telemetry.append(last_info)
             retargeting = planner_result.get("retargeting") or {}
-            if (step_idx % report_stride == 0 or stable_steps == int(self.args.contact_stable_steps)
+            solver_fallback = self.planner_mode == "mpc_ee" and planner_result.get("fallback_reason") is not None
+            if (step_idx % report_stride == 0 or stable_steps == int(self.args.contact_stable_steps) or solver_fallback
                     or (self.planner_mode in {"mpc_ee", "mppi_ee"} and step_idx < 20)):
                 print(
                     f"[{step_idx:04d}] cost={planner_result.get('cost', float('nan')):.4f} "
                     f"ready={ready_mask.astype(int).tolist()} hold={hold_mask.astype(int).tolist()} "
                     f"ee={post_left_pos_err:.4f}/{post_right_pos_err:.4f} "
                     f"tip_z={post_left_pos[2]:.4f}/{post_right_pos[2]:.4f} "
-                    f"phase={retargeting.get('phase', 'control')} "
+                    f"phase={retargeting.get('phase', (planner_result.get('diagnostics') or {}).get('phase', 'control'))} "
                     f"contacts={len(contacts['left'])}/{len(contacts['right'])} "
                     f"force={np.array2string(measured_force, precision=3)} "
                     f"dxy={np.array2string(post_pos[:2] - current_pos[:2], precision=5)} "
@@ -5046,6 +5274,20 @@ class BimanualPandaGrasper:
                     f"plan={planner_wall_time*1000:.1f}ms ({(1.0/planner_wall_time) if planner_wall_time > 1e-6 else 0.0:.1f} Hz)",
                     flush=True,
                 )
+                if solver_fallback:
+                    print("  solver_fallback: "
+                          f"{planner_result['fallback_reason']} "
+                          f"backend={planner_result.get('solver_backend')} status={planner_result.get('solve_status')} "
+                          f"iters={planner_result.get('ipopt_iterations', -1)} "
+                          f"init={planner_result.get('ipopt_initialization_time', 0.):.3f}s "
+                          f"solve={planner_result.get('ipopt_solve_time', 0.):.3f}s "
+                          f"control={(planner_result.get('diagnostics') or {}).get('fallback_control')}", flush=True)
+                    qp_diagnostics = planner_result.get("acados_qp_diagnostics")
+                    if qp_diagnostics:
+                        print("  qp_input: "
+                              f"finite={qp_diagnostics.get('finite')} "
+                              f"nonfinite={qp_diagnostics.get('nonfinite_fields', [])} "
+                              f"snapshot={planner_result.get('acados_failure_snapshot')}", flush=True)
                 if print_mppi_timing:
                     fa_diagnostics = planner_result.get("diagnostics") or {}
                     if fa_diagnostics.get("cost_components"):
@@ -5094,8 +5336,9 @@ class BimanualPandaGrasper:
                 f"max_dxy_step={max_xy_step:.5f} net_xy={net_xy:.5f} "
                 f"max_normal_force={max_normal_force:.3f}"
             )
+        result_label = "Online MPC" if self.planner_mode == "mpc_ee" else "Unified MPPI"
         print(
-            f"Unified MPPI result: success={success} height_gain={final_height:.4f} "
+            f"{result_label} result: success={success} height_gain={final_height:.4f} "
             f"target_gain={float(self.args.lift_height):.4f}"
         )
         print("Final object pose:", final_pos, final_quat)
@@ -5110,8 +5353,13 @@ class BimanualPandaGrasper:
 
 
 def resolve_control_timing(args):
-    """Use a stable Panda servo step while keeping 60 ms CA/FA knots."""
-    retarget = resolve_planner_mode(args) in {"mpc_ee", "mppi_ee"}
+    """Match online OSC intervals; retain 60 ms knots for FA MPPI."""
+    mode = resolve_planner_mode(args)
+    retarget = mode == "mppi_ee"
+    if getattr(args, "planner_horizon", None) is None:
+        args.planner_horizon = 8 if mode == "mpc_ee" else 20
+    if args.planner_horizon < 1:
+        raise ValueError("planner_horizon must be positive")
     if getattr(args, "mujoco_dt", None) is None:
         args.mujoco_dt = 0.01
     if not np.isfinite(args.mujoco_dt) or args.mujoco_dt <= 0:
@@ -5120,11 +5368,14 @@ def resolve_control_timing(args):
         args.adam_knot_substeps = max(1, round(0.06 / args.mujoco_dt)) if retarget else 6
     if args.adam_knot_substeps < 1:
         raise ValueError("adam_knot_substeps must be positive")
+    for name in ("online_contact_confirm_steps", "online_grasp_release_steps"):
+        if int(getattr(args, name, 3)) < 1:
+            raise ValueError(name + " must be positive")
     return args
 
 
 def build_argparser():
-    parser = argparse.ArgumentParser(description="Dual Panda MuJoCo grasp demo driven by mlqp_point_v2, cuRobo IK, and plan_once tracking.")
+    parser = argparse.ArgumentParser(description="Dual Panda grasping with live Lambda contacts and goal-driven online MPC or FA MPPI.")
     parser.add_argument("--obj", type=str, default="elephant", help="Object asset name in envs/assets/objects.")
     parser.add_argument("--mesh", type=str, default=None, help="Absolute or relative mesh path. Overrides --obj.")
     parser.add_argument("--scale", type=float, nargs=3, default=None, help="Mesh scale factors sx sy sz.")
@@ -5259,13 +5510,14 @@ def build_argparser():
     parser.add_argument("--disable-curobo-cuda-graph", action="store_true", help="Disable cuRobo CUDA graph capture.")
     parser.add_argument("--pose-only-mpc", action="store_true", help="Legacy option kept for CLI compatibility; plan_once tracking is pose-based by default.")
     parser.add_argument("--planner-dt", type=float, default=0.01, help="Time step used by the plan_once object-motion model.")
-    parser.add_argument("--planner-horizon", type=int, default=20, help="plan_once horizon length.")
+    parser.add_argument("--planner-horizon", type=int, default=None,
+                        help="plan_once horizon length (default: 8 for online Cartesian MPC, 20 for other modes).")
     planner_mode = parser.add_mutually_exclusive_group()
     planner_mode.add_argument("--mppi", dest="planner_mode", action="store_const", const="mppi_ee", help="Alias for --mppi-ee.")
     planner_mode.add_argument("--mppi-ee", dest="planner_mode", action="store_const", const="mppi_ee", help="Singleton lambda -> DexForge CA/FA retargeting with FA solved by Warp MPPI (default).")
     planner_mode.add_argument("--mppi-joint", dest="planner_mode", action="store_const", const="mppi_joint", help="Warp MPPI over 14-D joint increments.")
     planner_mode.add_argument("--mpc", dest="planner_mode", action="store_const", const="mpc_ee", help="Alias for --mpc-ee.")
-    planner_mode.add_argument("--mpc-ee", dest="planner_mode", action="store_const", const="mpc_ee", help="Singleton lambda -> DexForge CA/FA retargeting with native Warp Adam.")
+    planner_mode.add_argument("--mpc-ee", dest="planner_mode", action="store_const", const="mpc_ee", help="Isaac-style online coupled contact MPC over two Cartesian OSC increments; no reference trajectory.")
     planner_mode.add_argument("--mpc-joint", dest="planner_mode", action="store_const", const="mpc_joint", help="Acados explicit MPC over 14-D joint increments.")
     parser.add_argument(
         "--planner-solver",
@@ -5317,6 +5569,32 @@ def build_argparser():
     parser.add_argument("--planner-attract-tol", type=float, default=0.03, help="Legacy alias for the bimanual ready position tolerance.")
     parser.add_argument("--planner-sync-pos-tol", type=float, default=0.03, help="Position tolerance used by the bimanual ready/hold mask.")
     parser.add_argument("--planner-sync-rot-tol", type=float, default=0.10, help="Orientation tolerance used by the bimanual ready/hold mask.")
+    parser.add_argument("--online-task-stiffness", type=float, default=600.0, help="Cartesian OSC stiffness shared by online MPC prediction and execution.")
+    parser.add_argument("--freeze-contact-pair", dest="freeze_contact_pair", action="store_true", default=True,
+                        help="Keep the initial Lambda pair and left/right assignment in MPC and MPPI (default).")
+    parser.add_argument("--allow-contact-switch", dest="freeze_contact_pair", action="store_false",
+                        help="Enable joint verification of candidate pairs in MPC and MPPI.")
+    parser.add_argument("--online-task-damping", type=float, default=40.0, help="Cartesian OSC damping shared by online MPC prediction and execution.")
+    parser.add_argument("--online-approach-speed", type=float, default=0.25,
+                        help="Free-space OSC velocity-reference norm limit in m/s; 0 restores raw velocity damping. Disabled on contact or while grasping.")
+    parser.add_argument("--online-orientation-stiffness", type=float, default=15.0, help="Pad-axis alignment in the position-task nullspace to separate the wrists.")
+    parser.add_argument("--online-force-limit", type=float, default=12.0, help="OSC force norm limit in N.")
+    parser.add_argument("--online-unilateral-force-limit", type=float, default=0.05, help="Inward OSC force cap while only one pad has reached the object; shared with prediction.")
+    parser.add_argument("--online-tip-mass", type=float, default=2.5, help="Effective Cartesian fingertip response mass in kg.")
+    parser.add_argument("--online-contact-time", type=float, default=0.05, help="Finite soft-SCM contact response time in seconds.")
+    parser.add_argument("--online-patch-radius", type=float, default=0.03, help="Tangential validity radius of transported measured contact patches.")
+    parser.add_argument("--online-contact-tolerance", type=float, default=0.015, help="Actual contact distance to the currently assigned Lambda surface patch.")
+    parser.add_argument("--online-contact-confirm-steps", type=int, default=3, help="Consecutive loaded bilateral patch observations before manipulation.")
+    parser.add_argument("--online-grasp-release-steps", type=int, default=3,
+                        help="Consecutive weak/missing physical contacts before releasing the grasp latch.")
+    parser.add_argument("--online-object-velocity-weight", type=float, default=0.05, help="Penalty on residual object motion in online MPC.")
+    parser.add_argument("--online-max-horizontal-error", type=float, default=0.005, help="Predicted horizontal approach corridor in metres, anchored to the initial object pose.")
+    parser.add_argument("--online-horizontal-recovery-weight", type=float, default=2e6,
+                        help="Soft XY corridor penalty, allowing finite braking after measured drift.")
+    parser.add_argument("--online-sqp-iters", type=int, default=1, help="1 uses Isaac-style SQP-RTI; larger values use iterative SQP.")
+    parser.add_argument("--online-ipopt-iters", type=int, default=80, help="Maximum IPOPT iterations, including fallback solves.")
+    parser.add_argument("--online-ipopt-fallback", action="store_true",
+                        help="Allow blocking IPOPT after acados failure; disabled by default for online MPC.")
     parser.add_argument("--planner-ee-position-weight", type=float, default=80.0, help="EE contact/approach position cost weight.")
     parser.add_argument("--planner-ee-orientation-weight", type=float, default=2.0, help="EE contact orientation cost weight.")
     parser.add_argument("--planner-force-tracking-weight", type=float, default=12.0, help="Contact force tracking cost weight.")
@@ -5451,10 +5729,13 @@ def build_argparser():
     )
     parser.add_argument(
         "--visualize",
-        action=argparse.BooleanOptionalAction,
+        action="store_true",
         default=True,
         help="Launch the MuJoCo passive viewer. Use --no-visualize for a headless run.",
     )
+    parser.add_argument("--no-visualize", dest="visualize", action="store_false", help="Run without the MuJoCo viewer.")
+    parser.add_argument("--diagnostics-output", type=Path, default=None,
+                        help="Write result and per-cycle contact/MPC telemetry to a JSON file.")
     parser.add_argument("--print-viewer-camera-state", action="store_true", help="Print the passive-viewer camera state on every viewer sync. Disabled by default to avoid slowing down the control loop.")
     parser.add_argument("--real-time", action="store_true", help="Sleep to approximate real-time playback when visualizing.")
     parser.add_argument(
@@ -5470,7 +5751,10 @@ def main():
     args = build_argparser().parse_args()
     grasper = BimanualPandaGrasper(args)
     try:
-        grasper.run()
+        result = grasper.run()
+        if args.diagnostics_output is not None:
+            args.diagnostics_output.parent.mkdir(parents=True, exist_ok=True)
+            args.diagnostics_output.write_text(json.dumps(result, default=lambda value: np.asarray(value).tolist()))
     finally:
         grasper.close()
 

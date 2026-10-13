@@ -1,0 +1,176 @@
+[
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_17_19_04",
+    "native_frames": 807,
+    "camera_frames": 399,
+    "first_human_thumb_index_mm": 49.05466842651367,
+    "human_thumb_index_min_median_max_mm": [
+      9.770562171936035,
+      20.703439712524414,
+      53.749691009521484
+    ],
+    "rx_orientation": {
+      "policy": "explicit_rx_frame_conversion",
+      "corrected_frames": 807,
+      "recording_episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_17_19_04",
+      "config_path": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq_v2/emf_rx_corrections.json",
+      "config_sha256": "bc9b178bd36e4d6b6a47a22fdbae580999714efa6c1f2523981cdda9a5169c31",
+      "episode_glob": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_*",
+      "reason": "Oct 8 recording right thumb/index/middle RX frames differ by a local 180-degree Y rotation from the Oct 12 calibration; Oct 9 and left hand are unchanged. Verified against calibration MCAP and identical outputs from the live and offline 2026.8.31 SDK binaries.",
+      "rx_post_rotation_xyzw": [
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  },
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_17_21_28",
+    "native_frames": 685,
+    "camera_frames": 338,
+    "first_human_thumb_index_mm": 49.82753372192383,
+    "human_thumb_index_min_median_max_mm": [
+      4.978247165679932,
+      19.92510223388672,
+      67.80797576904297
+    ],
+    "rx_orientation": {
+      "policy": "explicit_rx_frame_conversion",
+      "corrected_frames": 685,
+      "recording_episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_17_21_28",
+      "config_path": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq_v2/emf_rx_corrections.json",
+      "config_sha256": "bc9b178bd36e4d6b6a47a22fdbae580999714efa6c1f2523981cdda9a5169c31",
+      "episode_glob": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_*",
+      "reason": "Oct 8 recording right thumb/index/middle RX frames differ by a local 180-degree Y rotation from the Oct 12 calibration; Oct 9 and left hand are unchanged. Verified against calibration MCAP and identical outputs from the live and offline 2026.8.31 SDK binaries.",
+      "rx_post_rotation_xyzw": [
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  },
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_18_14_52",
+    "native_frames": 665,
+    "camera_frames": 329,
+    "first_human_thumb_index_mm": 52.081119537353516,
+    "human_thumb_index_min_median_max_mm": [
+      10.567801475524902,
+      28.00086212158203,
+      56.77878189086914
+    ],
+    "rx_orientation": {
+      "policy": "explicit_rx_frame_conversion",
+      "corrected_frames": 665,
+      "recording_episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_18_14_52",
+      "config_path": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq_v2/emf_rx_corrections.json",
+      "config_sha256": "bc9b178bd36e4d6b6a47a22fdbae580999714efa6c1f2523981cdda9a5169c31",
+      "episode_glob": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_08_*",
+      "reason": "Oct 8 recording right thumb/index/middle RX frames differ by a local 180-degree Y rotation from the Oct 12 calibration; Oct 9 and left hand are unchanged. Verified against calibration MCAP and identical outputs from the live and offline 2026.8.31 SDK binaries.",
+      "rx_post_rotation_xyzw": [
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  },
+  {
+    "episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_09_12_05_21",
+    "native_frames": 310,
+    "camera_frames": 154,
+    "first_human_thumb_index_mm": 55.32516098022461,
+    "human_thumb_index_min_median_max_mm": [
+      12.7110595703125,
+      29.346302032470703,
+      58.13724899291992
+    ],
+    "rx_orientation": {
+      "policy": "recorded_rx_orientation",
+      "corrected_frames": 0,
+      "recording_episode": "20261008170930-stack_cup_random_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_10_09_12_05_21",
+      "config_path": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq_v2/emf_rx_corrections.json",
+      "config_sha256": "bc9b178bd36e4d6b6a47a22fdbae580999714efa6c1f2523981cdda9a5169c31"
+    }
+  }
+]

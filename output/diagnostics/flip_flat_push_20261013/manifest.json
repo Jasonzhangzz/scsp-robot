@@ -1,0 +1,34 @@
+{
+  "protocol": "Default async seed 0 plus synchronous read-only companion diagnostics",
+  "objects": [
+    "elephant",
+    "stanford_bunny2"
+  ],
+  "seed": 0,
+  "numpy_seed": 100,
+  "physics": "Isaac Gym CPU PhysX",
+  "solver": "acados",
+  "production_control_modified": false,
+  "diagnostics": [
+    "default_trace_analysis.json",
+    "sync_analysis.json",
+    "frame_force_analysis.json",
+    "lambda_replay_summary.json",
+    "objective_replay.json"
+  ],
+  "limitations": [
+    "One seed; not a success-rate estimate",
+    "Async trajectories depend on process scheduling and probe overhead",
+    "Lambda/objective replays are offline counterfactuals, not modified closed-loop outcomes"
+  ],
+  "git_head": "5aa024dbb018be9af677617f7001c36560fcaf87",
+  "source_sha256": {
+    "examples/mpc/franka/ik2/params.py": "482a50f13c955492e41771d5f7c050426862dbbddf8119873f2a354585466f4b",
+    "examples/mpc/franka/ik2/test_mpc_isaac.py": "48faf08756d78ac2fac8c4a656e6e5bcb5391345f93e234b99039a268a8f0446",
+    "examples/mpc/fingertips/test/test_0902.py": "c0f5c90b3eaabe8ddbe8dd7e8973f3d50a9f0f4b5b35e4fd85849fb87aa5fe4e",
+    "planning/mlqp_point.py": "33a629d75daa1e1871fb93e211d0b9f79149f4a20ebdf067c7df9c4cc3bfc37b",
+    "models/cartesian_rigid_contact.py": "c7035d0b48a26f63407f0f97ed07ff55b3f2325e6290603cba1ee7ba0aaeb13b",
+    "planning/object_pose_cost.py": "140dd6026ab46015fc3ee365c3f29cde0850979c8fcec698340324584469cfff",
+    "planning/mpc_explicit.py": "470a278b7c56e6af3e48db24f97ee2ec509fc960e1b79022bccc7f71d9b188f9"
+  }
+}

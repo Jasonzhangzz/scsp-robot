@@ -4,6 +4,7 @@ Cost definitions live in ``planning/mpc_costs.py``.  This module only
 builds and solves the receding-horizon NLP.
 """
 import os
+import time
 import warnings
 
 import casadi as cs
@@ -40,6 +41,16 @@ _ACADOS_STATUS_LABELS = {
     9: "ACADOS_INFEASIBLE",
 }
 _ACADOS_IPOPT_FALLBACK_WARNED = False
+_HPIPM_STATUS_LABELS = {0: "SUCCESS", 1: "MAX_ITER", 2: "MIN_STEP",
+                        3: "NAN_SOL", 4: "INCONS_EQ"}
+
+
+def _primal_sol_guess(sol_guess):
+    """Reuse controls/states across solvers without carrying dual memory."""
+    if sol_guess is None:
+        return None
+    primal = {key: sol_guess[key] for key in ("x0", "u_traj", "x_traj") if sol_guess.get(key) is not None}
+    return primal or None
 
 
 def _as_vector(value, size):
@@ -186,7 +197,7 @@ class MPCExplicit:
         jac = cs.SX.sym('stage_jac',4*param.max_ncon_,param.n_qvel_)
         mp = cs.SX.sym('stage_parameters',self.model.model_parameter_dim)
         gaps, stage_jac = phi, jac
-        if self.update_contact_gaps:
+        if self.update_contact_gaps and not getattr(self.model, 'transports_contacts', False):
             from models.contact_geometry import contact_geometry_cs
             gaps, stage_jac = contact_geometry_cs(state[:10], reference[:10], phi, jac, **self.support_bounds)
             self.contact_geometry_fn = cs.Function('transport_contact_geometry',
@@ -230,6 +241,8 @@ class MPCExplicit:
         self.acados_solve_count = 0
         self.acados_failure_count = 0
         self.acados_fallback_count = 0
+        self._acados_nan_snapshot = None
+        self.last_acados_qp_diagnostics = None
 
     def _cost_params(self, **kwargs):
         return pack_cost_params(self.cost_kind, self.source_param_, self.path_cost_fn, **kwargs)
@@ -304,26 +317,46 @@ class MPCExplicit:
                 print(f"Torch MPC failed ({type(exc).__name__}: {exc}); falling back to acados/IPOPT")
 
         if requested == "acados":
+            attempt_errors = []
             result = self._plan_once_acados(curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub)
             if result is None and sol_guess is not None:
-                # Status 4 is almost always a stale RTI iterate, not a
-                # missing solver.  Cold-start acados before paying IPOPT.
+                attempt_errors.append(getattr(self, "last_acados_error", "") or "acados_unavailable")
+                # Clear dual/QP memory while retaining the measured-state
+                # rollout. A zero-action restart can unload an airborne grasp.
                 self._reset_acados_solver()
                 result = self._plan_once_acados(
-                    curr_x, phi_vec, jac_mat, cost_params, None, u_lb, u_ub
+                    curr_x, phi_vec, jac_mat, cost_params, _primal_sol_guess(sol_guess), u_lb, u_ub
                 )
             if result is not None:
                 return self._finalize_result(result, curr_x, u_lb, u_ub)
             self.acados_fallback_count += 1
-            # An IPOPT iterate is not a valid acados iterate (and vice versa).
-            # Drop it when the backend changes so a failed/slow solver cannot
-            # turn stale multipliers into an oversized first action.
+            error = (getattr(self, "last_acados_error", "") or
+                     str(getattr(self, "_acados_init_error", "") or "acados_unavailable"))
+            attempt_errors.append(error)
+            reason = "acados_failed: " + error
+            if not getattr(self.param_, "mpc_ipopt_fallback_", True):
+                # Real-time callers implement their own bounded fallback.
+                # A failed iterate is labeled explicitly and never presented
+                # as an acados solution.
+                n, nu, nx = self.param_.mpc_horizon_, self.param_.n_cmd_, self.param_.n_qpos_
+                return dict(action=np.zeros(nu), u_traj=np.zeros((n, nu)),
+                    rollout_q=np.tile(curr_x, (n, 1)), sol_guess=None,
+                    cost_opt=np.array([np.inf]), solver_backend="acados_failed",
+                    solve_status=error, fallback_reason=reason, acados_error=error,
+                    acados_attempt_errors=attempt_errors,
+                    acados_qp_diagnostics=getattr(self, "last_acados_qp_diagnostics", None),
+                    acados_failure_snapshot=getattr(self, "_acados_nan_snapshot", None))
+            # Warn before the blocking solve, and retain the useful primal
+            # seed. Multipliers from a different backend are discarded.
+            _warn_acados_ipopt_fallback(reason)
             result = self._plan_once_ipopt(
-                curr_x, phi_vec, jac_mat, cost_params, None, u_lb, u_ub,
+                curr_x, phi_vec, jac_mat, cost_params, _primal_sol_guess(sol_guess), u_lb, u_ub,
                 requested_solver="acados",
-                fallback_reason="acados_unavailable_or_failed",
+                fallback_reason=reason,
             )
-            _warn_acados_ipopt_fallback(result.get("fallback_reason", "acados_unavailable_or_failed"))
+            result.update(acados_error=error, acados_attempt_errors=attempt_errors,
+                acados_qp_diagnostics=getattr(self, "last_acados_qp_diagnostics", None),
+                acados_failure_snapshot=getattr(self, "_acados_nan_snapshot", None))
             return self._finalize_result(result, curr_x, u_lb, u_ub)
 
         result = self._plan_once_ipopt(
@@ -370,8 +403,10 @@ class MPCExplicit:
 
     def _plan_once_ipopt(self, curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub,
                          requested_solver="ipopt", fallback_reason=None):
+        build_started = time.perf_counter()
         if self.ipopt_solver is None:
             self.ipopt_solver = cs.nlpsol("solver", "ipopt", *self._ipopt_definition)
+        build_time = time.perf_counter() - build_started
         warm_start = self._prepare_sol_guess(sol_guess)
         if sol_guess is None and getattr(self.param_, 'runtime_object_cost_', False):
             # Zero quaternions in IPOPT's historical default iterate produce
@@ -394,6 +429,7 @@ class MPCExplicit:
         nlp_lbw, nlp_ubw = self.nlp_bounds_fn_(u_lb, u_ub, lower_q, upper_q)
         if getattr(self, 'first_action_bounds', None) is not None:
             nlp_lbw[:self.param_.n_cmd_], nlp_ubw[:self.param_.n_cmd_] = self.first_action_bounds
+        solve_started = time.perf_counter()
         raw_sol = self.ipopt_solver(
             x0=warm_start["x0"],
             lam_x0=warm_start["lam_x0"],
@@ -404,12 +440,14 @@ class MPCExplicit:
             ubg=self.nlp_g_ub_,
             p=nlp_param,
         )
+        solve_time = time.perf_counter() - solve_started
         w_opt = raw_sol["x"].full().flatten()
         cost_opt = raw_sol["f"].full().flatten()
         sol_traj = np.reshape(w_opt, (self.param_.mpc_horizon_, self.param_.n_cmd_ + self.param_.n_qpos_))
         opt_u_traj = sol_traj[:, : self.param_.n_cmd_]
         rollout_q = sol_traj[:, self.param_.n_cmd_ :]
-        solve_status = self.ipopt_solver.stats()["return_status"]
+        stats = self.ipopt_solver.stats()
+        solve_status = stats["return_status"]
         result = dict(
             action=opt_u_traj[0, :],
             u_traj=opt_u_traj,
@@ -426,12 +464,67 @@ class MPCExplicit:
             solve_status=solve_status,
             solver_backend="ipopt",
             requested_solver=str(requested_solver),
+            ipopt_initialization_time=build_time,
+            ipopt_solve_time=solve_time,
+            ipopt_iterations=int(stats.get("iter_count", -1)),
         )
         if fallback_reason is not None:
             result["fallback_reason"] = str(fallback_reason)
         return result
 
+    def _inspect_acados_qp(self):
+        """Inspect failed QP input without confusing NaN output with NaN input."""
+        getter = getattr(self.acados_solver_, "get_from_qp_in", None)
+        arrays, nonfinite, unreadable, maxima = {}, [], [], {}
+        if getter is None:
+            return dict(available=False, finite=None), arrays
+        for stage in range(self.param_.mpc_horizon_ + 1):
+            fields = ["Q", "R", "S", "q", "r", "C", "D", "lg", "ug", "lbx", "ubx", "lbu", "ubu"]
+            if stage < self.param_.mpc_horizon_:
+                fields += ["A", "B", "b"]
+            for field in fields:
+                key = "qp_%d_%s" % (stage, field)
+                try:
+                    value = np.asarray(getter(stage, field), dtype=float)
+                except Exception as exc:
+                    unreadable.append(key + ": " + str(exc))
+                    continue
+                arrays[key] = value
+                if not np.isfinite(value).all():
+                    nonfinite.append(key)
+                elif value.size:
+                    maxima[field] = max(maxima.get(field, 0.), float(np.abs(value).max()))
+        return dict(available=True, finite=False if nonfinite else (None if unreadable else True),
+                    nonfinite_fields=nonfinite, unreadable_fields=unreadable,
+                    max_abs_by_field=maxima), arrays
+
+    def _capture_acados_nan(self, curr_x, phi, jac, cp, u_guess, x_guess, u_lb, u_ub):
+        diagnostics, arrays = self._inspect_acados_qp()
+        self.last_acados_qp_diagnostics = diagnostics
+        path = getattr(self.param_, "mpc_failure_snapshot_", None)
+        if path is None or getattr(self, "_acados_nan_snapshot", None) is not None:
+            return
+        try:
+            import json
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            arrays.update(curr_x=curr_x, phi=phi, jac=jac, cost_params=cp,
+                model_params=self.model.runtime_parameters(self.param_.model_params),
+                u_guess=u_guess, x_guess=x_guess, u_lb=u_lb, u_ub=u_ub,
+                q_lb=self.param_.mpc_q_lb_, q_ub=self.param_.mpc_q_ub_,
+                horizon=np.array(self.param_.mpc_horizon_), timestep=np.array(self.param_.h_),
+                casadi_version=np.array(cs.__version__),
+                qp_diagnostics=np.array(json.dumps(diagnostics)),
+                prediction_fn=np.array(self.model.prediction_fn.serialize()),
+                path_cost_fn=np.array(self.path_cost_fn.serialize()),
+                final_cost_fn=np.array(self.final_cost_fn.serialize()))
+            np.savez_compressed(path, **arrays)
+            self._acados_nan_snapshot = str(path)
+            print("acados NAN_SOL snapshot: " + str(path), flush=True)
+        except Exception as exc:
+            diagnostics["snapshot_error"] = str(exc)
+
     def _plan_once_acados(self, curr_x, phi_vec, jac_mat, cost_params, sol_guess, u_lb, u_ub):
+        self.last_acados_qp_diagnostics = None
         if self.acados_solver_ is None:
             return None
         if sol_guess is None:
@@ -516,11 +609,15 @@ class MPCExplicit:
                 status = int(self.acados_solver_.solve())
             if status != 0:
                 detail = ''
+                qp_status = None
                 try:
                     qp_status = int(np.asarray(self.acados_solver_.get_stats('qp_stat')).reshape(-1)[-1])
-                    detail = ' QP=' + _format_acados_status(qp_status)
+                    detail = ' HPIPM_QP=' + _HPIPM_STATUS_LABELS.get(qp_status, str(qp_status))
                 except Exception:
                     pass
+                if qp_status == 3:
+                    self._capture_acados_nan(curr_x, phi_vec, jac_mat, cost_params,
+                                             u_guess, x_guess, u_lb, u_ub)
                 raise RuntimeError(f"acados status {status}{detail}")
             u_traj = np.asarray([self.acados_solver_.get(k, "u") for k in range(n)], dtype=np.float64)
             u_traj = np.clip(u_traj, u_lb, u_ub)
@@ -751,10 +848,13 @@ class MPCExplicit:
         dynamics_key = hashlib.sha1(dynamics_fn.serialize().encode()).hexdigest()[:10]
         contact_tag = getattr(self.model, 'contact_model', 'explicit').replace('-', '_')
         model.name = f"mpc_{contact_tag}_v3_{dynamics_key}_{self.cost_kind}_{cost_tag}_h{n}_c{self.param_.max_ncon_}_x{nx}_u{nu}"
+        custom_profile = getattr(self.param_, 'mpc_acados_profile_', None)
+        if custom_profile:
+            model.name += '_profile_' + hashlib.sha1(repr(sorted(custom_profile.items())).encode()).hexdigest()[:8]
         self.recoverable_floor = bool(getattr(self, 'velocity_state', False))
         if self.recoverable_floor:
             model.name += '_floor_recovery_v1'
-        if getattr(self, 'velocity_state', False) and self.update_contact_gaps and not self.stage_cost_on_next:
+        if (getattr(self, 'velocity_state', False) or getattr(self.param_, 'mpc_compact_dynamics_', False)) and self.update_contact_gaps and not self.stage_cost_on_next:
             # Keep one directional derivative subroutine, called once per
             # Jacobian column. Expanding all columns as SX produces ~15 MB
             # of C and spends ~30 s compiling on a first object load. This
@@ -790,11 +890,20 @@ class MPCExplicit:
             # Hessian, but avoid second derivatives of the coupled unilateral
             # map: those grow enormously and are discontinuous at mode changes.
             model.cost_expr_ext_cost_0 = model.cost_expr_ext_cost
-            model.cost_expr_ext_cost_custom_hess = cs.hessian(
-                model.cost_expr_ext_cost, cs.vertcat(u, x))[0]
+            if hasattr(self, 'residual_fn'):
+                residual = self.residual_fn(x, u, cp)
+                residual_jac = cs.jacobian(residual, cs.vertcat(u, x))
+                model.cost_expr_ext_cost_custom_hess = 2 * residual_jac.T @ residual_jac
+            else:
+                model.cost_expr_ext_cost_custom_hess = cs.hessian(
+                    model.cost_expr_ext_cost, cs.vertcat(u, x))[0]
             model.cost_expr_ext_cost_custom_hess_0 = model.cost_expr_ext_cost_custom_hess
-            model.cost_expr_ext_cost_custom_hess_e = cs.hessian(
-                model.cost_expr_ext_cost_e, x)[0]
+            if hasattr(self, 'terminal_residual_fn'):
+                terminal_jac = cs.jacobian(self.terminal_residual_fn(x, cp), x)
+                model.cost_expr_ext_cost_custom_hess_e = 2 * terminal_jac.T @ terminal_jac
+            else:
+                model.cost_expr_ext_cost_custom_hess_e = cs.hessian(
+                    model.cost_expr_ext_cost_e, x)[0]
 
         ocp = AcadosOcp()
         ocp.model = model
@@ -835,6 +944,8 @@ class MPCExplicit:
         ocp.solver_options.N_horizon = n
         ocp.solver_options.tf = float(self.param_.h_ * n)
         profile = acados_solver_profile(self.cost_kind)
+        if custom_profile:
+            profile = dict(profile, **custom_profile)
         for key, value in profile.items():
             setattr(ocp.solver_options, key, value)
         ocp.solver_options.hessian_approx = "GAUSS_NEWTON" if self.update_contact_gaps else "EXACT"
@@ -910,6 +1021,8 @@ class MPCExplicit:
             "ipopt.tol": 1e-4,
             "ipopt.linear_solver": "mumps",
         }
+        if hasattr(self, 'residual_fn'):
+            nlp_opts['ipopt.hessian_approximation'] = 'limited-memory'
         self._ipopt_definition = (nlp_prog, nlp_opts)
         self.ipopt_solver = (cs.nlpsol("solver", "ipopt", nlp_prog, nlp_opts)
                              if self.planner_solver_ == 'ipopt' else None)

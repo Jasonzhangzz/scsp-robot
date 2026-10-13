@@ -1,0 +1,11 @@
+{
+  "cycles": 600,
+  "success": false,
+  "backends": [
+    "acados"
+  ],
+  "plan_median_ms": 9.69455498852767,
+  "plan_p95_ms": 11.728620523354037,
+  "plan_max_ms": 15.510545985307544,
+  "qp_failure_replay_backend": "acados"
+}

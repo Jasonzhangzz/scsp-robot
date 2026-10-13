@@ -64,10 +64,10 @@ def resolve_solver_backend(requested=None, portable_default=False):
         if requested == "auto" and portable_default:
             return "ipopt"
         return "acados" if acados_available() else "ipopt"
-    if requested in {"ipopt", "torch-lbfgs", "torch-gn"}:
+    if requested in {"ipopt", "torch-lbfgs", "torch-gn", "cma-es", "cem"}:
         return requested
     raise ValueError(
-        "Unsupported solver backend %r; expected portable, auto, acados or ipopt"
+        "Unsupported solver backend %r; expected portable, auto, acados, ipopt, cma-es or cem"
         % requested
     )
 

@@ -1,0 +1,9 @@
+direct_force solver=cem object=foam_brick seed=0 step=0 pos=0.056301 quat=0.493320 hold=0 success=False
+direct_force solver=cem object=foam_brick seed=0 step=50 pos=0.030261 quat=0.000681 hold=0 success=False
+direct_force solver=cem object=foam_brick seed=0 step=100 pos=0.023317 quat=0.001593 hold=0 success=False
+direct_force solver=cem object=foam_brick seed=0 step=150 pos=0.022667 quat=0.000396 hold=0 success=False
+direct_force solver=cem object=foam_brick seed=0 step=200 pos=0.021430 quat=0.000786 hold=0 success=False
+direct_force solver=cem object=foam_brick seed=0 step=250 pos=0.018046 quat=0.000201 hold=0 success=False
+direct_force solver=cem object=foam_brick seed=0 step=281 pos=0.016319 quat=0.001129 hold=13 success=True
+surrogate summary: steps=282 final_pos=0.016319 final_quat=0.001129 success=True
+surrogate timing: execution_time_s=127.63410212204326 planning_time_mean_ms=450.173 planning_time_p95_ms=712.095 simulation_time_s=5.640

@@ -29,9 +29,9 @@ def make_params(obj, hull=True, target='ground-rotation', seed=0, tilt=True):
     # Exact source/baked equivalence tests the transform, not decomposition's
     # small geometric approximation. Compound support is checked separately.
     args = _add_rollout_policy_args(argparse.ArgumentParser()).parse_args(
-        ['--obj', obj, '--collision-geometry', 'hull'])
+        ['--obj', obj, '--collision-geometry', 'hull',
+         '--rotation' if target == 'rotation' else '--flipping'])
     args.collision_hull = hull
-    args.target_type = target
     args.random_init_tilt = tilt
     return args, ExplicitMPCParams(args, rand_seed=seed)
 
@@ -75,9 +75,45 @@ def test_standing_target_and_start_agree_between_raw_and_baked_mesh(obj, target,
 
 
 @pytest.mark.parametrize('obj', OBJECTS)
-def test_rotation_untilted_start_stands_in_the_target_upright_family(obj):
-    _, p = make_params(obj, tilt=False, target='rotation')
-    np.testing.assert_allclose(rotate_axis_np(p.init_obj_qpos_[3:7], p.object_up_axis_), [0,0,1], atol=1e-10)
+@pytest.mark.parametrize('hull', [True, False])
+@pytest.mark.parametrize('random_tilt', [True, False])
+@pytest.mark.parametrize('seed', [0, 4])
+def test_rotation_start_shares_target_up_axis_even_with_random_tilt(obj, hull, random_tilt, seed):
+    _, p = make_params(obj, hull=hull, tilt=random_tilt, target='rotation', seed=seed)
+    initial = Rotation.from_quat(p.init_obj_qpos_[[4,5,6,3]])
+    target = Rotation.from_quat(p.target_q_[[1,2,3,0]])
+    initial_up = initial.apply(p.object_up_axis_)
+    np.testing.assert_allclose(initial_up, target.apply(p.object_up_axis_), atol=1e-10)
+    np.testing.assert_allclose(initial_up, [0,0,1], atol=1e-10)
+    # Relative motion is a nonzero world-Z rotation, with no pitch or roll.
+    relative = (target * initial.inv()).as_rotvec()
+    np.testing.assert_allclose(relative[:2], 0., atol=1e-10)
+    assert abs(relative[2]) > 1e-3
+    lowest_z = p.init_obj_qpos_[2] + initial.apply(p.object_vertices_)[:, 2].min()
+    assert lowest_z == pytest.approx(p.table_height + .002, abs=1e-10)
+
+
+@pytest.mark.parametrize('flags, target', [
+    ([], 'ground-rotation'),
+    (['--flipping'], 'ground-rotation'),
+    (['--rotation'], 'rotation'),
+    (['--target-type', 'rotation'], 'rotation'),
+    (['--target-type', 'ground-rotation'], 'ground-rotation'),
+])
+def test_task_flags_and_legacy_selector(flags, target):
+    parser = _add_rollout_policy_args(argparse.ArgumentParser())
+    assert parser.parse_args(flags).target_type == target
+
+
+@pytest.mark.parametrize('flags', [
+    ['--rotation', '--flipping'],
+    ['--rotation', '--target-type', 'ground-rotation'],
+    ['--flipping', '--target-type', 'rotation'],
+])
+def test_conflicting_task_flags_are_rejected(flags):
+    parser = _add_rollout_policy_args(argparse.ArgumentParser())
+    with pytest.raises(SystemExit):
+        parser.parse_args(flags)
 
 
 @pytest.mark.parametrize('obj', OBJECTS)

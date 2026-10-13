@@ -1,0 +1,30 @@
+[acados] generating solver: contact_lambda_soft_scm_v25_m10_f200_u900_qe9357d2718
+External functions generated in 1075.647 ms.
+Templated solver code generated in 780.583 ms.
+[acados] compiling solver (3 large maps); log: /tmp/contact_lambda_soft_scm_v25_m10_f200_u900_qe9357d2718_codegen/build.log
+[acados] solver ready in 4.51s
+direct_force object=stanford_bunny2 seed=0 step=0 pos=0.054877 quat=0.400677 hold=0 success=False
+direct_force object=stanford_bunny2 seed=0 step=50 pos=0.019453 quat=0.009109 hold=1 success=False
+direct_force object=stanford_bunny2 seed=0 step=75 pos=0.015957 quat=0.000944 hold=10 success=True
+direct_force object=stanford_bunny2 seed=1 step=0 pos=0.112361 quat=0.564548 hold=0 success=False
+direct_force object=stanford_bunny2 seed=1 step=26 pos=0.008290 quat=0.006984 hold=10 success=True
+direct_force object=stanford_bunny2 seed=2 step=0 pos=0.135054 quat=0.603127 hold=0 success=False
+direct_force object=stanford_bunny2 seed=2 step=33 pos=0.004979 quat=0.003988 hold=10 success=True
+direct_force object=stanford_bunny2 seed=3 step=0 pos=0.039713 quat=0.939573 hold=0 success=False
+direct_force object=stanford_bunny2 seed=3 step=50 pos=0.017699 quat=0.000806 hold=0 success=False
+direct_force object=stanford_bunny2 seed=3 step=68 pos=0.005973 quat=0.013945 hold=14 success=True
+direct_force object=stanford_bunny2 seed=4 step=0 pos=0.086491 quat=0.841657 hold=0 success=False
+direct_force object=stanford_bunny2 seed=4 step=50 pos=0.003813 quat=0.002156 hold=1 success=False
+direct_force object=stanford_bunny2 seed=4 step=67 pos=0.004681 quat=0.001272 hold=18 success=True
+direct_force object=stanford_bunny2 seed=5 step=0 pos=0.108860 quat=0.941410 hold=0 success=False
+direct_force object=stanford_bunny2 seed=5 step=49 pos=0.016127 quat=0.004264 hold=10 success=True
+direct_force object=stanford_bunny2 seed=6 step=0 pos=0.211639 quat=0.334067 hold=0 success=False
+direct_force object=stanford_bunny2 seed=6 step=50 pos=0.019901 quat=0.000044 hold=1 success=False
+direct_force object=stanford_bunny2 seed=6 step=62 pos=0.018888 quat=0.000236 hold=10 success=True
+direct_force object=stanford_bunny2 seed=7 step=0 pos=0.159507 quat=0.270021 hold=0 success=False
+direct_force object=stanford_bunny2 seed=7 step=43 pos=0.018622 quat=0.002728 hold=12 success=True
+direct_force object=stanford_bunny2 seed=8 step=0 pos=0.051845 quat=0.456501 hold=0 success=False
+direct_force object=stanford_bunny2 seed=8 step=50 pos=0.019293 quat=0.000030 hold=11 success=True
+direct_force object=stanford_bunny2 seed=9 step=0 pos=0.102213 quat=0.674172 hold=0 success=False
+direct_force object=stanford_bunny2 seed=9 step=43 pos=0.012477 quat=0.002483 hold=10 success=True
+direct_force summary: 10/10 succeeded

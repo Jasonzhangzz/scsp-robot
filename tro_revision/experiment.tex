@@ -5,6 +5,30 @@ To validate SCM as a viable approximate contact model, we compare it with higher
 
 For each baseline $b$, we measure the absolute difference in maximum post-step penetration, $e_d=|d_{\max}^{\mathrm{SCM}}-d_{\max}^{(b)}|$, and the linear and angular velocity differences, $e_v=\|\boldsymbol{v}^{\mathrm{SCM}}-\boldsymbol{v}^{(b)}\|_2$ and $e_\omega=\|\boldsymbol{\omega}^{\mathrm{SCM}}-\boldsymbol{\omega}^{(b)}\|_2$, in a common frame. Table~\ref{tab:scm_lcp_accuracy} reports mean $\pm$ standard deviation over 600 inputs per state. Separation predictions agree to numerical precision, and penetration differences in sliding and sticking remain at the micrometer scale. SCM captures the dominant object motion trends in most tested cases, supporting its use as a reliable predictive model for CSO under the tested contact conditions.
 
+We evaluate CSO contact guidance by applying the optimized point force at the selected contact location in MuJoCo. Seven objects (foam brick, mug, rubber duck, elephant, piggy bank, Stanford bunny, and teapot) each receive 5 paired initial states with seeds 0--4, giving 35 tasks per model. These are flip-to-pose tasks with randomized yaw and initial tilt sampled between $35^\circ$ and $75^\circ$, with a 5000-step budget. Planning is synchronous with a $20\,\mathrm{ms}$ policy interval; the full optimized force is applied for $0.5\,\mathrm{ms}$ per interval. Success requires the target-pose tolerances, at least ten consecutive unforced settling intervals, and low terminal velocities. SCM uses the reference Isaac quasi-dynamic model and ACADOS; the MuJoCo baseline uses its native pyramidal-contact QP, and the LCP baseline is a regularized monotone friction-ray LCP solved with Lemke's algorithm. QP and LCP force optimization use finite-difference local sensitivities and one local SLSQP update. Thus the comparison includes both model and solver implementation differences. Table~\ref{tab:cso_contact_guidance} reports measured success rates and mean $\pm$ population standard deviations. Execution time is wall-clock time from the first plan to successful settling, including planning and simulation but excluding initialization; failed trials are excluded from this time statistic. Planning time includes every attempted planning round, including failed tasks. The separate solver-comparison columns are retained and are not populated by this contact-model experiment.
+
+% Data: output/diagnostics/cso_contact_guidance_7x5_20261013; seeds 0--4; 5000-step limit.
+\begin{table}[t]
+\centering
+\caption{CSO contact guidance: seven objects, 5 paired trials per object and model. Times are mean $\pm$ std; execution time is success-only wall time, and planning time covers all rounds.}
+\label{tab:cso_contact_guidance}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}l*{7}{c}@{}}
+\toprule
+\multirow{2}{*}{Metric} & \multicolumn{3}{c}{Contact Model} & \multicolumn{4}{c}{Solvers} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-8}
+ & \textbf{SCM} & MuJoCo QP & LCP & SQP & NLP & CMA-ES & CEM \\
+\midrule
+Success Rate & 45.7\% & 40.0\% & 20.0\% & -- & -- & -- & -- \\
+Execution Time (s) & $12.06 \pm 11.67$ & $138.75 \pm 165.29$ & $46.51 \pm 26.84$ & -- & -- & -- & -- \\
+Planning Time (ms) & $17.96 \pm 4.89$ & $123.45 \pm 39.15$ & $117.03 \pm 29.94$ & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
 % Data: examples/mpc/franka/scm/outputs/soft_scm_lcp_lemke_objects_20261009/
 \begin{table*}[t]
 \centering
@@ -358,22 +382,27 @@ Finally, we quantify local decision quality using the counterfactual decision re
 \end{equation}
 where $b_t^{\mathrm{RS}}$ denotes the decision made by the ranking strategy. A lower CDR indicates a more effective contact-switching decision.
 
+We also report the signed advantage $A_{\mathrm{RS}}(s_t)=Q(s_t,b_t^{\mathrm{RS}})-Q(s_t,\bar b_t^{\mathrm{RS}})$, where $\bar b_t^{\mathrm{RS}}$ is the opposite decision; a positive advantage favors the ranking strategy. For these binary decisions, $\mathrm{CDR}(s_t)=\max(0,-A_{\mathrm{RS}}(s_t))$, so a small mean regret does not imply a large positive mean advantage. The offline evaluation uses $\gamma=0.999$ per 20-ms control step and pools 331 sampled decision states from 17 successful flipping rollouts across seven objects.
+
+We distinguish the \emph{best-point change frequency} $f_{\mathrm{best}}$ from the \emph{contact-switch triggering frequency} $f_{\mathrm{trigger}}$. The former counts changes of CSO's object-local best-contact candidate, \texttt{best\_contact\_point}, between consecutive ranking evaluations; object motion alone does not count as a candidate change. The latter counts contact switching actually triggered and executed by MPC, verified as completed physical relocations with an executed relocation target, loss of the previous fingertip--object contact, and stable contact on a distinct object-local patch. We use a 3-cm patch-separation threshold, a 2-cm arrival tolerance, two consecutive detached observations, and three consecutive new-contact observations. Both frequencies are event counts divided by simulated execution time; the ranking evaluation rate is a separate quantity.
+
 \begin{table}[t]
 \centering
-\caption{Contact-switching frequency and counterfactual decision regret (CDR) for rotation and flipping.}
+\caption{Best-point change frequency, contact-switch triggering frequency, counterfactual decision regret (CDR), and ranking-strategy advantage.}
 \label{tab:ranking_frequency_cdr}
-\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}} lcc}
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}} lcccc}
 \toprule
-\textbf{Task} & \textbf{Switching frequency} & \textbf{CDR} \\
+\textbf{Task} & \shortstack{\textbf{Best-point}\\\textbf{change (Hz)}} & \shortstack{\textbf{Contact-switch}\\\textbf{trigger (Hz)}} & \textbf{CDR} & $\boldsymbol{A_{\mathrm{RS}}}$ \\
 \midrule
-Rotation & & \\
-Flipping & & \\
+Rotation & 5.012 & 0.207 & $0.047 \pm 0.103$ & $0.055 \pm 0.236$ \\
+Flipping & 5.122 & 0.217 & $0.045 \pm 0.085$ & $0.073 \pm 0.227$ \\
 \bottomrule
 \end{tabular*}
 \end{table}
 
-% Fill in the measured values above and verify the interpretation below before submission.
-Results are shown in Table~\ref{tab:ranking_frequency_cdr}. Although the ranking strategy is evaluated in real time, contact switching occurs at a substantially lower frequency than ranking evaluation, suggesting event-triggered behavior. The CDR results further highlight the importance of the ranking strategy, particularly in flipping tasks, where it almost always selects the correct contact-switching decision.
+Results are shown in Table~\ref{tab:ranking_frequency_cdr}. The two frequency columns use the 22 successful source rollouts from the current 35-trial flipping evaluation: 3,800 best-point changes and 161 completed contact switches over 741.840\,s of simulated execution, giving 5.122\,Hz and 0.217\,Hz, respectively. Both are below the 50-Hz ranking evaluation rate in these synchronous rollouts. The CDR and advantage columns retain the previous 331-state, 17-rollout evaluation while the current counterfactual evaluation is running. Among the sampled flipping states, the ranking strategy has positive advantage in 55.3\% and zero CDR in 62.2\%. These local decision statistics are conditional on successful source rollouts; they do not estimate the overall task success rate.
 
 We further evaluate the sensitivity of the ranking strategy to the sliding-window parameters $T_1$, $T_2$, and $T_3$ using a one-at-a-time perturbation analysis. Each parameter is independently scaled by factors of $\{0.5,0.75,1.0,1.25,1.5\}$, while the others remain at their default values. We report the task success rate and execution time under identical experimental conditions. This analysis characterizes the influence of each parameter and the robustness of the ranking strategy to parameter variations. The results are shown in Fig.~.
 

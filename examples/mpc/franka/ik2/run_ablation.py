@@ -201,8 +201,13 @@ def main(argv=None):
         modes.add_argument('--'+mode, action='store_true')
     # Preserve the previous component experiments for existing callers.
     modes.add_argument('--variant', choices=tuple(VARIANTS), help='Legacy component experiment')
-    parser.add_argument('--task', choices=tuple(TASK_TARGET), default=None,
-                        help='Optional; otherwise use the same default target as test_mpc_isaac.py')
+    task = parser.add_mutually_exclusive_group()
+    task.add_argument('--task', choices=tuple(TASK_TARGET), default=None,
+                      help='Optional; otherwise use the same default target as test_mpc_isaac.py')
+    task.add_argument('--rotation', dest='task', action='store_const', const='rotation',
+                      help='Rotate from an upright start with the same up axis as the target.')
+    task.add_argument('--flipping', dest='task', action='store_const', const='flipping',
+                      help='Flip from a tilted start (the default task).')
     parser.add_argument('--sensitivity-axis', action='append', default=[], metavar='PARAM=v1,v2')
     parser.add_argument('--sensitivity-output', default='output/ablation_ranking_sensitivity')
     parser.add_argument('--dry-run', action='store_true', help='Print commands without importing simulators or solving')

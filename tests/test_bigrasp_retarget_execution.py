@@ -16,7 +16,7 @@ from models.comfree_gs_torch import GaussianCloud
 from planning.lambda_contact_warp import LambdaContactWarp
 
 
-@pytest.mark.parametrize("mode", ["--mpc", "--mppi"])
+@pytest.mark.parametrize("mode", ["--mppi"])
 def test_ca_fa_defaults_use_stable_physics_without_shortening_control_knots(mode):
     parser = build_argparser()
     args = resolve_control_timing(parser.parse_args([mode]))
@@ -29,6 +29,16 @@ def test_ca_fa_defaults_use_stable_physics_without_shortening_control_knots(mode
     assert explicit.adam_knot_substeps == 7
 
 
+def test_online_mpc_uses_short_horizon_without_changing_explicit_overrides():
+    parser = build_argparser()
+    online = resolve_control_timing(parser.parse_args(["--mpc"]))
+    assert online.planner_horizon == 8
+    assert online.planner_dt == .01
+    assert online.online_approach_speed == .25
+    assert resolve_control_timing(parser.parse_args(["--mppi"])).planner_horizon == 20
+    assert resolve_control_timing(parser.parse_args(["--mpc", "--planner-horizon", "20"])).planner_horizon == 20
+
+
 def test_fa_adam_cli_default_matches_dexforge_and_remains_overridable():
     from planning.dexforge_imports import ensure_dexforge
 
@@ -36,11 +46,130 @@ def test_fa_adam_cli_default_matches_dexforge_and_remains_overridable():
     from forceaware.config import load_config
 
     parser = build_argparser()
-    args = parser.parse_args(["--mpc"])
+    args = parser.parse_args(["--mppi"])
     assert args.adam_lr == pytest.approx(load_config()["optimizer"]["lr_max"])
     assert args.adam_lr == pytest.approx(0.0015)
-    custom = parser.parse_args(["--mpc", "--adam-lr", "0.004"])
+    custom = parser.parse_args(["--mppi", "--adam-lr", "0.004"])
     assert custom.adam_lr == pytest.approx(0.004)
+
+
+def test_online_contact_confirmation_rejects_wrong_patch_and_resets_on_pair_switch():
+    grasper = BimanualPandaGrasper.__new__(BimanualPandaGrasper)
+    points = np.array([[-.05, 0., 0.], [.05, 0., 0.]])
+    grasper.args = SimpleNamespace(min_normal_force=.1, online_contact_tolerance=.005,
+                                  online_contact_confirm_steps=2)
+    grasper._online_contact_stable_steps = 0
+    grasper._online_contact_ids = None
+    grasper.optimizer = SimpleNamespace(last_grasp_result={"contact_indices": np.array([1, 2])})
+    resets = []
+    grasper.planner = SimpleNamespace(reset=lambda: resets.append(True))
+    contacts = {"left": [dict(normal_force=1., local_pos=points[0])],
+                "right": [dict(normal_force=1., local_pos=points[1] + [0., .02, 0.])]}
+    grasper.extract_object_contacts = lambda: contacts
+    mask, established = grasper._online_selected_contacts(points)
+    np.testing.assert_array_equal(mask, [True, False])
+    assert not established
+    contacts["right"][0]["local_pos"] = points[1]
+    assert not grasper._online_selected_contacts(points)[1]
+    assert grasper._online_selected_contacts(points)[1]
+    grasper.optimizer.last_grasp_result["contact_indices"] = np.array([1, 3])
+    assert not grasper._online_selected_contacts(points)[1]
+    assert len(resets) == 2
+
+
+def test_physical_grasp_latch_survives_off_anchor_contacts_and_short_force_dips():
+    grasper = BimanualPandaGrasper.__new__(BimanualPandaGrasper)
+    points = np.array([[-.05, 0., 0.], [.05, 0., 0.]])
+    grasper.args = SimpleNamespace(min_normal_force=None, obj_mass=.01, online_contact_tolerance=.015,
+        online_contact_confirm_steps=3, online_grasp_release_steps=3)
+    contacts = {"left": [dict(normal_force=.19, local_pos=points[0])],
+                "right": [dict(normal_force=.19, local_pos=points[1] + [0., .0267, 0.])]}
+    grasper.extract_object_contacts = lambda: contacts
+    np.testing.assert_array_equal(grasper._online_measured_contact_mask(points), [True, False])
+    assert not grasper._online_grasp_observation()[2]
+    assert not grasper._online_grasp_observation()[2]
+    assert grasper._online_grasp_observation()[2]
+    contacts["right"][0]["normal_force"] = .02
+    assert grasper._online_grasp_observation()[2]  # below entry, above exit threshold
+    contacts["right"] = []
+    assert grasper._online_grasp_observation()[2]
+    assert grasper._online_grasp_observation()[2]
+    assert not grasper._online_grasp_observation()[2]
+
+
+def test_online_observation_keeps_body_angular_velocity_and_both_pad_velocities():
+    grasper, _ = _grasper()
+    grasper.planner_mode = "mpc_ee"
+    grasper.data.qvel[:6] = np.arange(6) * .1
+    grasper.get_planner_state_tips = lambda: np.r_[np.zeros(3), 1., np.zeros(9)]
+    jac = np.zeros((6, 7))
+    jac[:3, :3] = np.eye(3)
+    grasper.get_arm_jacobian = lambda arm: jac
+    grasper.get_current_joint_velocity = lambda arm: np.r_[[1., 2., 3.] if arm is grasper.left_arm else [-1., -2., -3.], np.zeros(4)]
+    state = grasper.get_planner_state()
+    assert state.shape == (25,)
+    np.testing.assert_array_equal(state[13:19], grasper.data.qvel[:6])
+    np.testing.assert_array_equal(state[19:25], [1., 2., 3., -1., -2., -3.])
+
+
+@pytest.mark.parametrize("mode", ["mpc_ee", "mppi_ee"])
+def test_online_contact_switching_is_frozen_by_default_and_joint_verify_is_explicit(mode):
+    parser = build_argparser()
+    assert parser.parse_args([]).freeze_contact_pair
+    assert parser.parse_args(["--mpc"]).freeze_contact_pair
+    assert not parser.parse_args(["--mpc", "--allow-contact-switch"]).freeze_contact_pair
+    grasper, rotation = _grasper()
+    grasper.planner_mode = mode
+    grasper.args = SimpleNamespace(planner_attract_offset=.012, freeze_contact_pair=True)
+    grasper.plan_params = SimpleNamespace(h_=.01)
+    grasper.planner = SimpleNamespace(knot_substeps=6)
+    grasper.contact_points_local = np.zeros((2, 3))
+    grasper.object_target_pos = np.array([0., 0., 1.1])
+    grasper.object_target_quat = np.array([1., 0., 0., 0.])
+    grasper.get_tip_pose = lambda arm: (np.zeros(3), np.eye(3))
+    grasper._online_measured_contact_mask = lambda points: np.array([False, False])
+    calls = []
+
+    def solve(target, current, **kwargs):
+        calls.append(kwargs)
+        return (np.zeros((2, 3)), np.tile([1., 0., 0.], (2, 1)), current, 0., {"source": "fixed_pair"})
+
+    grasper.optimizer = SimpleNamespace(update_contacts=solve, last_grasp_result={})
+    grasper._build_contact_targets_from_local_contacts = lambda *args, **kwargs: {}
+    pose = grasper.data.qpos[grasper.obj_qpos_adr:grasper.obj_qpos_adr + 7].copy()
+    grasper._update_warp_lambda_contacts(pose[:3], pose[3:], rotation)
+    assert calls[-1]["freeze_contact_pair"] and calls[-1]["joint_verify"]
+    assert not calls[-1].get("lock_contact_pair", False)
+    grasper.args.freeze_contact_pair = False
+    grasper._update_warp_lambda_contacts(pose[:3], pose[3:], rotation)
+    assert not calls[-1]["freeze_contact_pair"] and calls[-1]["joint_verify"]
+
+
+def test_online_wrist_alignment_does_not_accelerate_the_position_task():
+    from tests.test_dexforge_retarget import _fast_step, _contact_inputs
+
+    step = _fast_step()
+    grasper = BimanualPandaGrasper.__new__(BimanualPandaGrasper)
+    grasper.model, grasper.data = step.cpu_model, mujoco.MjData(step.cpu_model)
+    qpos, _, _, _ = _contact_inputs(step)
+    grasper.data.qpos[:] = qpos
+    mujoco.mj_forward(grasper.model, grasper.data)
+    ids = step._ids
+    joints = [mujoco.mj_name2id(grasper.model, mujoco.mjtObj.mjOBJ_JOINT, f"left_joint{i}") for i in range(1, 8)]
+    arm = SimpleNamespace(qpos_adr=ids["left_qpos"], dof_adr=grasper.model.jnt_dofadr[joints],
+        home_q=qpos[ids["left_qpos"]].copy(), nullspace_stiffness=10., torque_limits=np.full(7, 1e6))
+    site = mujoco.mj_name2id(grasper.model, mujoco.mjtObj.mjOBJ_SITE, "left_tip_center")
+    jp, jr = np.zeros((3, grasper.model.nv)), np.zeros((3, grasper.model.nv))
+    mujoco.mj_jacSite(grasper.model, grasper.data, jp, jr, site)
+    jac = np.vstack((jp[:, arm.dof_adr], jr[:, arm.dof_adr]))
+    grasper.get_arm_jacobian = lambda arm: jac
+    grasper.get_tip_pose = lambda arm: (grasper.data.site_xpos[site], grasper.data.site_xmat[site].reshape(3, 3))
+    grasper.args = SimpleNamespace(online_orientation_stiffness=15.)
+    torque = grasper._compute_arm_osc_torque(arm, np.zeros(3), np.zeros(3),
+                                            approach_direction=np.array([1., 0., 0.]))
+    mass = _full_mass(grasper.model, grasper.data)[np.ix_(arm.dof_adr, arm.dof_adr)]
+    assert np.linalg.norm(torque) > 1e-4
+    np.testing.assert_allclose(jac[:3] @ np.linalg.solve(mass, torque), 0., atol=1e-9)
 
 
 def _grasper():
@@ -87,6 +216,34 @@ def _full_mass(model, data):
     except TypeError:
         mujoco.mj_fullM(model, result, data.qM)
     return result
+
+
+def test_online_osc_receives_free_space_reference_and_disables_it_on_contact():
+    grasper, _ = _grasper()
+    grasper.left_arm.torque_limits = grasper.right_arm.torque_limits = np.full(7, 100.)
+    grasper.args = SimpleNamespace(online_force_limit=12., online_approach_speed=.25,
+        online_task_stiffness=600., online_task_damping=40., online_unilateral_force_limit=.05)
+    grasper.normals_local = np.array([[1., 0., 0.], [-1., 0., 0.]])
+    grasper._planner_tracking_steps = lambda: 20  # 20 ms with this fixture's 1 ms physics
+    grasper.get_arm_jacobian = lambda arm: np.zeros((6, 7))
+    grasper.get_current_joint_velocity = lambda arm: np.zeros(7)
+    grasper._compute_preferred_tip_approach = lambda normal: normal
+    calls = []
+    grasper._compute_arm_osc_torque = lambda arm, increment, velocity, **kwargs: (calls.append(kwargs) or np.zeros(7))
+    gap, rows = np.ones(24), np.zeros((24, 12))
+    gap[:4] = 0.  # left touching, right free
+    rows[:4, 0], rows[4:8, 0] = 1., -1.
+    grasper._online_mpc_contacts = lambda: (gap, rows)
+    grasper.step_online_mpc_action([.006, 0., 0., -.006, 0., 0.])
+    np.testing.assert_array_equal(calls[0]["v_ref"], np.zeros(3))
+    assert calls[0]["force_limit"] == .05
+    np.testing.assert_allclose(calls[1]["v_ref"], [-.25, 0., 0.])
+    grasper._online_grasp_active = True
+    calls.clear()
+    grasper.step_online_mpc_action([.006, 0., 0., -.006, 0., 0.])
+    for call in calls:
+        np.testing.assert_array_equal(call["v_ref"], np.zeros(3))
+        assert call["force_limit"] == 12.
 
 
 def test_offcenter_object_mass_and_gravity_wrench_match_freejoint_coordinates():

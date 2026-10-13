@@ -1,0 +1,12 @@
+direct_force solver=acados object=stanford_bunny2 seed=4 step=0 pos=0.085931 quat=0.944602 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=50 pos=0.113258 quat=0.838154 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=100 pos=0.109088 quat=0.790259 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=150 pos=0.038027 quat=0.213996 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=200 pos=0.026606 quat=0.304700 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=250 pos=0.056269 quat=0.925143 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=300 pos=0.031712 quat=0.008174 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=350 pos=0.024858 quat=0.000592 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=400 pos=0.020100 quat=0.000215 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=450 pos=0.017010 quat=0.000081 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=4 step=483 pos=0.015874 quat=0.000041 hold=10 success=True
+TRIAL_RESULT {"solver": "acados", "object": "stanford_bunny2", "seed": 4, "steps": 484, "success": true, "settled": true, "final_pos": 0.015873745156159986, "final_quat": 4.072171619295961e-05, "solver_backends": ["acados"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:42:18+08:00", "completed_at": "2026-10-13T21:42:40+08:00", "execution_time_s": 17.36951190198306, "elapsed_wall_time_s": 17.36951190198306, "simulation_time_s": 9.680000000000339, "planning_time_ms": {"n": 484, "mean": 31.602025191152414, "std": 11.014255465078623, "median": 34.93973446893506, "p95": 44.384402289870195, "min": 15.540510998107493, "max": 127.43114697514102}, "planning_rounds": 484}

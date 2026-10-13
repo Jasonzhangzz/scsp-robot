@@ -1,0 +1,14 @@
+{
+  "right_hand_q": {
+    "exact_equal": true,
+    "max_abs_diff": 0.0
+  },
+  "right_skeleton_position": {
+    "exact_equal": true,
+    "max_abs_diff": 0.0
+  },
+  "right_skeleton_orientation_xyzw": {
+    "exact_equal": true,
+    "max_abs_diff": 0.0
+  }
+}

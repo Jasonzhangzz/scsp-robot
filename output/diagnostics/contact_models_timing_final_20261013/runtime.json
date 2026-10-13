@@ -1,0 +1,13 @@
+{
+  "python": "3.11.15 (main, Jun 11 2026, 15:20:16) [GCC 14.3.0]",
+  "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.39",
+  "mujoco": "3.11.0",
+  "casadi": "3.7.2",
+  "numpy": "2.2.6",
+  "timing_clock": "time.perf_counter",
+  "run_threads": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "cohort": "one matched seed (0) per object, three models, 9 successful tasks"
+}

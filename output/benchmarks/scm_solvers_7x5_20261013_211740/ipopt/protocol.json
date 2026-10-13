@@ -1,0 +1,29 @@
+{
+  "solver": "ipopt",
+  "objects": [
+    "foam_brick",
+    "elephant",
+    "mug",
+    "rubber_duck",
+    "piggy_bank",
+    "stanford_bunny2",
+    "teapot"
+  ],
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    0
+  ],
+  "total_trials": 35,
+  "steps": 5000,
+  "jobs": 2,
+  "mass": 0.01,
+  "execution": "wrench",
+  "default_random_tilt": true,
+  "population_size": 24,
+  "population_iterations": 12,
+  "solver_seed": 0,
+  "cem_elite_fraction": 0.25
+}

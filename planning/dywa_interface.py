@@ -1,10 +1,11 @@
 """DyWA student policy as an algorithm for the Isaac Franka experiment.
 
 The policy owns its camera and low-level controller, so it runs inside DyWA's
-simulator. The object mesh, init/goal orientation, mass, friction, control
-period, and success metric come from the same parameter builder as
+simulator. The object mesh, init/goal orientation, mass, friction, and success
+metric come from the same parameter builder as
 ``examples/mpc/franka/ik2/test_mpc_isaac.py``. World positions are shifted onto
 DyWA's table while the relative translation and both quaternions are kept.
+Actions retain the pretrained policy's 100 ms hold time.
 """
 
 from __future__ import annotations
@@ -20,19 +21,61 @@ import numpy as np
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DYWA_ROOT = REPO_ROOT / "thirdparty" / "DyWA"
+DYWA_ROOT = Path(os.environ.get("DYWA_ROOT", REPO_ROOT / "thirdparty" / "DyWA")).expanduser().resolve()
 DYWA_SRC = DYWA_ROOT / "dywa" / "src"
 DYWA_TRAIN = DYWA_ROOT / "dywa" / "exp" / "train"
 DYWA_CFG = DYWA_SRC / "data" / "cfg"
 DEFAULT_CKPT_DIR = DYWA_ROOT / "ckpts"
-ACC_PYTHON = Path("/home/lab423/miniconda3/envs/acc/bin/python")
 
-# DyWA table is 0.4 m by 1.0 m with margin_scale 0.95. Keep both poses inside
-# the inner region so the object radius still fits after prevent_fall.
-_TABLE_HALF_EXTENTS = np.array([0.12, 0.35], dtype=np.float64)
-POLICY_INTERVAL = 0.02
+
+def resolve_acc_python():
+    """Prefer an explicit interpreter, then the active/local acc environment."""
+    configured = os.environ.get("DYWA_PYTHON")
+    if configured:
+        python = Path(configured).expanduser()
+        if not python.is_file():
+            raise FileNotFoundError(f"DYWA_PYTHON does not exist: {python}")
+        return python
+    if Path(sys.prefix).name == "acc":
+        return Path(sys.executable)
+    for root in ("miniconda3", "anaconda3", "mambaforge", "miniforge3"):
+        python = Path.home() / root / "envs" / "acc" / "bin" / "python"
+        if python.is_file():
+            return python
+    return Path(sys.executable)
+
+
+ACC_PYTHON = resolve_acc_python()
+
+
+def runtime_environment(python, environ=None):
+    """Set loader paths before starting Python/Isaac Gym, preserving user paths."""
+    env = dict(os.environ if environ is None else environ)
+    python = Path(python).resolve()
+    for key, directory in (("PATH", python.parent), ("LD_LIBRARY_PATH", python.parent.parent / "lib")):
+        parts = [part for part in env.get(key, "").split(os.pathsep) if part]
+        path = str(directory)
+        if path not in parts:
+            env[key] = os.pathsep.join([path, *parts])
+    env.setdefault("PYTORCH_JIT", "0")
+    return env
+
+
+def ensure_acc_runtime():
+    """Re-exec once if needed; changing LD_LIBRARY_PATH after startup is too late."""
+    env = runtime_environment(ACC_PYTHON)
+    if Path(sys.executable).resolve() != ACC_PYTHON.resolve() or any(
+        env.get(key) != os.environ.get(key) for key in ("PATH", "LD_LIBRARY_PATH")
+    ):
+        os.execve(str(ACC_PYTHON), [str(ACC_PYTHON), *sys.argv], env)
+
+# Pin the same table in both pose mapping and Hydra configuration.
+DYWA_TABLE_POS = (0.0, 0.0, 0.2)
+DYWA_TABLE_DIMS = (0.4, 0.5, 0.4)
+_TABLE_HALF_EXTENTS = np.array([0.12, 0.17], dtype=np.float64)
+POLICY_INTERVAL = 0.1
 SIM_DT = 0.002
-ACTION_PERIOD = 10
+ACTION_PERIOD = 50
 # test_mpc_isaac.SVG_SCREENSHOT_CAMERA_POSITION / TARGET, relative to a Franka
 # base at the origin. DyWA puts that base on the -X table edge.
 _MPC_CAMERA_FROM_BASE = np.array([0.7, 0.0, 0.63], dtype=np.float64)
@@ -56,19 +99,43 @@ def place_pair_on_table(init_xy, target_xy, half_extents=_TABLE_HALF_EXTENTS):
     return init_local * scale, target_local * scale
 
 
+def map_poses_to_table(init_qpos, target_p, source_table_height,
+                       table_pos=DYWA_TABLE_POS, table_dims=DYWA_TABLE_DIMS,
+                       object_radius=0.08):
+    """Preserve clearance and orientation when moving a pair between tables."""
+    initial = np.asarray(init_qpos, dtype=np.float64).reshape(7).copy()
+    target = np.asarray(target_p, dtype=np.float64).reshape(3).copy()
+    table_pos = np.asarray(table_pos, dtype=np.float64).reshape(3)
+    table_dims = np.asarray(table_dims, dtype=np.float64).reshape(3)
+    limits = 0.5 * table_dims[:2] - float(object_radius)
+    if np.any(limits <= 0):
+        raise ValueError("DyWA object radius does not fit on the table")
+    initial_xy, target_xy = place_pair_on_table(initial[:2], target[:2], limits)
+    # Shrinking a task silently changes the benchmark. Reject pairs that do
+    # not fit with the object's bounding radius instead.
+    if not np.allclose(target_xy - initial_xy, target[:2] - initial[:2], atol=1e-9, rtol=0):
+        raise ValueError("DyWA initial/goal translation does not fit on the table")
+    initial[:2] = initial_xy + table_pos[:2]
+    target[:2] = target_xy + table_pos[:2]
+    height_offset = table_pos[2] + 0.5 * table_dims[2] - float(source_table_height)
+    initial[2] += height_offset
+    target[2] += height_offset
+    return initial, target
+
+
 def viewer_camera_for_scene(table_pos, table_dims, keepout_radius, base_height):
     """Place the MPC viewer on DyWA's Franka base."""
     table_pos = np.asarray(table_pos, dtype=np.float64).reshape(3)
     table_dims = np.asarray(table_dims, dtype=np.float64).reshape(3)
     if base_height == "table":
-        base_z = float(table_dims[2])
+        base_z = float(table_pos[2] + 0.5 * table_dims[2])
     elif base_height == "ground":
         base_z = 0.0
     else:
         raise KeyError(f"Unknown base_height = {base_height}")
     base = np.array([
         float(table_pos[0] - 0.5 * table_dims[0] - float(keepout_radius)),
-        0.0,
+        float(table_pos[1]),
         base_z,
     ], dtype=np.float64)
     return base + _MPC_CAMERA_FROM_BASE, base + _MPC_CAMERA_TARGET_FROM_BASE
@@ -113,6 +180,63 @@ def _as_list(values):
     return [float(v) for v in np.asarray(values, dtype=np.float64).reshape(-1)]
 
 
+def validate_runtime_files(spec):
+    """Report all absent source/weights before importing GPU extensions."""
+    files = {
+        "DyWA environment source": DYWA_SRC / "env/env/base.py",
+        "DyWA student source": DYWA_TRAIN / "distill.py",
+        "DyWA evaluation source": DYWA_TRAIN / "test_rma.py",
+        "DyWA Hydra config": DYWA_CFG / "show.yaml",
+    }
+    for label, key in (("object mesh", "mesh_path"), ("student weights", "student_ckpt"),
+                       ("teacher weights", "teacher_ckpt"), ("environment statistics", "env_ckpt"),
+                       ("ICP encoder weights", "icp_ckpt")):
+        files[label] = Path(spec[key])
+    missing = [f"  {label}: {path}" for label, path in files.items() if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "DyWA runtime files are missing:\n" + "\n".join(missing)
+            + "\nRestore the DyWA source with the custom end-effector/pose hooks and weights."
+            + " Use DYWA_ROOT and --dywa-ckpt-dir for alternate locations."
+        )
+
+
+def validate_runtime_dependencies():
+    from importlib.util import find_spec
+
+    missing = [name for name in ("isaacgym", "torch", "tensorboard", "hydra",
+                                 "omegaconf", "pytorch3d", "einops") if find_spec(name) is None]
+    if missing:
+        raise RuntimeError(
+            f"DyWA dependencies are missing from {sys.executable}: " + ", ".join(missing)
+            + ". Install the original DyWA environment; the PyTorch3D shim requires"
+            + " the Python package (including transforms)."
+        )
+
+
+def _validate_required_config(cfg):
+    required = (
+        "env.single_object_scene.mesh.mass",
+        "env.single_object_scene.init_obj_qpos_",
+        "env.task.target_p_",
+        "env.task.target_q_",
+        "env.franka.use_custom_end_effector",
+    )
+    missing = []
+    for path in required:
+        value = cfg
+        for key in path.split("."):
+            if not hasattr(value, key):
+                missing.append(path)
+                break
+            value = getattr(value, key)
+    if missing:
+        raise RuntimeError(
+            "This DyWA source lacks the SCSP integration hooks: " + ", ".join(missing)
+            + ". Restore the custom DyWA version; unmodified upstream is not compatible."
+        )
+
+
 def build_experiment(args, trial_count):
     """Sample the same trial as the MPC Isaac entry and pack a DyWA spec."""
     os.environ.setdefault("SCSP_PLANNER_ONLY", "1")
@@ -137,9 +261,10 @@ def build_experiment(args, trial_count):
     init_qpos = np.asarray(param.init_obj_qpos_, dtype=np.float64).reshape(7)
     target_p = np.asarray(param.target_p_, dtype=np.float64).reshape(3)
     target_q = np.asarray(param.target_q_, dtype=np.float64).reshape(4)
-    init_xy, target_xy = place_pair_on_table(init_qpos[:2], target_p[:2])
-    mapped_init = np.concatenate([init_xy, [float(init_qpos[2])], init_qpos[3:7]])
-    mapped_target = np.concatenate([target_xy, [float(target_p[2])]])
+    mapped_init, mapped_target = map_poses_to_table(
+        init_qpos, target_p, param.table_height,
+        object_radius=param.object_circumradius,
+    )
     ckpt_dir = Path(getattr(args, "dywa_ckpt_dir", DEFAULT_CKPT_DIR)).expanduser()
     mesh_path = (REPO_ROOT / param.mesh_path_).resolve()
     if not mesh_path.is_file():
@@ -147,7 +272,7 @@ def build_experiment(args, trial_count):
     # The student outputs a Cartesian delta of at most 6 cm. Training holds
     # that delta for dt * action_period = 0.0125 * 8 = 0.1 s so the joint PD
     # can reach it. A 20 ms hold leaves the tool short of every command.
-    action_window_s = 0.1
+    action_window_s = POLICY_INTERVAL
     period = max(1, int(round(action_window_s / max(float(DYWA_SIM_DT), 1e-6))))
     return {
         "trial": int(trial_count),
@@ -159,6 +284,9 @@ def build_experiment(args, trial_count):
         "source_init_obj_qpos": _as_list(init_qpos),
         "source_target_p": _as_list(target_p),
         "source_target_q": _as_list(target_q),
+        "source_table_height": float(param.table_height),
+        "table_pos": _as_list(DYWA_TABLE_POS),
+        "table_dims": _as_list(DYWA_TABLE_DIMS),
         "mass": float(param.sim_obj_mass_),
         "table_friction": float(param.table_friction_),
         "object_friction": float(param.object_friction_),
@@ -224,10 +352,12 @@ def _hydra_overrides(spec):
         f"++env.vel_iter={int(spec['vel_iter'])}",
         f"++env.seed={int(spec['seed'])}",
         "++env.single_object_scene.base_set=[mesh]",
+        "++env.single_object_scene.table_pos=" + json.dumps(spec["table_pos"]),
+        "++env.single_object_scene.table_dims=" + json.dumps(spec["table_dims"]),
         f"++env.single_object_scene.mesh.filename={spec['mesh_path']}",
         f"++env.single_object_scene.mesh.mass={spec['mass']}",
         "++env.single_object_scene.mesh.num_poses=8",
-        "++env.single_object_scene.mesh.num_points=256",
+        "++env.single_object_scene.mesh.num_points=512",
         f"++env.single_object_scene.mesh.cache_dir={spec['output_dir']}/pose_cache",
         "++env.single_object_scene.filter_file=null",
         "++env.single_object_scene.filter_complex=false",
@@ -322,6 +452,68 @@ def _install_flash_attention_api():
     sys.modules["flash_attn.flash_attention"] = module
 
 
+def _alignment_types():
+    from collections import namedtuple
+
+    return (
+        namedtuple("SimilarityTransform", "R T s"),
+        namedtuple("ICPSolution", "converged rmse Xt RTs t_history"),
+    )
+
+
+def _iterative_closest_point(X, Y, init_transform=None, max_iterations=100,
+                             relative_rmse_thr=1e-6, estimate_scale=False,
+                             allow_reflection=False, verbose=False):
+    """Rigid ICP with PyTorch3D's row-vector transform convention, X @ R + T."""
+    import torch
+
+    if estimate_scale:
+        raise NotImplementedError("DyWA's rigid ICP shim does not estimate scale")
+    if int(max_iterations) <= 0:
+        raise ValueError("ICP max_iterations must be positive")
+    SimilarityTransform, ICPSolution = _alignment_types()
+    batch = X.shape[0]
+    rotation = torch.eye(3, device=X.device, dtype=X.dtype).expand(batch, 3, 3).clone()
+    translation = torch.zeros(batch, 3, device=X.device, dtype=X.dtype)
+    scale = torch.ones(batch, device=X.device, dtype=X.dtype)
+    if init_transform is not None:
+        rotation = init_transform.R.clone()
+        translation = init_transform.T.clone()
+        scale = init_transform.s.clone()
+    current = scale[:, None, None] * (X @ rotation) + translation[:, None, :]
+    previous = None
+    converged = False
+    history = []
+    for _ in range(int(max_iterations)):
+        neighbor = torch.cdist(current, Y).argmin(dim=-1)
+        matched = Y.gather(1, neighbor[..., None].expand(-1, -1, Y.shape[-1]))
+        source_mean = current.mean(dim=1)
+        target_mean = matched.mean(dim=1)
+        covariance = (current - source_mean[:, None]).transpose(1, 2) @ (matched - target_mean[:, None])
+        left, _, right = torch.linalg.svd(covariance)
+        right = right.clone()
+        if not allow_reflection:
+            reflection = torch.det(left @ right) < 0
+            right[reflection, -1] *= -1
+        delta = left @ right
+        shift = target_mean - (source_mean[:, None, :] @ delta).squeeze(1)
+        current = current @ delta + shift[:, None, :]
+        rotation = rotation @ delta
+        translation = (translation[:, None, :] @ delta).squeeze(1) + shift
+        rmse = (current - matched).square().sum(dim=-1).mean(dim=-1).sqrt()
+        history.append(SimilarityTransform(rotation.clone(), translation.clone(), scale.clone()))
+        if previous is not None:
+            improvement = (previous - rmse) / previous.clamp_min(1e-12)
+            converged = bool(torch.all((improvement >= 0) & (improvement <= relative_rmse_thr)).item())
+            converged = converged or bool(torch.all(rmse < 1e-12).item())
+            if converged:
+                break
+        previous = rmse.detach()
+    return ICPSolution(
+        converged, rmse, current, SimilarityTransform(rotation, translation, scale), history
+    )
+
+
 def _install_pytorch3d_ops():
     """Replace PyTorch3D CUDA ops that were built for a different libtorch.
 
@@ -335,8 +527,7 @@ def _install_pytorch3d_ops():
     import torch
 
     KNN = namedtuple("KNN", "dists idx knn")
-    SimilarityTransform = namedtuple("SimilarityTransform", "R T s")
-    ICPSolution = namedtuple("ICPSolution", "converged rmse Xt RTs t_history")
+    SimilarityTransform, ICPSolution = _alignment_types()
 
     def knn_gather(x, idx, lengths=None):
         del lengths
@@ -420,39 +611,7 @@ def _install_pytorch3d_ops():
         backward = knn_points(y, x, K=1).dists[..., 0].mean()
         return forward + backward, None
 
-    def iterative_closest_point(X, Y, init_transform=None, max_iterations=100,
-                                relative_rmse_thr=1e-6, estimate_scale=False,
-                                allow_reflection=False, verbose=False):
-        del init_transform, estimate_scale, allow_reflection, verbose
-        batch = X.shape[0]
-        rotation = torch.eye(3, device=X.device, dtype=X.dtype).expand(batch, 3, 3).clone()
-        translation = torch.zeros(batch, 3, device=X.device, dtype=X.dtype)
-        scale = torch.ones(batch, device=X.device, dtype=X.dtype)
-        current = X
-        previous = None
-        rmse = current.new_zeros(())
-        for _ in range(int(max_iterations)):
-            neighbor = torch.cdist(current, Y).argmin(dim=-1)
-            matched = Y.gather(1, neighbor[..., None].expand(-1, -1, Y.shape[-1]))
-            source_mean = current.mean(dim=1)
-            target_mean = matched.mean(dim=1)
-            covariance = (current - source_mean[:, None]).transpose(1, 2) @ (matched - target_mean[:, None])
-            left, _, right = torch.linalg.svd(covariance)
-            right = right.clone()
-            reflection = torch.det(right.transpose(-1, -2) @ left.transpose(-1, -2)) < 0
-            right[reflection, -1] *= -1
-            delta = right.transpose(-1, -2) @ left.transpose(-1, -2)
-            shift = target_mean - (source_mean[:, None, :] @ delta).squeeze(1)
-            current = current @ delta + shift[:, None, :]
-            rotation = rotation @ delta
-            translation = (translation[:, None, :] @ delta).squeeze(1) + shift
-            rmse = (current - matched).square().mean()
-            if previous is not None and abs(float(previous - rmse)) <= float(relative_rmse_thr) * (float(previous) + 1e-8):
-                break
-            previous = rmse.detach()
-        return ICPSolution(
-            True, rmse, current, SimilarityTransform(rotation, translation, scale), []
-        )
+    iterative_closest_point = _iterative_closest_point
 
     def look_at_view_transform(dist=1.0, elev=0.0, azim=0.0, degrees=True,
                                eye=None, at=((0, 0, 0),), up=((0, 1, 0),), device="cpu"):
@@ -557,6 +716,27 @@ def _object_and_goal(env):
     return pose, goal
 
 
+def validate_reset_state(pose_xyzw, goal_xyzw, spec):
+    """Check that the custom reset hooks actually applied the mapped WXYZ poses."""
+    def check(label, actual, position, quaternion, tolerance):
+        actual = np.asarray(actual, dtype=np.float64).reshape(7)
+        expected_q = np.asarray(quaternion, dtype=np.float64).reshape(4)[[1, 2, 3, 0]]
+        pos_error = float(np.linalg.norm(actual[:3] - position))
+        norm_product = np.linalg.norm(actual[3:]) * np.linalg.norm(expected_q)
+        alignment = abs(float(np.dot(actual[3:], expected_q))) / max(float(norm_product), 1e-12)
+        if not np.all(np.isfinite(actual)) or pos_error > tolerance or alignment < 0.995:
+            raise RuntimeError(
+                f"DyWA {label} was not applied correctly after reset: "
+                f"position error={pos_error:.6f} m, quaternion alignment={alignment:.6f}. "
+                "Check the custom pose hooks, WXYZ-to-XYZW conversion and table height."
+            )
+
+    initial = np.asarray(spec["init_obj_qpos"], dtype=np.float64)
+    # Allow the 2 mm initial clearance to settle, but catch the old 5 cm error.
+    check("initial pose", pose_xyzw, initial[:3], initial[3:], 0.01)
+    check("goal pose", goal_xyzw, np.asarray(spec["target_p"]), spec["target_q"], 1e-5)
+
+
 def _compose_config(spec):
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
@@ -570,7 +750,9 @@ def _compose_config(spec):
         cli_cfg = compose(config_name="show", overrides=_hydra_overrides(spec))
     from test_rma import Config
 
-    default_cfg = OmegaConf.structured(Config)
+    default_config = Config()
+    _validate_required_config(default_config)
+    default_cfg = OmegaConf.structured(default_config)
     cli_cfg = instantiate(cli_cfg, _convert_=ConvertMode.PARTIAL)
     cfg = OmegaConf.to_object(OmegaConf.structured(OmegaConf.merge(default_cfg, cli_cfg)))
     gpu = int(str(spec["device"]).split(":")[-1])
@@ -598,8 +780,27 @@ def _disable_student_update(student):
     student.eval()
 
 
+def _make_evaluation_env(wrapper_type, cfg, env, student):
+    """Reuse student stepping while avoiding DAgger's random mixed-reset rollout."""
+    class EvaluationEnv(wrapper_type):
+        def reset(self):
+            import torch
+
+            obs = self.env.reset()
+            self.student_module.reset(obs)
+            self.student_module.reset_state(
+                torch.zeros(self.num_env, dtype=torch.bool, device=self.device)
+            )
+            self.last_obs = obs
+            return obs
+
+    return EvaluationEnv(cfg, env, student)
+
+
 def run_spec(spec):
     """Load the student and roll the matched trial. Isaac Gym must already be imported."""
+    validate_runtime_files(spec)
+    validate_runtime_dependencies()
     import torch as th
     from torch.utils.tensorboard import SummaryWriter
 
@@ -620,16 +821,6 @@ def run_spec(spec):
     from utils import metrics
     from utils.ranking_metrics import discounted_terminal_reward
 
-    for label, key in (
-        ("mesh", "mesh_path"),
-        ("student", "student_ckpt"),
-        ("teacher", "teacher_ckpt"),
-        ("environment stats", "env_ckpt"),
-        ("ICP", "icp_ckpt"),
-    ):
-        if not Path(spec[key]).is_file():
-            raise FileNotFoundError(f"DyWA {label} file is missing: {spec[key]}")
-
     cfg = _compose_config(spec)
     if cfg.global_device is not None:
         th.cuda.set_device(cfg.global_device)
@@ -645,7 +836,7 @@ def run_spec(spec):
         writer=writer,
         device=env.device,
     ).to(env.device)
-    student.load(last_ckpt(spec["student_ckpt"]), strict=False)
+    student.load(last_ckpt(spec["student_ckpt"]), strict=True)
     _disable_student_update(student)
     env = setup_rma_env_v2(
         cfg,
@@ -656,8 +847,7 @@ def run_spec(spec):
         dagger=True,
     )
     env.load(Path(spec["env_ckpt"]), strict=True)
-    env = DAggerTrainerEnv(cfg.dagger_train_env, env, student)
-    env.reset()
+    env = _make_evaluation_env(DAggerTrainerEnv, cfg.dagger_train_env, env, student)
 
     success_pos = float(spec["success_pos"])
     success_quat = float(spec["success_quat"])
@@ -670,6 +860,9 @@ def run_spec(spec):
     choose_times = []
     base = env.unwrap(target=EnvBase)
     try:
+        env.reset()
+        initial_pose, actual_goal = _object_and_goal(base)
+        validate_reset_state(initial_pose, actual_goal, spec)
         for _step in range(max_steps):
             started = time.perf_counter()
             _obs, _rew, done, info = env.step()
@@ -736,6 +929,7 @@ def run_spec(spec):
 
 def execute_trial(spec):
     """Run one trial in a fresh acc interpreter so Isaac Gym loads before torch."""
+    validate_runtime_files(spec)
     python = ACC_PYTHON if ACC_PYTHON.is_file() else Path(sys.executable)
     output_dir = Path(spec["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -746,9 +940,7 @@ def execute_trial(spec):
     spec_path.write_text(json.dumps(payload), encoding="utf-8")
     if result_path.exists():
         result_path.unlink()
-    child_env = os.environ.copy()
-    child_env["PATH"] = str(python.parent) + os.pathsep + child_env.get("PATH", "")
-    child_env.setdefault("PYTORCH_JIT", "0")
+    child_env = runtime_environment(python)
     completed = subprocess.run(
         [str(python), str(Path(__file__).resolve()), "--spec", str(spec_path)],
         cwd=str(REPO_ROOT),
@@ -771,10 +963,13 @@ def main():
     parser = argparse.ArgumentParser(description="Run one DyWA spec inside Isaac Gym.")
     parser.add_argument("--spec", required=True)
     args = parser.parse_args()
+    spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+    validate_runtime_files(spec)
+    ensure_acc_runtime()
+    validate_runtime_dependencies()
     from isaacgym import gymapi, gymtorch  # noqa: F401
     import torch  # noqa: F401
 
-    spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
     run_spec(spec)
 
 

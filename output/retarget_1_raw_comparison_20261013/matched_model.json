@@ -1,0 +1,7 @@
+{
+  "sdk_version": "2026.8.31",
+  "left_urdf": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/left_hand.urdf",
+  "left_sha256": "70def7b0e4a007d4c6bbb4ae4e7cb5a80909a2ff9836a73b7b2a2406ebc622e3",
+  "right_urdf": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/right_hand.urdf",
+  "right_sha256": "c09676d29d209420111aa218962cc31b8b033bf7e1581ca4054411af9171b800"
+}

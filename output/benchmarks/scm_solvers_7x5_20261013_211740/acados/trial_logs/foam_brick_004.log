@@ -1,0 +1,18 @@
+direct_force solver=acados object=foam_brick seed=4 step=0 pos=0.082454 quat=0.926414 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=50 pos=0.088389 quat=0.927468 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=100 pos=0.089416 quat=0.927815 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=150 pos=0.089204 quat=0.927988 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=200 pos=0.083608 quat=0.944773 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=250 pos=0.050441 quat=0.977004 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=300 pos=0.020546 quat=0.313603 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=350 pos=0.031974 quat=0.034754 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=400 pos=0.031879 quat=0.027132 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=450 pos=0.027766 quat=0.029245 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=500 pos=0.024182 quat=0.012591 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=550 pos=0.024591 quat=0.010520 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=600 pos=0.024626 quat=0.010487 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=650 pos=0.024626 quat=0.010516 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=700 pos=0.021615 quat=0.000360 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=4 step=750 pos=0.015981 quat=0.000105 hold=9 success=False
+direct_force solver=acados object=foam_brick seed=4 step=751 pos=0.016156 quat=0.000120 hold=10 success=True
+TRIAL_RESULT {"solver": "acados", "object": "foam_brick", "seed": 4, "steps": 752, "success": true, "settled": true, "final_pos": 0.016155974922943954, "final_quat": 0.00011957497991399446, "solver_backends": ["acados"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:38:07+08:00", "completed_at": "2026-10-13T21:38:36+08:00", "execution_time_s": 23.979940178978723, "elapsed_wall_time_s": 23.979940178978723, "simulation_time_s": 15.04000000000689, "planning_time_ms": {"n": 752, "mean": 28.262982116544624, "std": 5.9483065698130195, "median": 26.542390522081405, "p95": 34.49497405672446, "min": 21.059224964119494, "max": 97.68358001019806}, "planning_rounds": 752}

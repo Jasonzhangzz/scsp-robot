@@ -1,0 +1,18 @@
+
+******************************************************************************
+This program contains Ipopt, a library for large-scale nonlinear optimization.
+ Ipopt is released as open source code under the Eclipse Public License (EPL).
+         For more information visit https://github.com/coin-or/Ipopt
+******************************************************************************
+
+direct_force solver=ipopt object=teapot seed=3 step=0 pos=0.039687 quat=0.993314 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=50 pos=0.054961 quat=0.997077 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=100 pos=0.051640 quat=0.942337 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=150 pos=0.042303 quat=0.367817 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=200 pos=0.047748 quat=0.318864 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=250 pos=0.032670 quat=0.513628 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=300 pos=0.039433 quat=0.627080 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=350 pos=0.034592 quat=0.544312 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=400 pos=0.048417 quat=0.356097 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=450 pos=0.038548 quat=0.504048 hold=0 success=False
+direct_force solver=ipopt object=teapot seed=3 step=500 pos=0.049569 quat=0.434389 hold=0 success=False

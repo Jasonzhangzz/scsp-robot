@@ -1,0 +1,17 @@
+list:
+- /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/input
+output: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/historical_published
+num_per_folder: null
+fps: 20
+move_from_start: true
+random_seed: null
+interpolation_max_velocity: 300.0
+interpolation_max_hand_velocity: 20.0
+interpolation_max_acceleration: 200.0
+interpolation_max_hand_acceleration: 50.0
+grasp_type: null
+arm: ex001_wuji
+model_config: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/matched_model.json
+anchor: mcp
+left_glove_urdf: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/left_hand.urdf
+right_glove_urdf: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/right_hand.urdf

@@ -1,0 +1,16 @@
+
+******************************************************************************
+This program contains Ipopt, a library for large-scale nonlinear optimization.
+ Ipopt is released as open source code under the Eclipse Public License (EPL).
+         For more information visit https://github.com/coin-or/Ipopt
+******************************************************************************
+
+direct_force solver=ipopt object=foam_brick seed=0 step=0 pos=0.056301 quat=0.493320 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=0 step=50 pos=0.026049 quat=0.004165 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=0 step=100 pos=0.021288 quat=0.001247 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=0 step=150 pos=0.021904 quat=0.000426 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=0 step=200 pos=0.019307 quat=0.000166 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=0 step=250 pos=0.016580 quat=0.000503 hold=0 success=False
+direct_force solver=ipopt object=foam_brick seed=0 step=284 pos=0.017044 quat=0.000137 hold=11 success=True
+surrogate summary: steps=285 final_pos=0.017044 final_quat=0.000137 success=True
+surrogate timing: execution_time_s=376.77148772601504 planning_time_mean_ms=1317.357 planning_time_p95_ms=3055.272 simulation_time_s=5.700

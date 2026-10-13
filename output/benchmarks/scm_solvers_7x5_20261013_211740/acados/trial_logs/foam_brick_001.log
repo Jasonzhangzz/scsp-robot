@@ -1,0 +1,14 @@
+direct_force solver=acados object=foam_brick seed=1 step=0 pos=0.112029 quat=0.616384 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=50 pos=0.056379 quat=0.231699 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=100 pos=0.040040 quat=0.065177 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=150 pos=0.029246 quat=0.087809 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=200 pos=0.026100 quat=0.135735 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=250 pos=0.027421 quat=0.135705 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=300 pos=0.027097 quat=0.135940 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=350 pos=0.026974 quat=0.136032 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=400 pos=0.018718 quat=0.000185 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=450 pos=0.017792 quat=0.000112 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=500 pos=0.016781 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=550 pos=0.016288 quat=0.000103 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=1 step=576 pos=0.016165 quat=0.000068 hold=10 success=True
+TRIAL_RESULT {"solver": "acados", "object": "foam_brick", "seed": 1, "steps": 577, "success": true, "settled": true, "final_pos": 0.01616481687330306, "final_quat": 6.752865155468246e-05, "solver_backends": ["acados"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:19:35+08:00", "completed_at": "2026-10-13T21:19:50+08:00", "execution_time_s": 10.622853771026712, "elapsed_wall_time_s": 10.622853771026712, "simulation_time_s": 11.540000000002612, "planning_time_ms": {"n": 577, "mean": 16.446283784617496, "std": 7.228737029191546, "median": 14.949581993278116, "p95": 20.441549422685053, "min": 12.210668995976448, "max": 151.38891397509724}, "planning_rounds": 577}

@@ -66,7 +66,8 @@ GROUPED_CONTACT_SWEEPS = 8
 GROUPED_CONTACT_VERSION = 3
 
 
-def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regularization):
+def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regularization,
+                                return_impulses=False):
     """Coupled unilateral normals and Coulomb disks, one per pyramid block."""
     import casadi as cs
     blocks = []
@@ -98,7 +99,7 @@ def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regular
             tangent *= cap/cs.sqrt(cap*cap + cs.sumsqr(tangent) + 1e-12)
             velocity = supported + mt@tangent
             impulses[i] = (normal, tangent)
-    return velocity
+    return (velocity, impulses) if return_impulses else velocity
 
 
 def grouped_contact_velocity_numpy(smooth, jacobian, phi, inverse, h, a, b, regularization):

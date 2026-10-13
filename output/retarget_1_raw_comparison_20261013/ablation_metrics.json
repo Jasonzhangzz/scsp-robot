@@ -1,0 +1,185 @@
+{
+  "current": {
+    "action_frames": 195,
+    "ramp_frames": 55,
+    "published_json": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/current_published/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17.json",
+    "raw_arrays": {
+      "arm_q": {
+        "exact_equal": false,
+        "max_abs_diff": 0.6747900247573853
+      },
+      "wuji_hand_q": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "right_wrist_position_base": {
+        "exact_equal": false,
+        "max_abs_diff": 0.018881797790527344
+      },
+      "right_wrist_quaternion_base_xyzw": {
+        "exact_equal": false,
+        "max_abs_diff": 0.1562785804271698
+      },
+      "world_to_base_transform": {
+        "exact_equal": false,
+        "max_abs_diff": 0.055542388308166796
+      },
+      "right_source_skeleton_positions_world": {
+        "exact_equal": false,
+        "max_abs_diff": 0.04095303482620938
+      },
+      "right_source_skeleton_quaternions_xyzw": {
+        "exact_equal": false,
+        "max_abs_diff": 1.30469747135484
+      }
+    },
+    "right_follow": {
+      "follow_right_position": {
+        "exact_equal": false,
+        "max_abs_diff": 0.03183146612657006
+      },
+      "follow_right_ee_rotation_6D": {
+        "exact_equal": false,
+        "max_abs_diff": 0.3246505463353644
+      },
+      "position_distance_mm": {
+        "mean": 35.80913962058455,
+        "max": 44.15855993011784
+      },
+      "rotation_difference_deg": {
+        "mean": 23.21250117495572,
+        "max": 23.681586868293614
+      }
+    },
+    "source_right_wrist_world_rotation_difference_deg": {
+      "mean": 25.2323023970238,
+      "max": 25.232302397023837
+    },
+    "source_right_wrist_world_position_difference_mm": {
+      "mean": 35.96271302350044,
+      "max": 35.96271302350051
+    }
+  },
+  "current_capture_wrist": {
+    "action_frames": 195,
+    "ramp_frames": 54,
+    "published_json": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/current_capture_wrist_published/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17.json",
+    "raw_arrays": {
+      "arm_q": {
+        "exact_equal": false,
+        "max_abs_diff": 0.0279310941696167
+      },
+      "wuji_hand_q": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "right_wrist_position_base": {
+        "exact_equal": false,
+        "max_abs_diff": 0.005946218967437744
+      },
+      "right_wrist_quaternion_base_xyzw": {
+        "exact_equal": false,
+        "max_abs_diff": 6.362050771713257e-05
+      },
+      "world_to_base_transform": {
+        "exact_equal": false,
+        "max_abs_diff": 0.012999676957132
+      },
+      "right_source_skeleton_positions_world": {
+        "exact_equal": false,
+        "max_abs_diff": 0.050563648676305556
+      },
+      "right_source_skeleton_quaternions_xyzw": {
+        "exact_equal": false,
+        "max_abs_diff": 1.2616505174398445
+      }
+    },
+    "right_follow": {
+      "follow_right_position": {
+        "exact_equal": false,
+        "max_abs_diff": 0.005946220344071551
+      },
+      "follow_right_ee_rotation_6D": {
+        "exact_equal": false,
+        "max_abs_diff": 0.00014038653609770024
+      },
+      "position_distance_mm": {
+        "mean": 4.162778162051024,
+        "max": 8.137704453389293
+      },
+      "rotation_difference_deg": {
+        "mean": 0.00814309895084018,
+        "max": 0.008149392728588037
+      }
+    },
+    "source_right_wrist_world_rotation_difference_deg": {
+      "mean": 4.276126183597347e-15,
+      "max": 2.7360165899564323e-14
+    },
+    "source_right_wrist_world_position_difference_mm": {
+      "mean": 0.0,
+      "max": 0.0
+    }
+  },
+  "current_legacy_bones": {
+    "action_frames": 195,
+    "ramp_frames": 54,
+    "published_json": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/current_legacy_bones_published/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17.json",
+    "raw_arrays": {
+      "arm_q": {
+        "exact_equal": false,
+        "max_abs_diff": 0.0011979825794696808
+      },
+      "wuji_hand_q": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "right_wrist_position_base": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "right_wrist_quaternion_base_xyzw": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "world_to_base_transform": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "right_source_skeleton_positions_world": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "right_source_skeleton_quaternions_xyzw": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      }
+    },
+    "right_follow": {
+      "follow_right_position": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "follow_right_ee_rotation_6D": {
+        "exact_equal": true,
+        "max_abs_diff": 0.0
+      },
+      "position_distance_mm": {
+        "mean": 0.0,
+        "max": 0.0
+      },
+      "rotation_difference_deg": {
+        "mean": 0.0,
+        "max": 0.0
+      }
+    },
+    "source_right_wrist_world_rotation_difference_deg": {
+      "mean": 0.0,
+      "max": 0.0
+    },
+    "source_right_wrist_world_position_difference_mm": {
+      "mean": 0.0,
+      "max": 0.0
+    }
+  }
+}

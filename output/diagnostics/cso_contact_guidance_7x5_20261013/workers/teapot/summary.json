@@ -1,0 +1,643 @@
+{
+  "timing_definitions": {
+    "execution_time_s": "Wall time from first planning round to successful settling, including planning and physics, excluding scene initialization; null for failures.",
+    "planning_time_ms": "Wall time of each complete contact-point and force planning round, excluding physical execution.",
+    "simulation_time_s": "Elapsed MuJoCo simulation time; separate from wall-clock execution_time_s."
+  },
+  "models": {
+    "lcp": {
+      "successes": 0,
+      "total_trials": 5,
+      "success_rate": 0.0,
+      "execution_time_s_success_only": {
+        "n": 0,
+        "mean": null,
+        "std": null,
+        "median": null,
+        "p95": null,
+        "min": null,
+        "max": null
+      },
+      "simulation_time_s_success_only": {
+        "n": 0,
+        "mean": null,
+        "std": null,
+        "median": null,
+        "p95": null,
+        "min": null,
+        "max": null
+      },
+      "planning_time_ms_all_rounds": {
+        "n": 18104,
+        "mean": 109.92814971969462,
+        "std": 30.142095887495117,
+        "median": 103.81603601854295,
+        "p95": 177.3845678835641,
+        "min": 6.191359017975628,
+        "max": 451.4861130155623
+      },
+      "planning_time_ms_trial_means": {
+        "n": 5,
+        "mean": 109.9170499763048,
+        "std": 5.345042600710954,
+        "median": 107.32763721771701,
+        "p95": 118.14790210029713,
+        "min": 105.82186144082807,
+        "max": 120.36974887532752
+      },
+      "failed_trials": 5
+    },
+    "qp": {
+      "successes": 0,
+      "total_trials": 5,
+      "success_rate": 0.0,
+      "execution_time_s_success_only": {
+        "n": 0,
+        "mean": null,
+        "std": null,
+        "median": null,
+        "p95": null,
+        "min": null,
+        "max": null
+      },
+      "simulation_time_s_success_only": {
+        "n": 0,
+        "mean": null,
+        "std": null,
+        "median": null,
+        "p95": null,
+        "min": null,
+        "max": null
+      },
+      "planning_time_ms_all_rounds": {
+        "n": 25000,
+        "mean": 109.39634096832714,
+        "std": 37.90131291108501,
+        "median": 103.66117701050825,
+        "p95": 173.21014673798345,
+        "min": 58.359326038043946,
+        "max": 651.6946280025877
+      },
+      "planning_time_ms_trial_means": {
+        "n": 5,
+        "mean": 109.39634096832712,
+        "std": 16.972103936441492,
+        "median": 115.52642427249812,
+        "p95": 130.53163976890033,
+        "min": 85.94888052571332,
+        "max": 134.1840756538906
+      },
+      "failed_trials": 5
+    },
+    "scm": {
+      "successes": 0,
+      "total_trials": 5,
+      "success_rate": 0.0,
+      "execution_time_s_success_only": {
+        "n": 0,
+        "mean": null,
+        "std": null,
+        "median": null,
+        "p95": null,
+        "min": null,
+        "max": null
+      },
+      "simulation_time_s_success_only": {
+        "n": 0,
+        "mean": null,
+        "std": null,
+        "median": null,
+        "p95": null,
+        "min": null,
+        "max": null
+      },
+      "planning_time_ms_all_rounds": {
+        "n": 25000,
+        "mean": 17.755560304401442,
+        "std": 4.4682679941860854,
+        "median": 16.758016019593924,
+        "p95": 22.384015694842674,
+        "min": 9.94391698623076,
+        "max": 186.2907669856213
+      },
+      "planning_time_ms_trial_means": {
+        "n": 5,
+        "mean": 17.75556030440144,
+        "std": 0.7211538741590806,
+        "median": 17.53929925552802,
+        "p95": 18.830222069830633,
+        "min": 16.98736074253684,
+        "max": 19.05308993734652
+      },
+      "failed_trials": 5
+    }
+  },
+  "by_object": {
+    "lcp": {
+      "teapot": {
+        "successes": 0,
+        "total_trials": 5,
+        "success_rate": 0.0,
+        "execution_time_s_success_only": {
+          "n": 0,
+          "mean": null,
+          "std": null,
+          "median": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "simulation_time_s_success_only": {
+          "n": 0,
+          "mean": null,
+          "std": null,
+          "median": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "planning_time_ms_all_rounds": {
+          "n": 18104,
+          "mean": 109.92814971969462,
+          "std": 30.142095887495117,
+          "median": 103.81603601854295,
+          "p95": 177.3845678835641,
+          "min": 6.191359017975628,
+          "max": 451.4861130155623
+        },
+        "planning_time_ms_trial_means": {
+          "n": 5,
+          "mean": 109.9170499763048,
+          "std": 5.345042600710954,
+          "median": 107.32763721771701,
+          "p95": 118.14790210029713,
+          "min": 105.82186144082807,
+          "max": 120.36974887532752
+        },
+        "failed_trials": 5
+      }
+    },
+    "qp": {
+      "teapot": {
+        "successes": 0,
+        "total_trials": 5,
+        "success_rate": 0.0,
+        "execution_time_s_success_only": {
+          "n": 0,
+          "mean": null,
+          "std": null,
+          "median": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "simulation_time_s_success_only": {
+          "n": 0,
+          "mean": null,
+          "std": null,
+          "median": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "planning_time_ms_all_rounds": {
+          "n": 25000,
+          "mean": 109.39634096832714,
+          "std": 37.90131291108501,
+          "median": 103.66117701050825,
+          "p95": 173.21014673798345,
+          "min": 58.359326038043946,
+          "max": 651.6946280025877
+        },
+        "planning_time_ms_trial_means": {
+          "n": 5,
+          "mean": 109.39634096832712,
+          "std": 16.972103936441492,
+          "median": 115.52642427249812,
+          "p95": 130.53163976890033,
+          "min": 85.94888052571332,
+          "max": 134.1840756538906
+        },
+        "failed_trials": 5
+      }
+    },
+    "scm": {
+      "teapot": {
+        "successes": 0,
+        "total_trials": 5,
+        "success_rate": 0.0,
+        "execution_time_s_success_only": {
+          "n": 0,
+          "mean": null,
+          "std": null,
+          "median": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "simulation_time_s_success_only": {
+          "n": 0,
+          "mean": null,
+          "std": null,
+          "median": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "planning_time_ms_all_rounds": {
+          "n": 25000,
+          "mean": 17.755560304401442,
+          "std": 4.4682679941860854,
+          "median": 16.758016019593924,
+          "p95": 22.384015694842674,
+          "min": 9.94391698623076,
+          "max": 186.2907669856213
+        },
+        "planning_time_ms_trial_means": {
+          "n": 5,
+          "mean": 17.75556030440144,
+          "std": 0.7211538741590806,
+          "median": 17.53929925552802,
+          "p95": 18.830222069830633,
+          "min": 16.98736074253684,
+          "max": 19.05308993734652
+        },
+        "failed_trials": 5
+      }
+    }
+  },
+  "trials": [
+    {
+      "model": "lcp",
+      "object": "teapot",
+      "seed": 0,
+      "steps": 1192,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.07213301054234263,
+      "final_quat": 0.2182079049197484,
+      "error": "RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 5.569e-06",
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 130.16246448201127,
+      "simulation_time_s": 23.819999999989836,
+      "planning_time_ms": {
+        "n": 1192,
+        "mean": 107.32763721771701,
+        "std": 22.049229236113053,
+        "median": 106.71302149421535,
+        "p95": 144.527968307375,
+        "min": 24.87568504875526,
+        "max": 235.20573397399858
+      },
+      "planning_rounds": 1192
+    },
+    {
+      "model": "lcp",
+      "object": "teapot",
+      "seed": 1,
+      "steps": 5000,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.02822678922280119,
+      "final_quat": 0.15021840668070685,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 539.1568781370297,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 105.82186144082807,
+        "std": 32.108690487356334,
+        "median": 98.13219902571291,
+        "p95": 178.88770691060927,
+        "min": 54.58611302310601,
+        "max": 320.5484750214964
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "lcp",
+      "object": "teapot",
+      "seed": 2,
+      "steps": 3948,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.08364469230283794,
+      "final_quat": 0.9081813072244289,
+      "error": "RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 1.370e-05",
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 483.9573584999889,
+      "simulation_time_s": 78.9400000001949,
+      "planning_time_ms": {
+        "n": 3948,
+        "mean": 120.36974887532752,
+        "std": 32.387608156720276,
+        "median": 107.18115500640124,
+        "p95": 191.01329808472653,
+        "min": 30.89068701956421,
+        "max": 392.4272439908236
+      },
+      "planning_rounds": 3948
+    },
+    {
+      "model": "lcp",
+      "object": "teapot",
+      "seed": 3,
+      "steps": 2964,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.03722495695786643,
+      "final_quat": 0.9663246355642476,
+      "error": "RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 2.547e-06",
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 330.26544503698824,
+      "simulation_time_s": 59.26000000010093,
+      "planning_time_ms": {
+        "n": 2964,
+        "mean": 109.26051500017563,
+        "std": 37.74748896408474,
+        "median": 98.30237252754159,
+        "p95": 181.06382855330594,
+        "min": 6.191359017975628,
+        "max": 451.4861130155623
+      },
+      "planning_rounds": 2964
+    },
+    {
+      "model": "lcp",
+      "object": "teapot",
+      "seed": 4,
+      "steps": 5000,
+      "success": false,
+      "settled": true,
+      "final_pos": 0.19084378861666978,
+      "final_quat": 0.5397171921891005,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 543.8017846719595,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 106.80548734747572,
+        "std": 18.849258476563687,
+        "median": 103.41759448056109,
+        "p95": 137.10408962506335,
+        "min": 51.7184020136483,
+        "max": 413.6807869654149
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "qp",
+      "object": "teapot",
+      "seed": 0,
+      "steps": 5000,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.10861031316520223,
+      "final_quat": 0.9239580981761881,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 682.4445731299929,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 134.1840756538906,
+        "std": 62.258976852343515,
+        "median": 108.07337853475474,
+        "p95": 266.3770899438532,
+        "min": 66.27775001106784,
+        "max": 651.6946280025877
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "qp",
+      "object": "teapot",
+      "seed": 1,
+      "steps": 5000,
+      "success": false,
+      "settled": true,
+      "final_pos": 0.06780585777358289,
+      "final_quat": 0.5899525347281078,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 486.38386496301973,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 95.40042816059432,
+        "std": 19.85292121658013,
+        "median": 94.13537799264304,
+        "p95": 128.17971006443258,
+        "min": 58.359326038043946,
+        "max": 262.83416798105463
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "qp",
+      "object": "teapot",
+      "seed": 2,
+      "steps": 5000,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.08960448268923456,
+      "final_quat": 0.4735352603571139,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 588.2153880230035,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 115.52642427249812,
+        "std": 26.088043748460567,
+        "median": 108.226527023362,
+        "p95": 166.2228572560707,
+        "min": 71.14503101911396,
+        "max": 386.13664399599656
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "qp",
+      "object": "teapot",
+      "seed": 3,
+      "steps": 5000,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.08937468038103369,
+      "final_quat": 0.8239155702162111,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 589.7035422109766,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 115.92189622893929,
+        "std": 23.50418769515436,
+        "median": 108.18147350801155,
+        "p95": 174.71795041346925,
+        "min": 68.33604199346155,
+        "max": 416.9734200113453
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "qp",
+      "object": "teapot",
+      "seed": 4,
+      "steps": 5000,
+      "success": false,
+      "settled": true,
+      "final_pos": 0.10127461408136923,
+      "final_quat": 0.21490927627586898,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 439.24241677095415,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 85.94888052571332,
+        "std": 15.45750615105837,
+        "median": 82.66920250025578,
+        "p95": 112.31807870790364,
+        "min": 65.1920239906758,
+        "max": 327.9238360119052
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "scm",
+      "object": "teapot",
+      "seed": 0,
+      "steps": 5000,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.060573450965562055,
+      "final_quat": 0.4009951795566925,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 94.783093621023,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 16.98736074253684,
+        "std": 4.078601402361764,
+        "median": 15.985876496415585,
+        "p95": 20.965458278078586,
+        "min": 10.111554991453886,
+        "max": 82.0069020264782
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "scm",
+      "object": "teapot",
+      "seed": 1,
+      "steps": 5000,
+      "success": false,
+      "settled": true,
+      "final_pos": 0.04723976878759696,
+      "final_quat": 0.6818842670928974,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 97.48309488897212,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 17.53929925552802,
+        "std": 3.85596018385743,
+        "median": 16.586059500696138,
+        "p95": 20.97646616748534,
+        "min": 13.409601000603288,
+        "max": 106.3719560042955
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "scm",
+      "object": "teapot",
+      "seed": 2,
+      "steps": 5000,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.03333819976301459,
+      "final_quat": 0.867498197522462,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 96.32778157602297,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 17.259300986828748,
+        "std": 4.154588057283277,
+        "median": 16.397254017647356,
+        "p95": 21.321298051043414,
+        "min": 9.94391698623076,
+        "max": 98.52383902762085
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "scm",
+      "object": "teapot",
+      "seed": 3,
+      "steps": 5000,
+      "success": false,
+      "settled": false,
+      "final_pos": 0.03872359896869885,
+      "final_quat": 0.5775551092022838,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 105.86792168300599,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 19.05308993734652,
+        "std": 5.382868988621303,
+        "median": 17.89410348283127,
+        "p95": 23.837983241537586,
+        "min": 11.474683007691056,
+        "max": 186.2907669856213
+      },
+      "planning_rounds": 5000
+    },
+    {
+      "model": "scm",
+      "object": "teapot",
+      "seed": 4,
+      "steps": 5000,
+      "success": false,
+      "settled": true,
+      "final_pos": 0.03257404712023984,
+      "final_quat": 0.40791357924671845,
+      "error": null,
+      "execution_time_s": null,
+      "elapsed_wall_time_s": 99.62018011399778,
+      "simulation_time_s": 100.00000000029546,
+      "planning_time_ms": {
+        "n": 5000,
+        "mean": 17.938750599767083,
+        "std": 4.414462705136667,
+        "median": 16.932152007939294,
+        "p95": 21.42794423562009,
+        "min": 9.952676016837358,
+        "max": 142.64809200540185
+      },
+      "planning_rounds": 5000
+    }
+  ],
+  "matched_initial_states": true,
+  "notes": [
+    "Execution time is success-only wall time, including planning and physics; failed/capped trials are not successful completion times.",
+    "Planning time includes all candidate solves, prediction and selection per round. Aggregate planning samples include failed trials.",
+    "SCM retains the reference Isaac quasi-dynamic model and ACADOS force optimizer.",
+    "QP is native MuJoCo Newton with pyramidal friction, evaluated in a separate model/data at measured state.",
+    "LCP is the coupled physical-mass, regularized nonnegative friction-ray LCP, solved with scaled QuantEcon Lemke and certified on the unscaled problem.",
+    "QP/LCP use finite-difference local pose linearization and SLSQP force solves, then rank exact model predictions. Timing compares model+solver implementations, not model equations alone.",
+    "QP/LCP physical predictors average the 0.5ms pulse impulse over one 20ms Euler policy step. All executions use 40 physical substeps.",
+    "Identical seeds, point samples, force bounds, objective stages, ideal-point executor, pulse duration and success/settling thresholds are used.",
+    "Every attempted trial is included in the success denominator; solver exceptions have null completion time."
+  ]
+}

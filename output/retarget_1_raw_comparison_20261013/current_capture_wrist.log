@@ -1,0 +1,39 @@
+[batch_replay] YAML arm=ex001_wuji hand_sdk=WujiHand retarget_weight=normal
+[batch_replay] YAML folder 1/1: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/input
+2026-10-13 21:06:51,492 INFO Discovered 1 episodes; GPU slots={'cuda:2': 1}; arm=ex001_wuji; hand_sdk=WujiHand; wuji_sdk_model_config=glove URDF; forwarded args=--left_glove_urdf /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/left_hand.urdf --right_glove_urdf /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq/right_hand.urdf --glove_emf_rx_corrections /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/hand_models/cqq_v2/emf_rx_corrections.json --anchor mcp --retarget_weight normal
+2026-10-13 21:06:51,493 INFO Standard output topic: /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/current_capture_wrist_published
+2026-10-13 21:06:51,493 INFO cuda:2: free memory=60.82 GiB, concurrent workers=1
+2026-10-13 21:06:51,493 INFO In-process trajectory runtime: lazy Torch import, workers=1, CPU threads=8
+2026-10-13 21:06:54,276 INFO Persistent RIFE workers enabled for cuda:2
+Warp 1.16.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.0
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA A800-SXM4-80GB" (79 GiB, sm_80, mempool enabled)
+     "cuda:1"   : "NVIDIA A800-SXM4-80GB" (79 GiB, sm_80, mempool enabled)
+     "cuda:2"   : "NVIDIA A800-SXM4-80GB" (79 GiB, sm_80, mempool enabled)
+     "cuda:3"   : "NVIDIA A800-SXM4-80GB" (79 GiB, sm_80, mempool enabled)
+   CUDA peer access:
+     Supported fully (all-directional)
+   Kernel cache:
+     /workspace/jasonzhang/.cache/warp/1.16.0
+batch replay:   0%|          | 0/1 [00:00<?, ?episode/s]2026-10-13 21:06:54,281 INFO Starting 20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17 on cuda:2
+Module calibrated.composite_fk_warp 3c99435 load on device 'cuda:0' took 1.53 ms  (cached)
+[batch_replay] left source vs follow-FK MCP error in base_link: rmse=4.39 mm mean=3.91 mm p95=6.82 mm max=6.82 mm (195 frames × 4 MCP)
+[batch_replay] right source vs follow-FK MCP error in base_link: rmse=4.39 mm mean=3.91 mm p95=6.82 mm max=6.82 mm (195 frames × 4 MCP)
+[batch_replay][timing] write_episode_parts load_source_json=0.507s archive_extract=0.053s eef=0.007s build_control_frames=0.001s source_transform=0.086s dump+json_io=0.035s sidecars=0.108s mcp_report=0.081s
+[batch_replay][timing] commit=0.020s
+2026-10-13 21:08:19,065 INFO [1/1] completed 20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17 on cuda:2 in 84.8s; IK=195/195 -> /mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/current_capture_wrist_published/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17/20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17.json
+2026-10-13 21:08:19,078 INFO RUNTIME completed=1, IK_success_rate=195/195 (100.00%), trajectory_solve_avg=6.6s, trajectory_solve_total=6.6s, episode_end_to_end_avg=84.8s, episode_end_to_end_total=84.8s, batch_wall_total=87.6s
+batch replay: 100%|██████████| 1/1 [01:24<00:00, 84.80s/episode, completed=20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17]batch replay: 100%|██████████| 1/1 [01:24<00:00, 84.80s/episode, completed=20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17]
+2026-10-13 21:08:19,112 INFO Finished: 1 succeeded/skipped, 0 failed; summary=/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/current_capture_wrist_published/batch_replay_summary.json; log=/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_raw_comparison_20261013/current_capture_wrist_published/batch_replay.log
+2026-10-13 21:08:19,112 INFO RUNTIME completed=1, IK_success_rate=195/195 (100.00%), trajectory_solve_avg=6.6s, trajectory_solve_total=6.6s, episode_end_to_end_avg=84.8s, episode_end_to_end_total=84.8s, batch_wall_total=87.6s
+
+IK success summary
++---------------------------------------------------------------------------+-----------+--------+------------+-----------+---------+---------+
+| episode                                                                   | status    | device | IK success | IK failed | rate    | seconds |
++---------------------------------------------------------------------------+-----------+--------+------------+-----------+---------+---------+
+| 20260918180420-pick_doll_CQQ_rpAAAA@MASTER_SLAVE_MODE@2026_09_18_18_09_17 | completed | cuda:2 | 195/195    | 0         | 100.00% | 84.8    |
++---------------------------------------------------------------------------+-----------+--------+------------+-----------+---------+---------+
+TOTAL episodes=1, processing_errors=0, IK=195/195 (100.00%)
+RUNTIME completed=1, IK_success_rate=195/195 (100.00%), trajectory_solve_avg=6.6s, trajectory_solve_total=6.6s, episode_end_to_end_avg=84.8s, episode_end_to_end_total=84.8s, batch_wall_total=n/a

@@ -1,0 +1,5 @@
+{
+  "status": "interrupted_during_lcp_foam_brick_seed1",
+  "reason": "Retain this exploration separately; use the fully matched seed0 cohort to verify the benchmark pipeline.",
+  "incomplete_trial_not_in_success_denominator": true
+}

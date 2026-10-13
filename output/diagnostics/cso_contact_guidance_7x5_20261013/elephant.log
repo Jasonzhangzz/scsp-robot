@@ -1,0 +1,446 @@
+Command: ["taskset", "-c", "6", "/home/zz/miniconda3/envs/pi0/bin/python", "/home/zz/scsp-robot/examples/mpc/fingertips/test/benchmark_contact_models.py", "--objects", "elephant", "--models", "scm,qp,lcp", "--trials", "5", "--steps", "5000", "--output-dir", "/home/zz/scsp-robot/output/diagnostics/cso_contact_guidance_7x5_20261013/workers/elephant", "--resume"]
+benchmark model=scm object=elephant seed=0
+direct_force solver=acados object=elephant seed=0 step=0 pos=0.061128 quat=0.557235 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=50 pos=0.024055 quat=0.004208 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=100 pos=0.020594 quat=0.000127 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=150 pos=0.016706 quat=0.000027 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=171 pos=0.015941 quat=0.000024 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| scm | 1/1 | 3.473 ± 0.000 (n=1) | 17.970 ± 4.435 (n=172) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=elephant seed=0
+direct_force solver=acados object=elephant seed=0 step=0 pos=0.059393 quat=0.563499 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=50 pos=0.041086 quat=0.470913 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=90 pos=0.007403 quat=0.001501 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| qp | 1/1 | 11.028 ± 0.000 (n=1) | 119.066 ± 15.836 (n=91) |
+| scm | 1/1 | 3.473 ± 0.000 (n=1) | 17.970 ± 4.435 (n=172) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=elephant seed=0
+direct_force solver=acados object=elephant seed=0 step=0 pos=0.059393 quat=0.563499 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=50 pos=0.040115 quat=0.375282 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=100 pos=0.023069 quat=0.000167 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=150 pos=0.022759 quat=0.000056 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=200 pos=0.020378 quat=0.000127 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=250 pos=0.019001 quat=0.000095 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=300 pos=0.018323 quat=0.000043 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=350 pos=0.017766 quat=0.000085 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=400 pos=0.017669 quat=0.000036 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=450 pos=0.017457 quat=0.000038 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=500 pos=0.017329 quat=0.000033 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=550 pos=0.016958 quat=0.000356 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=600 pos=0.017002 quat=0.000066 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=650 pos=0.016898 quat=0.000053 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=700 pos=0.016714 quat=0.000118 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=750 pos=0.016390 quat=0.000019 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=800 pos=0.016151 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=838 pos=0.016005 quat=0.000030 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 94.801 ± 0.000 (n=1) | 110.847 ± 18.009 (n=839) |
+| qp | 1/1 | 11.028 ± 0.000 (n=1) | 119.066 ± 15.836 (n=91) |
+| scm | 1/1 | 3.473 ± 0.000 (n=1) | 17.970 ± 4.435 (n=172) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=elephant seed=1
+direct_force solver=acados object=elephant seed=1 step=0 pos=0.115356 quat=0.634077 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=50 pos=0.066300 quat=0.298921 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=100 pos=0.052182 quat=0.010303 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=150 pos=0.037089 quat=0.000362 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=200 pos=0.033142 quat=0.000251 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=250 pos=0.029943 quat=0.000265 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=300 pos=0.027288 quat=0.000214 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=350 pos=0.025058 quat=0.000194 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=400 pos=0.022979 quat=0.000270 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=450 pos=0.021097 quat=0.000277 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=500 pos=0.019495 quat=0.000244 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=550 pos=0.018135 quat=0.000227 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=600 pos=0.017048 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=650 pos=0.016216 quat=0.000134 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=676 pos=0.015970 quat=0.000125 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 94.801 ± 0.000 (n=1) | 110.847 ± 18.009 (n=839) |
+| qp | 1/1 | 11.028 ± 0.000 (n=1) | 119.066 ± 15.836 (n=91) |
+| scm | 2/2 | 8.458 ± 4.985 (n=2) | 17.821 ± 3.752 (n=849) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=elephant seed=1
+direct_force solver=acados object=elephant seed=1 step=0 pos=0.114811 quat=0.646642 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=50 pos=0.074507 quat=0.141443 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=100 pos=0.066307 quat=0.001719 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=150 pos=0.064393 quat=0.001594 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=200 pos=0.062469 quat=0.001452 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=250 pos=0.060538 quat=0.001313 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=300 pos=0.058603 quat=0.001180 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=350 pos=0.056665 quat=0.001054 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=400 pos=0.054710 quat=0.000937 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=450 pos=0.052752 quat=0.000825 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=500 pos=0.049686 quat=0.000815 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=550 pos=0.047732 quat=0.000870 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=600 pos=0.045813 quat=0.000795 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=650 pos=0.043902 quat=0.000711 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=700 pos=0.041995 quat=0.000639 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=750 pos=0.040056 quat=0.000576 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=800 pos=0.038197 quat=0.000513 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=850 pos=0.036360 quat=0.000461 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=900 pos=0.034547 quat=0.000411 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=950 pos=0.032679 quat=0.000367 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1000 pos=0.030919 quat=0.000330 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1050 pos=0.028915 quat=0.000136 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1100 pos=0.026752 quat=0.000109 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1150 pos=0.025027 quat=0.000141 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1200 pos=0.023824 quat=0.000111 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1250 pos=0.022650 quat=0.000120 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1300 pos=0.021770 quat=0.000085 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1350 pos=0.020971 quat=0.000053 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1400 pos=0.020262 quat=0.000057 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1450 pos=0.019564 quat=0.000079 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1500 pos=0.019038 quat=0.000080 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1550 pos=0.018578 quat=0.000036 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1600 pos=0.018018 quat=0.000035 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1650 pos=0.017543 quat=0.000049 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1700 pos=0.017092 quat=0.000042 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1750 pos=0.016709 quat=0.000036 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1800 pos=0.016235 quat=0.000039 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=1831 pos=0.016091 quat=0.000034 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 94.801 ± 0.000 (n=1) | 110.847 ± 18.009 (n=839) |
+| qp | 2/2 | 116.459 ± 105.431 (n=2) | 119.024 ± 20.356 (n=1923) |
+| scm | 2/2 | 8.458 ± 4.985 (n=2) | 17.821 ± 3.752 (n=849) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=elephant seed=1
+direct_force solver=acados object=elephant seed=1 step=0 pos=0.114812 quat=0.646642 hold=0 success=False
+direct_force solver=acados object=elephant seed=1 step=50 pos=0.082503 quat=0.078221 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 4.564e-06
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 94.801 ± 0.000 (n=1) | 111.168 ± 18.115 (n=896) |
+| qp | 2/2 | 116.459 ± 105.431 (n=2) | 119.024 ± 20.356 (n=1923) |
+| scm | 2/2 | 8.458 ± 4.985 (n=2) | 17.821 ± 3.752 (n=849) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=elephant seed=2
+direct_force solver=acados object=elephant seed=2 step=0 pos=0.138927 quat=0.680709 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=50 pos=0.087020 quat=0.779392 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=100 pos=0.107451 quat=0.189295 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=150 pos=0.054937 quat=0.001650 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=200 pos=0.041744 quat=0.000209 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=250 pos=0.032764 quat=0.000115 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=300 pos=0.025998 quat=0.000073 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=350 pos=0.021312 quat=0.000079 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=400 pos=0.018133 quat=0.000077 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=450 pos=0.016038 quat=0.000114 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=462 pos=0.015922 quat=0.000111 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 94.801 ± 0.000 (n=1) | 111.168 ± 18.115 (n=896) |
+| qp | 2/2 | 116.459 ± 105.431 (n=2) | 119.024 ± 20.356 (n=1923) |
+| scm | 3/3 | 9.005 ± 4.143 (n=3) | 18.448 ± 4.545 (n=1312) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=elephant seed=2
+direct_force solver=acados object=elephant seed=2 step=0 pos=0.139107 quat=0.681614 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=50 pos=0.096755 quat=0.281669 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=100 pos=0.034137 quat=0.000008 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=150 pos=0.031656 quat=0.000281 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=200 pos=0.028770 quat=0.000336 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=250 pos=0.027155 quat=0.000263 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=300 pos=0.025322 quat=0.000210 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=350 pos=0.024149 quat=0.000199 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=400 pos=0.022728 quat=0.000063 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=450 pos=0.021470 quat=0.000097 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=500 pos=0.020247 quat=0.000051 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=550 pos=0.019006 quat=0.000035 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=600 pos=0.018053 quat=0.000039 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=650 pos=0.017402 quat=0.000019 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=700 pos=0.016755 quat=0.000016 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=750 pos=0.016342 quat=0.000046 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=794 pos=0.016119 quat=0.000028 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/2 | 94.801 ± 0.000 (n=1) | 111.168 ± 18.115 (n=896) |
+| qp | 3/3 | 111.950 ± 86.320 (n=3) | 121.435 ± 23.874 (n=2718) |
+| scm | 3/3 | 9.005 ± 4.143 (n=3) | 18.448 ± 4.545 (n=1312) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=elephant seed=2
+direct_force solver=acados object=elephant seed=2 step=0 pos=0.139106 quat=0.681597 hold=0 success=False
+direct_force solver=acados object=elephant seed=2 step=50 pos=0.091887 quat=0.800824 hold=0 success=False
+RolloutPlanningFailure: FloatingPointError: LCP failed unscaled certificate: 2.694e-05
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/3 | 94.801 ± 0.000 (n=1) | 111.084 ± 17.968 (n=959) |
+| qp | 3/3 | 111.950 ± 86.320 (n=3) | 121.435 ± 23.874 (n=2718) |
+| scm | 3/3 | 9.005 ± 4.143 (n=3) | 18.448 ± 4.545 (n=1312) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=elephant seed=3
+direct_force solver=acados object=elephant seed=3 step=0 pos=0.042155 quat=0.992184 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=50 pos=0.061097 quat=0.582122 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=100 pos=0.027872 quat=0.010938 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=150 pos=0.019000 quat=0.000115 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=200 pos=0.015939 quat=0.000065 hold=3 success=False
+direct_force solver=acados object=elephant seed=3 step=207 pos=0.015946 quat=0.000066 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/3 | 94.801 ± 0.000 (n=1) | 111.084 ± 17.968 (n=959) |
+| qp | 3/3 | 111.950 ± 86.320 (n=3) | 121.435 ± 23.874 (n=2718) |
+| scm | 4/4 | 7.796 ± 4.155 (n=4) | 18.378 ± 4.551 (n=1520) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=elephant seed=3
+direct_force solver=acados object=elephant seed=3 step=0 pos=0.043041 quat=0.991256 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=50 pos=0.078152 quat=0.973221 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=100 pos=0.016997 quat=0.000035 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=150 pos=0.016364 quat=0.000182 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=200 pos=0.016156 quat=0.000163 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=250 pos=0.016264 quat=0.000190 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=300 pos=0.016023 quat=0.000167 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=326 pos=0.015993 quat=0.000122 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/3 | 94.801 ± 0.000 (n=1) | 111.084 ± 17.968 (n=959) |
+| qp | 4/4 | 96.416 ± 79.450 (n=4) | 124.449 ± 30.224 (n=3045) |
+| scm | 4/4 | 7.796 ± 4.155 (n=4) | 18.378 ± 4.551 (n=1520) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=elephant seed=3
+direct_force solver=acados object=elephant seed=3 step=0 pos=0.043041 quat=0.991256 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=50 pos=0.072862 quat=0.870365 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=100 pos=0.016874 quat=0.000031 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=150 pos=0.016939 quat=0.000034 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=200 pos=0.017043 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=250 pos=0.017136 quat=0.000030 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=300 pos=0.017086 quat=0.000021 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=350 pos=0.017164 quat=0.000025 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=400 pos=0.017257 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=450 pos=0.017397 quat=0.000052 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=500 pos=0.017512 quat=0.000055 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=550 pos=0.017524 quat=0.000051 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=600 pos=0.017628 quat=0.000039 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=650 pos=0.017746 quat=0.000023 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=700 pos=0.018067 quat=0.000041 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=750 pos=0.018172 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=800 pos=0.018327 quat=0.000046 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=850 pos=0.018642 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=900 pos=0.018904 quat=0.000054 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=950 pos=0.018980 quat=0.000076 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1000 pos=0.019171 quat=0.000065 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1050 pos=0.019166 quat=0.000021 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1100 pos=0.019413 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1150 pos=0.019477 quat=0.000024 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1200 pos=0.019571 quat=0.000020 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1250 pos=0.019802 quat=0.000036 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1300 pos=0.019964 quat=0.000048 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1350 pos=0.020174 quat=0.000030 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1400 pos=0.020092 quat=0.000041 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1450 pos=0.020044 quat=0.000031 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1500 pos=0.020007 quat=0.000063 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1550 pos=0.020163 quat=0.000024 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1600 pos=0.020575 quat=0.000035 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1650 pos=0.020823 quat=0.000028 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1700 pos=0.021130 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1750 pos=0.021446 quat=0.000034 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1800 pos=0.021739 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1850 pos=0.022051 quat=0.000050 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1900 pos=0.021983 quat=0.000045 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=1950 pos=0.022355 quat=0.000021 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2000 pos=0.022732 quat=0.000039 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2050 pos=0.022593 quat=0.000010 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2100 pos=0.023011 quat=0.000055 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2150 pos=0.023255 quat=0.000044 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2200 pos=0.023270 quat=0.000063 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2250 pos=0.023382 quat=0.000059 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2300 pos=0.023346 quat=0.000033 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2350 pos=0.023189 quat=0.000025 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2400 pos=0.023200 quat=0.000039 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2450 pos=0.023128 quat=0.000039 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2500 pos=0.023183 quat=0.000072 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2550 pos=0.023609 quat=0.000045 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2600 pos=0.023910 quat=0.000044 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2650 pos=0.024114 quat=0.000027 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2700 pos=0.024482 quat=0.000038 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2750 pos=0.024798 quat=0.000035 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2800 pos=0.025277 quat=0.000063 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2850 pos=0.025415 quat=0.000026 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2900 pos=0.025393 quat=0.000020 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=2950 pos=0.025440 quat=0.000034 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3000 pos=0.025438 quat=0.000027 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3050 pos=0.025830 quat=0.000033 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3100 pos=0.026029 quat=0.000033 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3150 pos=0.026325 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3200 pos=0.026675 quat=0.000030 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3250 pos=0.026985 quat=0.000031 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3300 pos=0.027302 quat=0.000034 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3350 pos=0.027352 quat=0.000035 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3400 pos=0.027270 quat=0.000017 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3450 pos=0.027709 quat=0.000035 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3500 pos=0.027930 quat=0.000034 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3550 pos=0.028121 quat=0.000023 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3600 pos=0.028457 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3650 pos=0.028626 quat=0.000014 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3700 pos=0.028960 quat=0.000037 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3750 pos=0.028769 quat=0.000031 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3800 pos=0.028567 quat=0.000024 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3850 pos=0.028591 quat=0.000061 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3900 pos=0.028290 quat=0.000027 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=3950 pos=0.028344 quat=0.000038 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4000 pos=0.028406 quat=0.000109 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4050 pos=0.028149 quat=0.000027 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4100 pos=0.028139 quat=0.000031 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4150 pos=0.028012 quat=0.000030 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4200 pos=0.027874 quat=0.000033 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4250 pos=0.027644 quat=0.000020 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4300 pos=0.027710 quat=0.000037 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4350 pos=0.027564 quat=0.000041 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4400 pos=0.027536 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4450 pos=0.027473 quat=0.000026 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4500 pos=0.027650 quat=0.000054 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4550 pos=0.027676 quat=0.000067 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4600 pos=0.027913 quat=0.000067 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4650 pos=0.028094 quat=0.000065 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4700 pos=0.028084 quat=0.000015 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4750 pos=0.028467 quat=0.000021 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4800 pos=0.028761 quat=0.000034 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4850 pos=0.028896 quat=0.000023 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4900 pos=0.029170 quat=0.000062 hold=0 success=False
+direct_force solver=acados object=elephant seed=3 step=4950 pos=0.029398 quat=0.000037 hold=0 success=False
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/4 | 94.801 ± 0.000 (n=1) | 120.520 ± 48.787 (n=5959) |
+| qp | 4/4 | 96.416 ± 79.450 (n=4) | 124.449 ± 30.224 (n=3045) |
+| scm | 4/4 | 7.796 ± 4.155 (n=4) | 18.378 ± 4.551 (n=1520) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=elephant seed=4
+direct_force solver=acados object=elephant seed=4 step=0 pos=0.086490 quat=0.939546 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=50 pos=0.070894 quat=0.123171 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=100 pos=0.059717 quat=0.004350 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=150 pos=0.055509 quat=0.000471 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=200 pos=0.049985 quat=0.000115 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=250 pos=0.045115 quat=0.000064 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=300 pos=0.040381 quat=0.000165 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=350 pos=0.036724 quat=0.000183 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=400 pos=0.033612 quat=0.000368 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=450 pos=0.030821 quat=0.000495 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=500 pos=0.028452 quat=0.000342 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=550 pos=0.026861 quat=0.000263 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=600 pos=0.025630 quat=0.000219 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=650 pos=0.024283 quat=0.000263 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=700 pos=0.023029 quat=0.000249 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=750 pos=0.021995 quat=0.000269 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=800 pos=0.021056 quat=0.000225 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=850 pos=0.020185 quat=0.000272 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=900 pos=0.019538 quat=0.000209 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=950 pos=0.018880 quat=0.000207 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=1000 pos=0.018331 quat=0.000164 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=1050 pos=0.017737 quat=0.000200 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=1100 pos=0.017256 quat=0.000156 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=1150 pos=0.016854 quat=0.000138 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=1200 pos=0.016365 quat=0.000135 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=1239 pos=0.015987 quat=0.000110 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/4 | 94.801 ± 0.000 (n=1) | 120.520 ± 48.787 (n=5959) |
+| qp | 4/4 | 96.416 ± 79.450 (n=4) | 124.449 ± 30.224 (n=3045) |
+| scm | 5/5 | 10.969 ± 7.354 (n=5) | 17.754 ± 4.242 (n=2760) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=elephant seed=4
+direct_force solver=acados object=elephant seed=4 step=0 pos=0.086403 quat=0.938769 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=50 pos=0.061057 quat=0.134480 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=100 pos=0.026534 quat=0.000086 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=150 pos=0.025159 quat=0.000116 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=200 pos=0.024220 quat=0.000060 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=250 pos=0.023089 quat=0.000076 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=300 pos=0.022444 quat=0.000048 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=350 pos=0.021571 quat=0.000081 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=400 pos=0.021102 quat=0.000058 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=450 pos=0.020383 quat=0.000040 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=500 pos=0.019897 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=550 pos=0.019412 quat=0.000023 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=600 pos=0.018916 quat=0.000028 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=650 pos=0.018375 quat=0.000034 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=700 pos=0.018011 quat=0.000031 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=750 pos=0.017621 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=800 pos=0.017300 quat=0.000043 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=850 pos=0.016922 quat=0.000017 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=900 pos=0.016501 quat=0.000017 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=950 pos=0.016103 quat=0.000025 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=969 pos=0.016016 quat=0.000026 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/4 | 94.801 ± 0.000 (n=1) | 120.520 ± 48.787 (n=5959) |
+| qp | 5/5 | 99.101 ± 71.265 (n=5) | 121.250 ± 28.115 (n=4015) |
+| scm | 5/5 | 10.969 ± 7.354 (n=5) | 17.754 ± 4.242 (n=2760) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=elephant seed=4
+direct_force solver=acados object=elephant seed=4 step=0 pos=0.086403 quat=0.938763 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=50 pos=0.070415 quat=0.579052 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=100 pos=0.020828 quat=0.000041 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=150 pos=0.019954 quat=0.000042 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=200 pos=0.019428 quat=0.000057 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=250 pos=0.018979 quat=0.000061 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=300 pos=0.018636 quat=0.000076 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=350 pos=0.018383 quat=0.000030 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=400 pos=0.017990 quat=0.000059 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=450 pos=0.017690 quat=0.000029 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=500 pos=0.017239 quat=0.000123 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=550 pos=0.016829 quat=0.000082 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=600 pos=0.016666 quat=0.000054 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=650 pos=0.016275 quat=0.000032 hold=0 success=False
+direct_force solver=acados object=elephant seed=4 step=689 pos=0.016059 quat=0.000022 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 2/5 | 85.374 ± 9.427 (n=2) | 119.219 ± 46.613 (n=6649) |
+| qp | 5/5 | 99.101 ± 71.265 (n=5) | 121.250 ± 28.115 (n=4015) |
+| scm | 5/5 | 10.969 ± 7.354 (n=5) | 17.754 ± 4.242 (n=2760) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 2/5 | 85.374 ± 9.427 (n=2) | 119.219 ± 46.613 (n=6649) |
+| qp | 5/5 | 99.101 ± 71.265 (n=5) | 121.250 ± 28.115 (n=4015) |
+| scm | 5/5 | 10.969 ± 7.354 (n=5) | 17.754 ± 4.242 (n=2760) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.

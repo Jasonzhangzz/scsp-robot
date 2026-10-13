@@ -3,6 +3,8 @@ import math
 
 
 DEFAULT_CONTACT_FORCE_LIMIT = 10.0
+CARTESIAN_TASK_STIFFNESS = 600.0
+CARTESIAN_TASK_DAMPING = 40.0
 
 
 def contact_force_limit(args):

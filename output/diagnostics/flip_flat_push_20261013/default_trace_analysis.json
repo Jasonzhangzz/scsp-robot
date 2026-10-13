@@ -1,0 +1,490 @@
+{
+  "bunny_default_trace.jsonl.worker0.jsonl": {
+    "contact_mode": 227,
+    "physical_contact": 222,
+    "angle_min": 81.39311540094263,
+    "angle_final": 94.60192353763743,
+    "contact_mode_stats": {
+      "n": 227,
+      "flat": 60,
+      "up": 54,
+      "down": 113,
+      "slide_no_flip": 75,
+      "predicted_flip_actual_no_flip": 14,
+      "lambda_cost_improves_tilt_worsens": 1,
+      "same_executed": 0,
+      "median_press_height_mm": 54.879369768091216,
+      "median_z_rise_mm": 0.014632940292358398
+    },
+    "physical_stats": {
+      "n": 222,
+      "flat": 58,
+      "up": 53,
+      "down": 111,
+      "slide_no_flip": 72,
+      "predicted_flip_actual_no_flip": 13,
+      "lambda_cost_improves_tilt_worsens": 1,
+      "same_executed": 0,
+      "median_press_height_mm": 54.74384352218634,
+      "median_z_rise_mm": 0.015035271644592285
+    },
+    "examples_slide": [
+      {
+        "step": 89,
+        "contact": true,
+        "command_elevation_deg": -8.92052891545226,
+        "dz_mm": -0.048995018005371094,
+        "dxy_mm": 1.7061763845713038,
+        "tilt_gain_deg": -0.9724550582969727,
+        "predicted_tilt_gain": -0.30158281400277076,
+        "lambda_measured": {
+          "pose_world": [
+            0.3525177998274195,
+            0.023074306209750716,
+            0.3738008090381289,
+            0.4878329587964857,
+            0.7292006904996841,
+            0.45491664667474657,
+            0.15276191235008213
+          ],
+          "position_error_m": 0.09073234945207936,
+          "position_reduction_mm": -0.14304793167965735,
+          "quaternion_error": 0.7532196554379029,
+          "tilt_deg": 118.51348640333238,
+          "object_cost_reduction": -0.031691705344886856,
+          "position_cost_reduction": -0.0007930711068310919,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": -0.03089863423805639
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 19.173668862781547,
+        "same_executed": false
+      },
+      {
+        "step": 91,
+        "contact": true,
+        "command_elevation_deg": 5.450009574028785,
+        "dz_mm": 0.05957484245300293,
+        "dxy_mm": 1.191699816848682,
+        "tilt_gain_deg": -0.15779117793428554,
+        "predicted_tilt_gain": -0.33939048986435694,
+        "lambda_measured": {
+          "pose_world": [
+            0.3556903038004694,
+            0.02540204187010232,
+            0.3738965326834352,
+            0.4650664550625081,
+            0.7167539971573156,
+            0.4951534452161264,
+            0.1574800483401113
+          ],
+          "position_error_m": 0.08710318799737043,
+          "position_reduction_mm": -0.1847098295496702,
+          "quaternion_error": 0.7698941970541704,
+          "tilt_deg": 121.1865669049521,
+          "object_cost_reduction": -0.023683034314009532,
+          "position_cost_reduction": -0.0007700592392088056,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": -0.022912975074801167
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 20.742595420909616,
+        "same_executed": false
+      },
+      {
+        "step": 94,
+        "contact": true,
+        "command_elevation_deg": 10.050535189191542,
+        "dz_mm": 0.11241436004638672,
+        "dxy_mm": 0.9418630480206006,
+        "tilt_gain_deg": -0.3036385993081723,
+        "predicted_tilt_gain": -0.2784998828853986,
+        "lambda_measured": {
+          "pose_world": [
+            0.35820453916389644,
+            0.028137664033269175,
+            0.3739832147291485,
+            0.4626949933612088,
+            0.6884258379727043,
+            0.5282580766189828,
+            0.1814569183494081
+          ],
+          "position_error_m": 0.0834775136352525,
+          "position_reduction_mm": -0.25416622409950296,
+          "quaternion_error": 0.7598793692495589,
+          "tilt_deg": 120.39599413647791,
+          "object_cost_reduction": -0.05420001796769647,
+          "position_cost_reduction": -0.000528689174061835,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": -0.05367132879363368
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 22.00902550415468,
+        "same_executed": false
+      }
+    ],
+    "examples_up_but_no_flip": [
+      {
+        "step": 75,
+        "contact": true,
+        "command_elevation_deg": 35.86990700442751,
+        "dz_mm": 0.002205371856689453,
+        "dxy_mm": 1.2779535747961481,
+        "tilt_gain_deg": -0.2446583862756455,
+        "predicted_tilt_gain": 0.3547907785008704,
+        "lambda_measured": {
+          "pose_world": [
+            0.34301649343641244,
+            0.009472743374428154,
+            0.37432485198684257,
+            0.5212924619808311,
+            0.8030110351989637,
+            0.2860265480034837,
+            0.040202739556693325
+          ],
+          "position_error_m": 0.10721325421447657,
+          "position_reduction_mm": 1.0347335252963301,
+          "quaternion_error": 0.7815196651007277,
+          "tilt_deg": 116.95405206615436,
+          "object_cost_reduction": 0.211382247284428,
+          "position_cost_reduction": 0.028969985581025925,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.1824122617034014
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 10.920461605184062,
+        "same_executed": false
+      },
+      {
+        "step": 77,
+        "contact": true,
+        "command_elevation_deg": 55.93196282276846,
+        "dz_mm": -0.10472536087036133,
+        "dxy_mm": 0.8913626322486297,
+        "tilt_gain_deg": -0.3622863271791772,
+        "predicted_tilt_gain": 0.41208431741550555,
+        "lambda_measured": {
+          "pose_world": [
+            0.3455615649282963,
+            0.013324585964541717,
+            0.374377358912156,
+            0.5189406785332608,
+            0.7870409358910406,
+            0.32711019335024133,
+            0.06531507331054275
+          ],
+          "position_error_m": 0.10260502436265173,
+          "position_reduction_mm": 1.1560622821938926,
+          "quaternion_error": 0.7711826348976806,
+          "tilt_deg": 116.92790726569817,
+          "object_cost_reduction": 0.18468883592278296,
+          "position_cost_reduction": 0.027040527418960875,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.1576483085038216
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 12.539430511704253,
+        "same_executed": false
+      },
+      {
+        "step": 78,
+        "contact": true,
+        "command_elevation_deg": 44.30430237679254,
+        "dz_mm": -0.0648796558380127,
+        "dxy_mm": 1.016309646988813,
+        "tilt_gain_deg": -0.5239649834100675,
+        "predicted_tilt_gain": 0.2821085293446828,
+        "lambda_measured": {
+          "pose_world": [
+            0.34595447049151584,
+            0.014067791827326065,
+            0.3742947777593046,
+            0.5153485306785729,
+            0.7838475507676287,
+            0.33900271613432165,
+            0.07124652648781114
+          ],
+          "position_error_m": 0.10177464095476606,
+          "position_reduction_mm": 1.105274674178286,
+          "quaternion_error": 0.7712022798333578,
+          "tilt_deg": 117.30194042072972,
+          "object_cost_reduction": 0.1801816276346937,
+          "position_cost_reduction": 0.024875898835700933,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.15530572879899296
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 12.828578372338583,
+        "same_executed": false
+      }
+    ]
+  },
+  "elephant_default_trace.jsonl.worker0.jsonl": {
+    "contact_mode": 173,
+    "physical_contact": 152,
+    "angle_min": 75.66544422857201,
+    "angle_final": 86.58271439238806,
+    "contact_mode_stats": {
+      "n": 173,
+      "flat": 34,
+      "up": 107,
+      "down": 32,
+      "slide_no_flip": 104,
+      "predicted_flip_actual_no_flip": 26,
+      "lambda_cost_improves_tilt_worsens": 16,
+      "same_executed": 2,
+      "median_press_height_mm": 17.539006003425893,
+      "median_z_rise_mm": 0.005602836608886719
+    },
+    "physical_stats": {
+      "n": 152,
+      "flat": 29,
+      "up": 95,
+      "down": 28,
+      "slide_no_flip": 90,
+      "predicted_flip_actual_no_flip": 21,
+      "lambda_cost_improves_tilt_worsens": 16,
+      "same_executed": 2,
+      "median_press_height_mm": 17.052751674562966,
+      "median_z_rise_mm": 0.004827976226806641
+    },
+    "examples_slide": [
+      {
+        "step": 97,
+        "contact": true,
+        "command_elevation_deg": 4.737880266759249,
+        "dz_mm": 0.06052851676940918,
+        "dxy_mm": 1.0827681094165118,
+        "tilt_gain_deg": -0.15342516970751774,
+        "predicted_tilt_gain": 0.08987688122400073,
+        "lambda_measured": {
+          "pose_world": [
+            0.35039383138675584,
+            0.043206682073475895,
+            0.37963246314412297,
+            0.6582468954836204,
+            0.6044883170263835,
+            0.3117338649283203,
+            0.322686994813299
+          ],
+          "position_error_m": 0.07558734494623423,
+          "position_reduction_mm": 1.221126119022753,
+          "quaternion_error": 0.46652872488621444,
+          "tilt_deg": 85.708445217068,
+          "object_cost_reduction": 0.15412911009291363,
+          "position_cost_reduction": 0.09304725568070893,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.06108185441220293
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 19.938735525678876,
+        "same_executed": false
+      },
+      {
+        "step": 98,
+        "contact": true,
+        "command_elevation_deg": 14.268369000724071,
+        "dz_mm": 0.07525086402893066,
+        "dxy_mm": 2.180179222143051,
+        "tilt_gain_deg": -0.10587278519633969,
+        "predicted_tilt_gain": 0.31115646546997766,
+        "lambda_measured": {
+          "pose_world": [
+            0.3512843008218755,
+            0.04359289469444087,
+            0.37973490178373626,
+            0.6562277129451675,
+            0.6022437956112172,
+            0.31696464391494206,
+            0.3258849703782355
+          ],
+          "position_error_m": 0.07470687232300181,
+          "position_reduction_mm": 1.1001705535236135,
+          "quaternion_error": 0.4666481050576282,
+          "tilt_deg": 85.77509768911553,
+          "object_cost_reduction": 0.15899327164814814,
+          "position_cost_reduction": 0.08279548869903541,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.07619778294911228
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 20.636415679124166,
+        "same_executed": false
+      },
+      {
+        "step": 99,
+        "contact": true,
+        "command_elevation_deg": -4.098330533906803,
+        "dz_mm": 0.06332993507385254,
+        "dxy_mm": 1.1800889099762213,
+        "tilt_gain_deg": -0.21163213313651852,
+        "predicted_tilt_gain": 0.23963351098281294,
+        "lambda_measured": {
+          "pose_world": [
+            0.3532713393223879,
+            0.04500888402554249,
+            0.3796710872293695,
+            0.6487615478123411,
+            0.5981421570678418,
+            0.32602449645456216,
+            0.33917907030050354
+          ],
+          "position_error_m": 0.07234903603997972,
+          "position_reduction_mm": 1.397269308769808,
+          "quaternion_error": 0.46598308910757724,
+          "tilt_deg": 85.87871538431597,
+          "object_cost_reduction": 0.17866735218019514,
+          "position_cost_reduction": 0.10206726833835944,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.0766000838418357
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 21.800138682333547,
+        "same_executed": false
+      }
+    ],
+    "examples_up_but_no_flip": [
+      {
+        "step": 78,
+        "contact": true,
+        "command_elevation_deg": 54.34566325482949,
+        "dz_mm": 0.013142824172973633,
+        "dxy_mm": 1.4199571025146127,
+        "tilt_gain_deg": -0.039114727228522383,
+        "predicted_tilt_gain": 0.18824280708591346,
+        "lambda_measured": {
+          "pose_world": [
+            0.32201691040657626,
+            0.018717784796952762,
+            0.3794349046617713,
+            0.7243175238619899,
+            0.6608134211580576,
+            0.13195008844778802,
+            0.14587296254769205
+          ],
+          "position_error_m": 0.11277168985777103,
+          "position_reduction_mm": 1.0424644492583872,
+          "quaternion_error": 0.5157759189026263,
+          "tilt_deg": 84.73112899608853,
+          "object_cost_reduction": 0.21595842041901392,
+          "position_cost_reduction": 0.11810384362350224,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.09785457679551257
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 17.27763038956931,
+        "same_executed": false
+      },
+      {
+        "step": 80,
+        "contact": true,
+        "command_elevation_deg": 37.56153800934176,
+        "dz_mm": 0.00095367431640625,
+        "dxy_mm": 1.5481084391073965,
+        "tilt_gain_deg": -0.0009146740942469478,
+        "predicted_tilt_gain": 0.14366607955902566,
+        "lambda_measured": {
+          "pose_world": [
+            0.32467488642878495,
+            0.02226555015484183,
+            0.3795338414505798,
+            0.7231236584670157,
+            0.6568945662391381,
+            0.1445422072944893,
+            0.15712814426833446
+          ],
+          "position_error_m": 0.10837319558884737,
+          "position_reduction_mm": 1.030369002814155,
+          "quaternion_error": 0.50910223879043,
+          "tilt_deg": 84.53750509023233,
+          "object_cost_reduction": 0.23776828636395209,
+          "position_cost_reduction": 0.1121952116116427,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.12557307475231028
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 12.814710558183284,
+        "same_executed": false
+      },
+      {
+        "step": 82,
+        "contact": true,
+        "command_elevation_deg": 50.54817932594306,
+        "dz_mm": -5.9604644775390625e-05,
+        "dxy_mm": 1.308882662850633,
+        "tilt_gain_deg": -0.00010026340217450525,
+        "predicted_tilt_gain": 0.12736518920745254,
+        "lambda_measured": {
+          "pose_world": [
+            0.32767427257771814,
+            0.025593232841865182,
+            0.37958166047878295,
+            0.7187144705837787,
+            0.6522053129399175,
+            0.1634980566608341,
+            0.17704836913836258
+          ],
+          "position_error_m": 0.1038994902081446,
+          "position_reduction_mm": 0.9023741857340367,
+          "quaternion_error": 0.4999653164510518,
+          "tilt_deg": 84.50302320169075,
+          "object_cost_reduction": 0.22573144418389823,
+          "position_cost_reduction": 0.09416335746029691,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.13156808672360043
+        },
+        "floor": {
+          "applied": true,
+          "rebased": false,
+          "emergency": false
+        },
+        "press_height_mm": 10.746407181520755,
+        "same_executed": false
+      }
+    ]
+  }
+}

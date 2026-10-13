@@ -1,0 +1,37 @@
+{
+  "sdk_version": "2026.8.31",
+  "models": {
+    "sdk_version": "2026.8.31",
+    "source_host": "xr@10.136.21.71",
+    "source_container": "wuji-v3-demo-1",
+    "source_sdk_user": "u_61eaaa7d75eb4a83bdc7d38de0ef1214",
+    "source_right_glove_sn": "WG1KA06260529505",
+    "right_urdf": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_comparison_20261013/historical_adde321/models/wuji_v3_20260920/right_hand.urdf",
+    "right_sha256": "c09676d29d209420111aa218962cc31b8b033bf7e1581ca4054411af9171b800",
+    "left_urdf": null,
+    "left_model_source": "builtin_default",
+    "verification": "SDK offline_pipeline on copy of original user registry: RIGHT calibration_file models/right_hand.urdf; LEFT builtin_default None. No hardware connected.",
+    "config_path": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_comparison_20261013/historical_adde321/models/wuji_v3_20260920/config.json"
+  },
+  "sides": {
+    "left": {
+      "frames": 786,
+      "sn": "WG1JA06260622057",
+      "urdf_source": "builtin_default",
+      "urdf_source_path": null,
+      "urdf_sha256": null,
+      "timestamp_start_ns": 1789726157960367000,
+      "timestamp_end_ns": 1789726164502176000
+    },
+    "right": {
+      "frames": 785,
+      "sn": "WG1KA06260618504",
+      "urdf_source": "override",
+      "urdf_source_path": "/mnt/cpfs/zbl-cpfs-new/USERS/jasonzhang/ego_fast_retarget/tests/retarget_1_comparison_20261013/historical_adde321/models/wuji_v3_20260920/right_hand.urdf",
+      "urdf_sha256": "c09676d29d209420111aa218962cc31b8b033bf7e1581ca4054411af9171b800",
+      "timestamp_start_ns": 1789726157967336000,
+      "timestamp_end_ns": 1789726164500753000
+    }
+  },
+  "recorded_sdk_version": "2026.6.18"
+}

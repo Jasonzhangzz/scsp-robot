@@ -1,0 +1,26 @@
+direct_force solver=cma-es object=elephant seed=1 step=0 pos=0.116914 quat=0.642746 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=50 pos=0.062176 quat=0.519495 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=100 pos=0.038821 quat=0.034843 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=150 pos=0.025811 quat=0.000040 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=200 pos=0.025316 quat=0.000060 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=250 pos=0.024819 quat=0.000101 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=300 pos=0.024709 quat=0.000019 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=350 pos=0.024347 quat=0.000093 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=400 pos=0.023997 quat=0.000048 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=450 pos=0.023652 quat=0.000045 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=500 pos=0.023313 quat=0.000044 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=550 pos=0.022940 quat=0.000043 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=600 pos=0.022251 quat=0.000040 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=650 pos=0.021760 quat=0.000060 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=700 pos=0.021219 quat=0.000064 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=750 pos=0.020421 quat=0.000029 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=800 pos=0.019956 quat=0.000081 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=850 pos=0.019327 quat=0.000050 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=900 pos=0.018661 quat=0.000040 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=950 pos=0.018038 quat=0.000045 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=1000 pos=0.017628 quat=0.000065 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=1050 pos=0.017074 quat=0.000062 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=1100 pos=0.016669 quat=0.000065 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=1150 pos=0.016146 quat=0.000052 hold=0 success=False
+direct_force solver=cma-es object=elephant seed=1 step=1186 pos=0.016036 quat=0.000064 hold=10 success=True
+TRIAL_RESULT {"solver": "cma-es", "object": "elephant", "seed": 1, "steps": 1187, "success": true, "settled": true, "final_pos": 0.016036009611611245, "final_quat": 6.393865372300578e-05, "solver_backends": ["cma-es"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:19:35+08:00", "completed_at": "2026-10-13T21:44:33+08:00", "execution_time_s": 1493.174847716, "elapsed_wall_time_s": 1493.174847716, "simulation_time_s": 23.739999999990022, "planning_time_ms": {"n": 1187, "mean": 1254.4652296737443, "std": 419.8835456163672, "median": 1175.6390299997292, "p95": 1945.3938786755318, "min": 735.8738939510658, "max": 2208.3336979849264}, "planning_rounds": 1187}

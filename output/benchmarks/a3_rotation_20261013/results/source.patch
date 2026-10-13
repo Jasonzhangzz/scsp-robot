@@ -1,0 +1,84 @@
+diff --git a/examples/mpc/franka/ik2/params_ablation.py b/examples/mpc/franka/ik2/params_ablation.py
+index 116b555..fd9494b 100644
+--- a/examples/mpc/franka/ik2/params_ablation.py
++++ b/examples/mpc/franka/ik2/params_ablation.py
+@@ -36,7 +36,10 @@ def add_via_init_pose_args(parser):
+ 
+ 
+ def _tilted_init_quaternion(args, yaw_angle, target_type="rotation"):
++    """Sample tilt only for flipping; rotation preserves the target's up axis."""
+     yaw = float(np.asarray(yaw_angle, dtype=np.float64).reshape(-1)[0])
++    if target_type == "rotation":
++        return rotations.rpy_to_quaternion([yaw, 0.0, 0.0])
+     tilt = np.pi / 2 if target_type == "ground-rotation" else 0.0
+     axis_angle = 0.0
+     if getattr(args, "random_init_tilt", False):
+@@ -401,7 +404,7 @@ class ExplicitMPCParams:
+             ],
+             dtype=np.float64,
+         )
+-        if getattr(args, "random_init_tilt", False):
++        if target_type == "ground-rotation" and getattr(args, "random_init_tilt", False):
+             self.init_fingertip_pos_[:2] += 0.06 * (2.0 * np.random.rand(2) - 1.0)
+             self.init_fingertip_pos_[2] += 0.03 * float(np.random.rand())
+ 
+diff --git a/examples/mpc/franka/ik2/run_ablation.py b/examples/mpc/franka/ik2/run_ablation.py
+index d4b1b04..944e2e2 100644
+--- a/examples/mpc/franka/ik2/run_ablation.py
++++ b/examples/mpc/franka/ik2/run_ablation.py
+@@ -201,8 +201,13 @@ def main(argv=None):
+         modes.add_argument('--'+mode, action='store_true')
+     # Preserve the previous component experiments for existing callers.
+     modes.add_argument('--variant', choices=tuple(VARIANTS), help='Legacy component experiment')
+-    parser.add_argument('--task', choices=tuple(TASK_TARGET), default=None,
+-                        help='Optional; otherwise use the same default target as test_mpc_isaac.py')
++    task = parser.add_mutually_exclusive_group()
++    task.add_argument('--task', choices=tuple(TASK_TARGET), default=None,
++                      help='Optional; otherwise use the same default target as test_mpc_isaac.py')
++    task.add_argument('--rotation', dest='task', action='store_const', const='rotation',
++                      help='Rotate from an upright start with the same up axis as the target.')
++    task.add_argument('--flipping', dest='task', action='store_const', const='flipping',
++                      help='Flip from a tilted start (the default task).')
+     parser.add_argument('--sensitivity-axis', action='append', default=[], metavar='PARAM=v1,v2')
+     parser.add_argument('--sensitivity-output', default='output/ablation_ranking_sensitivity')
+     parser.add_argument('--dry-run', action='store_true', help='Print commands without importing simulators or solving')
+diff --git a/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py b/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py
+index 5d7f900..2aa6c97 100644
+--- a/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py
++++ b/examples/mpc/franka/ik2/test_mpc_isaac_ablation.py
+@@ -2326,6 +2326,7 @@ def _add_rollout_policy_args(parser):
+                         help='Auto uses surface contacts for mug/duck and dense mesh vertices for other objects.')
+     # A flip starts on its side. Smaller explicit tilt ranges remain usable
+     # for recovery experiments; --no_random_init_tilt fixes the side axis.
++    # Rotation starts stay upright regardless of these tilt options.
+     parser.set_defaults(init_tilt_deg=90.0, init_tilt_min_deg=90.0)
+     parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
+     parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
+@@ -2437,14 +2438,24 @@ def _add_rollout_policy_args(parser):
+         help="Extra lower bound for the fingertip-center reference (m). "
+              "Default 0.012 m keeps the 10 mm fingertip sphere above the table.",
+     )
+-    parser.add_argument(
++    task = parser.add_mutually_exclusive_group()
++    task.add_argument(
++        "--rotation", dest="target_type", action="store_const", const="rotation",
++        help="Start upright with the same up axis as the target; rotate without flipping. "
++             "Initial tilt options are ignored.",
++    )
++    task.add_argument(
++        "--flipping", dest="target_type", action="store_const", const="ground-rotation",
++        help="Start tilted and flip into the upright target pose (default).",
++    )
++    task.add_argument(
+         "--target-type",
+         dest="target_type",
+         type=str,
+-        default="ground-rotation",
+         choices=("ground-rotation", "rotation"),
+-        help="ground-rotation matches fingertips --rollout (90 deg pitch flip).",
++        help="Legacy task selector: ground-rotation is --flipping; rotation is --rotation.",
+     )
++    parser.set_defaults(target_type="ground-rotation")
+     parser.add_argument("--trial-start", type=int, default=0)
+     parser.add_argument(
+         "--control-substeps",

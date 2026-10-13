@@ -80,6 +80,8 @@ def rollout_output(verbose):
 
 
 def run_isaac_headless(args):
+    if getattr(args, 'rollout_cache_dir', '') and (args.num_envs != 1 or args.async_planner):
+        raise ValueError('Source cache requires --sync-planner --num-envs 1; parallelize independent case processes')
     if args.num_envs > 1 or args.async_planner:
         return run_isaac_parallel(args)
     from examples.mpc.franka.ik2.run import SynchronousMPCBus
@@ -89,10 +91,20 @@ def run_isaac_headless(args):
     summaries = []
     bus = SynchronousMPCBus(args)
     bus.record_summary = summaries.append
+    sampler = None
+    if getattr(args, 'rollout_cache_dir', ''):
+        from examples.mpc.franka.ik2.test_rs import MatchedRolloutBus
+        from utils.ranking_cdr import DecisionSampler
+        sampler = DecisionSampler()
+        bus = MatchedRolloutBus(bus, sampler)
     started = time.perf_counter()
     try:
         with rollout_output(args.rollout_verbose):
             run_mpc_planner(bus, args)
+        if sampler is not None:
+            from utils.rollout_cache import save_source_cache
+            save_source_cache(args.rollout_cache_dir, bus, sampler, args)
+            summaries = bus.summaries
     finally:
         bus.close()
     return report(args, summaries, started)

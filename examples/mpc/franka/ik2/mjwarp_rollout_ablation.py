@@ -78,7 +78,7 @@ def scene_xml(param, args):
     ET.SubElement(attachment, 'inertial', mass='.001', pos='0 0 .03', diaginertia='1e-6 1e-6 1e-6')
     tip = ET.SubElement(attachment, 'body', name='fingertip', pos='0 0 .06')
     ET.SubElement(tip, 'geom', name='fingertip', type='sphere', size='.01', mass='.01',
-                  contype='2', conaffinity='1', friction='1.5 .005 .0001', condim='3', margin='.001')
+                  contype='2', conaffinity='1', friction=f'{param.fingertip_friction_} .005 .0001', condim='3', margin='.001')
     for body in world.iter('body'):
         body.set('gravcomp', '1')  # Isaac disables gravity on the Franka asset.
     for joint in world.iter('joint'):
@@ -88,7 +88,7 @@ def scene_xml(param, args):
                            gravity='0 0 -9.81', cone='pyramidal', iterations='20')
     ET.SubElement(option, 'flag', sensor='disable')
     ET.SubElement(world, 'geom', name='table', type='box', size='1 1 .175', pos='1.2 0 .175',
-                  contype='1', conaffinity='3', friction='.5 .005 .0001', condim='3')
+                  contype='1', conaffinity='3', friction=f'{param.table_friction_} .005 .0001', condim='3')
     asset = ET.SubElement(root, 'asset')
     parts = param.collision_mesh_paths_ or [param.mesh_path_]
     obj = ET.SubElement(world, 'body', name='obj')
@@ -100,7 +100,7 @@ def scene_xml(param, args):
         name = 'object_part_%s' % i
         ET.SubElement(asset, 'mesh', name=name, file=os.path.abspath(path))
         ET.SubElement(obj, 'geom', name=name, mesh=name, type='mesh', contype='1', conaffinity='3',
-                      friction='.9 .005 .0001', condim='3')
+                      friction=values([param.object_friction_, .005, .0001]), condim='3')
     actuator = ET.SubElement(root, 'actuator')
     for i, limit in enumerate([87, 87, 87, 87, 12, 12, 12], 1):
         ET.SubElement(actuator, 'motor', name='motor%s' % i, joint='joint%s' % i,
@@ -123,12 +123,12 @@ def scene_xml(param, args):
         # rather than copying identical numbers with different semantics.
         contact = ET.SubElement(root, 'contact')
         for i in range(len(parts)):
-            for other, friction in (('table', .5*(.5+.9)), ('fingertip', .5*(1.5+.9))):
+            for other, friction in (('table', param.mu_table_object_), ('fingertip', param.mu_fingertip_object_)):
                 ET.SubElement(contact, 'pair', geom1='object_part_%s' % i, geom2=other,
                               condim='3', margin='.001' if other == 'fingertip' else '0',
                               friction=values([friction, friction, .005, .0001, .0001]))
         ET.SubElement(contact, 'pair', geom1='fingertip', geom2='table', condim='3',
-                      margin='.001', friction=values([1., 1., .005, .0001, .0001]))
+                      margin='.001', friction=values([.5*(param.fingertip_friction_+param.table_friction_)]*2 + [.005, .0001, .0001]))
     return ET.tostring(root, encoding='unicode')
 
 
@@ -158,14 +158,14 @@ class MuJoCoContact:
             rel[:, 3:6] = -env._skew(point-pos)
             rel[:, 6:9] = -np.eye(3)
             n, t1, t2 = tangent_basis_from_normal(-normal)
-            jac[:4] = _contact_jacobian_np(n, t1, t2, rel, p.mu_object_)
+            jac[:4] = _contact_jacobian_np(n, t1, t2, rel, p.mu_fingertip_object_)
             phi[:4] = measured['dist']
             row = 1
         points = mesh_table_contact_points(pos, rot, p.object_vertices_)
         con_pos = []
         if min(points[:, 2]) - p.table_height < .02:
             for i, point in enumerate(points[:count-row]):
-                world_j, body_j = support_patch_jacobians(pos, rot, point, nv, p.mu_object_)
+                world_j, body_j = support_patch_jacobians(pos, rot, point, nv, p.mu_table_object_)
                 gap = float(point[2]-p.table_height)
                 phi[4*row:4*row+4] = gap
                 jac[4*row:4*row+4] = world_j

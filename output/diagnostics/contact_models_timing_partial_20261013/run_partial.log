@@ -1,0 +1,224 @@
+benchmark model=scm object=foam_brick seed=0
+direct_force object=foam_brick seed=0 step=0 pos=0.055120 quat=0.578640 hold=0 success=False
+direct_force object=foam_brick seed=0 step=50 pos=0.036440 quat=0.360453 hold=0 success=False
+direct_force object=foam_brick seed=0 step=100 pos=0.030576 quat=0.173159 hold=0 success=False
+direct_force object=foam_brick seed=0 step=150 pos=0.031850 quat=0.184990 hold=0 success=False
+direct_force object=foam_brick seed=0 step=200 pos=0.031009 quat=0.183964 hold=0 success=False
+direct_force object=foam_brick seed=0 step=250 pos=0.031462 quat=0.183109 hold=0 success=False
+direct_force object=foam_brick seed=0 step=300 pos=0.031488 quat=0.182896 hold=0 success=False
+direct_force object=foam_brick seed=0 step=350 pos=0.025879 quat=0.000444 hold=0 success=False
+direct_force object=foam_brick seed=0 step=400 pos=0.019841 quat=0.002013 hold=0 success=False
+direct_force object=foam_brick seed=0 step=450 pos=0.017623 quat=0.000524 hold=0 success=False
+direct_force object=foam_brick seed=0 step=487 pos=0.016052 quat=0.000781 hold=12 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| scm | 1/1 | 8.525 ± 0.000 (n=1) | 15.715 ± 2.010 (n=488) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=foam_brick seed=0
+direct_force object=foam_brick seed=0 step=0 pos=0.054308 quat=0.549805 hold=0 success=False
+direct_force object=foam_brick seed=0 step=50 pos=0.033307 quat=0.558305 hold=0 success=False
+direct_force object=foam_brick seed=0 step=100 pos=0.032790 quat=0.556958 hold=0 success=False
+direct_force object=foam_brick seed=0 step=150 pos=0.032778 quat=0.556591 hold=0 success=False
+direct_force object=foam_brick seed=0 step=200 pos=0.007418 quat=0.054942 hold=0 success=False
+direct_force object=foam_brick seed=0 step=221 pos=0.014217 quat=0.001508 hold=14 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| qp | 1/1 | 22.121 ± 0.000 (n=1) | 97.937 ± 11.277 (n=222) |
+| scm | 1/1 | 8.525 ± 0.000 (n=1) | 15.715 ± 2.010 (n=488) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=foam_brick seed=0
+direct_force object=foam_brick seed=0 step=0 pos=0.054308 quat=0.549806 hold=0 success=False
+direct_force object=foam_brick seed=0 step=50 pos=0.038769 quat=0.453803 hold=0 success=False
+direct_force object=foam_brick seed=0 step=100 pos=0.038729 quat=0.453514 hold=0 success=False
+direct_force object=foam_brick seed=0 step=150 pos=0.017905 quat=0.000144 hold=0 success=False
+direct_force object=foam_brick seed=0 step=200 pos=0.017396 quat=0.000090 hold=0 success=False
+direct_force object=foam_brick seed=0 step=250 pos=0.016433 quat=0.000083 hold=0 success=False
+direct_force object=foam_brick seed=0 step=290 pos=0.016360 quat=0.000113 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 26.202 ± 0.000 (n=1) | 88.272 ± 8.421 (n=291) |
+| qp | 1/1 | 22.121 ± 0.000 (n=1) | 97.937 ± 11.277 (n=222) |
+| scm | 1/1 | 8.525 ± 0.000 (n=1) | 15.715 ± 2.010 (n=488) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=scm object=foam_brick seed=1
+direct_force object=foam_brick seed=1 step=0 pos=0.112029 quat=0.616384 hold=0 success=False
+direct_force object=foam_brick seed=1 step=50 pos=0.056379 quat=0.231699 hold=0 success=False
+direct_force object=foam_brick seed=1 step=100 pos=0.040040 quat=0.065177 hold=0 success=False
+direct_force object=foam_brick seed=1 step=150 pos=0.029246 quat=0.087809 hold=0 success=False
+direct_force object=foam_brick seed=1 step=200 pos=0.026100 quat=0.135735 hold=0 success=False
+direct_force object=foam_brick seed=1 step=250 pos=0.027421 quat=0.135705 hold=0 success=False
+direct_force object=foam_brick seed=1 step=300 pos=0.027097 quat=0.135940 hold=0 success=False
+direct_force object=foam_brick seed=1 step=350 pos=0.026974 quat=0.136032 hold=0 success=False
+direct_force object=foam_brick seed=1 step=400 pos=0.018718 quat=0.000185 hold=0 success=False
+direct_force object=foam_brick seed=1 step=450 pos=0.017792 quat=0.000112 hold=0 success=False
+direct_force object=foam_brick seed=1 step=500 pos=0.016781 quat=0.000120 hold=0 success=False
+direct_force object=foam_brick seed=1 step=550 pos=0.016288 quat=0.000103 hold=0 success=False
+direct_force object=foam_brick seed=1 step=576 pos=0.016165 quat=0.000068 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 26.202 ± 0.000 (n=1) | 88.272 ± 8.421 (n=291) |
+| qp | 1/1 | 22.121 ± 0.000 (n=1) | 97.937 ± 11.277 (n=222) |
+| scm | 2/2 | 8.921 ± 0.396 (n=2) | 14.990 ± 2.490 (n=1065) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=qp object=foam_brick seed=1
+direct_force object=foam_brick seed=1 step=0 pos=0.112348 quat=0.607039 hold=0 success=False
+direct_force object=foam_brick seed=1 step=50 pos=0.028188 quat=0.081632 hold=0 success=False
+direct_force object=foam_brick seed=1 step=100 pos=0.029140 quat=0.081198 hold=0 success=False
+direct_force object=foam_brick seed=1 step=150 pos=0.027806 quat=0.000126 hold=0 success=False
+direct_force object=foam_brick seed=1 step=200 pos=0.027108 quat=0.000131 hold=0 success=False
+direct_force object=foam_brick seed=1 step=250 pos=0.026859 quat=0.000117 hold=0 success=False
+direct_force object=foam_brick seed=1 step=300 pos=0.026567 quat=0.000118 hold=0 success=False
+direct_force object=foam_brick seed=1 step=350 pos=0.026376 quat=0.000114 hold=0 success=False
+direct_force object=foam_brick seed=1 step=400 pos=0.026113 quat=0.000135 hold=0 success=False
+direct_force object=foam_brick seed=1 step=450 pos=0.025603 quat=0.000120 hold=0 success=False
+direct_force object=foam_brick seed=1 step=500 pos=0.025513 quat=0.000117 hold=0 success=False
+direct_force object=foam_brick seed=1 step=550 pos=0.025462 quat=0.000117 hold=0 success=False
+direct_force object=foam_brick seed=1 step=600 pos=0.025337 quat=0.000116 hold=0 success=False
+direct_force object=foam_brick seed=1 step=650 pos=0.025276 quat=0.000116 hold=0 success=False
+direct_force object=foam_brick seed=1 step=700 pos=0.025316 quat=0.000081 hold=0 success=False
+direct_force object=foam_brick seed=1 step=750 pos=0.025250 quat=0.000063 hold=0 success=False
+direct_force object=foam_brick seed=1 step=800 pos=0.025067 quat=0.000094 hold=0 success=False
+direct_force object=foam_brick seed=1 step=850 pos=0.025091 quat=0.000072 hold=0 success=False
+direct_force object=foam_brick seed=1 step=900 pos=0.025035 quat=0.000063 hold=0 success=False
+direct_force object=foam_brick seed=1 step=950 pos=0.024969 quat=0.000062 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1000 pos=0.024686 quat=0.000103 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1050 pos=0.024745 quat=0.000083 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1100 pos=0.024733 quat=0.000154 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1150 pos=0.024829 quat=0.000084 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1200 pos=0.024775 quat=0.000063 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1250 pos=0.024723 quat=0.000104 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1300 pos=0.024656 quat=0.000070 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1350 pos=0.024607 quat=0.000078 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1400 pos=0.024708 quat=0.000075 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1450 pos=0.024536 quat=0.000101 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1500 pos=0.024285 quat=0.000125 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1550 pos=0.023547 quat=0.000140 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1600 pos=0.023521 quat=0.000109 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1650 pos=0.023517 quat=0.000157 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1700 pos=0.023422 quat=0.000175 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1750 pos=0.023280 quat=0.000176 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1800 pos=0.023143 quat=0.000143 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1850 pos=0.023048 quat=0.000124 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1900 pos=0.022844 quat=0.000138 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1950 pos=0.022792 quat=0.000127 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2000 pos=0.022638 quat=0.000130 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2050 pos=0.022531 quat=0.000112 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2100 pos=0.022336 quat=0.000123 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2150 pos=0.022167 quat=0.000135 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2200 pos=0.022169 quat=0.000095 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2250 pos=0.021717 quat=0.000134 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2300 pos=0.021308 quat=0.000134 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2350 pos=0.021126 quat=0.000134 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2400 pos=0.020971 quat=0.000140 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2450 pos=0.020815 quat=0.000126 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2500 pos=0.020824 quat=0.000180 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2550 pos=0.020510 quat=0.000123 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2600 pos=0.020512 quat=0.000135 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2650 pos=0.020310 quat=0.000132 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2700 pos=0.020135 quat=0.000114 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2750 pos=0.019951 quat=0.000120 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2800 pos=0.019778 quat=0.000122 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2850 pos=0.019545 quat=0.000124 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2900 pos=0.019379 quat=0.000125 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2950 pos=0.019182 quat=0.000123 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3000 pos=0.018933 quat=0.000112 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3050 pos=0.018775 quat=0.000105 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3100 pos=0.018591 quat=0.000122 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3150 pos=0.018387 quat=0.000132 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3200 pos=0.018234 quat=0.000120 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3250 pos=0.018032 quat=0.000127 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3300 pos=0.017868 quat=0.000122 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3350 pos=0.017707 quat=0.000125 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3400 pos=0.017526 quat=0.000115 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3450 pos=0.017342 quat=0.000116 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3500 pos=0.017168 quat=0.000126 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3550 pos=0.016961 quat=0.000136 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3600 pos=0.016833 quat=0.000126 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3650 pos=0.016736 quat=0.000112 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3700 pos=0.016555 quat=0.000110 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3750 pos=0.016482 quat=0.000116 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3800 pos=0.016306 quat=0.000123 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3850 pos=0.016181 quat=0.000124 hold=0 success=False
+direct_force object=foam_brick seed=1 step=3900 pos=0.016004 quat=0.000120 hold=1 success=False
+direct_force object=foam_brick seed=1 step=3909 pos=0.016201 quat=0.000093 hold=10 success=True
+| Model | Success | Execution time (s), successful trials | Planning time (ms), all rounds |
+| --- | --- | --- | --- |
+| lcp | 1/1 | 26.202 ± 0.000 (n=1) | 88.272 ± 8.421 (n=291) |
+| qp | 2/2 | 193.832 ± 171.711 (n=2) | 92.058 ± 9.043 (n=4132) |
+| scm | 2/2 | 8.921 ± 0.396 (n=2) | 14.990 ± 2.490 (n=1065) |
+
+Population standard deviation; failures are excluded only from successful-completion time.
+Wall-clock execution includes planning; simulation-time values are saved separately.
+QP/LCP force optimization differs from ACADOS, so planning time measures each full implementation.
+benchmark model=lcp object=foam_brick seed=1
+direct_force object=foam_brick seed=1 step=0 pos=0.112348 quat=0.607039 hold=0 success=False
+direct_force object=foam_brick seed=1 step=50 pos=0.063220 quat=0.031828 hold=0 success=False
+direct_force object=foam_brick seed=1 step=100 pos=0.064920 quat=0.031150 hold=0 success=False
+direct_force object=foam_brick seed=1 step=150 pos=0.064306 quat=0.031334 hold=0 success=False
+direct_force object=foam_brick seed=1 step=200 pos=0.064570 quat=0.031343 hold=0 success=False
+direct_force object=foam_brick seed=1 step=250 pos=0.041192 quat=0.000525 hold=0 success=False
+direct_force object=foam_brick seed=1 step=300 pos=0.038382 quat=0.000364 hold=0 success=False
+direct_force object=foam_brick seed=1 step=350 pos=0.036411 quat=0.000273 hold=0 success=False
+direct_force object=foam_brick seed=1 step=400 pos=0.035136 quat=0.000245 hold=0 success=False
+direct_force object=foam_brick seed=1 step=450 pos=0.034024 quat=0.000240 hold=0 success=False
+direct_force object=foam_brick seed=1 step=500 pos=0.032854 quat=0.000183 hold=0 success=False
+direct_force object=foam_brick seed=1 step=550 pos=0.031802 quat=0.000162 hold=0 success=False
+direct_force object=foam_brick seed=1 step=600 pos=0.030826 quat=0.000145 hold=0 success=False
+direct_force object=foam_brick seed=1 step=650 pos=0.029572 quat=0.000102 hold=0 success=False
+direct_force object=foam_brick seed=1 step=700 pos=0.029502 quat=0.000164 hold=0 success=False
+direct_force object=foam_brick seed=1 step=750 pos=0.029352 quat=0.000101 hold=0 success=False
+direct_force object=foam_brick seed=1 step=800 pos=0.028903 quat=0.000146 hold=0 success=False
+direct_force object=foam_brick seed=1 step=850 pos=0.028776 quat=0.000150 hold=0 success=False
+direct_force object=foam_brick seed=1 step=900 pos=0.028731 quat=0.000337 hold=0 success=False
+direct_force object=foam_brick seed=1 step=950 pos=0.028253 quat=0.000187 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1000 pos=0.027417 quat=0.000132 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1050 pos=0.027038 quat=0.000163 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1100 pos=0.026889 quat=0.000107 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1150 pos=0.026524 quat=0.000120 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1200 pos=0.026172 quat=0.000117 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1250 pos=0.025733 quat=0.000092 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1300 pos=0.025568 quat=0.000143 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1350 pos=0.025453 quat=0.000144 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1400 pos=0.025340 quat=0.000146 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1450 pos=0.025226 quat=0.000147 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1500 pos=0.025115 quat=0.000149 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1550 pos=0.025004 quat=0.000150 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1600 pos=0.024893 quat=0.000152 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1650 pos=0.024786 quat=0.000154 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1700 pos=0.024679 quat=0.000156 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1750 pos=0.024574 quat=0.000159 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1800 pos=0.024469 quat=0.000162 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1850 pos=0.024365 quat=0.000165 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1900 pos=0.024262 quat=0.000167 hold=0 success=False
+direct_force object=foam_brick seed=1 step=1950 pos=0.024161 quat=0.000170 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2000 pos=0.024060 quat=0.000173 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2050 pos=0.023961 quat=0.000177 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2100 pos=0.023863 quat=0.000180 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2150 pos=0.023766 quat=0.000183 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2200 pos=0.023671 quat=0.000186 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2250 pos=0.023576 quat=0.000190 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2300 pos=0.023483 quat=0.000193 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2350 pos=0.023391 quat=0.000197 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2400 pos=0.023300 quat=0.000201 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2450 pos=0.023210 quat=0.000204 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2500 pos=0.023122 quat=0.000208 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2550 pos=0.023035 quat=0.000212 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2600 pos=0.022950 quat=0.000216 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2650 pos=0.022866 quat=0.000221 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2700 pos=0.022784 quat=0.000226 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2750 pos=0.022702 quat=0.000231 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2800 pos=0.022640 quat=0.000213 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2850 pos=0.022639 quat=0.000210 hold=0 success=False
+direct_force object=foam_brick seed=1 step=2900 pos=0.022631 quat=0.000209 hold=0 success=False

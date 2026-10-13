@@ -160,7 +160,7 @@ def test_ik2_parameter_factory_passes_contact_model_to_ranking(monkeypatch):
     captured = {}
     def capture(**kwargs):
         captured.update(kwargs)
-        return captured
+        return SimpleNamespace(**kwargs)
     monkeypatch.setattr(params, 'LambdaContactControlOptimizer', capture)
     param = SimpleNamespace(mesh_path_='unused.stl', mu_object_=.5, model_params=.2,
         contact_model='soft-scm', soft_scm_response_time=.07,
@@ -168,6 +168,7 @@ def test_ik2_parameter_factory_passes_contact_model_to_ranking(monkeypatch):
     args = SimpleNamespace(sample_num=8, pos_coef=1, ori_coef=.01, solver_backend='ipopt')
     params.build_lambda_optimizer(param, args)
     assert captured['contact_model'] == 'soft-scm'
+    assert captured['friction_cone'] == 'pyramid'
     assert captured['soft_scm_response_time'] == .07
     assert captured['soft_scm_damping_ratio'] == .5
     assert captured['soft_scm_regularization'] == 2e-8

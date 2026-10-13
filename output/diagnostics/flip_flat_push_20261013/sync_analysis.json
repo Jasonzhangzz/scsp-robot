@@ -1,0 +1,244 @@
+{
+  "stanford_bunny2_sync_probe.jsonl": {
+    "action": {
+      "n": 187,
+      "up": 49,
+      "flat": 82,
+      "down": 56,
+      "median": 0.49957999226537403
+    },
+    "executed_action": {
+      "n": 187,
+      "up": 49,
+      "flat": 83,
+      "down": 55,
+      "median": -0.12286064181910308
+    },
+    "force": {
+      "n": 187,
+      "up": 30,
+      "flat": 114,
+      "down": 43,
+      "median": -0.30995628944753584
+    },
+    "physical": 187,
+    "predicted_up_actual_no_up": 15,
+    "measured_up_actual_no_up": 19,
+    "slides": 56,
+    "cost_good_tilt_bad": 0,
+    "position_dominates": 1,
+    "kept_patch": 70,
+    "median_conf": 0.04035360699999998,
+    "up_command_lower_force": 32,
+    "example_mismatch": [
+      {
+        "step": 76,
+        "action": [
+          0.0017484020510097594,
+          0.003632445212655691,
+          0.0029577748469211823
+        ],
+        "prediction": {
+          "pose_world": [
+            0.3506244863699036,
+            0.015736661963838466,
+            0.37376890693532994,
+            0.49380773757574375,
+            0.7570518696478434,
+            0.41135793649207125,
+            0.11752035167584864
+          ],
+          "position_error_m": 0.09797441116092126,
+          "position_reduction_mm": 0.8938446612103829,
+          "quaternion_error": 0.7660118558600341,
+          "tilt_deg": 118.99188700072963,
+          "object_cost_reduction": 0.021477704986272883,
+          "position_cost_reduction": 0.017317367287962654,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.004160337698310812
+        },
+        "pre_tilt": 119.01914256234748,
+        "post_tilt": 119.5705404973417
+      },
+      {
+        "step": 84,
+        "action": [
+          0.0005420220462870455,
+          0.004239093533745466,
+          0.0025954379425245713
+        ],
+        "prediction": {
+          "pose_world": [
+            0.35830965000904924,
+            0.02209028642357512,
+            0.3736882171186591,
+            0.4641943253683096,
+            0.6942196977949654,
+            0.5182872094570194,
+            0.18428512691636967
+          ],
+          "position_error_m": 0.08871305813399659,
+          "position_reduction_mm": 0.7866212126457633,
+          "quaternion_error": 0.7571839111660726,
+          "tilt_deg": 120.07447328287319,
+          "object_cost_reduction": 0.021137583977425933,
+          "position_cost_reduction": 0.007508686358906169,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.013628897618520597
+        },
+        "pre_tilt": 120.16475035956003,
+        "post_tilt": 120.57800675598473
+      },
+      {
+        "step": 162,
+        "action": [
+          -0.0018626746848387265,
+          0.00016956944203010008,
+          -0.0004002054205494924
+        ],
+        "prediction": {
+          "pose_world": [
+            0.36476523077721973,
+            0.03071341963714259,
+            0.373879184569996,
+            0.44107457726462557,
+            0.635626558958787,
+            0.588524580557075,
+            0.2346719261376677
+          ],
+          "position_error_m": 0.07810983467157767,
+          "position_reduction_mm": -0.35907996418201027,
+          "quaternion_error": 0.7510727877699268,
+          "tilt_deg": 120.05059901354781,
+          "object_cost_reduction": 0.09907157829611712,
+          "position_cost_reduction": 0.0,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.09907157829611712
+        },
+        "pre_tilt": 120.7085861414181,
+        "post_tilt": 120.96728251975311
+      }
+    ]
+  },
+  "elephant_sync_probe.jsonl": {
+    "action": {
+      "n": 213,
+      "up": 65,
+      "flat": 80,
+      "down": 68,
+      "median": -1.1197798072455054
+    },
+    "executed_action": {
+      "n": 213,
+      "up": 65,
+      "flat": 88,
+      "down": 60,
+      "median": -0.37810120987775575
+    },
+    "force": {
+      "n": 213,
+      "up": 62,
+      "flat": 99,
+      "down": 52,
+      "median": -3.726855853209878
+    },
+    "physical": 213,
+    "predicted_up_actual_no_up": 24,
+    "measured_up_actual_no_up": 54,
+    "slides": 107,
+    "cost_good_tilt_bad": 41,
+    "position_dominates": 70,
+    "kept_patch": 108,
+    "median_conf": 0.05764800999999997,
+    "up_command_lower_force": 20,
+    "example_mismatch": [
+      {
+        "step": 72,
+        "action": [
+          0.0014732502110921051,
+          0.0022391976073201287,
+          0.004220844452344682
+        ],
+        "prediction": {
+          "pose_world": [
+            0.3234852106402253,
+            0.02019783325075853,
+            0.37914715665636317,
+            0.7185998136492482,
+            0.6609026112974906,
+            0.14266383772726,
+            0.16269319472047314
+          ],
+          "position_error_m": 0.11070406334713141,
+          "position_reduction_mm": 1.7409978406164317,
+          "quaternion_error": 0.5105134064760841,
+          "tilt_deg": 85.0831728329509,
+          "object_cost_reduction": 0.22860125135441933,
+          "position_cost_reduction": 0.1942510719753372,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.03435017937908036
+        },
+        "pre_tilt": 85.28068287910276,
+        "post_tilt": 85.36227911063877
+      },
+      {
+        "step": 73,
+        "action": [
+          2.762598173035673e-05,
+          0.0034053975704335286,
+          0.0036609430741844176
+        ],
+        "prediction": {
+          "pose_world": [
+            0.32526109041319645,
+            0.02256852215349267,
+            0.3791646022775368,
+            0.7166506548562583,
+            0.6584713265964127,
+            0.15165311252503422,
+            0.17270982718399602
+          ],
+          "position_error_m": 0.10776748406805675,
+          "position_reduction_mm": 1.6035603235631384,
+          "quaternion_error": 0.505613303792878,
+          "tilt_deg": 85.01852242738059,
+          "object_cost_reduction": 0.2338828749144497,
+          "position_cost_reduction": 0.17409736447741153,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.05978551043703817
+        },
+        "pre_tilt": 85.36227911063877,
+        "post_tilt": 85.36729067417211
+      },
+      {
+        "step": 75,
+        "action": [
+          -0.0001162529005495926,
+          0.004750878335506268,
+          0.0015542330276798906
+        ],
+        "prediction": {
+          "pose_world": [
+            0.32852357347091393,
+            0.027284994060671974,
+            0.3790169828720628,
+            0.711126567034215,
+            0.6534626686567472,
+            0.17027463717917873,
+            0.19568365865251391
+          ],
+          "position_error_m": 0.10212905275396646,
+          "position_reduction_mm": 1.5139397940571038,
+          "quaternion_error": 0.4955656130193087,
+          "tilt_deg": 84.95223611339554,
+          "object_cost_reduction": 0.20481139638360268,
+          "position_cost_reduction": 0.15576324394360253,
+          "quaternion_cost_reduction": 0.0,
+          "upright_cost_reduction": 0.04904815243999927
+        },
+        "pre_tilt": 85.2342952863591,
+        "post_tilt": 85.23878035288278
+      }
+    ]
+  }
+}

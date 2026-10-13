@@ -1,0 +1,2877 @@
+[
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_072.npz",
+    "world_force_N": [
+      0.24739148061042665,
+      1.360664640082431,
+      1.3332640619891911
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -1.0499202307319224,
+      -0.5179611439818944
+    ],
+    "elevation_deg": 43.951592584532996,
+    "tilt_gain_deg": 0.6884324164341962,
+    "object_cost_gain": 0.20121747007508617,
+    "tangent_penalty": 0.01370616237575206,
+    "recorded_gain": 0.21981185917484325,
+    "recorded_gain_difference": -0.01859438909975708,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_092.npz",
+    "world_force_N": [
+      0.42711194233291544,
+      1.4323031967504911,
+      0.5237110963751941
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.4333322127831746,
+      -0.02873909654179422
+    ],
+    "elevation_deg": 19.310220268095314,
+    "tilt_gain_deg": 0.09605075483740677,
+    "object_cost_gain": 0.06928354304627327,
+    "tangent_penalty": 0.0018860274230560108,
+    "recorded_gain": 0.08212716217638416,
+    "recorded_gain_difference": -0.012843619130110895,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_112.npz",
+    "world_force_N": [
+      0.06336508704773236,
+      0.8389492990242446,
+      0.2417284734705856
+    ],
+    "force_contact_N": [
+      0.8113863360654325,
+      -0.05069124335623208,
+      0.32460179754519225
+    ],
+    "elevation_deg": 16.030102135134587,
+    "tilt_gain_deg": -0.007010772841098856,
+    "object_cost_gain": 0.017459092488470773,
+    "tangent_penalty": 0.0010793592912257072,
+    "recorded_gain": 0.01765466599017884,
+    "recorded_gain_difference": -0.00019557350170806842,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_132.npz",
+    "world_force_N": [
+      0.07249239179217148,
+      0.5075401109273636,
+      -0.1575918155225439
+    ],
+    "force_contact_N": [
+      0.4023731724276779,
+      0.24182589385398137,
+      0.259428908489033
+    ],
+    "elevation_deg": -17.086467083787568,
+    "tilt_gain_deg": -0.12633306116049425,
+    "object_cost_gain": -0.015799188842702705,
+    "tangent_penalty": 0.0012578312149808812,
+    "recorded_gain": -0.02192339744242311,
+    "recorded_gain_difference": 0.006124208599720404,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_155.npz",
+    "world_force_N": [
+      0.9976384852844699,
+      0.3770732858212589,
+      -1.4490666613360772
+    ],
+    "force_contact_N": [
+      1.1982092234585124,
+      1.2740124216728403,
+      0.42243106590149376
+    ],
+    "elevation_deg": -53.64673094653977,
+    "tilt_gain_deg": 0.22374768375252074,
+    "object_cost_gain": 0.04914184550082723,
+    "tangent_penalty": 0.018015556560153675,
+    "recorded_gain": 0.02364868288494293,
+    "recorded_gain_difference": 0.0254931626158843,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_228.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024745277213725103,
+    "object_cost_gain": -0.006846623945348185,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.006845172720671755,
+    "recorded_gain_difference": -1.4512246764297743e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_253.npz",
+    "world_force_N": [
+      -1.5082823649762127,
+      0.8551445382072832,
+      0.9188515759774025
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      0.4452420871469624,
+      -1.1544037194011367
+    ],
+    "elevation_deg": 27.92148460770082,
+    "tilt_gain_deg": 0.7154235304164018,
+    "object_cost_gain": 0.1075876849348596,
+    "tangent_penalty": 0.015308884635341618,
+    "recorded_gain": 0.03274719999895481,
+    "recorded_gain_difference": 0.07484048493590478,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_273.npz",
+    "world_force_N": [
+      -0.5615728044186282,
+      1.5394487625900068,
+      1.0184187859393217
+    ],
+    "force_contact_N": [
+      0.979485891192682,
+      1.1753830694312184,
+      -1.1753830694312184
+    ],
+    "elevation_deg": 31.860452677603355,
+    "tilt_gain_deg": 0.46028435573795434,
+    "object_cost_gain": 0.07021112073856273,
+    "tangent_penalty": 0.027630507198111047,
+    "recorded_gain": -0.12107506632371567,
+    "recorded_gain_difference": 0.1912861870622784,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_293.npz",
+    "world_force_N": [
+      -0.41355496225665367,
+      0.8096720640480983,
+      0.5145840423469092
+    ],
+    "force_contact_N": [
+      0.5640388355068251,
+      0.6768466026081901,
+      0.5613663361147969
+    ],
+    "elevation_deg": 29.509470098866046,
+    "tilt_gain_deg": 0.48307984054802944,
+    "object_cost_gain": 0.06827906859455624,
+    "tangent_penalty": 0.007732534867852004,
+    "recorded_gain": 0.023928334245107763,
+    "recorded_gain_difference": 0.04435073434944847,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_314.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.140317215895152,
+    "object_cost_gain": 0.02867750336612218,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.025883740415816092,
+    "recorded_gain_difference": 0.002793762950306089,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_334.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.2210121099605118,
+    "object_cost_gain": 0.027454582794465665,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.027606950664504026,
+    "recorded_gain_difference": -0.00015236787003836127,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_354.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.12697146524202196,
+    "object_cost_gain": -0.028810328277145913,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.028812689319671847,
+    "recorded_gain_difference": 2.361042525933499e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_374.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.04367083664826055,
+    "object_cost_gain": 0.0003012137260327563,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.0008224967440355613,
+    "recorded_gain_difference": 0.0011237104700683176,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.01",
+    "snapshot": "step_394.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024164137591441204,
+    "object_cost_gain": -0.0036745585024995364,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.003437788828623667,
+    "recorded_gain_difference": -0.00023676967387586956,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_072.npz",
+    "world_force_N": [
+      0.19571095732133253,
+      1.4331698329496483,
+      0.7557840050722702
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.525585623604965,
+      -0.2601156177730105
+    ],
+    "elevation_deg": 27.58715705134347,
+    "tilt_gain_deg": 0.5776153128012567,
+    "object_cost_gain": 0.1775517358537524,
+    "tangent_penalty": 0.010317011470489645,
+    "recorded_gain": 0.21981185917484325,
+    "recorded_gain_difference": -0.04226012332109086,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_092.npz",
+    "world_force_N": [
+      0.4401345795831073,
+      1.4417365242173634,
+      0.30752670131771936
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.2169991112135429,
+      -0.014801428886226214
+    ],
+    "elevation_deg": 11.530586784581686,
+    "tilt_gain_deg": 0.08016252917070688,
+    "object_cost_gain": 0.06560951197765696,
+    "tangent_penalty": 0.0014192308969362473,
+    "recorded_gain": 0.08212716217638416,
+    "recorded_gain_difference": -0.016517650198727196,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_112.npz",
+    "world_force_N": [
+      0.2096311210324542,
+      0.7676248633471972,
+      0.2220528519602106
+    ],
+    "force_contact_N": [
+      0.809565797860135,
+      -0.024994433065689985,
+      0.16272401189928107
+    ],
+    "elevation_deg": 15.591972923228184,
+    "tilt_gain_deg": -0.02568912066624307,
+    "object_cost_gain": 0.01458475472526466,
+    "tangent_penalty": 0.0008131147719861786,
+    "recorded_gain": 0.01765466599017884,
+    "recorded_gain_difference": -0.0030699112649141824,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_132.npz",
+    "world_force_N": [
+      0.15860077880836648,
+      0.4079871908735696,
+      -0.040158445595312675
+    ],
+    "force_contact_N": [
+      0.4017995246830153,
+      0.12153339051619959,
+      0.13041178114840166
+    ],
+    "elevation_deg": -5.241782152313503,
+    "tilt_gain_deg": -0.1473534365755711,
+    "object_cost_gain": -0.018998776605831935,
+    "tangent_penalty": 0.0009533279301798504,
+    "recorded_gain": -0.02192339744242311,
+    "recorded_gain_difference": 0.002924620836591174,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_155.npz",
+    "world_force_N": [
+      1.07950537889775,
+      0.3214979529865464,
+      -0.7869655179010631
+    ],
+    "force_contact_N": [
+      1.1980782440953899,
+      0.6383116985518691,
+      0.212542277502944
+    ],
+    "elevation_deg": -34.94117769066552,
+    "tilt_gain_deg": 0.00888335848193833,
+    "object_cost_gain": 0.013008040284333333,
+    "tangent_penalty": 0.013578481327029318,
+    "recorded_gain": 0.02364868288494293,
+    "recorded_gain_difference": -0.010640642600609596,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_228.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024745277213725103,
+    "object_cost_gain": -0.006846623945348185,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.006845172720671755,
+    "recorded_gain_difference": -1.4512246764297743e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_253.npz",
+    "world_force_N": [
+      -1.3996812782519759,
+      0.8040381877265246,
+      0.31296881526327314
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      0.22241477484493882,
+      -0.578341254281269
+    ],
+    "elevation_deg": 10.972755723408744,
+    "tilt_gain_deg": 0.5022369564620561,
+    "object_cost_gain": 0.07137018868039924,
+    "tangent_penalty": 0.011518408154188689,
+    "recorded_gain": 0.03274719999895481,
+    "recorded_gain_difference": 0.038622988681444426,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_273.npz",
+    "world_force_N": [
+      -0.5505765325845134,
+      1.2027827021357296,
+      0.42070584748986467
+    ],
+    "force_contact_N": [
+      0.9868106742447529,
+      0.6862907114174414,
+      -0.6942794174686704
+    ],
+    "elevation_deg": 17.64274621218379,
+    "tilt_gain_deg": 0.2854587246318516,
+    "object_cost_gain": 0.03963978236454224,
+    "tangent_penalty": 0.028590565502954822,
+    "recorded_gain": -0.12107506632371567,
+    "recorded_gain_difference": 0.16071484868825792,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_293.npz",
+    "world_force_N": [
+      -0.4486904604212087,
+      0.557961067330833,
+      0.20810137554283836
+    ],
+    "force_contact_N": [
+      0.5670686525052497,
+      0.3944216603944385,
+      0.28073931251314715
+    ],
+    "elevation_deg": 16.20639372063694,
+    "tilt_gain_deg": 0.44812255103903453,
+    "object_cost_gain": 0.0625364159221391,
+    "tangent_penalty": 0.0070314902333598085,
+    "recorded_gain": 0.023928334245107763,
+    "recorded_gain_difference": 0.038608081677031336,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_314.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.140317215895152,
+    "object_cost_gain": 0.02867750336612218,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.025883740415816092,
+    "recorded_gain_difference": 0.002793762950306089,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_334.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.2210121099605118,
+    "object_cost_gain": 0.027454582794465665,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.027606950664504026,
+    "recorded_gain_difference": -0.00015236787003836127,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_354.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.12697146524202196,
+    "object_cost_gain": -0.028810328277145913,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.028812689319671847,
+    "recorded_gain_difference": 2.361042525933499e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_374.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.04367083664826055,
+    "object_cost_gain": 0.0003012137260327563,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.0008224967440355613,
+    "recorded_gain_difference": 0.0011237104700683176,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.03",
+    "snapshot": "step_394.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024164137591441204,
+    "object_cost_gain": -0.0036745585024995364,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.003437788828623667,
+    "recorded_gain_difference": -0.00023676967387586956,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_072.npz",
+    "world_force_N": [
+      0.178116092125166,
+      1.4574237377278472,
+      0.5628575210197083
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.35052976998808133,
+      -0.17366385352491212
+    ],
+    "elevation_deg": 20.97423058610103,
+    "tilt_gain_deg": 0.5364375077017769,
+    "object_cost_gain": 0.16889516814761407,
+    "tangent_penalty": 0.007651512683450968,
+    "recorded_gain": 0.21981185917484325,
+    "recorded_gain_difference": -0.05091669102722918,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_092.npz",
+    "world_force_N": [
+      0.44431208120701504,
+      1.4449423294776857,
+      0.23529799978046212
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.1447404456209826,
+      -0.009964148687023914
+    ],
+    "elevation_deg": 8.847101972076894,
+    "tilt_gain_deg": 0.0747337578330729,
+    "object_cost_gain": 0.06436285088862626,
+    "tangent_penalty": 0.0010524540428808872,
+    "recorded_gain": 0.08212716217638416,
+    "recorded_gain_difference": -0.017764311287757906,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_112.npz",
+    "world_force_N": [
+      0.25852741356795317,
+      0.7437267119925443,
+      0.2156499897989098
+    ],
+    "force_contact_N": [
+      0.8089540680275715,
+      -0.016584301270465975,
+      0.10857734833131484
+    ],
+    "elevation_deg": 15.316750799792414,
+    "tilt_gain_deg": -0.031793173654605766,
+    "object_cost_gain": 0.013662784856988353,
+    "tangent_penalty": 0.0006032039809644629,
+    "recorded_gain": 0.01765466599017884,
+    "recorded_gain_difference": -0.003991881133190489,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_132.npz",
+    "world_force_N": [
+      0.18751129695841906,
+      0.3745666569701272,
+      -0.0007457846032133258
+    ],
+    "force_contact_N": [
+      0.40160698329398314,
+      0.08116110477241703,
+      0.0870972401233637
+    ],
+    "elevation_deg": -0.10201069316290882,
+    "tilt_gain_deg": -0.1544494097459932,
+    "object_cost_gain": -0.020077990215398245,
+    "tangent_penalty": 0.0007086527082493066,
+    "recorded_gain": -0.02192339744242311,
+    "recorded_gain_difference": 0.0018454072270248645,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_155.npz",
+    "world_force_N": [
+      1.1069631506061095,
+      0.3025455582073951,
+      -0.5655794140961561
+    ],
+    "force_contact_N": [
+      1.1980344790257869,
+      0.42583235165180033,
+      0.14199119899588514
+    ],
+    "elevation_deg": -26.236499627041244,
+    "tilt_gain_deg": -0.0659358984660372,
+    "object_cost_gain": 0.0004495629669793999,
+    "tangent_penalty": 0.01007473461527958,
+    "recorded_gain": 0.02364868288494293,
+    "recorded_gain_difference": -0.02319911991796353,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_228.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024745277213725103,
+    "object_cost_gain": -0.006846623945348185,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.006845172720671755,
+    "recorded_gain_difference": -1.4512246764297743e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_253.npz",
+    "world_force_N": [
+      -1.3632698359379065,
+      0.7871974956037762,
+      0.11058219815998566
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      0.14822990679152398,
+      -0.3858150218427409
+    ],
+    "elevation_deg": 4.018169199850083,
+    "tilt_gain_deg": 0.4490372084244001,
+    "object_cost_gain": 0.06278349224632684,
+    "tangent_penalty": 0.008541266817346927,
+    "recorded_gain": 0.03274719999895481,
+    "recorded_gain_difference": 0.030036292247372032,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_273.npz",
+    "world_force_N": [
+      -0.5409150510851533,
+      1.044919929299375,
+      0.1372508536960067
+    ],
+    "force_contact_N": [
+      0.9892653874177482,
+      0.4581545834929146,
+      -0.46339283427713157
+    ],
+    "elevation_deg": 6.653364255208814,
+    "tilt_gain_deg": 0.1806695924198607,
+    "object_cost_gain": 0.021483491578436542,
+    "tangent_penalty": 0.021231927061747962,
+    "recorded_gain": -0.12107506632371567,
+    "recorded_gain_difference": 0.14255855790215222,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_293.npz",
+    "world_force_N": [
+      -0.44613564941136397,
+      0.4720399918288331,
+      0.07173926757384932
+    ],
+    "force_contact_N": [
+      0.5680800382486616,
+      0.2631676188541123,
+      0.18717149516834136
+    ],
+    "elevation_deg": 6.302882606037404,
+    "tilt_gain_deg": 0.42798397058506055,
+    "object_cost_gain": 0.059557339255773556,
+    "tangent_penalty": 0.005214518210844787,
+    "recorded_gain": 0.023928334245107763,
+    "recorded_gain_difference": 0.03562900501066579,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_314.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.140317215895152,
+    "object_cost_gain": 0.02867750336612218,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.025883740415816092,
+    "recorded_gain_difference": 0.002793762950306089,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_334.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.2210121099605118,
+    "object_cost_gain": 0.027454582794465665,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.027606950664504026,
+    "recorded_gain_difference": -0.00015236787003836127,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_354.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.12697146524202196,
+    "object_cost_gain": -0.028810328277145913,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.028812689319671847,
+    "recorded_gain_difference": 2.361042525933499e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_374.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.04367083664826055,
+    "object_cost_gain": 0.0003012137260327563,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.0008224967440355613,
+    "recorded_gain_difference": 0.0011237104700683176,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.05",
+    "snapshot": "step_394.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024164137591441204,
+    "object_cost_gain": -0.0036745585024995364,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.003437788828623667,
+    "recorded_gain_difference": -0.00023676967387586956,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_072.npz",
+    "world_force_N": [
+      0.16196001973123061,
+      1.4795100356917266,
+      0.3872810836222603
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.19126724142262022,
+      -0.09485169965850031
+    ],
+    "elevation_deg": 14.585411719355742,
+    "tilt_gain_deg": 0.4976354484484631,
+    "object_cost_gain": 0.16079134720733634,
+    "tangent_penalty": 0.004558000256952524,
+    "recorded_gain": 0.21981185917484325,
+    "recorded_gain_difference": -0.059020511967506906,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_092.npz",
+    "world_force_N": [
+      0.4480384108469273,
+      1.4478835102842351,
+      0.16956252761650278
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.07898630064824827,
+      -0.0054829884973620555
+    ],
+    "elevation_deg": 6.38351530405005,
+    "tilt_gain_deg": 0.06974791661981783,
+    "object_cost_gain": 0.06322164027442945,
+    "tangent_penalty": 0.0006268898852957671,
+    "recorded_gain": 0.08212716217638416,
+    "recorded_gain_difference": -0.018905521901954714,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_112.npz",
+    "world_force_N": [
+      0.3030402500861534,
+      0.7219471337489314,
+      0.2098974009592094
+    ],
+    "force_contact_N": [
+      0.808395811863706,
+      -0.009006834283226881,
+      0.05927110870753986
+    ],
+    "elevation_deg": 15.006922010279308,
+    "tilt_gain_deg": -0.03728882663551758,
+    "object_cost_gain": 0.012839183867438209,
+    "tangent_penalty": 0.0003594187391226519,
+    "recorded_gain": 0.01765466599017884,
+    "recorded_gain_difference": -0.004815482122740633,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_132.npz",
+    "world_force_N": [
+      0.21388449418229144,
+      0.3440809714417894,
+      0.03520128121904374
+    ],
+    "force_contact_N": [
+      0.4014313655980021,
+      0.04433877307813656,
+      0.047585227491849895
+    ],
+    "elevation_deg": 4.965772662451064,
+    "tilt_gain_deg": -0.16085395854005924,
+    "object_cost_gain": -0.02105141957669865,
+    "tangent_penalty": 0.00042302806735255945,
+    "recorded_gain": -0.02192339744242311,
+    "recorded_gain_difference": 0.0008719778657244603,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_155.npz",
+    "world_force_N": [
+      1.1319984461590342,
+      0.28512945435529286,
+      -0.364020310612007
+    ],
+    "force_contact_N": [
+      1.1979946467184328,
+      0.23241686239367776,
+      0.07759705467691964
+    ],
+    "elevation_deg": -17.31921457451384,
+    "tilt_gain_deg": -0.13358126521276859,
+    "object_cost_gain": -0.010891197933027286,
+    "tangent_penalty": 0.00600389008194546,
+    "recorded_gain": 0.02364868288494293,
+    "recorded_gain_difference": -0.034539880817970214,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_228.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024745277213725103,
+    "object_cost_gain": -0.006846623945348185,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.006845172720671755,
+    "recorded_gain_difference": -1.4512246764297743e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_253.npz",
+    "world_force_N": [
+      -1.330076246553619,
+      0.7719732111184916,
+      -0.07359098906475517
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      0.08082937971893386,
+      -0.21057083490018336
+    ],
+    "elevation_deg": -2.7396580664021433,
+    "tilt_gain_deg": 0.39742315636834746,
+    "object_cost_gain": 0.05439798991785061,
+    "tangent_penalty": 0.005087346513630788,
+    "recorded_gain": 0.03274719999895481,
+    "recorded_gain_difference": 0.021650789918895796,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_273.npz",
+    "world_force_N": [
+      -0.5321599437983725,
+      0.9010336006675734,
+      -0.12104650771387493
+    ],
+    "force_contact_N": [
+      0.9915026757878296,
+      0.2502144786421283,
+      -0.25302800423788324
+    ],
+    "elevation_deg": -6.598282608612319,
+    "tilt_gain_deg": 0.07309603233139228,
+    "object_cost_gain": 0.0028776572972173398,
+    "tangent_penalty": 0.012663045625075836,
+    "recorded_gain": -0.12107506632371567,
+    "recorded_gain_difference": 0.12395272362093301,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_293.npz",
+    "world_force_N": [
+      -0.44374556393870945,
+      0.3939110968423241,
+      -0.052403740182610736
+    ],
+    "force_contact_N": [
+      0.5690001072643062,
+      0.14365525194467774,
+      0.10209934494330478
+    ],
+    "elevation_deg": -5.047093009946772,
+    "tilt_gain_deg": 0.40598926716882033,
+    "object_cost_gain": 0.05635480932683379,
+    "tangent_penalty": 0.0031061107649140774,
+    "recorded_gain": 0.023928334245107763,
+    "recorded_gain_difference": 0.032426475081726025,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_314.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.140317215895152,
+    "object_cost_gain": 0.02867750336612218,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.025883740415816092,
+    "recorded_gain_difference": 0.002793762950306089,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_334.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.2210121099605118,
+    "object_cost_gain": 0.027454582794465665,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.027606950664504026,
+    "recorded_gain_difference": -0.00015236787003836127,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_354.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.12697146524202196,
+    "object_cost_gain": -0.028810328277145913,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.028812689319671847,
+    "recorded_gain_difference": 2.361042525933499e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_374.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.04367083664826055,
+    "object_cost_gain": 0.0003012137260327563,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.0008224967440355613,
+    "recorded_gain_difference": 0.0011237104700683176,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.1",
+    "snapshot": "step_394.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024164137591441204,
+    "object_cost_gain": -0.0036745585024995364,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.003437788828623667,
+    "recorded_gain_difference": -0.00023676967387586956,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_072.npz",
+    "world_force_N": [
+      0.15265902005146614,
+      1.4921467652847025,
+      0.2868708229957159
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.1002083299130399,
+      -0.049721990999680325
+    ],
+    "elevation_deg": 10.82737563482451,
+    "tilt_gain_deg": 0.47497266724836606,
+    "object_cost_gain": 0.15607994071605802,
+    "tangent_penalty": 0.002502797154586588,
+    "recorded_gain": 0.21981185917484325,
+    "recorded_gain_difference": -0.06373191845878523,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_092.npz",
+    "world_force_N": [
+      0.4501371026730214,
+      1.449575690075739,
+      0.13196808200504906
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.041384861217871216,
+      -0.0028864382043908682
+    ],
+    "elevation_deg": 4.969007342935126,
+    "tilt_gain_deg": 0.06687877348255711,
+    "object_cost_gain": 0.06256650023347277,
+    "tangent_penalty": 0.0003442076527060457,
+    "recorded_gain": 0.08212716217638416,
+    "recorded_gain_difference": -0.019560661942911395,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_112.npz",
+    "world_force_N": [
+      0.32850263128304963,
+      0.7094784753953911,
+      0.20663950603153416
+    ],
+    "force_contact_N": [
+      0.8080758899857642,
+      -0.004706114849578115,
+      0.031060904187575927
+    ],
+    "elevation_deg": 14.804691174538899,
+    "tilt_gain_deg": -0.04040846509332141,
+    "object_cost_gain": 0.01237417865038637,
+    "tangent_penalty": 0.00019738545718543828,
+    "recorded_gain": 0.01765466599017884,
+    "recorded_gain_difference": -0.005280487339792472,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_132.npz",
+    "world_force_N": [
+      0.22899393149945801,
+      0.32661618425221095,
+      0.05579286526185369
+    ],
+    "force_contact_N": [
+      0.4013307635305444,
+      0.0232458004702686,
+      0.024948893716290974
+    ],
+    "elevation_deg": 7.9622449648708,
+    "tilt_gain_deg": -0.16447392975975106,
+    "object_cost_gain": -0.021601295720913072,
+    "tangent_penalty": 0.00023256290743406462,
+    "recorded_gain": -0.02192339744242311,
+    "recorded_gain_difference": 0.00032210172151003746,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_155.npz",
+    "world_force_N": [
+      1.1463359310936239,
+      0.2750973130385117,
+      -0.24871550786640156
+    ],
+    "force_contact_N": [
+      1.1979718657388718,
+      0.1217855281375475,
+      0.04069024999827266
+    ],
+    "elevation_deg": -11.91330571616458,
+    "tilt_gain_deg": -0.17156428487872688,
+    "object_cost_gain": -0.017252687832664648,
+    "tangent_penalty": 0.0032974822617326607,
+    "recorded_gain": 0.02364868288494293,
+    "recorded_gain_difference": -0.04090137071760758,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_228.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024745277213725103,
+    "object_cost_gain": -0.006846623945348185,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.006845172720671755,
+    "recorded_gain_difference": -1.4512246764297743e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_253.npz",
+    "world_force_N": [
+      -1.3110688750447943,
+      0.7633103514564814,
+      -0.1789122057749037
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      0.04233218424056923,
+      -0.1103368589299326
+    ],
+    "elevation_deg": -6.72591842474779,
+    "tilt_gain_deg": 0.3665295735634402,
+    "object_cost_gain": 0.049353368836184686,
+    "tangent_penalty": 0.0027932472522202694,
+    "recorded_gain": 0.03274719999895481,
+    "recorded_gain_difference": 0.016606168837229873,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_273.npz",
+    "world_force_N": [
+      -0.5271691642241155,
+      0.8186520581991822,
+      -0.26890704766839085
+    ],
+    "force_contact_N": [
+      0.9927835851244966,
+      0.1311582993292776,
+      -0.1326189051856573
+    ],
+    "elevation_deg": -15.438519946256374,
+    "tilt_gain_deg": 0.006601330772042502,
+    "object_cost_gain": -0.008610800826824416,
+    "tangent_penalty": 0.00695805469911815,
+    "recorded_gain": -0.12107506632371567,
+    "recorded_gain_difference": 0.11246426549689126,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_293.npz",
+    "world_force_N": [
+      -0.44235076838750076,
+      0.3492580513301917,
+      -0.12341869349850762
+    ],
+    "force_contact_N": [
+      0.5695261292118015,
+      0.0752807575108787,
+      0.053482317736467166
+    ],
+    "elevation_deg": -12.351618243156175,
+    "tilt_gain_deg": 0.39168769789233693,
+    "object_cost_gain": 0.05429370938258771,
+    "tangent_penalty": 0.0017055101523752302,
+    "recorded_gain": 0.023928334245107763,
+    "recorded_gain_difference": 0.030365375137479944,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_314.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.140317215895152,
+    "object_cost_gain": 0.02867750336612218,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.025883740415816092,
+    "recorded_gain_difference": 0.002793762950306089,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_334.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.2210121099605118,
+    "object_cost_gain": 0.027454582794465665,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.027606950664504026,
+    "recorded_gain_difference": -0.00015236787003836127,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_354.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.12697146524202196,
+    "object_cost_gain": -0.028810328277145913,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.028812689319671847,
+    "recorded_gain_difference": 2.361042525933499e-06,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_374.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.04367083664826055,
+    "object_cost_gain": 0.0003012137260327563,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.0008224967440355613,
+    "recorded_gain_difference": 0.0011237104700683176,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "elephant",
+    "variant": "penalty_0.2",
+    "snapshot": "step_394.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.024164137591441204,
+    "object_cost_gain": -0.0036745585024995364,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.003437788828623667,
+    "recorded_gain_difference": -0.00023676967387586956,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_070.npz",
+    "world_force_N": [
+      0.5372502933156049,
+      0.9505793053822151,
+      1.6021552109486616
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -1.0863206250269435,
+      0.5093722452526057
+    ],
+    "elevation_deg": 55.724882557612666,
+    "tilt_gain_deg": 0.9940780034158507,
+    "object_cost_gain": 0.17225161950016243,
+    "tangent_penalty": 0.0143955258459261,
+    "recorded_gain": 0.11450179394667437,
+    "recorded_gain_difference": 0.057749825553488066,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_090.npz",
+    "world_force_N": [
+      0.1200917871835856,
+      0.31226703482557505,
+      -0.05546003787647864
+    ],
+    "force_contact_N": [
+      0.3367358810948584,
+      -0.00791280328219062,
+      0.03943206964453764
+    ],
+    "elevation_deg": -9.412235879323728,
+    "tilt_gain_deg": 0.051362079817437234,
+    "object_cost_gain": 0.007733326385853445,
+    "tangent_penalty": 1.6175005722343135e-05,
+    "recorded_gain": 0.00818036018186774,
+    "recorded_gain_difference": -0.0004470337960142956,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_159.npz",
+    "world_force_N": [
+      -2.297498377051051,
+      0.2713507833946156,
+      -0.6813739668894737
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.3957356548540888,
+      1.827623097240514
+    ],
+    "elevation_deg": -16.411020873243245,
+    "tilt_gain_deg": 1.1139742158129877,
+    "object_cost_gain": 0.17070183763563662,
+    "tangent_penalty": 0.03496812894089804,
+    "recorded_gain": 0.09476080867713499,
+    "recorded_gain_difference": 0.07594102895850163,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_179.npz",
+    "world_force_N": [
+      -2.3803391152763806,
+      0.1271970882668641,
+      -0.28775001373562825
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.3243449690532905,
+      1.827623097240514
+    ],
+    "elevation_deg": -6.883093845412661,
+    "tilt_gain_deg": 0.9338649287057592,
+    "object_cost_gain": 0.14219332200717538,
+    "tangent_penalty": 0.034454058445171895,
+    "recorded_gain": 0.038086455214783044,
+    "recorded_gain_difference": 0.10410686679239234,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_201.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.04767533711768124,
+    "object_cost_gain": -0.00760296398468796,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.007684134132313503,
+    "recorded_gain_difference": 8.11701476255422e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_221.npz",
+    "world_force_N": [
+      -1.1098145373311437,
+      -0.25853475183086455,
+      0.5723278518594315
+    ],
+    "force_contact_N": [
+      0.6473752905398072,
+      0.7768503486477687,
+      0.7768503486477687
+    ],
+    "elevation_deg": 26.668047789326952,
+    "tilt_gain_deg": 0.47197461428041265,
+    "object_cost_gain": 0.07517680347516986,
+    "tangent_penalty": 0.012069929283883197,
+    "recorded_gain": 0.012077593986234092,
+    "recorded_gain_difference": 0.06309920948893577,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_241.npz",
+    "world_force_N": [
+      -0.8809059972345024,
+      -0.2267416773889273,
+      0.6854149678698678
+    ],
+    "force_contact_N": [
+      0.6349620207769315,
+      0.7619544249323178,
+      0.5598656346891158
+    ],
+    "elevation_deg": 36.99870249322969,
+    "tilt_gain_deg": 0.5609169360852349,
+    "object_cost_gain": 0.0821421977668031,
+    "tangent_penalty": 0.008940240745797854,
+    "recorded_gain": 0.021298632988456134,
+    "recorded_gain_difference": 0.06084356477834696,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_261.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.22383099715138144,
+    "object_cost_gain": 0.04173561748249455,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.04168956280561176,
+    "recorded_gain_difference": 4.6054676882789636e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_281.npz",
+    "world_force_N": [
+      -0.2549339745008368,
+      -0.30862498047880216,
+      0.2322764492971437
+    ],
+    "force_contact_N": [
+      0.23836748017184317,
+      0.28604097620621177,
+      0.27487190317663657
+    ],
+    "elevation_deg": 30.124656420871528,
+    "tilt_gain_deg": 0.2843002676544586,
+    "object_cost_gain": 0.0379667598828739,
+    "tangent_penalty": 0.0015737400322494888,
+    "recorded_gain": 0.01191767743388894,
+    "recorded_gain_difference": 0.02604908244898496,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_301.npz",
+    "world_force_N": [
+      -0.06713172668783529,
+      -0.392407894488764,
+      0.22972516471330823
+    ],
+    "force_contact_N": [
+      0.2550722692520695,
+      0.30608672310248336,
+      0.22915787371752064
+    ],
+    "elevation_deg": 29.986714729989654,
+    "tilt_gain_deg": -0.058718693057656424,
+    "object_cost_gain": -0.013567500440968772,
+    "tangent_penalty": 0.0014620241314635147,
+    "recorded_gain": -0.03227759168835043,
+    "recorded_gain_difference": 0.018710091247381655,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.01",
+    "snapshot": "step_321.npz",
+    "world_force_N": [
+      -0.0459093135503808,
+      -0.783231312102332,
+      0.4140663757199804
+    ],
+    "force_contact_N": [
+      0.5229646761374459,
+      0.627557611364935,
+      0.34596142669448215
+    ],
+    "elevation_deg": 27.823227145976826,
+    "tilt_gain_deg": 0.36032961078434766,
+    "object_cost_gain": 0.03245585175423038,
+    "tangent_penalty": 0.005135178643425445,
+    "recorded_gain": 0.005967177994298467,
+    "recorded_gain_difference": 0.026488673759931913,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_070.npz",
+    "world_force_N": [
+      0.5858848507611035,
+      1.1281131656624097,
+      1.0314356466216799
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.5435233595487281,
+      0.2544692413102063
+    ],
+    "elevation_deg": 39.05586477877939,
+    "tilt_gain_deg": 0.8005336668062455,
+    "object_cost_gain": 0.14332255495255808,
+    "tangent_penalty": 0.010805167114443839,
+    "recorded_gain": 0.11450179394667437,
+    "recorded_gain_difference": 0.02882076100588371,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_090.npz",
+    "world_force_N": [
+      0.13192519563387264,
+      0.30279816637447243,
+      -0.06865814753204379
+    ],
+    "force_contact_N": [
+      0.33674924689402386,
+      -0.003935887565960493,
+      0.019732752739696807
+    ],
+    "elevation_deg": -11.742997091020092,
+    "tilt_gain_deg": 0.050945453154099596,
+    "object_cost_gain": 0.007671632774473025,
+    "tangent_penalty": 1.2146182248536829e-05,
+    "recorded_gain": 0.00818036018186774,
+    "recorded_gain_difference": -0.0005087274073947157,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_159.npz",
+    "world_force_N": [
+      -1.7229314890540306,
+      -0.07100612732139316,
+      -0.8603580967456534
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.19852279196314312,
+      1.1639381052839979
+    ],
+    "elevation_deg": -26.51614944431676,
+    "tilt_gain_deg": 0.9073865508388224,
+    "object_cost_gain": 0.13890885410745923,
+    "tangent_penalty": 0.041824896355828325,
+    "recorded_gain": 0.09476080867713499,
+    "recorded_gain_difference": 0.044148045430324245,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_179.npz",
+    "world_force_N": [
+      -1.668084942464197,
+      -0.26418156124278613,
+      -0.6397577835000297
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.16311262091699802,
+      0.9567632612913924
+    ],
+    "elevation_deg": -20.74703998395187,
+    "tilt_gain_deg": 0.6865933748179174,
+    "object_cost_gain": 0.10441685068048656,
+    "tangent_penalty": 0.028260049957780607,
+    "recorded_gain": 0.038086455214783044,
+    "recorded_gain_difference": 0.06633039546570352,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_201.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.04767533711768124,
+    "object_cost_gain": -0.00760296398468796,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.007684134132313503,
+    "recorded_gain_difference": 8.11701476255422e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_221.npz",
+    "world_force_N": [
+      -0.90872543276977,
+      -0.2673108499198643,
+      0.2508068390325772
+    ],
+    "force_contact_N": [
+      0.6511601136302236,
+      0.45815272647147604,
+      0.5711634256470092
+    ],
+    "elevation_deg": 14.830468330699528,
+    "tilt_gain_deg": 0.4436370440535313,
+    "object_cost_gain": 0.0705097572412079,
+    "tangent_penalty": 0.016083947387102213,
+    "recorded_gain": 0.012077593986234092,
+    "recorded_gain_difference": 0.0584321632549738,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_241.npz",
+    "world_force_N": [
+      -0.6314439405760844,
+      -0.37272913700862315,
+      0.34295790764567174
+    ],
+    "force_contact_N": [
+      0.6381115008982654,
+      0.4116395856355179,
+      0.28041959639320196
+    ],
+    "elevation_deg": 25.066719651415355,
+    "tilt_gain_deg": 0.5125196369878324,
+    "object_cost_gain": 0.07441532393972494,
+    "tangent_penalty": 0.007442468955105214,
+    "recorded_gain": 0.021298632988456134,
+    "recorded_gain_difference": 0.05311669095126881,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_261.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.22383099715138144,
+    "object_cost_gain": 0.04173561748249455,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.04168956280561176,
+    "recorded_gain_difference": 4.6054676882789636e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_281.npz",
+    "world_force_N": [
+      -0.11725590640114156,
+      -0.30279732947766447,
+      0.2506981766524979
+    ],
+    "force_contact_N": [
+      0.2476323894595942,
+      0.29715886735151303,
+      0.13659997564620335
+    ],
+    "elevation_deg": 37.670764902099236,
+    "tilt_gain_deg": 0.2840289242664369,
+    "object_cost_gain": 0.03814563590131925,
+    "tangent_penalty": 0.003208888373765324,
+    "recorded_gain": 0.01191767743388894,
+    "recorded_gain_difference": 0.026227958467430312,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_301.npz",
+    "world_force_N": [
+      0.040030874713818276,
+      -0.3499549592392706,
+      0.23612663444555237
+    ],
+    "force_contact_N": [
+      0.2614565858859532,
+      0.3137479030631439,
+      0.11414656780401977
+    ],
+    "elevation_deg": 33.83643112692776,
+    "tilt_gain_deg": -0.05896633384249128,
+    "object_cost_gain": -0.013145430540298264,
+    "tangent_penalty": 0.0033440155685387283,
+    "recorded_gain": -0.03227759168835043,
+    "recorded_gain_difference": 0.019132161148052163,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.03",
+    "snapshot": "step_321.npz",
+    "world_force_N": [
+      0.0937214852820545,
+      -0.6530871613182285,
+      0.21736892959153922
+    ],
+    "force_contact_N": [
+      0.5295630074546752,
+      0.4148738302393935,
+      0.17320085089860987
+    ],
+    "elevation_deg": 18.234873152487882,
+    "tilt_gain_deg": 0.3409899598365769,
+    "object_cost_gain": 0.03121451377073292,
+    "tangent_penalty": 0.006063564893085227,
+    "recorded_gain": 0.005967177994298467,
+    "recorded_gain_difference": 0.025247335776434454,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_070.npz",
+    "world_force_N": [
+      0.6019639897554581,
+      1.1873876436630506,
+      0.8411042213714084
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.3624297744139399,
+      0.16959776604391202
+    ],
+    "elevation_deg": 32.28515545670015,
+    "tilt_gain_deg": 0.73831990705186,
+    "object_cost_gain": 0.13399987890894494,
+    "tangent_penalty": 0.008005937181441245,
+    "recorded_gain": 0.11450179394667437,
+    "recorded_gain_difference": 0.019498084962270568,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_090.npz",
+    "world_force_N": [
+      0.13588000192340702,
+      0.29963784982769975,
+      -0.07305368746171252
+    ],
+    "force_contact_N": [
+      0.3367536780026301,
+      -0.0026193454645692575,
+      0.013158898314977702
+    ],
+    "elevation_deg": -12.518985437993262,
+    "tilt_gain_deg": 0.05080237588751402,
+    "object_cost_gain": 0.007650436083972423,
+    "tangent_penalty": 9.000878776334128e-06,
+    "recorded_gain": 0.00818036018186774,
+    "recorded_gain_difference": -0.0005299240978953179,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_159.npz",
+    "world_force_N": [
+      -1.384309354534455,
+      -0.22663687521552744,
+      -0.9859247927993661
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.1324943809922891,
+      0.7762615341848527
+    ],
+    "elevation_deg": -35.10173122710309,
+    "tilt_gain_deg": 0.7438751158372128,
+    "object_cost_gain": 0.11378872629003922,
+    "tangent_penalty": 0.031006836522477557,
+    "recorded_gain": 0.09476080867713499,
+    "recorded_gain_difference": 0.019027917612904233,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_179.npz",
+    "world_force_N": [
+      -1.4075643405556708,
+      -0.4033169411251185,
+      -0.7711633830640721
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.10895126579505943,
+      0.6380727889488347
+    ],
+    "elevation_deg": -27.774722355559238,
+    "tilt_gain_deg": 0.5610737970322077,
+    "object_cost_gain": 0.08527537197981871,
+    "tangent_penalty": 0.020950363115764495,
+    "recorded_gain": 0.038086455214783044,
+    "recorded_gain_difference": 0.04718891676503567,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_201.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.04767533711768124,
+    "object_cost_gain": -0.00760296398468796,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.007684134132313503,
+    "recorded_gain_difference": 8.11701476255422e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_221.npz",
+    "world_force_N": [
+      -0.7413044233673092,
+      -0.32797230703452046,
+      0.0842812086807006
+    ],
+    "force_contact_N": [
+      0.6524244942395042,
+      0.3055938031287173,
+      0.3809935842344572
+    ],
+    "elevation_deg": 5.935818899941262,
+    "tilt_gain_deg": 0.406913100221729,
+    "object_cost_gain": 0.06434481058842323,
+    "tangent_penalty": 0.011927184186924586,
+    "recorded_gain": 0.012077593986234092,
+    "recorded_gain_difference": 0.05226721660218914,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_241.npz",
+    "world_force_N": [
+      -0.5466000486812953,
+      -0.42025048569752205,
+      0.208547908011168
+    ],
+    "force_contact_N": [
+      0.6391631030911175,
+      0.2745091047709015,
+      0.18705505320104063
+    ],
+    "elevation_deg": 16.82906893524403,
+    "tilt_gain_deg": 0.48670776952610595,
+    "object_cost_gain": 0.07039226977577329,
+    "tangent_penalty": 0.0055172420765082966,
+    "recorded_gain": 0.021298632988456134,
+    "recorded_gain_difference": 0.04909363678731715,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_261.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.22383099715138144,
+    "object_cost_gain": 0.04173561748249455,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.04168956280561176,
+    "recorded_gain_difference": 4.6054676882789636e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_281.npz",
+    "world_force_N": [
+      -0.07172648610184369,
+      -0.30092328877282715,
+      0.2568376690645464
+    ],
+    "force_contact_N": [
+      0.25074183162870844,
+      0.3008901979544501,
+      0.09087752984810958
+    ],
+    "elevation_deg": 39.70082707932591,
+    "tilt_gain_deg": 0.28333998761728196,
+    "object_cost_gain": 0.038124267343995655,
+    "tangent_penalty": 0.004939681832818111,
+    "recorded_gain": 0.01191767743388894,
+    "recorded_gain_difference": 0.026206589910106715,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_301.npz",
+    "world_force_N": [
+      0.07275401020388654,
+      -0.32967848276875433,
+      0.21233502469873766
+    ],
+    "force_contact_N": [
+      0.2635980937770277,
+      0.2894949170707499,
+      0.07599966225310117
+    ],
+    "elevation_deg": 32.167197566122624,
+    "tilt_gain_deg": -0.05953778791833031,
+    "object_cost_gain": -0.013070530005041547,
+    "tangent_penalty": 0.004479162783619292,
+    "recorded_gain": -0.03227759168835043,
+    "recorded_gain_difference": 0.01920706168330888,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.05",
+    "snapshot": "step_321.npz",
+    "world_force_N": [
+      0.13389627060265782,
+      -0.5891365144147744,
+      0.08827538361076112
+    ],
+    "force_contact_N": [
+      0.5317746610514607,
+      0.2769015270918812,
+      0.11551554617238947
+    ],
+    "elevation_deg": 8.312803201898621,
+    "tilt_gain_deg": 0.32592584080471454,
+    "object_cost_gain": 0.029852973831207663,
+    "tangent_penalty": 0.004500914855666063,
+    "recorded_gain": 0.005967177994298467,
+    "recorded_gain_difference": 0.023885795836909196,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_070.npz",
+    "world_force_N": [
+      0.6165237070076319,
+      1.2413155579962716,
+      0.6680358475248782
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.19772911307228727,
+      0.0924838276780171
+    ],
+    "elevation_deg": 25.733701047928218,
+    "tilt_gain_deg": 0.6804348503960966,
+    "object_cost_gain": 0.12536378643333812,
+    "tangent_penalty": 0.004765006053833053,
+    "recorded_gain": 0.11450179394667437,
+    "recorded_gain_difference": 0.010861992486663752,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_090.npz",
+    "world_force_N": [
+      0.1394797888566831,
+      0.29676307886581027,
+      -0.07704796050436388
+    ],
+    "force_contact_N": [
+      0.3367576957421685,
+      -0.001426458052079627,
+      0.007179433901967765
+    ],
+    "elevation_deg": -13.222868565204255,
+    "tilt_gain_deg": 0.050670480609369406,
+    "object_cost_gain": 0.007630891458916267,
+    "tangent_penalty": 5.357905372706689e-06,
+    "recorded_gain": 0.00818036018186774,
+    "recorded_gain_difference": -0.0005494687229514739,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_159.npz",
+    "world_force_N": [
+      -1.0762466418158945,
+      -0.36829855415673224,
+      -1.1001264507250679
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.07234205860051635,
+      0.4235656552298889
+    ],
+    "elevation_deg": -44.042625286162945,
+    "tilt_gain_deg": 0.5601565696547084,
+    "object_cost_gain": 0.08561043622163922,
+    "tangent_penalty": 0.018464123773288568,
+    "recorded_gain": 0.09476080867713499,
+    "recorded_gain_difference": -0.00915037245549577,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_179.npz",
+    "world_force_N": [
+      -1.1705600228936546,
+      -0.5300157049710981,
+      -0.8906265234579236
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.05953199893175805,
+      0.348154177393812
+    ],
+    "elevation_deg": -34.72641233744744,
+    "tilt_gain_deg": 0.429877687863339,
+    "object_cost_gain": 0.06529323444227941,
+    "tangent_penalty": 0.012475539013357274,
+    "recorded_gain": 0.038086455214783044,
+    "recorded_gain_difference": 0.02720677922749637,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_201.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.04767533711768124,
+    "object_cost_gain": -0.00760296398468796,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.007684134132313503,
+    "recorded_gain_difference": 8.11701476255422e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_221.npz",
+    "world_force_N": [
+      -0.5889390320136486,
+      -0.38318468214975504,
+      -0.0672584049498137
+    ],
+    "force_contact_N": [
+      0.6535751374986619,
+      0.16676626332776978,
+      0.2079228947448399
+    ],
+    "elevation_deg": -5.467959572831164,
+    "tilt_gain_deg": 0.36043075966827587,
+    "object_cost_gain": 0.056583706152988356,
+    "tangent_penalty": 0.007104291674338083,
+    "recorded_gain": 0.012077593986234092,
+    "recorded_gain_difference": 0.044506112166754264,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_241.npz",
+    "world_force_N": [
+      -0.4693884472549661,
+      -0.46350356373451046,
+      0.08628766454044715
+    ],
+    "force_contact_N": [
+      0.6401198776909072,
+      0.14977324023859406,
+      0.10208402302160173
+    ],
+    "elevation_deg": 7.452253040957141,
+    "tilt_gain_deg": 0.4580327022168831,
+    "object_cost_gain": 0.06593022475969335,
+    "tangent_penalty": 0.0032853171247842526,
+    "recorded_gain": 0.021298632988456134,
+    "recorded_gain_difference": 0.04463159177123721,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_261.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.22383099715138144,
+    "object_cost_gain": 0.04173561748249455,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.04168956280561176,
+    "recorded_gain_difference": 4.6054676882789636e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_281.npz",
+    "world_force_N": [
+      -0.02750412136308248,
+      -0.28963709846316077,
+      0.19715288549237958
+    ],
+    "force_contact_N": [
+      0.25357786983579844,
+      0.23825590475766734,
+      0.049474978865376475
+    ],
+    "elevation_deg": 34.123171961560296,
+    "tilt_gain_deg": 0.28046567651091436,
+    "object_cost_gain": 0.03779121762187643,
+    "tangent_penalty": 0.00592136496856241,
+    "recorded_gain": 0.01191767743388894,
+    "recorded_gain_difference": 0.025873540187987487,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_301.npz",
+    "world_force_N": [
+      0.09087217233936806,
+      -0.2859067712873721,
+      0.08492715398158432
+    ],
+    "force_contact_N": [
+      0.2655507985382479,
+      0.15805515547649795,
+      0.04140526874754116
+    ],
+    "elevation_deg": 15.806278264856696,
+    "tilt_gain_deg": -0.061411412887721895,
+    "object_cost_gain": -0.01320923181641298,
+    "tangent_penalty": 0.0026695828452756054,
+    "recorded_gain": -0.03227759168835043,
+    "recorded_gain_difference": 0.019068359871937446,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.1",
+    "snapshot": "step_321.npz",
+    "world_force_N": [
+      0.17043265959054113,
+      -0.5309023143878312,
+      -0.029344174767846842
+    ],
+    "force_contact_N": [
+      0.5337906004124986,
+      0.15119578342584516,
+      0.06303228899362623
+    ],
+    "elevation_deg": -3.0125240857207243,
+    "tilt_gain_deg": 0.30628051027818515,
+    "object_cost_gain": 0.028012374521674488,
+    "tangent_penalty": 0.002683323438153109,
+    "recorded_gain": 0.005967177994298467,
+    "recorded_gain_difference": 0.02204519652737602,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_070.npz",
+    "world_force_N": [
+      0.6248188288406415,
+      1.2721495097662872,
+      0.5691225973012599
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.10358441899133805,
+      0.04843670207163134
+    ],
+    "elevation_deg": 21.87801220452901,
+    "tilt_gain_deg": 0.6468814436184402,
+    "object_cost_gain": 0.12037232187823044,
+    "tangent_penalty": 0.0026151691930698107,
+    "recorded_gain": 0.11450179394667437,
+    "recorded_gain_difference": 0.005870527931556069,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_090.npz",
+    "world_force_N": [
+      0.14153874279200365,
+      0.29511959993296494,
+      -0.07932968489408161
+    ],
+    "force_contact_N": [
+      0.3367599870733755,
+      -0.0007465099933192292,
+      0.0037612112807360373
+    ],
+    "elevation_deg": -13.624172982498742,
+    "tilt_gain_deg": 0.05059433208630537,
+    "object_cost_gain": 0.0076196055669388585,
+    "tangent_penalty": 2.9407974936923e-06,
+    "recorded_gain": 0.00818036018186774,
+    "recorded_gain_difference": -0.0005607546149288822,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_159.npz",
+    "world_force_N": [
+      -0.9001147475769387,
+      -0.4493247944188337,
+      -1.1654059884954973
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.037915145131894076,
+      0.22191273196875824
+    ],
+    "elevation_deg": -49.19774593687685,
+    "tilt_gain_deg": 0.4420241214795624,
+    "object_cost_gain": 0.06751755346717836,
+    "tangent_penalty": 0.010136563768042107,
+    "recorded_gain": 0.09476080867713499,
+    "recorded_gain_difference": -0.02724325520995663,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_179.npz",
+    "world_force_N": [
+      -1.0350573047839238,
+      -0.6025058209737605,
+      -0.958892658623767
+    ],
+    "force_contact_N": [
+      1.5230192477004285,
+      -0.031214599891463156,
+      0.18240076519581655
+    ],
+    "elevation_deg": -38.682424393060224,
+    "tilt_gain_deg": 0.34872771260512536,
+    "object_cost_gain": 0.05294632932649712,
+    "tangent_penalty": 0.006848878078080708,
+    "recorded_gain": 0.038086455214783044,
+    "recorded_gain_difference": 0.014859874111714078,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_201.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": -0.04767533711768124,
+    "object_cost_gain": -0.00760296398468796,
+    "tangent_penalty": 0.0,
+    "recorded_gain": -0.007684134132313503,
+    "recorded_gain_difference": 8.11701476255422e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_221.npz",
+    "world_force_N": [
+      -0.501802661921341,
+      -0.4147627133049219,
+      -0.1539178275525159
+    ],
+    "force_contact_N": [
+      0.6542331644464467,
+      0.08737733802669076,
+      0.1089444116770048
+    ],
+    "elevation_deg": -13.30182984438489,
+    "tilt_gain_deg": 0.32691883322146964,
+    "object_cost_gain": 0.05098949131148345,
+    "tangent_penalty": 0.003900736807255856,
+    "recorded_gain": 0.012077593986234092,
+    "recorded_gain_difference": 0.038911897325249356,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_241.npz",
+    "world_force_N": [
+      -0.4252328991181934,
+      -0.48824184622357253,
+      0.016395036587466487
+    ],
+    "force_contact_N": [
+      0.6406669368789221,
+      0.07846491892498783,
+      0.053488770870578156
+    ],
+    "elevation_deg": 1.4505408742805428,
+    "tilt_gain_deg": 0.4390075922003831,
+    "object_cost_gain": 0.06295443630111563,
+    "tangent_penalty": 0.0018035584222300248,
+    "recorded_gain": 0.021298632988456134,
+    "recorded_gain_difference": 0.0416558033126595,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_261.npz",
+    "world_force_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "force_contact_N": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elevation_deg": 0.0,
+    "tilt_gain_deg": 0.22383099715138144,
+    "object_cost_gain": 0.04173561748249455,
+    "tangent_penalty": 0.0,
+    "recorded_gain": 0.04168956280561176,
+    "recorded_gain_difference": 4.6054676882789636e-05,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_281.npz",
+    "world_force_N": [
+      0.0012129440117656246,
+      -0.2719062397176747,
+      0.08636240757511796
+    ],
+    "force_contact_N": [
+      0.25520244964796746,
+      0.12487799720294353,
+      0.025886973191362458
+    ],
+    "elevation_deg": 17.620637910198614,
+    "tilt_gain_deg": 0.27503676714655967,
+    "object_cost_gain": 0.03708206830368077,
+    "tangent_penalty": 0.0032529299132857386,
+    "recorded_gain": 0.01191767743388894,
+    "recorded_gain_difference": 0.02516439086979183,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_301.npz",
+    "world_force_N": [
+      0.10118169609407938,
+      -0.2608866074733734,
+      0.012014217650755568
+    ],
+    "force_contact_N": [
+      0.2666691576669882,
+      0.0828354468520215,
+      0.021673673043701214
+    ],
+    "elevation_deg": 2.4585090978083137,
+    "tilt_gain_deg": -0.06310928943683791,
+    "object_cost_gain": -0.013353250677280215,
+    "tangent_penalty": 0.0014662918716758682,
+    "recorded_gain": -0.03227759168835043,
+    "recorded_gain_difference": 0.01892434101107021,
+    "solver_failed": false,
+    "friction_cone": "box"
+  },
+  {
+    "object": "stanford_bunny2",
+    "variant": "penalty_0.2",
+    "snapshot": "step_321.npz",
+    "world_force_N": [
+      0.19131635971982683,
+      -0.4975839895158273,
+      -0.0966676773042605
+    ],
+    "force_contact_N": [
+      0.534944861542465,
+      0.07924535354672169,
+      0.03302400649378959
+    ],
+    "elevation_deg": -10.277904382967696,
+    "tilt_gain_deg": 0.2917326539665481,
+    "object_cost_gain": 0.026624455467704422,
+    "tangent_penalty": 0.0014740822127293546,
+    "recorded_gain": 0.005967177994298467,
+    "recorded_gain_difference": 0.020657277473405955,
+    "solver_failed": false,
+    "friction_cone": "box"
+  }
+]
