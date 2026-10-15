@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from models.wuji_hand import rotation
-from planning.grasp_verification import verify_grasp
 
 
 @dataclass(frozen=True)
@@ -31,6 +30,7 @@ class OnlineRegrasp:
         self.overrides = {}
         self.last_finger = None
         self.attempts = 0
+        self.finger_attempts = {}
         self.settled = 0
         self.last_goal_error = None
         self.best_gap = np.inf
@@ -50,7 +50,9 @@ class OnlineRegrasp:
             anchors[k] = original[k]
             normals[k] = hand.surface.query(np.asarray(original[k:k+1]))[2][0]
             materials[k] = self.overrides[k][2]
-        measured = [c for c in actual if c['normal']@c['force'] > .01]
+        # Recovery follows separation and MANO correspondence, never a force
+        # closure or load-capacity verdict. The certificate is diagnostic only.
+        measured = [c for c in actual if c.get('gap',0.) <= .0001]
         fingers = sorted({m.finger for k,m in enumerate(materials) if active[k] and m.finger != 'palm'})
         touching = {materials[c['slot']].finger for c in measured if c['slot'] >= 0}
         if hasattr(hand,'finger_contact_gaps'):
@@ -67,7 +69,9 @@ class OnlineRegrasp:
         error = float(np.linalg.norm(pose[:3]-np.asarray(goal)[:3]))
         progressing = self.last_goal_error is not None and self.last_goal_error-error > .0002
         approaching = gap < self.best_gap-.0002
-        good = bool(certificate.get('load_feasible'))
+        region_errors={f:min(np.linalg.norm(local[k]-original[k]) for k,m in enumerate(materials)
+            if active[k] and m.finger==f) for f in fingers}
+        good = set(fingers)<=physical_touching and all(e<=.005 for e in region_errors.values())
         self.stalled = 0 if good or progressing or approaching or not fingers else self.stalled+1
         self.best_gap = gap if approaching else min(self.best_gap, gap)
         self.last_goal_error = error
@@ -77,25 +81,17 @@ class OnlineRegrasp:
         if self.mode == 'track' and fingers:
             lost = [f for f in fingers if f in self.seen and self.lost[f] >= s.lost_cycles]
             if lost or self.stalled >= s.failure_cycles:
-                forces = {f:sum(max(c['normal']@c['force'], 0.) for c in measured
-                    if c['slot'] >= 0 and materials[c['slot']].finger == f) for f in fingers}
-                choices = lost or fingers
-                finger = min(choices, key=lambda f:(f == self.last_finger, forces[f]))
+                # Visit missing or misplaced regions in turn without ranking
+                # fingers by the forces they happen to carry.
+                choices = (lost or fingers) if good else fingers
+                finger = min(choices, key=lambda f:(self.finger_attempts.get(f,0),
+                    f == self.last_finger, -region_errors[f]))
                 remaining = [c for c in measured if c['slot'] < 0 or materials[c['slot']].finger != finger]
-                # Releasing a supporting finger in mid-air needs the remaining
-                # measured contacts to carry the load. On the table recovery
-                # can proceed even when the current grasp cannot close.
                 vertices = hand.surface.mesh.vertices@r.T+pose[:3]
-                if vertices[:, 2].min() > .002:
-                    inertia, _, gravity = hand.dynamics()
-                    cert = verify_grasp(np.array([(c['point']-pose[:3])@r for c in remaining]).reshape(-1,3),
-                        np.array([c['normal']@r for c in remaining]).reshape(-1,3), hand.friction,
-                        edges=4, tangent_directions=np.array([c['tangents']@r for c in remaining]).reshape(-1,2,3),
-                        external_wrench=np.r_[r.T@gravity[:3],gravity[3:]],
-                        normal_force_limits=np.array([c['normal']@c['force'] for c in remaining]))
-                    if not cert['load_feasible']:
-                        return anchors, normals, dict(phase='waiting_support', reason='remaining_contacts_cannot_carry',
-                            finger=finger, attempts=self.attempts, moving_slots=[]), {}
+                remaining_fingers={materials[c['slot']].finger for c in remaining if c['slot']>=0}
+                if vertices[:, 2].min()>.002 and len(remaining_fingers)<2:
+                    return anchors,normals,dict(phase='waiting_contacts',reason='fewer_than_two_other_fingers',
+                        finger=finger,attempts=self.attempts,moving_slots=[]),{}
                 slots = [k for k,m in enumerate(materials) if active[k] and m.finger == finger]
                 k = min(slots, key=lambda j:np.linalg.norm(local[j]-anchors[j]))
                 # Recovery always aims back at the demonstration. Nearby
@@ -109,19 +105,22 @@ class OnlineRegrasp:
                     target=target, normal=normal, retreat=closest[0]-s.clearance*current_normal[0],
                     reason='contact_lost' if lost else 'grasp_stalled')
                 self.mode = 'release';self.age = 0;self.settled = 0;self.attempts += 1
+                self.finger_attempts[finger] = self.finger_attempts.get(finger,0)+1
                 event = 'begin_release'
         motion = {}
         if self.move is not None:
             move = self.move;k = move['slot'];self.age += 1
             move['target'] = np.asarray(original[k], float).copy()
             move['normal'] = hand.surface.query(move['target'][None])[2][0]
-            finger_touch = move['finger'] in touching
             if self.mode == 'release' and move['finger'] not in physical_touching and gaps[k] >= .6*s.clearance:
                 self.mode = 'approach';self.age = 0;event = 'measured_separation'
             # MANO correspondence is soft. After true separation, nearby
             # recontact may be accepted by MPC without first passing a hard
             # distance threshold around the MANO anchor.
-            arrived = finger_touch
+            # A proximal link touching does not establish the distal material
+            # being recovered. Accept nearby patches on the requested body,
+            # without imposing a distance threshold around the MANO anchor.
+            arrived = any(c['body']==move['material'].body for c in measured)
             if self.mode in ('approach','settle'):
                 self.mode = 'settle' if arrived else 'approach'
                 self.settled = self.settled+1 if arrived else 0

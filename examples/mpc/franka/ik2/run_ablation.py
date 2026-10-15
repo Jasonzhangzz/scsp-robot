@@ -6,6 +6,7 @@ A2: direct globally best finite Lambda contact, no RS.
 A3: baseline target selection, direct contact tracking + object collision cost.
 A4: MuJoCo native QP contact prediction in CSO; unchanged CPO and RS.
 A5: CMA-ES contact-force optimization of the same soft-SCM objective.
+A6: direct motion planning without the lift/place attraction/repulsion potentials.
 A7: sampled center-attraction trajectories using the existing contact model; no RS,
 surface-point tracking, lift/place potentials or repulsion cost.
 Sensitivity uses the full, unchanged RS policy and matched trial seeds.
@@ -115,7 +116,7 @@ def sensitivity_grid(specs=()):
 
 
 def experiment_argv(mode, task, rest):
-    if mode not in ('full', 'a1', 'a2', 'a3', 'a4', 'a5', 'a7'):
+    if mode not in ('full', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'):
         raise ValueError('Unknown ablation: ' + mode)
     if '--floating-fingertip' in rest or '--sampling-c3' in rest:
         raise ValueError('These experiments require the Franka explicit MPC runtime')
@@ -126,11 +127,11 @@ def experiment_argv(mode, task, rest):
             flags += ['--no_random_init_tilt']
     flags += list(rest)
     # A4/A5 retain the asynchronous physics/planner execution protocol.
-    if mode in ('a4', 'a5'):
+    if mode in ('a4', 'a5', 'a6'):
         flags += ['--async-planner', '--headless-realtime']
     # Fix the controller/model family after user overrides; only the named
     # experiment varies from the test_mpc_isaac runtime.
-    flags += ['--cso-guidance', 'cso', '--cpo-variant', 'full',
+    flags += ['--cso-guidance', 'cso', '--cpo-variant', 'direct' if mode == 'a6' else 'full',
               '--ablation-mode', mode, '--ablation-variant', mode]
     return flags
 
@@ -207,7 +208,7 @@ def run_sensitivity(args, rest):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     modes = parser.add_mutually_exclusive_group(required=True)
-    for mode in ('a1', 'a2', 'a3', 'a4', 'a5', 'sensitive'):
+    for mode in ('a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'sensitive'):
         modes.add_argument('--'+mode, action='store_true')
     modes.add_argument('--a7', action='store_true',
                        help='A7: object-center push/flip trajectories optimized by MPPI.')
@@ -234,7 +235,7 @@ def main(argv=None):
             # The isolated dispatcher already inserts --planner mpc.
             flags = flags[2:-8] + flags[-6:]
         else:
-            mode = next(mode for mode in ('a1', 'a2', 'a3', 'a4', 'a5', 'a7') if getattr(args, mode))
+            mode = next(mode for mode in ('a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7') if getattr(args, mode))
             flags = experiment_argv(mode, args.task, rest)
         command = _child_command(flags)
         if not args.dry_run:

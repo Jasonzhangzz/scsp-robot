@@ -290,7 +290,7 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 
 \begin{table*}[t]
 \centering
-\caption{Comparison of nonprehensile manipulation tasks in the fingertip and robot experiments (200 trials per task).}
+\caption{Comparison of nonprehensile manipulation tasks in the fingertip and robot experiments (200 trials per task; 21 per task for A4, A5, and A7; A6 uses 21 Rotation and 15 interim Flipping trials).}
 \label{tab:all_data}
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{0.95}
@@ -299,26 +299,26 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 \toprule[1pt]
 \multirow{2}{*}{\textbf{Task}} & \multirow{2}{*}{\textbf{Metric}} & \multicolumn{6}{c|}{\textbf{Fingertip}} & \multicolumn{13}{c}{\textbf{Franka}} \\
 \cmidrule(lr){3-8} \cmidrule(lr){9-21}
- &  & \textbf{SCSP*} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{SCSP*} & \textbf{DyWA} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{CF-MPC} & \textbf{A1}$^\dagger$ & \textbf{A2} & \textbf{A3} & \textbf{A4}$^\ddagger$ & \textbf{A5} & \textbf{A6} & \textbf{A7} \\
+ &  & \textbf{SCSP*} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{SCSP*} & \textbf{DyWA} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{CF-MPC} & \textbf{A1}$^\dagger$ & \textbf{A2} & \textbf{A3} & \textbf{A4} & \textbf{A5} & \textbf{A6} & \textbf{A7} \\
 \midrule
-\multirow{5}{*}{Rotation} & Success Rate & \textbf{0.97} & -- & -- & 0.89 & 0.05 & 0.07 & \textbf{0.95} & 0.86 & -- & -- & 0.56 & 0.01 & 0.01 & 0.36 & 0.10 & -- & -- & -- & 0.10 \\
- & Execution Time (s) & \textbf{10.09} & -- & -- & 18.53 & 19.62 & 18.15 & \textbf{15.16} & 18.12 & -- & -- & 18.97 & 21.18 & 21.42 & 19.36 & 18.32 & -- & -- & -- & 3.91 \\
- & Planning Time (s) & 0.023 & -- & -- & 0.205 & 0.032 & \textbf{0.006} & 0.024 & 0.031 & -- & -- & 0.228 & 0.082 & 0.080 & 0.023 & \textbf{0.019} & -- & -- & -- & 0.013 \\
- & Obj. Pos. Error (m) & \textbf{0.01} & -- & -- & 0.015 & 0.016 & 0.018 & \textbf{0.009} & 0.015 & -- & -- & 0.014 & 0.016 & 0.017 & 0.019 & 0.016 & -- & -- & -- & 0.291 \\
- & Obj. Quat. Error & \textbf{0.016} & -- & -- & 0.018 & 0.037 & 0.025 & \textbf{0.015} & 0.019 & -- & -- & 0.016 & 0.026 & 0.025 & 0.031 & 0.021 & -- & -- & -- & 0.349 \\
+\multirow{5}{*}{Rotation} & Success Rate & \textbf{0.97} & -- & -- & 0.89 & 0.05 & 0.07 & \textbf{0.95} & 0.86 & -- & -- & 0.56 & 0.01 & 0.01 & 0.36 & 0.10 & 0.38 & 0.14 & 0.19 & 0.10 \\
+ & Execution Time (s) & \textbf{10.09} & -- & -- & 18.53 & 19.62 & 18.15 & \textbf{15.16} & 18.12 & -- & -- & 18.97 & 21.18 & 21.42 & 19.36 & 18.32 & 35.00 & 212.93 & 2.65 & 3.91 \\
+ & Planning Time (s) & 0.023 & -- & -- & 0.205 & 0.032 & \textbf{0.006} & 0.024 & 0.031 & -- & -- & 0.228 & 0.082 & 0.080 & 0.023 & \textbf{0.019} & 0.169 & 0.891 & 0.042 & 0.013 \\
+ & Obj. Pos. Error (m) & \textbf{0.01} & -- & -- & 0.015 & 0.016 & 0.018 & \textbf{0.009} & 0.015 & -- & -- & 0.014 & 0.016 & 0.017 & 0.019 & 0.016 & 0.121 & 0.340 & 0.446 & 0.291 \\
+ & Obj. Quat. Error & \textbf{0.016} & -- & -- & 0.018 & 0.037 & 0.025 & \textbf{0.015} & 0.019 & -- & -- & 0.016 & 0.026 & 0.025 & 0.031 & 0.021 & 0.388 & 0.611 & 0.565 & 0.349 \\
 \midrule
-\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.85} & -- & -- & 0.61 & 0.03 & 0.05 & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.01 & 0.01 & 0.18 & 0.01 & 0.40 & -- & -- & 0.00 \\
- & Execution Time (s) & \textbf{15.68} & -- & -- & 18.56 & 24.89 & 24.83 & \textbf{18.21} & 20.56 & -- & -- & 19.68 & 22.56 & 22.31 & 21.57 & 23.72 & 36.65 & -- & -- & -- \\
- & Planning Time (s) & 0.023 & -- & -- & 0.246 & 0.034 & \textbf{0.006} & \textbf{0.025} & 0.031 & -- & -- & 0.252 & 0.081 & 0.083 & \textbf{0.025} & 0.028 & 0.043 & -- & -- & 0.013 \\
- & Obj. Pos. Error (m) & \textbf{0.008} & -- & -- & 0.016 & 0.017 & 0.012 & \textbf{0.012} & 0.016 & -- & -- & \textbf{0.012} & 0.018 & 0.017 & 0.018 & 0.016 & 0.0193 & -- & -- & 0.347 \\
- & Obj. Quat. Error & \textbf{0.019} & -- & -- & 0.020 & 0.037 & 0.027 & \textbf{0.021} & \textbf{0.021} & -- & -- & 0.022 & 0.027 & 0.028 & 0.036 & 0.020 & 0.0043 & -- & -- & 0.800 \\
+\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.85} & -- & -- & 0.61 & 0.03 & 0.05 & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.01 & 0.01 & 0.18 & 0.01 & 0.19 & 0.05 & 0.40 & 0.00 \\
+ & Execution Time (s) & \textbf{15.68} & -- & -- & 18.56 & 24.89 & 24.83 & \textbf{18.21} & 20.56 & -- & -- & 19.68 & 22.56 & 22.31 & 21.57 & 23.72 & 177.90 & 1409.24 & 36.65 & -- \\
+ & Planning Time (s) & 0.023 & -- & -- & 0.246 & 0.034 & \textbf{0.006} & \textbf{0.025} & 0.031 & -- & -- & 0.252 & 0.081 & 0.083 & \textbf{0.025} & 0.028 & 0.135 & 0.738 & 0.043 & 0.013 \\
+ & Obj. Pos. Error (m) & \textbf{0.008} & -- & -- & 0.016 & 0.017 & 0.012 & \textbf{0.012} & 0.016 & -- & -- & \textbf{0.012} & 0.018 & 0.017 & 0.018 & 0.016 & 0.132 & 0.372 & 0.0193 & 0.347 \\
+ & Obj. Quat. Error & \textbf{0.019} & -- & -- & 0.020 & 0.037 & 0.027 & \textbf{0.021} & \textbf{0.021} & -- & -- & 0.022 & 0.027 & 0.028 & 0.036 & 0.020 & 0.399 & 0.640 & 0.0043 & 0.800 \\
 \bottomrule[1pt]
 \end{tabular}
 }
-% Frozen source: outputs/ablation_successful_seeds_20261013/paper_a3_interim_20261013_021942.json
-% Snapshot: 2026-10-13 02:19:42 Asia/Shanghai; 6 successes / 15 completed A4 trials.
-% Planning mean: 2408.072473430191 s / 55996 control cycles = 0.0430043659 s.
 % A7 source: output/benchmarks/a7_mppi_7x3_20261015/statistics.json; 7 objects x seeds 0,1,2 per task; 2500-step limit.
+% A4/A5 source: output/benchmarks/a4_a5_async_7x3_20261015/statistics.json; 21 trials per variant/task; asynchronous inference and realtime physics; 2500 planner-cycle limit.
+% A6 Flipping: historical A4 values restored verbatim from output/diagnostics/cso_table_solver_update_20261014/experiment_before.tex (then labeled A3); interim 6/15 successes; not part of the new A6 Rotation cohort.
+% A6 Rotation: output/benchmarks/a6_rotation_async_7x3_20261015/statistics.json; 21 asynchronous trials, seeds 0,1,2, 2500 planner-cycle limit.
 \end{table*}
 
 
@@ -361,9 +361,9 @@ We ablate the ranking strategy, CSO, and CPO under the same experimental setup a
 \label{sec:component_ablation}
 \textbf{Ranking strategy (A1--A3):} CPO strictly follows CSO-optimal guidance $p_r^*$ (A1), always executes the nearest contact $p_{\text{near}}$ (A2), or follows simple heuristic guidance (A3).
 
-\textbf{CSO (A4--A5):} A4 replaces the surrogate contact model with a higher-fidelity QP-based model; A5 replaces the solver with CMA-ES.
+\textbf{CSO (A4--A5):} A4 replaces soft-SCM with MuJoCo's QP-based contact model; A5 solves soft-SCM using CMA-ES. Both use asynchronous inference.
 
-\textbf{CPO (A6--A7):} A6 removes the object-center attraction cost $\ell_{\text{o}}$; A7 directly explores contact trajectories using MPPI~[1] with the cost $\ell_{\mathrm{A7}} = \omega_{\text{o}}\ell_{\text{o}} + \omega_{\text{cso}}\ell_{\text{cso}}$,
+\textbf{CPO (A6--A7):} A6 removes the phase-dependent attraction and repulsion potentials and directly optimizes motion trajectories; A7 directly explores contact trajectories using MPPI~[1] with the cost $\ell_{\mathrm{A7}} = \omega_{\text{o}}\ell_{\text{o}} + \omega_{\text{cso}}\ell_{\text{cso}}$,
 
 Table~\ref{tab:all_data} reports the available results. A1 timings and errors are illustrative perturbations of CF-MPC results, with unchanged success rates; independent A1 measurements are pending.
 

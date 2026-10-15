@@ -1,0 +1,31 @@
+{
+  "argv": [
+    "/home/zz/miniconda3/envs/acc/bin/python",
+    "-u",
+    "/home/zz/scsp-robot/output/benchmarks/current_mpc_async_7x3_20261016/source/scsp-robot/examples/mpc/franka/ik2/test_mpc_isaac.py",
+    "--flipping",
+    "--obj",
+    "teapot",
+    "--headless",
+    "--async-planner",
+    "--headless-realtime",
+    "--physics-backend",
+    "isaac",
+    "--trial-start",
+    "0",
+    "--trial_num",
+    "3",
+    "--max_rollout_length",
+    "5000",
+    "--compute-threads",
+    "1",
+    "--ranking-metrics-jsonl",
+    "/home/zz/scsp-robot/output/benchmarks/current_mpc_async_7x3_20261016/flipping/teapot/trials.jsonl",
+    "--rollout-summary-json",
+    "/home/zz/scsp-robot/output/benchmarks/current_mpc_async_7x3_20261016/flipping/teapot/rollout_summary.json"
+  ],
+  "cpus": [
+    8,
+    10
+  ]
+}

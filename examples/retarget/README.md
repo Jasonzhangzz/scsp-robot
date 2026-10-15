@@ -1,6 +1,6 @@
 # MANO → Wuji semantic retarget
 
-`retarget.py` runs semantic geometric IK, original-contact-first Lambda, and
+`retarget.py` runs semantic geometric IK, persistent MANO contact attractions, and
 closed-loop material-point MPC in MuJoCo. The initial example is DexForge's
 prepared right-hand DexYCB Sugar Box sequence. The wrist has six actuated
 coordinates and the hand has twenty actuated joints. Only the hand's position
@@ -18,35 +18,42 @@ cd /home/zz/scsp-robot
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
 /home/zz/miniconda3/envs/pi0/bin/python examples/retarget/retarget.py \
   --sequence thirdparty/retarget_assets/dexycb_prepared/20200709_142802 \
-  --lambda-mode offline --max-steps 600 \
+  --lambda-mode off --max-steps 600 \
   --output outputs/wuji_live_mano
 ```
 
-IK and, by default, Lambda run **before the viewer starts**. Offline plans are
+Lambda is disabled by default. Every demonstrated contact remains a soft MPC
+target even when its exact location is unreachable; no force/IK solve removes
+the target or changes its contact mask. MPC evaluates nearby projection controls
+online. A failed nearby contact or recovery continues to aim at the MANO anchor.
+The geometric IK trajectory is a posture prior, not a contact acceptance test.
+
+Legacy `--lambda-mode offline` and `online` remain available for comparison.
+With offline mode, plans are
 saved to `offline_contact_plans.json`; `--contact-plan-cache PATH` reuses them
 only when the scene, trajectory and preparation settings match. They are nominal
 contact/IK seeds, not certificates of the current physical grasp. `--lambda-mode
 online` keeps the previous measured-state Lambda replanning option. Neither mode
 supplies Lambda forces or a wrench target to MPC.
 
-MPC always reads the current simulated hand/object state and contact forces,
-refreshes nearest material-point projections, solves a receding horizon, checks
-native physics candidates and executes only the next position command. Online
-recovery detects lost/stalled grasping, withdraws one finger from its **current**
-contact, verifies measured separation, and returns toward its **MANO object
-anchor**. Nearest projections are separate online MPC candidates, evaluated by
-collision and native horizon cost; recovery does not invent a random new target.
-Existing physical contacts remain in dynamics during withdrawal. Recovery pauses
-the hand reference, retains a soft hand-shape/semantic preference, and reports
-phase timeouts rather than claiming a contact was established by elapsed time.
-Nearby recontact does not require exact MANO reproduction; its soft MANO target
-remains active afterward. Releasing a finger in mid-air waits if the remaining measured grasp cannot carry
-the object. This recovery mechanism still needs sustained-lift validation.
+MPC reads the measured hand/object state each cycle, predicts contact dynamics,
+checks native MuJoCo horizon costs and collisions, and executes one position
+command. It retains MANO contact regions and closes 4 mm inward along their
+normals. Finger kp is scaled by 50, damping by sqrt(50), and both finger torque
+clamps by 10. Lambda and MPC share a 100 N contact force cap. These defaults are
+configurable with `--closure-depth`, `--finger-stiffness-scale`,
+`--finger-force-scale` and `--force-limit` (also in `default.yaml`).
+
+Force-closure and load certificates are logged for diagnosis; they do not gate
+transport or rank control candidates. Static load allocation and force-error
+pressure feedback are disabled. Recovery is off by default; `--regrasp` enables
+one-finger recovery based on separation and MANO correspondence, without force
+judgements. Position commands alone drive the object.
 
 Ghosts follow the tracked reference by default, pausing during recovery.
 `--demo-playback time` instead plays the demonstration at simulation time.
 `--demo-alpha 0.3` adjusts transparency; `--no-demo-overlay` hides ghosts and
-`--no-regrasp` disables recovery for ablations. `--headless --video` records the
+`--regrasp` enables optional recovery. `--headless --video` records the
 same overlay. The controller is online feedback, but current solve times are
 slower than a 30 Hz wall-clock control loop.
 Implementation details and validation scope: [online execution](ONLINE_EXECUTION.md).
@@ -56,8 +63,18 @@ Current contact-only MPC architecture (no external wrench target):
 [contact/pose MPC validation](CONTACT_POSE_MPC_VALIDATION.md).
 [Load-support diagnosis against trigrasp](LOAD_SUPPORT_DIAGNOSIS.md) explains
 the measured preload, material-point and actuator-allocation failures.
-Native MuJoCo force closure and wrist-only transport results:
-[force-closure validation](FORCE_CLOSURE_VALIDATION.md). Stable lifting is not yet achieved.
+Current distance-control changes and validation: [grip control fix](GRIP_CONTROL_FIX.md).
+`--physics-reference PATH_TO_DEXFORGE_SCENE.xml` copies its object inertia,
+contact coefficients and floor while preserving native MuJoCo mesh geometry.
+The generated scene and `physics_parameters.json` record the exact parameters.
+Use `--finger-stiffness-scale 1 --finger-force-scale 1 --sim-dt .01` to compare
+with the unscaled Wuji servos and executor step of the bundled DexForge case.
+`export_dexforge_contacts.py` exports native ComFree forces and its MuJoCo replay;
+`compare_contact_trajectories.py` compares object-local points and recomputes GWS
+margin with the same force normalization, object radius and friction for all runs.
+DexForge contact, force-closure and control differences, including the limits of
+the Sharpa comparison: [DexForge comparison](DEXFORGE_COMPARISON.md).
+Earlier native closure and wrist tests: [force-closure validation](FORCE_CLOSURE_VALIDATION.md).
 
 Use a Python 3.11 environment with NumPy, SciPy, MuJoCo, CasADi, Warp, trimesh,
 rtree, PyYAML and pytest. Loading legacy MANO pickles also requires chumpy.
@@ -171,10 +188,8 @@ and ffmpeg; use `MUJOCO_GL=egl` for headless rendering).
   retained for rendering. Hand queries inside visual concavities are projected
   onto the actual collider surface, preserving finger/region. A numerically/physically
   valid force solve and collision-checked joint IK remain required.
-  Following the updated requirement, the retarget entry additionally requires
-  native-pyramid force closure and positive object-pose reduction. An exactly
-  reached target may be maintained within numerical tolerance. This changes
-  the earlier physical/IK-only acceptance rule; hand shape remains soft.
+  Force closure and pose-descent certificates do not reject candidates in
+  retargeting; hand shape remains a soft objective.
 - Only failure of that original proposal enables FPS exploration: 5 mm, then
   10 mm, up to eight dense-surface samples per anchor and 64 bounded combinations
   per round. The default online budget is eight combinations; use
@@ -182,7 +197,7 @@ and ffmpeg; use `MUJOCO_GL=egl` for headless rendering).
   eligible local candidates. Complete nearest-projection sets are retained
   explicitly, and single-finger changes share the budget with joint combinations.
   Explored feasible proposals are ordered by
-  optimized object pose cost, then semantic offset, switching and closure margin.
+  optimized object pose cost, then semantic offset and switching.
 - Poses equivalent within 5 mm / 5 degrees use elapsed demonstration time to
   disambiguate forward local object matching. Both object indices remain
   monotonic and are matched to measured object state independently of the
@@ -192,7 +207,7 @@ and ffmpeg; use `MUJOCO_GL=egl` for headless rendering).
   Inactive semantic slots have zero contact rows; no-contact phases skip Lambda.
   Plane support and existing physical contacts are included separately. The
   hand-object friction (0.5 for Sugar Box) is shared across all three paths;
-  Wuji Lambda, grouped SCM, grasp response and live force allocation use the
+  Wuji Lambda, grouped SCM and grasp response use the
   same four-ray native pyramidal bound `abs(Ft1)+abs(Ft2) <= mu*Fn`.
   Made contacts retain MuJoCo tangent axes; future frames are predictions
   refreshed from measured patches. The default shared Lambda/SCM APIs retain
@@ -203,52 +218,22 @@ and ffmpeg; use `MUJOCO_GL=egl` for headless rendering).
   Table friction follows MuJoCo's source priority/mixing rule (1.0 in this
   scene), and MPC uses that separate coefficient. Lambda plane support remains
   a unilateral normal-response approximation without table sliding/rolling.
-- MuJoCo options, hand geoms/masks, actuator gains/limits and inertial parameters
-  are copied from DexForge, including the 10 ms timestep, 10 solver iterations
-  and 50 line-search iterations. `physics_parameters.json` audits compiled
-  values. Structural mount overlaps of convex palm/finger hulls are excluded
-  consistently in IK and execution and listed in that audit. This is an
-  explicit geometry adaptation; `--include-mount-collisions` retains source
-  pairings for diagnostics. It produced unavoidable 1.8–4.4 mm palm/mount
-  intersections and invalid geometric poses in the raw-source experiment.
-  The reduced predictor includes joint-stop projections in addition to SCM.
-- Lambda validates native closure before accepting a contact plan. MPC uses
-  soft support/preload objectives and native-horizon candidate certificates;
-  measured certificates use **actual** contacts only.
-- MPC follows trigrasp's online cost design: moving object/contact targets,
-  separate lateral and vertical pose weights, rotation-matrix distance,
-  a soft lateral corridor against pushing an unheld object away,
-  action regularization and task terminal
-  costs. `mpc_costs` in the YAML file configures these weights. Original hand
-  material points/object anchors and normals add soft semantic preferences.
-  Contact alignment remains active during approach and releases normal depth
-  after touch, allowing contact dynamics and soft preload to select indentation.
-  Made material anchors retain their object coordinate until separation or a
-  material-point reassignment; observed slip does not reset their targets.
-- MPC compares its solver controls and bounded IK/material seeds using exact
-  SCM forces in rollout scoring; alternative controls are labeled explicitly.
-  Collision checks apply to predicted measured configurations, allowing servo
-  preload behind established physical contacts. Soft posture references
-  and bounded task-space transport prevent a stationary grasp.
-  Actual contact rows and internal preload survive a failed Lambda proposal or a
-  reference release. Original semantic masks remain separate from the union
-  of requested and observed contacts. The shared trigrasp live wrench allocator
-  is not used by Wuji: Lambda forces remain diagnostics and are not passed to
-  MPC. MPC receives contact points/normals plus the object-pose and hand-pose
-  references; its own contact dynamics selects forces through servo commands.
-  Finger normal motion is not overwritten by an external pressure controller.
-  At least two made slots enable the shared finite,
-  force-limited partial-grasp response; neither force closure nor current
-  gravity-support feasibility gates transport or common wrist motion.
-  Predicted new normal preload must come from SCM response to a real servo
-  command, and remains force-limited. Actual closure/load certificates are
-  diagnostics. The soft horizontal corridor spans current and goal positions.
-  Nearest-projection control seeds are refreshed each cycle. The first cycle
-  corrects the rollout state, and the full horizon is additionally previewed
-  with native MuJoCo position commands. Collision-safe candidates that predict
-  actual closure, reduce object-pose cost and improve task cost over holding
-  are preferred. Earlier contact acquisition is labeled separately; projected
-  points never count as actual closed contacts.
+- MuJoCo contact geometry, mass, inertia and friction are inherited from the
+  source scene. Finger servo gains and both torque clamps use the explicit
+  scales above; wrist settings and joint/control position ranges stay intact.
+  `physics_parameters.json` verifies the declared tuning and inherited geometry.
+  Structural mount hull exclusions are retained; `--include-mount-collisions`
+  restores the original pairings for diagnostics.
+- MPC retains object/contact pose, nonzero MANO posture, action regularization
+  and terminal task costs. Contact alignment includes the configured inward
+  closure distance. Default force-preload and gravity-wrench cost weights are
+  zero; no online static support allocator or pressure-force bias runs.
+- The object reference follows demonstration progress without load permission.
+  Native MuJoCo costs and collision checks select candidates, including bounded
+  IK, material, normal-distance closure and transport seeds. Closure/load
+  certificates cannot alter their ranking. At least two measured slots enable
+  partial-grasp dynamics; this does not gate the object goal. Measured material
+  anchors and original MANO semantic priors are tracked separately.
 - Failure at both search radii rechecks the incumbent against the current state.
   If it is also infeasible, bounded geometric hand tracking continues while
   that contact force witness is omitted. Use `--stop-on-contact-failure` with

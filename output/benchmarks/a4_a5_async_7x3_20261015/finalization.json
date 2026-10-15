@@ -1,3 +1,8 @@
 {
-  "status": "waiting_for_experiments"
+  "status": "complete",
+  "completed_utc": "2026-10-15T14:19:47.677823+00:00",
+  "trials": 84,
+  "statistics": "/home/zz/scsp-robot/output/benchmarks/a4_a5_async_7x3_20261015/statistics.json",
+  "paper": "/home/zz/scsp-robot/tro_revision/experiment.tex",
+  "pdf": "/home/zz/scsp-robot/tro_revision/root.pdf"
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MANO -> Wuji semantic IK, local Lambda and closed-loop contact MPC."""
+"""MANO -> Wuji soft demonstration contacts and closed-loop contact MPC."""
 from pathlib import Path
 import sys
 ROOT=Path(__file__).resolve().parents[2]
@@ -17,7 +17,7 @@ import yaml
 from scipy.spatial.transform import Rotation
 
 from models.wuji_hand import WujiHand,ObjectSurface,MaterialPoint,build_scene,rotation,normalize
-from planning.wuji_retarget import load_demonstration,extract_contacts,LocalLambdaPolicy,ReferenceProgress,HandReferenceProgress,WUJI_FINGERS,stabilize_demonstration
+from planning.wuji_retarget import load_demonstration,extract_contacts,LocalLambdaPolicy,ReferenceProgress,HandReferenceProgress,hand_reference_rate,WUJI_FINGERS,stabilize_demonstration
 from planning.grasp_verification import verify_grasp
 from examples.retarget.contact_geometry import support_parameters
 
@@ -41,8 +41,19 @@ def write_json(path,value):
     Path(path).write_text(json.dumps(jsonable(value),indent=2,allow_nan=False)+'\n')
 
 
-def physics_audit(hand,hand_xml,object_scene):
-    """Record compiled physics and check inherited DexForge hand parameters."""
+def demonstration_contact_plan(contacts,reference):
+    """Keep every demonstrated contact as an attraction, without a feasibility solve."""
+    slots=tuple(np.flatnonzero(contacts.mask[reference]))
+    ids=list(slots)
+    return dict(valid=True,source='mano_attractor',slots=slots,
+        points=contacts.anchors[reference,ids].copy(),
+        normals=contacts.normals[reference,ids].copy(),
+        force_vectors_local=np.zeros((len(slots),3)),solve_time=0.,
+        feasibility_checked=False,lambda_enabled=False)
+
+
+def physics_audit(hand,hand_xml,object_scene,*,finger_stiffness_scale=1.,finger_force_scale=1.,physics_reference=None):
+    """Check the declared servo tuning and all inherited contact parameters."""
     source=mujoco.MjModel.from_xml_path(str(hand_xml))
     fields=('timestep','gravity','integrator','solver','cone','iterations',
         'ls_iterations','tolerance','ls_tolerance','noslip_iterations',
@@ -52,8 +63,20 @@ def physics_audit(hand,hand_xml,object_scene):
     differences=[name for name in fields if not np.array_equal(source_options[name],options[name])]
     actuator_fields=('actuator_gainprm','actuator_biasprm','actuator_ctrlrange',
         'actuator_forcerange','actuator_ctrllimited','actuator_forcelimited')
-    if any(not np.allclose(getattr(source,name),getattr(hand.model,name)) for name in actuator_fields):
-        raise ValueError('generated scene changed DexForge actuators')
+    finger=np.array([(mujoco.mj_id2name(source,mujoco.mjtObj.mjOBJ_JOINT,int(j)) or '').startswith('right_finger')
+        for j in source.actuator_trnid[:,0]])
+    expected={name:getattr(source,name).copy() for name in actuator_fields}
+    expected['actuator_gainprm'][finger,0]*=finger_stiffness_scale
+    expected['actuator_biasprm'][finger,1]*=finger_stiffness_scale
+    expected['actuator_biasprm'][finger,2]*=np.sqrt(finger_stiffness_scale)
+    expected['actuator_forcerange'][finger]*=finger_force_scale
+    if any(not np.allclose(value,getattr(hand.model,name)) for name,value in expected.items()):
+        raise ValueError('generated scene does not match the declared finger servo tuning')
+    joint_limits=source.jnt_actfrcrange.copy()
+    joint_limits[source.actuator_trnid[finger,0]]*=finger_force_scale
+    joint_ids=[mujoco.mj_name2id(hand.model,mujoco.mjtObj.mjOBJ_JOINT,
+        mujoco.mj_id2name(source,mujoco.mjtObj.mjOBJ_JOINT,j)) for j in range(source.njnt)]
+    if not np.allclose(joint_limits,hand.model.jnt_actfrcrange[joint_ids]):raise ValueError('joint torque clamps do not match finger tuning')
     geom_fields=('geom_contype','geom_conaffinity','geom_condim','geom_friction',
         'geom_solref','geom_solimp','geom_priority')
     for i in range(source.ngeom):
@@ -61,9 +84,21 @@ def physics_audit(hand,hand_xml,object_scene):
         j=mujoco.mj_name2id(hand.model,mujoco.mjtObj.mjOBJ_GEOM,name)
         if j<0 or any(not np.allclose(getattr(source,k)[i],getattr(hand.model,k)[j]) for k in geom_fields):
             raise ValueError(f'generated scene changed DexForge geom {name}')
-    return dict(hand_asset=hand_xml,object_scene=object_scene,options=options,mujoco_version=mujoco.__version__,
+    if physics_reference is not None:
+        reference=ET.parse(physics_reference).getroot().find("worldbody/body[@name='obj']")
+        inertial=reference.find('inertial')
+        collider=next(g for g in reference.findall('geom') if g.get('contype','1')!='0')
+        expected_mass=float(inertial.get('mass'))
+        if not np.isclose(hand.model.body_mass[hand.obj],expected_mass):raise ValueError('object mass differs from physics reference')
+        expected_friction=np.fromstring(collider.get('friction','1 .005 .0001'),sep=' ')
+        if not np.isclose(hand.friction,expected_friction[0]):raise ValueError('object friction differs from physics reference')
+    return dict(hand_asset=hand_xml,object_scene=object_scene,physics_reference=physics_reference,
+        collision_representation='MuJoCo mesh convex hull',options=options,mujoco_version=mujoco.__version__,
         source_options=source_options,option_overrides=differences,
-        hand_geoms_and_actuators_match=True,gravity_compensation=False,
+        hand_geoms_and_actuators_match=bool(finger_stiffness_scale==1 and finger_force_scale==1),
+        contact_geoms_match=True,actuators_match_declared_tuning=True,
+        finger_stiffness_scale=finger_stiffness_scale,finger_force_scale=finger_force_scale,
+        finger_damping_scale=float(np.sqrt(finger_stiffness_scale)),gravity_compensation=False,
         structural_mount_exclusions=sorted(hand.mount_exclusions),
         object_mass=float(hand.model.body_mass[hand.obj]),object_inertia=hand.model.body_inertia[hand.obj],
         hand_object_friction=hand.friction,object_floor_friction=hand.floor_friction,
@@ -164,7 +199,7 @@ def metrics(hand,records,demo,contacts):
         actual_closure_margin=summary(margins),
         contact_retention=float(np.mean([r['contact_fraction'] for r in records if r['active_contact_count']])) if any(r['active_contact_count'] for r in records) else None,
         solve_latency_seconds=summary(latencies),reference_completion=float(records[-1]['reference_frame']/max(len(demo.poses)-1,1)) if records else 0.,
-        lambda_failures=sum(not r['lambda_valid'] for r in records),
+        lambda_failures=sum(r['lambda_valid'] is False for r in records),
         mpc_solver_failures=sum(any(reason in r['mpc']['status'] for reason in
             ('acados status','Maximum_Iterations_Exceeded','Infeasible_Problem_Detected',
              'Restoration_Failed','Invalid_Number_Detected','Error_In_Step_Computation')) for r in records),
@@ -190,9 +225,10 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
     # Start from the same measured q/v in both methods, without teleporting later.
     cursor=ReferenceProgress(demo.poses,demo.times,args.reference_window,args.lookahead)
     hand_cursor=HandReferenceProgress(demo.times)
+    lambda_enabled=getattr(args,'lambda_mode','off')!='off' and mode=='full'
     policy=LocalLambdaPolicy(hand.surface,device=args.lambda_device,seed=args.seed,iterations=args.lambda_iterations,
         friction=hand.friction,force_limit=args.force_limit,radii=tuple(args.search_radii),samples=args.fps_samples,
-        capacity=args.candidate_capacity,require_closure_descent=True)
+        capacity=args.candidate_capacity,require_closure_descent=False) if lambda_enabled and offline_plans is None else None
     base_rates=np.r_[np.full(3,.15),np.full(3,.8),np.full(hand.nu-6,1.5)]
     peak=np.max(np.abs(np.diff(geometric,axis=0)/np.diff(demo.times)[:,None]),axis=0) if len(geometric)>1 else np.zeros(hand.nu)
     rates=np.maximum(base_rates,args.hand_rate_scale*peak)
@@ -201,34 +237,31 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
     mpc=WujiOnlineMPC(hand,len(contacts.episodes),args.command_dt,args.horizon,args.mpc_solver,
         rates=rates,costs=args.mpc_costs,force_limit=args.force_limit,
         native_force_feedback=getattr(args,'native_force_feedback',False),
-        regrasp=getattr(args,'regrasp',True)) if mode=='full' else None
+        regrasp=getattr(args,'regrasp',False),closure_depth=args.closure_depth) if mode=='full' else None
     if mpc is not None:
         mpc.param_.mpc_failure_snapshot_=str(output/'acados_failure.npz')
         write_json(output/'mpc_costs.json',dict(weights=mpc.weights,force_residual_scale=mpc.force_scale))
-        write_json(output/'planning_model.json',dict(version='native_contact_pose_mpc_v19_online_recovery',
-            lambda_mode=getattr(args,'lambda_mode','online'),regrasp=getattr(args,'regrasp',True),
-            regrasp_target='MANO_object_anchor',nearby_candidates='current_material_nearest_projection',
-            friction_cone='pyramidal',cone_edges=4,lambda_explicit_tangents=True,
-            made_contact_frames='dominant_actual_MuJoCo_patch',
-            future_contact_frames='normal_completion_with_observed_axis_transport',
-            runtime_contact_friction=True,transport_reference_requires_stable_load_capacity=True,
-            lambda_requires_closure_and_pose_descent=True,mpc_candidate_validation='native_MuJoCo_horizon',
-            original_semantics='soft_prior_all_regions',execution_contacts='full_set_first_then_bounded_region_subsets',
-            material_roles='original_semantic_vs_planned_execution_vs_measured_physics_patch',
-            hand_reference_clock='all_frames_in_order_retimed_to_object_progress',
+        write_json(output/'planning_model.json',dict(version='native_contact_pose_mpc_v23_mano_attractors',
+            lambda_mode=getattr(args,'lambda_mode','off'),regrasp=getattr(args,'regrasp',False),
+            contact_region='MANO_soft_attractors_no_feasibility_filter' if not lambda_enabled else 'legacy_Lambda',
+            semantic_contacts_filtered=lambda_enabled,
+            closure_depth_m=args.closure_depth,contact_force_limit_N=args.force_limit,
+            servo_target_kinematics='separate_FK_reference_and_exact_native_cost_evaluation',
+            transport_reference_requires_stable_load_capacity=False,
+            lambda_requires_closure_and_pose_descent=False,force_certificates_affect_control=False,
+            candidate_ranking='native_MuJoCo_cost_and_collision_only',
+            original_semantics='soft_prior_all_regions',
+            hand_reference_clock='all_frames_in_order_retimed_to_measured_tracking_and_object_progress',
+            friction_cone='pyramidal',cone_edges=4,lambda_explicit_tangents=lambda_enabled,
+            made_contact_frames='dominant_actual_MuJoCo_patch',runtime_contact_friction=True,
+            external_wrench_target=False,lambda_force_tracking=False,
+            internal_pressure_feedback=False,static_load_allocation=False,
             grasp_response_requires_force_closure=False,grasp_response_minimum_made_slots=2,
-            external_wrench_target=False,lambda_force_tracking=False,external_pressure_override=False,
-            internal_pressure_feedback='same_affine_command_map_in_prediction_and_execution',
-            internal_preload='measured_pressure_candidates_and_stage_terminal_soft_cost',
-            internal_load_objective='gravity_force_and_moment_balance',
-            force_feedback=True,candidate_ranking_physics='native_MuJoCo_all_stages',
-            native_force_sensitivity='bounded_Gauss_Newton_seed' if getattr(args,'native_force_feedback',False) else 'disabled',
-            internal_preload_allocation='measured_patch_static_support_with_actuator_and_slot_limits',
-            internal_preload_friction_margin=.8,
-            preload_candidates='signed_physical_patch_motion_and_bounded_equilibrium_servo_native_cost_selected',
-            predicted_preload_growth='SCM_normal_response_bounded_by_force_limit',
+            hold_candidate='unchanged_physical_servo_target',
+            offline_contact_ik_reference='transported_with_measured_object_pose',
+            contact_command_speeds=dict(translation=.04,rotation=.2,fingers=.5),
             dynamics='reduced_grouped_SCM_and_force_limited_response',
-            execution='unchanged_DexForge_MuJoCo_position_servos'))
+            execution='position_servos_with_declared_finger_tuning'))
     runtime_materials=contacts.materials.copy()
     records=[];plans=[];qhistory=[];controls=[];pose_history=[];phase='approach';last_qref=geometric[0].copy();last_slots=()
     reachability_seed=geometric[0].copy();subset_policies={};preferred_subset=None
@@ -264,7 +297,8 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
             # Visit every frame in order, retiming physical execution to object
             # progress. All frames were IK solved offline; no frame is dropped
             # and no hard hand-shape threshold decides this reference clock.
-            reference=hand_cursor.update(args.command_dt,ready=step>0 and
+            hand_rate=hand_reference_rate(q,geometric[hand_cursor.index]) if mode=='full' else 1.
+            reference=hand_cursor.update(args.command_dt*hand_rate,ready=step>0 and
                 (mode=='ik-only' or (hand_cursor.index<target_index and
                     not (mpc.regrasp is not None and mpc.regrasp.move is not None))))
             target_shape=hand.kinematics(readiness_materials,hand.set_state(geometric[reference],pose))[0]
@@ -308,7 +342,9 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
                 if not report.get('collisions') and np.isfinite(report['q']).all():reachability_seed=report['q'].copy()
                 return report
             plan=dict(valid=True,source='ik_only',slots=slots,force_vectors_local=np.zeros((len(slots),3)),points=anchors[list(slots)],normals=inward[list(slots)],solve_time=0.)
-            if mode=='full' and offline_plans is None:
+            if mode=='full' and not lambda_enabled:
+                plan=demonstration_contact_plan(contacts,reference)
+            if lambda_enabled and offline_plans is None:
                 candidate_pose=hand.set_state(geometric[reference],pose)
                 geometric_points=hand.kinematics(materials,candidate_pose)[0]
                 geometric_local=(geometric_points-pose[:3])@rotation(pose)
@@ -336,7 +372,7 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
                         if subset not in subset_policies:
                             subset_policies[subset]=LocalLambdaPolicy(hand.surface,device=args.lambda_device,seed=args.seed,iterations=args.lambda_iterations,
                                 friction=hand.friction,force_limit=args.force_limit,radii=tuple(args.search_radii),samples=args.fps_samples,
-                                capacity=max(1,args.candidate_capacity//max(len(proposals),1)),require_closure_descent=True)
+                                capacity=max(1,args.candidate_capacity//max(len(proposals),1)),require_closure_descent=False)
                         trial=solve_set(subset_policies[subset],subset);relaxation_time+=trial['solve_time']
                         if trial['valid']:options.append(trial)
                     if options:
@@ -345,11 +381,17 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
                     plan['solve_time']=relaxation_time
                 preferred_subset=tuple(plan['slots']) if plan['valid'] and tuple(plan['slots'])!=slots else None
             if mode=='full':
-                if offline_plans is not None:
-                    plan=dict(offline_plans[reference])
+                contact_reference=reference
+                if lambda_enabled and offline_plans is not None:
+                    from examples.retarget.offline_contacts import execution_reference
+                    contact_reference=execution_reference(offline_plans,reference,target_index)
+                    plan=dict(offline_plans[contact_reference])
                     plan['solve_time']=0.
+                    plan['execution_reference_frame']=contact_reference
                 if plan['valid']:
                     failure_streak=0;last_qref=plan.get('ik',{}).get('q',geometric[reference]).copy()
+                    if offline_plans is not None and plan.get('ik',{}).get('q') is not None:
+                        last_qref=hand.transport_configuration(last_qref,demo.poses[contact_reference],pose)
                     fit_slots=tuple(plan['slots'])
                     for k,material in zip(fit_slots,plan.get('ik',{}).get('materials',[])):runtime_materials[k]=material
                     materials=runtime_materials
@@ -358,7 +400,7 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
             else:last_qref=geometric[reference].copy()
             plans.append(jsonable(plan))
             torque_violation=None;ideal_torque=[]
-            if mode=='full' and slots and plan['valid']:
+            if lambda_enabled and slots and plan['valid']:
                 witness=hand.set_state(last_qref,pose)
                 _,_,witness_jac=hand.kinematics([materials[k] for k in plan['slots']],witness)
                 world_force=desired[list(plan['slots'])]@rotation(pose).T
@@ -387,7 +429,8 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
             else:
                 execution_mask=np.zeros_like(active);execution_mask[list(plan['slots'])]=1.
                 target,mpc_report=mpc.plan(goal,geometric[reference],materials,anchors,contacts.anchors[reference],inward,active,
-                    original_materials=contacts.materials,contact_qref=last_qref,approach=phase=='approach',execution_mask=execution_mask)
+                    original_materials=contacts.materials,contact_qref=last_qref if lambda_enabled else None,
+                    approach=phase=='approach',execution_mask=execution_mask)
                 if ('acados status' in mpc_report['status'] or mpc_report['selected_control']=='unsafe_hold') and not (output/'mpc_failure.npz').exists():
                     np.savez_compressed(output/'mpc_failure.npz',step=step,**mpc.last_problem)
             hand.execute(target,args.command_dt)
@@ -408,13 +451,14 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
                     if k in previous_actual:slip.append(float(np.linalg.norm(a-previous_actual[k])))
                     previous_actual[k]=a
             collision=hand.collision_report(hand.data,{materials[k].body for k in slots})
-            record=dict(step=step,phase=phase,reference_frame=reference,matched_frame=index,object_reference_frame=target_index,object_pose=pose_after,
+            record=dict(step=step,phase=phase,reference_frame=reference,hand_reference_rate=hand_rate,matched_frame=index,object_reference_frame=target_index,object_pose=pose_after,
                 geometric_q_reference=geometric[reference],contact_q_reference=last_qref,
                 ideal_joint_torque=ideal_torque,ideal_torque_limit_violation=torque_violation,
                 finger_tracking_error=float(np.sqrt(np.mean((hand.data.qpos[hand.qadr][6:]-geometric[reference,6:])**2))),
                 wrist_tracking_error=float(np.linalg.norm(hand.data.qpos[hand.qadr][:3]-geometric[reference,:3])),
                 contact_handoff='measured_physical_contact' if actual else 'pending',
-                lambda_valid=plan['valid'],lambda_source=plan['source'],lambda_time=plan['solve_time'],mpc=mpc_report,
+                lambda_enabled=lambda_enabled,lambda_valid=plan['valid'] if lambda_enabled else None,
+                lambda_source=plan['source'],lambda_time=plan['solve_time'],mpc=mpc_report,
                 hand_contact_error=hand_error,object_anchor_error=object_error,force_error=np.linalg.norm(force_after[list(slots)]-desired[list(slots)]@rotation(pose_after).T,axis=1),
                 contact_fraction=fraction,active_contact_count=len(slots),actual_contact_count=len(actual_after),penetration=collision['max_penetration'],actual_force_closure=certificate,
                 slip=slip,cycle_time=time.perf_counter()-started,actual_forces=force_after,nearest_projection=projected)
@@ -422,7 +466,7 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
             demo_frame=reference if getattr(args,'demo_playback','reference')=='reference' else min(
                 int(np.searchsorted(demo.times,hand.data.time,side='right')-1),len(demo.poses)-1)
             record['demo_frame']=max(0,demo_frame)
-            if mode=='ik-only':record['force_error']=[]  # No Lambda force witness in this baseline.
+            if not lambda_enabled:record['force_error']=[]  # No force witness when Lambda is disabled.
             records.append(jsonable(record));log.write(json.dumps(jsonable(record),allow_nan=False)+'\n');log.flush()
             qhistory.append(hand.data.qpos[hand.qadr].copy());controls.append(target.copy());pose_history.append(pose_after)
             changed=False
@@ -469,6 +513,8 @@ def parser():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--config',type=Path);p.add_argument('--asset-cache',type=Path,default=CACHE)
     p.add_argument('--dexforge-root',type=Path);p.add_argument('--sequence',type=Path);p.add_argument('--hand-assets',type=Path)
+    p.add_argument('--physics-reference',type=Path,
+        help='Copy object inertia/contact parameters and floor from this DexForge XML; keep native mesh collision representation.')
     p.add_argument('--mano-models',type=Path,default=Path('/home/zz/GraspSONIC/thirdparty/DexForge/assets/mano'))
     p.add_argument('--sync-assets',action='store_true');p.add_argument('--output',type=Path,default=ROOT/'outputs/wuji_retarget')
     p.add_argument('--mode',choices=['ik-only','full'],default='full');p.add_argument('--compare',action='store_true')
@@ -478,13 +524,14 @@ def parser():
     p.add_argument('--demo-alpha',type=float,default=.3)
     p.add_argument('--demo-playback',choices=['reference','time'],default='reference',
         help='Synchronize ghosts to the tracked reference or play at demonstration simulation time.')
-    p.add_argument('--lambda-mode',choices=['offline','online'],default='offline')
+    p.add_argument('--lambda-mode',choices=['off','offline','online'],default='off',
+        help='Default off: keep all MANO contacts as soft MPC targets without feasibility filtering. Other modes restore legacy Lambda.')
     p.add_argument('--contact-plan-cache',type=Path,help='Reuse/save fingerprint-checked offline Lambda/IK plans.')
-    p.add_argument('--regrasp',action=argparse.BooleanOptionalAction,default=True,
+    p.add_argument('--regrasp',action=argparse.BooleanOptionalAction,default=False,
         help='Online measured release and recovery toward MANO anchors; MPC evaluates nearby projections.')
     p.add_argument('--mpc-solver',choices=['acados','ipopt'],default='acados');p.add_argument('--horizon',type=int,default=4)
-    p.add_argument('--native-force-feedback',action='store_true',help='Verification: add a native finite-difference Gauss-Newton candidate; increases computation.')
-    p.add_argument('--command-dt',type=float,default=.03);p.add_argument('--sim-dt',type=float,default=.01)
+    p.add_argument('--native-cost-refinement','--native-force-feedback',dest='native_force_feedback',action='store_true',help='Refine the same pose/distance cost through native position-servo dynamics; increases computation.')
+    p.add_argument('--command-dt',type=float,default=.03);p.add_argument('--sim-dt',type=float,default=.0025)
     p.add_argument('--fps',type=float,default=30.);p.add_argument('--subsample',type=int,default=1);p.add_argument('--max-frames',type=int,default=0)
     p.add_argument('--max-steps',type=int,default=600);p.add_argument('--max-infeasible-steps',type=int,default=20)
     p.add_argument('--stop-on-contact-failure',action='store_true',help='Stop after repeated infeasible contacts; otherwise continue bounded geometric hand tracking.')
@@ -494,9 +541,12 @@ def parser():
     p.add_argument('--contact-ik-tolerance',type=float,default=.002)
     p.add_argument('--contact-penetration-limit',type=float,default=None,help='Active contact collision tolerance; defaults to DexForge FA config.')
     p.add_argument('--contact-target-depth',type=float,default=None,help='Soft IK allowance for active contact; defaults to DexForge FA target_phi magnitude.')
+    p.add_argument('--closure-depth',type=float,default=.004,help='Virtual servo target closure in metres along the MANO contact normal.')
+    p.add_argument('--finger-stiffness-scale',type=float,default=50.,help='Finger kp multiplier; kv scales by its square root.')
+    p.add_argument('--finger-force-scale',type=float,default=10.,help='Multiplier for BOTH finger actuator and joint torque limits.')
     p.add_argument('--ik-tolerance',type=float,default=.012);p.add_argument('--lambda-device',default='cpu')
     p.add_argument('--mpc-costs',type=json.loads,default={},help='MPC cost weights as JSON; also accepts a mapping in YAML config.')
-    p.add_argument('--lambda-iterations',type=int,default=20);p.add_argument('--force-limit',type=float,default=10.)
+    p.add_argument('--lambda-iterations',type=int,default=20);p.add_argument('--force-limit',type=float,default=100.,help='Shared contact force cap (N) for MPC and Lambda.')
     p.add_argument('--search-radii',type=float,nargs='+',default=[.005,.01]);p.add_argument('--fps-samples',type=int,default=8)
     p.add_argument('--candidate-capacity',type=int,default=8);p.add_argument('--seed',type=int,default=0)
     p.add_argument('--reference-window',type=float,default=.5);p.add_argument('--lookahead',type=float,default=.06)
@@ -516,9 +566,10 @@ def main(argv=None):
         for key,value in config.items():
             if '--'+key.replace('_','-') not in explicit:setattr(args,key,value)
     from planning.wuji_retarget_mpc import WujiRetargetCosts
+    if args.lambda_mode not in ('off','offline','online'):p.error('lambda-mode must be off, offline or online (quote "off" in YAML)')
     try:WujiRetargetCosts(**args.mpc_costs)
     except (TypeError,ValueError) as exc:p.error(f'invalid mpc-costs: {exc}')
-    for key in ('command_dt','sim_dt','fps','ik_tolerance','contact_ik_tolerance','force_limit','reference_window','hand_rate_scale'):
+    for key in ('command_dt','sim_dt','fps','ik_tolerance','contact_ik_tolerance','force_limit','reference_window','hand_rate_scale','finger_stiffness_scale','finger_force_scale'):
         if not np.isfinite(getattr(args,key)) or getattr(args,key)<=0:p.error(f'{key} must be positive and finite')
     if abs(round(args.command_dt/args.sim_dt)*args.sim_dt-args.command_dt)>1e-10:p.error('command-dt must be a multiple of sim-dt')
     if args.max_frames<0 or args.max_infeasible_steps<1 or args.lambda_iterations<1:p.error('invalid frame or iteration count')
@@ -537,6 +588,7 @@ def main(argv=None):
     if args.contact_penetration_limit is None:args.contact_penetration_limit=float(upstream_contact.get('penetration_limit',.008))
     if args.contact_target_depth is None:args.contact_target_depth=abs(float(upstream_contact.get('target_phi',-.004)))
     if not np.isfinite([args.contact_target_depth,args.contact_penetration_limit]).all() or not 0<=args.contact_target_depth<=args.contact_penetration_limit:p.error('contact depth must be finite and between zero and the active penetration limit')
+    if not np.isfinite(args.closure_depth) or args.closure_depth<0:p.error('closure-depth must be finite and nonnegative (virtual servo compression, independent of collision tolerance)')
     args.sequence=Path(args.sequence or root/'data/dexycb'/SEQUENCE)
     args.hand_assets=Path(args.hand_assets or root/'assets/wuji');args.mano_models=Path(args.mano_models);args.output=Path(args.output)
     args.output.mkdir(parents=True,exist_ok=True);write_json(args.output/'config.json',vars(args))
@@ -552,13 +604,19 @@ def main(argv=None):
     center_mass=np.fromstring(inertial.get('pos','0 0 0'),sep=' ') if inertial is not None else surface.mesh.center_mass
     ground=stabilize_demonstration(demo,surface,center_mass)
     write_json(args.output/'ground_stabilization.json',ground)
-    xml=build_scene(args.hand_assets/'right_mesh.xml',scene,args.output/'scene.xml',demo.poses[0],args.sim_dt,exclude_mounts=not args.include_mount_collisions)
+    xml=build_scene(args.hand_assets/'right_mesh.xml',scene,args.output/'scene.xml',demo.poses[0],args.sim_dt,
+        exclude_mounts=not args.include_mount_collisions,
+        finger_stiffness_scale=args.finger_stiffness_scale,finger_force_scale=args.finger_force_scale,
+        physics_reference=args.physics_reference)
     hand=WujiHand(xml,surface)
     hand.contact_penetration_limit=args.contact_penetration_limit;hand.contact_target_depth=args.contact_target_depth
     write_json(args.output/'execution_contact_settings.json',dict(source=str(contact_config),
         active_collision_limit_m=args.contact_penetration_limit,soft_ik_allowance_m=args.contact_target_depth,
-        note='FA uses query-point phi; this executor checks physical collider depth. MuJoCo parameters are unmodified.'))
-    write_json(args.output/'physics_parameters.json',physics_audit(hand,args.hand_assets/'right_mesh.xml',scene))
+        closure_depth_m=args.closure_depth,
+        note='Normal closure retains MANO tangential regions; finger tuning is recorded in physics_parameters.json.'))
+    write_json(args.output/'physics_parameters.json',physics_audit(hand,args.hand_assets/'right_mesh.xml',scene,
+        finger_stiffness_scale=args.finger_stiffness_scale,finger_force_scale=args.finger_force_scale,
+        physics_reference=args.physics_reference))
     print(f'[prepare] frames={len(demo.poses)} hand_dof={hand.nu}',flush=True)
     contacts=extract_contacts(demo,hand,args.hand_assets)
     print(f'[prepare] semantic episodes={len(contacts.episodes)} regions={sorted(set((e.finger,e.region) for e in contacts.episodes))}',flush=True)

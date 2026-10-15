@@ -11,7 +11,7 @@ from examples.retarget.contact_geometry import support_parameters
 
 
 def plan_fingerprint(hand, demo, contacts, geometric, args):
-    digest = hashlib.sha256(b'wuji_offline_contacts_v1')
+    digest = hashlib.sha256(b'wuji_offline_contacts_v3_nominal_surface_ik')
     for value in (demo.poses, demo.times, contacts.mask, contacts.anchors, contacts.normals,
                   geometric, [m.body for m in contacts.materials], [m.local for m in contacts.materials],
                   [m.normal for m in contacts.materials], hand.model.mesh_vert, hand.model.geom_friction,
@@ -42,6 +42,19 @@ def restore_plan(value):
     return value
 
 
+def execution_reference(plans,reference,target_reference):
+    """Use a reachable upcoming grasp during an infeasible contact transition.
+
+    Hand-shape playback still visits its current frame. Contact intent can
+    look ahead as far as the already selected object reference; it must not
+    chase an unrelated later release or replace a feasible current plan.
+    """
+    if plans[reference]['valid']:return reference
+    for frame in range(reference+1,min(target_reference,len(plans)-1)+1):
+        if plans[frame]['valid'] and plans[frame]['slots']:return frame
+    return reference
+
+
 def prepare_contacts(hand, demo, contacts, geometric, args, shape_materials, shape_targets):
     from examples.retarget.retarget import write_json
     fingerprint = plan_fingerprint(hand, demo, contacts, geometric, args)
@@ -59,7 +72,7 @@ def prepare_contacts(hand, demo, contacts, geometric, args, shape_materials, sha
     policy = LocalLambdaPolicy(hand.surface, device=args.lambda_device, seed=args.seed,
         iterations=args.lambda_iterations, friction=hand.friction, force_limit=args.force_limit,
         radii=tuple(args.search_radii), samples=args.fps_samples, capacity=args.candidate_capacity,
-        require_closure_descent=True)
+        require_closure_descent=False)
     plans = [];seed = geometric[0].copy()
     for frame, pose in enumerate(demo.poses):
         hand.set_state(geometric[frame], pose, hand.data)
@@ -72,6 +85,8 @@ def prepare_contacts(hand, demo, contacts, geometric, args, shape_materials, sha
         def solve(fit):
             def verify(candidate, normals):
                 nonlocal seed
+                # Nominal surface reachability is independent of servo
+                # compression. The online virtual target adds closure depth.
                 world = pose[:3]+candidate@rotation(pose).T
                 best = None
                 for guess in (seed.copy(), geometric[frame].copy()):

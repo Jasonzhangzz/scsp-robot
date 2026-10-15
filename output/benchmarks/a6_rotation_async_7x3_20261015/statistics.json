@@ -1,0 +1,27 @@
+{
+  "trials": 21,
+  "successes": 4,
+  "success_rate": 0.19047619047619047,
+  "execution_time_s": {
+    "n": 4,
+    "mean": 2.650000125868246,
+    "std": 3.1217731487788067
+  },
+  "planning_time_s": 0.04176271480897402,
+  "planning_cycles": 42779,
+  "final_pos_error_m": {
+    "n": 21,
+    "mean": 0.44613714285714284,
+    "std": 0.2441361266003632
+  },
+  "final_quat_error": {
+    "n": 21,
+    "mean": 0.5654895238095238,
+    "std": 0.376234942296382
+  },
+  "async_planner": true,
+  "headless_realtime": true,
+  "stable_flip_successes": 21,
+  "mpc_failures": 4,
+  "mpc_fallbacks": 4
+}

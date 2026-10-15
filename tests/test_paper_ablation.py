@@ -325,6 +325,16 @@ def test_cso_ablation_dispatch_keeps_full_cpo_and_named_backend(capsys, mode):
     assert command[-10:-8] == ['--async-planner', '--headless-realtime']
 
 
+def test_a6_dispatch_uses_existing_direct_motion_planning(capsys):
+    import json
+    from examples.mpc.franka.ik2 import run_ablation as runner
+    assert runner.main(['--a6', '--rotation', '--dry-run']) == 0
+    command = json.loads(capsys.readouterr().out)
+    assert command[-10:] == ['--async-planner', '--headless-realtime',
+        '--cso-guidance', 'cso', '--cpo-variant', 'direct',
+        '--ablation-mode', 'a6', '--ablation-variant', 'a6']
+
+
 def test_a4_native_qp_uses_observed_state_without_moving_the_execution_state(tmp_path, monkeypatch):
     import mujoco
     import trimesh

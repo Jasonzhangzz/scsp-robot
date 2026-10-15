@@ -1,8 +1,8 @@
 """Semantic MANO contacts, monotonic reference progress and local Lambda policy.
 
-The retarget entry requires native closure and pose-cost descent, in addition
-to joint reachability. Legacy callers can explicitly retain physical/IK-only
-selection. Pose cost ranks the accepted local candidates.
+Retargeting preserves the original anchors when their force solve and geometric
+IK are valid. Force-closure and pose-descent certificates are diagnostics by
+default; callers may explicitly enable the legacy certificate requirement.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -274,6 +274,18 @@ def tracking_task_complete(reference,total_frames,pose,final_pose,position_toler
     return bool(reference==total_frames-1 and np.linalg.norm(pose[:3]-final_pose[:3])<=position_tolerance and angle<=angle_tolerance)
 
 
+def hand_reference_rate(measured,reference):
+    """Continuously retime hand playback to measured tracking lag.
+
+    No pose-error feasibility threshold or frame skipping: a delayed wrist
+    gets more simulation time before the next geometric pose arrives.
+    """
+    error=np.asarray(measured)-np.asarray(reference)
+    lag=np.linalg.norm(error[:3])/.02+np.linalg.norm(error[3:6])/.3
+    if len(error)>6:lag+=np.sqrt(np.mean(error[6:]**2))/.3
+    return float(1/(1+lag))
+
+
 class HandReferenceProgress:
     """Visit every decoded hand frame, independently of object pose matching.
 
@@ -332,7 +344,7 @@ def fps(points, count, anchor):
 
 
 class LocalLambdaPolicy:
-    def __init__(self,surface,*,device='cpu',seed=0,friction=.5,force_limit=10.,iterations=20,
+    def __init__(self,surface,*,device='cpu',seed=0,friction=.5,force_limit=100.,iterations=20,
                  radii=(.005,.01),samples=8,capacity=64,pos_coef=1.,ori_coef=.0005,
                  require_closure_descent=False):
         self.surface=surface; self.device=device; self.rng=np.random.default_rng(seed)
@@ -398,7 +410,8 @@ class LocalLambdaPolicy:
                 continue
             deviation=float(np.linalg.norm(points[row]-self.original,axis=1).sum())
             switching=0. if self.previous is None or tuple(slots)!=self.previous['slots'] else float(np.linalg.norm(points[row]-self.previous['points']))
-            rank=(float(costs[row]),deviation,float(check.get('material_offset',0.)),switching,-closure['positive_span_margin'])
+            rank=(float(costs[row]),deviation,float(check.get('material_offset',0.)),switching)
+            if self.require_closure_descent:rank+=(-closure['positive_span_margin'],)
             candidate=dict(result,slots=tuple(slots),valid=True,source=source,ik=check,
                 force_closure_certificate=closure,candidate_count=len(points),rank=rank,
                 tangent_directions=tangents[row].copy(),friction_cone='pyramidal')

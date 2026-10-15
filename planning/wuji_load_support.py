@@ -1,8 +1,8 @@
 """Internal, actuator-feasible gravity preload seeds for contact-point MPC.
 
-This supplies a position-command candidate, not an incoming wrench reference,
-force-tracking objective, or applied object force. Native MPC rollout cost must
-still accept the resulting command. Only already measured patches participate.
+This derives internal pressure preferences and position-command candidates from
+gravity, never an incoming wrench reference or an applied object force. Native
+MPC rollout cost must still accept the command. Only measured patches participate.
 """
 import mujoco
 import numpy as np
@@ -31,13 +31,16 @@ def pressure_command_map(point_jacobian,normals,measured,reference,*,grasp_estab
         # target increment, using the actual Wuji gains, not Allegro's tuned
         # metres/Newton constant. This does not change any physical gain.
         weighted=finger.T/np.maximum(np.asarray(stiffness)[6:,None],1e-8)
-        compliance=finger@weighted
-        inverse=weighted@np.linalg.solve(compliance+1e-8*np.eye(len(jac)),np.eye(len(jac)))
         correction=.2*weighted@(np.asarray(reference)-measured)
         excursion=float(np.max(np.abs(finger@correction))) if len(jac) else 0.
         correction*=min(1.,limit/max(excursion,1e-12))
-    projection=np.eye(jac.shape[1]);projection[6:,6:]-=inverse@finger
-    if not grasp_established:projection[6:,:6]=-inverse@jac[:,:6]
+    # Pressure feedback is a bounded bias, not ownership of the normal DOFs.
+    # Unlike independent Allegro pads, a Wuji link can carry several patches.
+    # Nulling their gap Jacobian prevents MPC (and equilibrium/native seeds)
+    # from changing the pressure distribution when this local reference cannot
+    # support gravity. Keep exactly the same affine map in prediction/execution,
+    # while leaving both compression and unloading available to the optimizer.
+    projection=np.eye(jac.shape[1])
     bias=np.r_[np.zeros(6),correction]
     return projection,bias
 
@@ -73,12 +76,31 @@ def static_preload_seed(hand,actual,normal_rows,force_limit,friction_margin=.8,p
     endpoints=np.array([gain*hand.lower+constant,gain*hand.upper+constant])
     lower=np.clip(endpoints.min(axis=0),lower,upper)
     upper=np.clip(endpoints.max(axis=0),np.where(limited,hand.model.actuator_forcerange[:,0],-np.inf),upper)
-    inequalities=np.r_[torque_map,-torque_map,slot_budgets]
     budgets=np.r_[upper-bias,bias-lower,np.full(len(keys),force_limit/np.sqrt(1+hand.friction**2))]
     finite=np.isfinite(budgets);scale=np.r_[np.ones(3),np.full(3,1/max(np.linalg.norm(points,axis=1).max(),.001))]
     local_external=np.r_[r.T@external[:3],r.T@external[3:]]
     preference=np.repeat([1. if preferred_bodies is None or c['body'] in preferred_bodies else 3. for c in contacts],4)
-    result=linprog(preference,A_eq=scale[:,None]*rays,b_eq=-scale*local_external,
+    # MuJoCo joint stops can carry part of a contact torque. Omitting their
+    # unilateral reactions reports an engaged stop as motor infeasibility and
+    # asks the pressure loop to unload a physically supported grasp. Include
+    # ONLY currently active limit rows, never stops at a hypothetical posture.
+    stop_columns=[];stop_joints=[]
+    types=np.asarray(getattr(hand.data,'efc_type',[]))
+    for row in np.flatnonzero(types==int(mujoco.mjtConstraint.mjCNSTR_LIMIT_JOINT)):
+        joint=int(hand.data.efc_id[row]);dof=int(hand.model.jnt_dofadr[joint])
+        ids=np.flatnonzero(hand.dadr==dof)
+        if not len(ids) or joint in stop_joints:continue
+        position=hand.data.qpos[hand.model.jnt_qposadr[joint]]
+        bounds=hand.model.jnt_range[joint]
+        column=np.zeros(hand.nu);column[ids[0]]=1. if abs(position-bounds[0])<abs(position-bounds[1]) else -1.
+        stop_columns.append(column);stop_joints.append(joint)
+    stops=np.column_stack(stop_columns) if stop_columns else np.zeros((hand.nu,0))
+    force_columns=rays.shape[1];stop_count=stops.shape[1]
+    motor_map=np.c_[torque_map,-stops]
+    object_map=np.c_[rays,np.zeros((6,stop_count))]
+    inequalities=np.r_[motor_map,-motor_map,np.c_[slot_budgets,np.zeros((len(keys),stop_count))]]
+    preference=np.r_[preference,np.full(stop_count,1e-3)]
+    result=linprog(preference,A_eq=scale[:,None]*object_map,b_eq=-scale*local_external,
         A_ub=inequalities[finite],b_ub=budgets[finite],bounds=(0.,None),method='highs')
     fraction=1.
     if not result.success:
@@ -86,16 +108,19 @@ def static_preload_seed(hand,actual,normal_rows,force_limit,friction_margin=.8,p
         # of gravity instead of demanding an infeasible uniform full preload.
         # CURRENT measured Fn is never a cap on this planned force buildup.
         partial=linprog(np.r_[1e-6*preference,-1.],
-            A_eq=scale[:,None]*np.c_[rays,local_external],b_eq=np.zeros(6),
+            A_eq=scale[:,None]*np.c_[object_map,local_external],b_eq=np.zeros(6),
             A_ub=np.c_[inequalities[finite],np.zeros(np.count_nonzero(finite))],b_ub=budgets[finite],
-            bounds=[(0.,None)]*rays.shape[1]+[(0.,1.)],method='highs')
+            bounds=[(0.,None)]*object_map.shape[1]+[(0.,1.)],method='highs')
         if not partial.success or partial.x[-1]<1e-3:
             return dict(feasible=False,full_load_feasible=False,load_fraction=0.,reason='bounded_static_support_infeasible')
         fraction=float(partial.x[-1]);coefficients=partial.x[:-1]
     else:coefficients=result.x
+    force_coefficients=coefficients[:force_columns]
     return dict(feasible=True,full_load_feasible=fraction>=1-1e-6,load_fraction=fraction,
-        normal_forces=np.maximum(grouped_normals@coefficients,0.),
-        patch_normal_forces=coefficients.reshape(-1,4).sum(axis=1),
-        required_joint_torque=bias+torque_map@coefficients,
-        object_wrench_residual=float(np.linalg.norm(rays@coefficients+fraction*local_external)),
-        full_gravity_wrench_residual=float(np.linalg.norm(rays@coefficients+local_external)))
+        normal_forces=np.maximum(grouped_normals@force_coefficients,0.),
+        patch_normal_forces=force_coefficients.reshape(-1,4).sum(axis=1),
+        required_joint_torque=bias+motor_map@coefficients,
+        joint_limit_reaction_torque=stops@coefficients[force_columns:],
+        supporting_joint_limits=stop_joints,
+        object_wrench_residual=float(np.linalg.norm(rays@force_coefficients+fraction*local_external)),
+        full_gravity_wrench_residual=float(np.linalg.norm(rays@force_coefficients+local_external)))

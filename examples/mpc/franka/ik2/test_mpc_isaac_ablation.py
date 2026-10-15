@@ -2312,7 +2312,7 @@ def _add_rollout_policy_args(parser):
     add_rollout_via_args(parser)
     # Allow tangential loading during a flip without removing regularization.
     parser.set_defaults(friction_reg_coef=DEFAULT_TANGENTIAL_FORCE_PENALTY)
-    parser.add_argument('--ablation-mode', choices=('full', 'a1', 'a2', 'a3', 'a4', 'a5', 'a7'), default='full')
+    parser.add_argument('--ablation-mode', choices=('full', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'), default='full')
     parser.add_argument('--a4-qp-maxiter', type=int, default=12)
     parser.add_argument('--a5-population-size', type=int, default=24)
     parser.add_argument('--a5-population-iterations', type=int, default=12)

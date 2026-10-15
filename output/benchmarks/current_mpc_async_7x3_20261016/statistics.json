@@ -1,0 +1,913 @@
+{
+  "rotation": {
+    "overall": {
+      "trials": 21,
+      "successes": 21,
+      "success_rate": 1.0,
+      "execution_time_s": {
+        "n": 21,
+        "mean": 15.787619797490715,
+        "std": 20.70052220969403
+      },
+      "completion_wall_time_s": {
+        "n": 21,
+        "mean": 20.040705400140723,
+        "std": 27.387354798275965
+      },
+      "planning_time_s": 0.03465736841784605,
+      "planning_time_std_s": 0.019819607087821718,
+      "planning_cycles": 11587,
+      "final_pos_error_m": {
+        "n": 21,
+        "mean": 0.01764047619047619,
+        "std": 0.004355869001921977
+      },
+      "final_quat_error": {
+        "n": 21,
+        "mean": 0.003850952380952381,
+        "std": 0.004974629538731407
+      },
+      "stable_flip_successes": 21,
+      "physics_policy_ticks": 16577,
+      "mpc_failures": 0,
+      "lambda_failures": 0,
+      "mpc_fallbacks": 0,
+      "lambda_fallbacks": 0,
+      "planner_solver_backends": [
+        "acados"
+      ],
+      "successful_cases": [
+        {
+          "object": "foam_brick",
+          "seed": 0
+        },
+        {
+          "object": "foam_brick",
+          "seed": 1
+        },
+        {
+          "object": "foam_brick",
+          "seed": 2
+        },
+        {
+          "object": "stanford_bunny2",
+          "seed": 0
+        },
+        {
+          "object": "stanford_bunny2",
+          "seed": 1
+        },
+        {
+          "object": "stanford_bunny2",
+          "seed": 2
+        },
+        {
+          "object": "elephant",
+          "seed": 0
+        },
+        {
+          "object": "elephant",
+          "seed": 1
+        },
+        {
+          "object": "elephant",
+          "seed": 2
+        },
+        {
+          "object": "piggy_bank",
+          "seed": 0
+        },
+        {
+          "object": "piggy_bank",
+          "seed": 1
+        },
+        {
+          "object": "piggy_bank",
+          "seed": 2
+        },
+        {
+          "object": "teapot",
+          "seed": 0
+        },
+        {
+          "object": "teapot",
+          "seed": 1
+        },
+        {
+          "object": "teapot",
+          "seed": 2
+        },
+        {
+          "object": "mug",
+          "seed": 0
+        },
+        {
+          "object": "mug",
+          "seed": 1
+        },
+        {
+          "object": "mug",
+          "seed": 2
+        },
+        {
+          "object": "rubber_duck",
+          "seed": 0
+        },
+        {
+          "object": "rubber_duck",
+          "seed": 1
+        },
+        {
+          "object": "rubber_duck",
+          "seed": 2
+        }
+      ]
+    },
+    "objects": {
+      "foam_brick": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 10.206667151457319,
+          "std": 5.25700827073966
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 10.308712272662282,
+          "std": 5.233318650181886
+        },
+        "planning_time_s": 0.02468392079989056,
+        "planning_time_std_s": 0.009555243223387324,
+        "planning_cycles": 1159,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.019496666666666666,
+          "std": 0.000420634441449263
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.0022433333333333333,
+          "std": 0.003179454879902109
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 1531,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "foam_brick",
+            "seed": 0
+          },
+          {
+            "object": "foam_brick",
+            "seed": 1
+          },
+          {
+            "object": "foam_brick",
+            "seed": 2
+          }
+        ]
+      },
+      "stanford_bunny2": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 8.406667065961907,
+          "std": 3.833658139358166
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 8.49446373632721,
+          "std": 3.8050824882300462
+        },
+        "planning_time_s": 0.026163511164297628,
+        "planning_time_std_s": 0.00770602797947339,
+        "planning_cycles": 925,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.01913,
+          "std": 0.0005369357503463512
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.0019299999999999999,
+          "std": 0.001595399636454766
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 1261,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "stanford_bunny2",
+            "seed": 0
+          },
+          {
+            "object": "stanford_bunny2",
+            "seed": 1
+          },
+          {
+            "object": "stanford_bunny2",
+            "seed": 2
+          }
+        ]
+      },
+      "elephant": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 16.23333410437529,
+          "std": 15.325800326434807
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 26.5311776996726,
+          "std": 25.903094992772328
+        },
+        "planning_time_s": 0.05516034482710257,
+        "planning_time_std_s": 0.016034442665292147,
+        "planning_cycles": 1409,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.01894,
+          "std": 0.000570350769263969
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.005316666666666667,
+          "std": 0.0075659852850328314
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 2435,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "elephant",
+            "seed": 0
+          },
+          {
+            "object": "elephant",
+            "seed": 1
+          },
+          {
+            "object": "elephant",
+            "seed": 2
+          }
+        ]
+      },
+      "piggy_bank": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 20.79333432096367,
+          "std": 26.906069986224587
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 39.71461026299706,
+          "std": 51.957055586491585
+        },
+        "planning_time_s": 0.0667137612433605,
+        "planning_time_std_s": 0.013251324927540319,
+        "planning_cycles": 1753,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.019646666666666666,
+          "std": 0.00010692676621563722
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.0029766666666666665,
+          "std": 0.004644807136290304
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 3119,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "piggy_bank",
+            "seed": 0
+          },
+          {
+            "object": "piggy_bank",
+            "seed": 1
+          },
+          {
+            "object": "piggy_bank",
+            "seed": 2
+          }
+        ]
+      },
+      "teapot": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 4.86666689782093,
+          "std": 3.701477358414096
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 4.929056879327011,
+          "std": 3.6641940872303755
+        },
+        "planning_time_s": 0.020279008723303186,
+        "planning_time_std_s": 0.008093932147504364,
+        "planning_cycles": 631,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.011523333333333333,
+          "std": 0.006927411734070188
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.009753333333333333,
+          "std": 0.006967455298265883
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 730,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "teapot",
+            "seed": 0
+          },
+          {
+            "object": "teapot",
+            "seed": 1
+          },
+          {
+            "object": "teapot",
+            "seed": 2
+          }
+        ]
+      },
+      "mug": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 7.460000354330987,
+          "std": 5.170261360837167
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 7.5523673449933995,
+          "std": 5.098206488157442
+        },
+        "planning_time_s": 0.02685370071996636,
+        "planning_time_std_s": 0.011059124950249742,
+        "planning_cycles": 810,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.01514,
+          "std": 0.007240662953072737
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.003363333333333333,
+          "std": 0.005282767582748017
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 1119,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "mug",
+            "seed": 0
+          },
+          {
+            "object": "mug",
+            "seed": 1
+          },
+          {
+            "object": "mug",
+            "seed": 2
+          }
+        ]
+      },
+      "rubber_duck": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 42.54666868752489,
+          "std": 41.475499957748276
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 42.7545496050055,
+          "std": 41.38476414140613
+        },
+        "planning_time_s": 0.024397411105093518,
+        "planning_time_std_s": 0.007947044621601437,
+        "planning_cycles": 4900,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.019606666666666668,
+          "std": 0.000380306893617949
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.0013733333333333334,
+          "std": 0.0019852539719978734
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 6382,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "rubber_duck",
+            "seed": 0
+          },
+          {
+            "object": "rubber_duck",
+            "seed": 1
+          },
+          {
+            "object": "rubber_duck",
+            "seed": 2
+          }
+        ]
+      }
+    }
+  },
+  "flipping": {
+    "overall": {
+      "trials": 21,
+      "successes": 14,
+      "success_rate": 0.6666666666666666,
+      "execution_time_s": {
+        "n": 14,
+        "mean": 31.69285864818708,
+        "std": 25.811155174051436
+      },
+      "completion_wall_time_s": {
+        "n": 14,
+        "mean": 35.428521270574755,
+        "std": 31.250300249722716
+      },
+      "planning_time_s": 0.038518425529402225,
+      "planning_time_std_s": 0.019813310487341255,
+      "planning_cycles": 50929,
+      "final_pos_error_m": {
+        "n": 21,
+        "mean": 0.0455747619047619,
+        "std": 0.05081340400121287
+      },
+      "final_quat_error": {
+        "n": 21,
+        "mean": 0.2656095238095238,
+        "std": 0.3889636716902517
+      },
+      "stable_flip_successes": 15,
+      "physics_policy_ticks": 81514,
+      "mpc_failures": 0,
+      "lambda_failures": 0,
+      "mpc_fallbacks": 0,
+      "lambda_fallbacks": 0,
+      "planner_solver_backends": [
+        "acados"
+      ],
+      "successful_cases": [
+        {
+          "object": "foam_brick",
+          "seed": 0
+        },
+        {
+          "object": "foam_brick",
+          "seed": 1
+        },
+        {
+          "object": "foam_brick",
+          "seed": 2
+        },
+        {
+          "object": "stanford_bunny2",
+          "seed": 0
+        },
+        {
+          "object": "stanford_bunny2",
+          "seed": 1
+        },
+        {
+          "object": "elephant",
+          "seed": 0
+        },
+        {
+          "object": "elephant",
+          "seed": 1
+        },
+        {
+          "object": "piggy_bank",
+          "seed": 0
+        },
+        {
+          "object": "piggy_bank",
+          "seed": 1
+        },
+        {
+          "object": "teapot",
+          "seed": 0
+        },
+        {
+          "object": "teapot",
+          "seed": 1
+        },
+        {
+          "object": "teapot",
+          "seed": 2
+        },
+        {
+          "object": "rubber_duck",
+          "seed": 0
+        },
+        {
+          "object": "rubber_duck",
+          "seed": 1
+        }
+      ]
+    },
+    "objects": {
+      "foam_brick": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 15.260000724811107,
+          "std": 11.131487401547856
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 15.343357082669778,
+          "std": 11.111327036104726
+        },
+        "planning_time_s": 0.02340294184997501,
+        "planning_time_std_s": 0.0086127438886132,
+        "planning_cycles": 1802,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.013266666666666666,
+          "std": 0.00610141240479066
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.01001,
+          "std": 0.0031838184621614343
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 2289,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "foam_brick",
+            "seed": 0
+          },
+          {
+            "object": "foam_brick",
+            "seed": 1
+          },
+          {
+            "object": "foam_brick",
+            "seed": 2
+          }
+        ]
+      },
+      "stanford_bunny2": {
+        "trials": 3,
+        "successes": 2,
+        "success_rate": 0.6666666666666666,
+        "execution_time_s": {
+          "n": 2,
+          "mean": 45.89000217965804,
+          "std": 1.0606602221584762
+        },
+        "completion_wall_time_s": {
+          "n": 2,
+          "mean": 45.988415184488986,
+          "std": 1.1624884732576903
+        },
+        "planning_time_s": 0.024688977422730227,
+        "planning_time_std_s": 0.007586791105447882,
+        "planning_cycles": 8533,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.018493333333333334,
+          "std": 0.0011927419391189918
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.23596666666666666,
+          "std": 0.4073900388243843
+        },
+        "stable_flip_successes": 2,
+        "physics_policy_ticks": 11210,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "stanford_bunny2",
+            "seed": 0
+          },
+          {
+            "object": "stanford_bunny2",
+            "seed": 1
+          }
+        ]
+      },
+      "elephant": {
+        "trials": 3,
+        "successes": 2,
+        "success_rate": 0.6666666666666666,
+        "execution_time_s": {
+          "n": 2,
+          "mean": 42.380002012941986,
+          "std": 33.54514729279874
+        },
+        "completion_wall_time_s": {
+          "n": 2,
+          "mean": 67.91772236999532,
+          "std": 54.279724375699814
+        },
+        "planning_time_s": 0.051344764404423086,
+        "planning_time_std_s": 0.01692102088173454,
+        "planning_cycles": 7374,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.04174,
+          "std": 0.0383321679533
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.2268366666666667,
+          "std": 0.3870905844028415
+        },
+        "stable_flip_successes": 2,
+        "physics_policy_ticks": 12932,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "elephant",
+            "seed": 0
+          },
+          {
+            "object": "elephant",
+            "seed": 1
+          }
+        ]
+      },
+      "piggy_bank": {
+        "trials": 3,
+        "successes": 2,
+        "success_rate": 0.6666666666666666,
+        "execution_time_s": {
+          "n": 2,
+          "mean": 15.100000717211515,
+          "std": 2.4890159879985574
+        },
+        "completion_wall_time_s": {
+          "n": 2,
+          "mean": 15.18711806202191,
+          "std": 2.550910996742047
+        },
+        "planning_time_s": 0.021998507178315415,
+        "planning_time_std_s": 0.008175516207047916,
+        "planning_cycles": 6053,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.07395666666666667,
+          "std": 0.09472013795034999
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.2821466666666667,
+          "std": 0.4883806157428173
+        },
+        "stable_flip_successes": 2,
+        "physics_policy_ticks": 7391,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "piggy_bank",
+            "seed": 0
+          },
+          {
+            "object": "piggy_bank",
+            "seed": 1
+          }
+        ]
+      },
+      "teapot": {
+        "trials": 3,
+        "successes": 3,
+        "success_rate": 1.0,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 13.040000619366765,
+          "std": 4.332389846610802
+        },
+        "completion_wall_time_s": {
+          "n": 3,
+          "mean": 13.10012082134684,
+          "std": 4.304835153017785
+        },
+        "planning_time_s": 0.020743279066905762,
+        "planning_time_std_s": 0.007430056338509234,
+        "planning_cycles": 1658,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.01903,
+          "std": 0.0009623408959407273
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.0011633333333333333,
+          "std": 0.0009318977054019038
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 1956,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "teapot",
+            "seed": 0
+          },
+          {
+            "object": "teapot",
+            "seed": 1
+          },
+          {
+            "object": "teapot",
+            "seed": 2
+          }
+        ]
+      },
+      "mug": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "completion_wall_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.060414533337661606,
+        "planning_time_std_s": 0.009621444164793044,
+        "planning_cycles": 15000,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.10310666666666667,
+          "std": 0.05112259806908617
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.8774166666666666,
+          "std": 0.18934120373899957
+        },
+        "stable_flip_successes": 0,
+        "physics_policy_ticks": 31942,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": []
+      },
+      "rubber_duck": {
+        "trials": 3,
+        "successes": 2,
+        "success_rate": 0.6666666666666666,
+        "execution_time_s": {
+          "n": 2,
+          "mean": 76.03000361123122,
+          "std": 16.588725874558566
+        },
+        "completion_wall_time_s": {
+          "n": 2,
+          "mean": 76.24117642149213,
+          "std": 16.328369668778805
+        },
+        "planning_time_s": 0.02440556996847473,
+        "planning_time_std_s": 0.007896178815235206,
+        "planning_cycles": 10509,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.04943,
+          "std": 0.052776619823554444
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.22572666666666666,
+          "std": 0.3898965717127214
+        },
+        "stable_flip_successes": 3,
+        "physics_policy_ticks": 13794,
+        "mpc_failures": 0,
+        "lambda_failures": 0,
+        "mpc_fallbacks": 0,
+        "lambda_fallbacks": 0,
+        "planner_solver_backends": [
+          "acados"
+        ],
+        "successful_cases": [
+          {
+            "object": "rubber_duck",
+            "seed": 0
+          },
+          {
+            "object": "rubber_duck",
+            "seed": 1
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,14 +1,14 @@
 # Explicit command-line flags override these settings.
 mode: full
-lambda_mode: offline
-regrasp: true
+lambda_mode: "off"
+regrasp: false
 demo_overlay: true
 demo_alpha: 0.3
 demo_playback: reference
 mpc_solver: acados
 horizon: 4
 command_dt: 0.03
-sim_dt: 0.01
+sim_dt: 0.0025
 fps: 30.0
 reference_window: 0.5
 lookahead: 0.06
@@ -17,7 +17,10 @@ fps_samples: 8
 candidate_capacity: 8
 lambda_device: cpu
 lambda_iterations: 20
-force_limit: 10.0
+force_limit: 100.0
+finger_stiffness_scale: 50.0
+finger_force_scale: 10.0
+closure_depth: 0.004
 ik_iterations: 60
 contact_ik_iterations: 50
 contact_ik_tolerance: 0.002
@@ -37,8 +40,8 @@ mpc_costs:
   horizontal_tolerance: 0.005
   transport: 1000.0
   normal_support: 1.0
-  preload: 2.0
-  load_balance: 10.0
+  preload: 0.0
+  load_balance: 0.0
   terminal: 4.0
   posture_contact_scale: 0.05
 seed: 0

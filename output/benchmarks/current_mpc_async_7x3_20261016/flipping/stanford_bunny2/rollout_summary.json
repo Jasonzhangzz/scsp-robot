@@ -1,0 +1,67 @@
+{
+  "physics_backend": "isaac",
+  "solver_requested": "auto",
+  "headless": true,
+  "num_envs": 1,
+  "async_planner": true,
+  "trials": 3,
+  "successes": 2,
+  "success_rate": 0.6666666666666666,
+  "stable_flip_successes": 2,
+  "stable_flip_rate": 0.6666666666666666,
+  "trial_start": 0,
+  "wall_time_s": 234.79937816801248,
+  "trials_per_second": 0.012776865183404902,
+  "planner_solver_backends": [
+    "acados"
+  ],
+  "lambda_solver_backends": [
+    "acados"
+  ],
+  "mpc_fallbacks": 0,
+  "lambda_fallbacks": 0,
+  "timing_statistics": {
+    "trials": 3,
+    "successes": 2,
+    "success_rate": 0.6666666666666666,
+    "success_seeds": [
+      0,
+      1
+    ],
+    "stable_flip_successes": 2,
+    "stable_flip_rate": 0.6666666666666666,
+    "stable_flip_seeds": [
+      0,
+      1
+    ],
+    "first_stable_flip_s": {
+      "n": 2,
+      "mean": 31.990001519443467,
+      "std": 2.4748738517031112
+    },
+    "completion_sim_s": {
+      "n": 2,
+      "mean": 45.89000217965804,
+      "std": 1.060660222158476
+    },
+    "completion_wall_s": {
+      "n": 2,
+      "mean": 45.988415184488986,
+      "std": 1.1624884732576903
+    },
+    "planning_cycle_ms": {
+      "n": 8533,
+      "mean": 24.688977422730225,
+      "std": 7.586791105447882
+    },
+    "planning_trial_mean_ms": {
+      "n": 3,
+      "mean": 24.565008633439398,
+      "std": 0.7724206012332993
+    },
+    "mpc_failures": 0,
+    "lambda_failures": 0,
+    "mpc_fallbacks": 0,
+    "lambda_fallbacks": 0
+  }
+}

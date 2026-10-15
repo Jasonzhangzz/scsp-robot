@@ -1,0 +1,45 @@
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[isaac-runtime] solver=acados requested=auto policy_dt=0.020000 sim_dt=0.002000 substeps=10 clearance=0.0120
+[isaac-runtime] python=3.8.20 numpy=1.24.4 scipy=1.10.1 mujoco=3.2.3 trimesh=4.4.9 casadi=3.6.7 torch=2.3.1+cu121 isaacgym=1.0rc4 acados=True
+isaac pid=1817795 planner=mpc
+child pid=1817840 parent pid=1817795
+[mpc-runtime] solver=acados requested=auto policy_dt=0.020000 sim_dt=0.002000 substeps=10 clearance=0.0120
+[mpc-runtime] python=3.8.20 numpy=1.24.4 scipy=1.10.1 mujoco=3.2.3 trimesh=4.4.9 casadi=3.6.7 torch=2.3.1+cu121 isaacgym=1.0rc4 acados=True
+[mpc-startup] trial=0 building contact/MPC runtime
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+mesh_path =  /tmp/scsp_robot_canonical_meshes/1f9952bbf2996479a047f506_collision.stl visual_mesh_path =  /tmp/scsp_robot_canonical_meshes/1f9952bbf2996479a047f506_visual.stl
+[acados] reusing solver: mpc_soft_scm_v3_eef0bdcfac_param_staged2_6b97a67627_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=0 ready in 1.31s (contact=acados mpc=acados)
+[osc-posture] stiffness=0.03 damping=legacy tool_orientation=free
+[isaac-startup] trial=0 physics ready in 1.42s
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[isaac-startup] trial=0 first command after 5.36s from process start
+[object-cost] transition: {'object_cost_stage': 'pose', 'object_cost_weights': [500.0, 20.0, 20.0], 'object_target_up_axis': [0.0, 0.0, 1.0], 'flip_position_radius_m': 0.08, 'pose_tilt_limit_deg': 10.0, 'pose_tilt_barrier_coef': 2000.0, 'object_tilt_deg': 0.024556190395902337, 'object_linear_speed': 3.526340913715563e-05, 'object_angular_speed': 0.00043285282782477906, 'first_stable_flip_time_s': 106.10000503947958, 'object_cost_switches': 1, 'object_cost_fallbacks': 0, 'stable_flip_success': True}
+trial_summary: {'trial': 0, 'seed': 0, 'numpy_seed': 100, 'object': 'stanford_bunny2', 'mode': 'mpc_planner', 'physics_backend': 'isaac', 'tool_orientation_control': 'free', 'nullspace_stiffness': 0.03, 'mpc_horizon': 5, 'nullspace_damping_model': 'legacy', 'num_envs': 1, 'mjwarp_scene': None, 'headless': False, 'async_planner': True, 'headless_realtime': True, 'pose_executor_constraints': True, 'flip_executor_constraints': True, 'physics_policy_ticks': 5778, 'sim_end_time_s': 115.57600548956543, 'observation_gap_mean': 1.240979381443299, 'observation_gap_max': 3, 'physics_scene_sha256': None, 'mjwarp_nconmax': 512, 'mjwarp_njmax': 2048, 'joint_velocity_limiter': None, 'joint_velocity_projections': 0, 'joint_velocity_max_unlimited': 0.0, 'contact_dynamics_variant': 'legacy', 'shared_contact_dynamics': False, 'solver_requested': 'auto', 'solver_backend': 'acados', 'planner_solver_backend': 'acados', 'lambda_solver_backend': 'acados', 'mpc_solves': 3346, 'lambda_solves': 230516, 'mpc_init_error': '', 'lambda_init_error': '', 'mpc_fallbacks': 0, 'mpc_contact_resets': 403, 'mpc_floor_recovery_max_m': 0.005703435551594971, 'lambda_fallbacks': 0, 'trial_wall_time_s': 115.72898123998311, 'completion_wall_time_s': 115.72898123998311, 'planning_wall_count': 4656, 'planning_wall_total_s': 108.41050494855153, 'planning_wall_sum_squares_s2': 2.65947015792611, 'planning_wall_mean_ms': 23.284043159053162, 'planning_wall_std_ms': 5.389955287768516, 'iteration_wall_count': 4656, 'iteration_wall_total_s': 115.72699165827362, 'iteration_wall_mean_s': 0.024855453534852582, 'iteration_wall_p95_s': 0.02876913925865665, 'iteration_wall_max_s': 0.17928215500432998, 'success': 1, 'steps': 4656, 'completion_steps': 4656, 'completion_time_s': 115.56000548880547, 'terminal_reward': 8.976849610584885e-214, 'metric_gamma': 0.9, 'metric_eta': 1.0, 'policy_interval_s': 0.02, 'aborted': False, 'reward_origin': 'trial_start', 'pose_applies': 1471, 'physics_pressure_releases': 0, 'pressure_releases': 0, 'upright_action_rejections': 0, 'object_cost_stage': 'pose', 'object_cost_weights': [500.0, 20.0, 20.0], 'object_target_up_axis': [0.0, 0.0, 1.0], 'flip_position_radius_m': 0.08, 'pose_tilt_limit_deg': 10.0, 'pose_tilt_barrier_coef': 2000.0, 'object_tilt_deg': 5.894260129212516, 'object_linear_speed': 0.03519098014662939, 'object_angular_speed': 1.111919656512079, 'first_stable_flip_time_s': 106.10000503947958, 'object_cost_switches': 1, 'object_cost_fallbacks': 0, 'stable_flip_success': True, 'lambda_failures': 0, 'mpc_failures': 0, 'final_pos_err': 0.01967, 'final_quat_err': 0.00581, 'min_pos_err': 0.01967, 'min_quat_err': 3e-05, 'choose_dt_mean': 0.01504, 'choose_dt_max': 0.03423, 'choose_dt_p95': 0.01726, 'plan_dt_mean': 0.00691, 'solve_dt_mean_s': 0.02196, 'solve_dt_mean_ms': 21.957, 'cso_guidance': 'cso', 'cpo_variant': 'full', 'ablation_variant': '', 'target_type': 'ground-rotation', 'friction_reg_coef': 0.03, 'lambda_friction_cone': 'pyramid', 'fingertip_object_friction': 1.6, 'table_object_friction': 0.7, 'collision_geometry': 'hull', 'collision_part_count': 0, 'contact_sampling': 'vertices', 'contact_sample_count': 70}
+[mpc-startup] trial=1 building contact/MPC runtime
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+mesh_path =  /tmp/scsp_robot_canonical_meshes/1f9952bbf2996479a047f506_collision.stl visual_mesh_path =  /tmp/scsp_robot_canonical_meshes/1f9952bbf2996479a047f506_visual.stl
+[osc-posture] stiffness=0.03 damping=legacy tool_orientation=free
+[isaac-startup] trial=1 physics ready in 1.19s
+[acados] reusing solver: mpc_soft_scm_v3_eef0bdcfac_param_staged2_6b97a67627_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=1 ready in 1.49s (contact=acados mpc=acados)
+[isaac-startup] trial=1 first command after 122.46s from process start

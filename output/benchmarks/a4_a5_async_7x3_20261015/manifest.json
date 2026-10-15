@@ -97,5 +97,8 @@
     "coacd": "1.0.5",
     "torch": "2.3.1+cu121"
   },
-  "status": "running"
+  "status": "complete",
+  "completed_trials": 84,
+  "completed_utc": "2026-10-15T14:19:23.763538+00:00",
+  "wall_time_s": 16086.83576449701
 }

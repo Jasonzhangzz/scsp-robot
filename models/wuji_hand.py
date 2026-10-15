@@ -1,7 +1,7 @@
 """Wuji material-point kinematics and a physical MuJoCo retarget scene.
 
-The asset owns joint order, limits, servo gains and torque limits. Hand points
-are body-local surface points, not fictitious equal-radius fingertip centres.
+The asset owns joint order and geometry; the generated scene records explicit
+servo/torque scaling. Hand points are body-local physical surface points.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,19 +61,59 @@ class ObjectSurface:
         return closest, sign*distance, -outward
 
 
-def build_scene(hand_xml, object_scene, output, initial_pose, dt=None,exclude_mounts=True):
-    """Replace source robot, retaining object inertial and contact parameters."""
+def build_scene(hand_xml, object_scene, output, initial_pose, dt=None,exclude_mounts=True,
+                *,finger_stiffness_scale=1.,finger_force_scale=1.,physics_reference=None):
+    """Replace the source robot, with explicit finger servo tuning.
+
+    Scaling kp also scales kv by sqrt(scale), retaining its damping ratio.
+    Both actuator and joint torque clamps must agree with the requested force
+    scale; changing just one leaves the other clamp in effect.
+    """
+    if not np.isfinite([finger_stiffness_scale,finger_force_scale]).all() or min(finger_stiffness_scale,finger_force_scale)<=0:
+        raise ValueError('finger servo scales must be positive and finite')
     hand_xml, object_scene = Path(hand_xml).resolve(), Path(object_scene).resolve()
     hand, scene = ET.parse(hand_xml).getroot(), ET.parse(object_scene).getroot()
+    finger_joints={joint.get('name') for joint in hand.findall('.//joint')
+        if (joint.get('name') or '').startswith('right_finger')}
+    for joint in hand.findall('.//joint'):
+        if joint.get('name') in finger_joints and joint.get('actuatorfrcrange'):
+            joint.set('actuatorfrcrange',' '.join(str(float(v)*finger_force_scale) for v in joint.get('actuatorfrcrange').split()))
+    for actuator in hand.findall('actuator/position'):
+        if actuator.get('joint') not in finger_joints:continue
+        actuator.set('kp',str(float(actuator.get('kp','1'))*finger_stiffness_scale))
+        if actuator.get('kv') is not None:
+            actuator.set('kv',str(float(actuator.get('kv'))*np.sqrt(finger_stiffness_scale)))
+        if actuator.get('forcerange'):
+            actuator.set('forcerange',' '.join(str(float(v)*finger_force_scale) for v in actuator.get('forcerange').split()))
     obj = copy.deepcopy(scene.find("worldbody/body[@name='obj']"))
     if obj is None:
         raise ValueError('source scene must contain body obj')
+    reference=ET.parse(physics_reference).getroot() if physics_reference is not None else None
+    if reference is not None:
+        source_object=reference.find("worldbody/body[@name='obj']")
+        inertial=None if source_object is None else source_object.find('inertial')
+        colliders=[] if source_object is None else [g for g in source_object.findall('geom') if g.get('contype','1')!='0']
+        targets=[g for g in obj.findall('geom') if g.get('contype','1')!='0']
+        if inertial is None or len(colliders)!=1 or len(targets)!=1:
+            raise ValueError('physics reference requires obj inertial and one physical object geom')
+        if obj.find('inertial') is not None:obj.remove(obj.find('inertial'))
+        obj.insert(0,copy.deepcopy(inertial))
+        physical=('friction','solref','solimp','solmix','priority','condim','contype','conaffinity',
+            'mass','density','margin','gap')
+        for key in physical:
+            targets[0].attrib.pop(key,None)
+            if key in colliders[0].attrib:targets[0].set(key,colliders[0].get(key))
+        for key in ('armature','damping','frictionloss'):
+            target_joint=obj.find('joint');source_joint=source_object.find('joint')
+            if target_joint is not None and source_joint is not None:
+                target_joint.attrib.pop(key,None)
+                if key in source_joint.attrib:target_joint.set(key,source_joint.get(key))
     root = ET.Element('mujoco', model='wuji_semantic_retarget')
     ET.SubElement(root, 'compiler', angle='radian', autolimits='true')
     # DexForge hand options, then scene overrides. Unspecified fields retain
     # MuJoCo defaults; do not introduce a different contact/solver profile.
     option=ET.SubElement(root,'option')
-    for source in (hand,scene):
+    for source in (hand,scene,*([reference] if reference is not None else [])):
         source_option=source.find('option')
         if source_option is not None:
             option.attrib.update(source_option.attrib)
@@ -98,7 +138,7 @@ def build_scene(hand_xml, object_scene, output, initial_pose, dt=None,exclude_mo
     obj.set('pos', ' '.join(map(str, initial_pose[:3])))
     obj.set('quat', ' '.join(map(str, initial_pose[3:])))
     world.append(obj)
-    floor = copy.deepcopy(scene.find("worldbody/geom[@name='floor']"))
+    floor = copy.deepcopy((reference if reference is not None else scene).find("worldbody/geom[@name='floor']"))
     if floor is not None:
         world.append(floor)
     ET.SubElement(world, 'light', pos='0 0 2', dir='0 0 -1', diffuse='.8 .8 .8')
@@ -418,6 +458,25 @@ class WujiHand:
         offset=self.data.qfrc_bias[self.dadr]/np.maximum(gain,1e-12)
         return np.clip(np.asarray(q)+offset,self.lower,self.upper)
 
+    def transport_configuration(self,q,source_pose,target_pose):
+        """Transport a nominal contact-IK seed to the measured object pose.
+
+        The asset's wrist is world XYZ translation followed by intrinsic XYZ
+        hinges. Finger coordinates and material identities stay unchanged.
+        This changes only a candidate reference; native preview validates it.
+        """
+        result=np.asarray(q,float).copy()
+        delta=rotation(target_pose)@rotation(source_pose).T
+        result[:3]=np.asarray(target_pose)[:3]+delta@(result[:3]-np.asarray(source_pose)[:3])
+        angles=Rotation.from_matrix(delta@Rotation.from_euler('XYZ',result[3:6]).as_matrix()).as_euler('XYZ')
+        alternative=np.array([angles[0]+np.pi,np.pi-angles[1],angles[2]+np.pi])
+        candidates=[]
+        for value in (angles,alternative):
+            value=value+2*np.pi*np.round((result[3:6]-value)/(2*np.pi))
+            if np.all(value>=self.lower[3:6]) and np.all(value<=self.upper[3:6]):candidates.append(value)
+        result[3:6]=min(candidates,key=lambda value:np.linalg.norm(value-result[3:6])) if candidates else angles
+        return np.clip(result,self.lower,self.upper)
+
     def preview_control(self,target,dt):
         """Predict one control cycle with the executed MuJoCo physics.
 
@@ -487,6 +546,6 @@ class WujiHand:
                 return distance
             slot = min(ids,key=patch_distance) if ids else -1
             if slot>=0: forces[slot]+=f
-            if np.linalg.norm(f)>.001: actual.append(dict(point=np.array(c.pos),normal=normal,
+            if c.dist<=.0001 or np.linalg.norm(f)>.001: actual.append(dict(point=np.array(c.pos),normal=normal,
                 tangents=c.frame.reshape(3,3)[1:].copy(),force=f,body=int(other),slot=slot,gap=float(c.dist)))
         return forces,actual

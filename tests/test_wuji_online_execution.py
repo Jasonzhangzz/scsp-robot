@@ -102,6 +102,41 @@ def test_nearby_recontact_remains_soft_even_when_mano_anchor_is_unreachable():
     np.testing.assert_allclose(returned[0],original[0])
 
 
+def test_geometric_recovery_visits_each_misplaced_finger_without_force_ranking():
+    hand,materials,anchors,original,normals,actual=recovery_fixture()
+    controller=OnlineRegrasp(RegraspSettings(failure_cycles=1))
+    kwargs=dict(hand=hand,materials=materials,anchors=anchors,normals=normals,active=np.ones(2),
+        actual=actual,certificate=dict(load_feasible=False),goal=hand.object_pose(),original=original)
+    repaired=[]
+    for _ in range(2):
+        # Move the next desired region tangentially. A failed load certificate
+        # alone must no longer trigger another release of a correct grasp.
+        if repaired:original[1,1]+=.01
+        controller.update(**kwargs)
+        if controller.move is None:controller.update(**kwargs)
+        moving=controller.move['slot'];repaired.append(controller.move['finger'])
+        hand.points[moving]=hand.object_pose()[:3]+controller.move['retreat']
+        kwargs['actual']=[c for c in actual if c['slot']!=moving]
+        controller.update(**kwargs)
+        hand.points[moving]=hand.object_pose()[:3]+original[moving]
+        kwargs['actual']=actual
+        for _ in range(3):_,_,report,_=controller.update(**kwargs)
+        assert report['event']=='measured_recontact'
+    assert repaired==['thumb','index']
+
+
+def test_recovery_ignores_force_magnitude_and_load_verdict_when_regions_match():
+    hand,materials,anchors,original,normals,actual=recovery_fixture()
+    original=anchors.copy()
+    for verdict in (False,True):
+        controller=OnlineRegrasp(RegraspSettings(failure_cycles=1))
+        for c in actual:c['force']=np.zeros(3)
+        for _ in range(5):
+            _,_,report,_=controller.update(hand,materials,anchors,normals,np.ones(2),actual,
+                dict(force_closure=verdict,load_feasible=verdict),hand.object_pose(),original)
+            assert report['phase']=='track' and not report['moving_slots']
+
+
 def test_release_checks_native_gap_even_after_contact_force_falls_below_cutoff():
     hand,materials,anchors,original,normals,actual=recovery_fixture()
     controller=OnlineRegrasp(RegraspSettings(failure_cycles=1))
@@ -116,6 +151,23 @@ def test_release_checks_native_gap_even_after_contact_force_falls_below_cutoff()
     hand.finger_contact_gaps=lambda:{}
     _,_,report,_=controller.update(**kwargs)
     assert report['phase']=='approach' and report['event']=='measured_separation'
+
+
+def test_recontact_on_another_link_of_same_finger_does_not_finish_recovery():
+    hand,materials,anchors,original,normals,actual=recovery_fixture()
+    controller=OnlineRegrasp(RegraspSettings(failure_cycles=1))
+    kwargs=dict(hand=hand,materials=materials,anchors=anchors,normals=normals,active=np.ones(2),
+        actual=actual,certificate=dict(load_feasible=False),goal=hand.object_pose(),original=original)
+    controller.update(**kwargs);controller.update(**kwargs)
+    hand.points[0]=hand.object_pose()[:3]+controller.move['retreat']
+    kwargs['actual']=actual[1:];controller.update(**kwargs)
+    other_link=dict(actual[0],body=99)
+    kwargs['actual']=[other_link,actual[1]]
+    for _ in range(4):_,_,report,_=controller.update(**kwargs)
+    assert report['phase']=='approach' and report['event']!='measured_recontact'
+    kwargs['actual']=actual
+    for _ in range(3):_,_,report,_=controller.update(**kwargs)
+    assert report['event']=='measured_recontact'
 
 
 def test_recovery_timeout_does_not_claim_recontact_and_reference_release_cancels():
@@ -138,3 +190,15 @@ def test_offline_plan_restores_material_identity():
     plan=restore_plan(value)
     assert plan['slots']==(2,) and plan['ik']['materials'][0].finger=='thumb'
     np.testing.assert_array_equal(plan['ik']['q'],[0,1])
+
+
+def test_infeasible_transition_can_approach_upcoming_valid_grasp_without_skipping_hand_frames():
+    from examples.retarget.offline_contacts import execution_reference
+    plans=[dict(valid=True,slots=[]),dict(valid=False,slots=[0]),
+        dict(valid=False,slots=[0]),dict(valid=True,slots=[0,1,2]),dict(valid=True,slots=[])]
+    assert execution_reference(plans,0,3)==0  # Preserve a feasible current phase.
+    assert execution_reference(plans,1,2)==1  # No lookahead beyond object progress.
+    assert execution_reference(plans,1,3)==3
+    assert execution_reference(plans,3,4)==3
+    plans[3]['valid']=False
+    assert execution_reference(plans,1,4)==1  # A later release is not a grasp.

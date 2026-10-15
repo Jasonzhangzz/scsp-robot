@@ -1,0 +1,1189 @@
+{
+  "a4": {
+    "rotation": {
+      "overall": {
+        "trials": 21,
+        "successes": 8,
+        "success_rate": 0.38095238095238093,
+        "execution_time_s": {
+          "n": 8,
+          "mean": 35.000001662410796,
+          "std": 47.77815627302721
+        },
+        "async_planner": true,
+        "headless_realtime": true,
+        "physics_policy_ticks": 238094,
+        "planning_time_s": 0.16895055331072228,
+        "planning_cycles": 35500,
+        "final_pos_error_m": {
+          "n": 21,
+          "mean": 0.12123238095238095,
+          "std": 0.1021972190866641
+        },
+        "final_quat_error": {
+          "n": 21,
+          "mean": 0.3877061904761905,
+          "std": 0.4134478890921586
+        },
+        "stable_flip_successes": 21,
+        "cso_solves": 1749105,
+        "cso_evaluations": 8745525,
+        "cso_failed_or_nonconverged": 284950,
+        "mpc_failures": 7,
+        "mpc_fallbacks": 0,
+        "successful_cases": [
+          {
+            "object": "foam_brick",
+            "seed": 0
+          },
+          {
+            "object": "stanford_bunny2",
+            "seed": 2
+          },
+          {
+            "object": "teapot",
+            "seed": 0
+          },
+          {
+            "object": "teapot",
+            "seed": 1
+          },
+          {
+            "object": "mug",
+            "seed": 0
+          },
+          {
+            "object": "mug",
+            "seed": 2
+          },
+          {
+            "object": "rubber_duck",
+            "seed": 0
+          },
+          {
+            "object": "rubber_duck",
+            "seed": 2
+          }
+        ]
+      },
+      "objects": {
+        "foam_brick": {
+          "trials": 3,
+          "successes": 1,
+          "success_rate": 0.3333333333333333,
+          "execution_time_s": {
+            "n": 1,
+            "mean": 10.68000050727278,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 27226,
+          "planning_time_s": 0.10578997865857497,
+          "planning_cycles": 5114,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.08607,
+            "std": 0.09095558696418818
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.01753333333333333,
+            "std": 0.010574239137324885
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 218654,
+          "cso_evaluations": 1093270,
+          "cso_failed_or_nonconverged": 51703,
+          "mpc_failures": 1,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "foam_brick",
+              "seed": 0
+            }
+          ]
+        },
+        "stanford_bunny2": {
+          "trials": 3,
+          "successes": 1,
+          "success_rate": 0.3333333333333333,
+          "execution_time_s": {
+            "n": 1,
+            "mean": 30.660001456271857,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 28665,
+          "planning_time_s": 0.10798952814747029,
+          "planning_cycles": 5277,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.14227666666666666,
+            "std": 0.11575751048348153
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.5741566666666666,
+            "std": 0.5002590534246565
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 273646,
+          "cso_evaluations": 1368230,
+          "cso_failed_or_nonconverged": 29837,
+          "mpc_failures": 1,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "stanford_bunny2",
+              "seed": 2
+            }
+          ]
+        },
+        "elephant": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 67751,
+          "planning_time_s": 0.254088312355167,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.2174,
+            "std": 0.09465825690345245
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.683,
+            "std": 0.27702816986725376
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 404681,
+          "cso_evaluations": 2023405,
+          "cso_failed_or_nonconverged": 105762,
+          "mpc_failures": 2,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "piggy_bank": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 62182,
+          "planning_time_s": 0.23730645934130687,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.20138333333333333,
+            "std": 0.07394367203035924
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.8570366666666667,
+            "std": 0.18093750698330438
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 419127,
+          "cso_evaluations": 2095635,
+          "cso_failed_or_nonconverged": 47869,
+          "mpc_failures": 1,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "teapot": {
+          "trials": 3,
+          "successes": 2,
+          "success_rate": 0.6666666666666666,
+          "execution_time_s": {
+            "n": 2,
+            "mean": 85.13000404345803,
+            "std": 91.74003814856046
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 18516,
+          "planning_time_s": 0.08039785670773532,
+          "planning_cycles": 4565,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.09208999999999999,
+            "std": 0.13919873418964698
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.2889833333333333,
+            "std": 0.48978162698628586
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 138585,
+          "cso_evaluations": 692925,
+          "cso_failed_or_nonconverged": 35881,
+          "mpc_failures": 1,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "teapot",
+              "seed": 0
+            },
+            {
+              "object": "teapot",
+              "seed": 1
+            }
+          ]
+        },
+        "mug": {
+          "trials": 3,
+          "successes": 2,
+          "success_rate": 0.6666666666666666,
+          "execution_time_s": {
+            "n": 2,
+            "mean": 16.560000786557794,
+            "std": 15.584634197581876
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 15096,
+          "planning_time_s": 0.10750269643075763,
+          "planning_cycles": 2793,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.057949999999999995,
+            "std": 0.06695273780809863
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.24809,
+            "std": 0.4072246047330637
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 159578,
+          "cso_evaluations": 797890,
+          "cso_failed_or_nonconverged": 3769,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "mug",
+              "seed": 0
+            },
+            {
+              "object": "mug",
+              "seed": 2
+            }
+          ]
+        },
+        "rubber_duck": {
+          "trials": 3,
+          "successes": 2,
+          "success_rate": 0.6666666666666666,
+          "execution_time_s": {
+            "n": 2,
+            "mean": 17.64000083785504,
+            "std": 20.02526499435203
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 18658,
+          "planning_time_s": 0.19416281966958046,
+          "planning_cycles": 2751,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.051456666666666664,
+            "std": 0.06222413224250968
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.045143333333333334,
+            "std": 0.0710320577861386
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 134834,
+          "cso_evaluations": 674170,
+          "cso_failed_or_nonconverged": 10129,
+          "mpc_failures": 1,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "rubber_duck",
+              "seed": 0
+            },
+            {
+              "object": "rubber_duck",
+              "seed": 2
+            }
+          ]
+        }
+      }
+    },
+    "flipping": {
+      "overall": {
+        "trials": 21,
+        "successes": 4,
+        "success_rate": 0.19047619047619047,
+        "execution_time_s": {
+          "n": 4,
+          "mean": 177.9000084497966,
+          "std": 35.976949883999076
+        },
+        "async_planner": true,
+        "headless_realtime": true,
+        "physics_policy_ticks": 276493,
+        "planning_time_s": 0.13489737058053267,
+        "planning_cycles": 48347,
+        "final_pos_error_m": {
+          "n": 21,
+          "mean": 0.1316952380952381,
+          "std": 0.09882748188732968
+        },
+        "final_quat_error": {
+          "n": 21,
+          "mean": 0.3992595238095238,
+          "std": 0.320479959053233
+        },
+        "stable_flip_successes": 14,
+        "cso_solves": 2227190,
+        "cso_evaluations": 11135950,
+        "cso_failed_or_nonconverged": 182736,
+        "mpc_failures": 17,
+        "mpc_fallbacks": 0,
+        "successful_cases": [
+          {
+            "object": "elephant",
+            "seed": 0
+          },
+          {
+            "object": "teapot",
+            "seed": 2
+          },
+          {
+            "object": "mug",
+            "seed": 0
+          },
+          {
+            "object": "mug",
+            "seed": 1
+          }
+        ]
+      },
+      "objects": {
+        "foam_brick": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 56700,
+          "planning_time_s": 0.20833011070961754,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.28517333333333333,
+            "std": 0.046612221930877024
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.12258000000000001,
+            "std": 0.180993073071872
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 322643,
+          "cso_evaluations": 1613215,
+          "cso_failed_or_nonconverged": 65306,
+          "mpc_failures": 1,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "stanford_bunny2": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 32994,
+          "planning_time_s": 0.08729466937749142,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.15976333333333334,
+            "std": 0.040091874904191416
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.5837566666666667,
+            "std": 0.11922667332997818
+          },
+          "stable_flip_successes": 1,
+          "cso_solves": 329777,
+          "cso_evaluations": 1648885,
+          "cso_failed_or_nonconverged": 13752,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "elephant": {
+          "trials": 3,
+          "successes": 1,
+          "success_rate": 0.3333333333333333,
+          "execution_time_s": {
+            "n": 1,
+            "mean": 207.3600098490715,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 47434,
+          "planning_time_s": 0.2163422740957226,
+          "planning_cycles": 6196,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.03743333333333333,
+            "std": 0.026491591747823177
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.3763766666666667,
+            "std": 0.45869637455874157
+          },
+          "stable_flip_successes": 2,
+          "cso_solves": 308049,
+          "cso_evaluations": 1540245,
+          "cso_failed_or_nonconverged": 33002,
+          "mpc_failures": 2,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "elephant",
+              "seed": 0
+            }
+          ]
+        },
+        "piggy_bank": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 38155,
+          "planning_time_s": 0.10108231284459859,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.14617,
+            "std": 0.05319588235944583
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.5359066666666666,
+            "std": 0.19565733166261196
+          },
+          "stable_flip_successes": 2,
+          "cso_solves": 369869,
+          "cso_evaluations": 1849345,
+          "cso_failed_or_nonconverged": 23755,
+          "mpc_failures": 4,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "teapot": {
+          "trials": 3,
+          "successes": 1,
+          "success_rate": 0.3333333333333333,
+          "execution_time_s": {
+            "n": 1,
+            "mean": 130.52000619936734,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 39767,
+          "planning_time_s": 0.16653951002457493,
+          "planning_cycles": 5920,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.16365,
+            "std": 0.13972969512598243
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.18955999999999998,
+            "std": 0.18274422699499976
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 216116,
+          "cso_evaluations": 1080580,
+          "cso_failed_or_nonconverged": 30380,
+          "mpc_failures": 3,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "teapot",
+              "seed": 2
+            }
+          ]
+        },
+        "mug": {
+          "trials": 3,
+          "successes": 2,
+          "success_rate": 0.6666666666666666,
+          "execution_time_s": {
+            "n": 2,
+            "mean": 186.86000887537375,
+            "std": 24.692169971849324
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 29527,
+          "planning_time_s": 0.0941507279450522,
+          "planning_cycles": 6231,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.04396333333333333,
+            "std": 0.04840799142015018
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.17616666666666667,
+            "std": 0.2805607834914447
+          },
+          "stable_flip_successes": 2,
+          "cso_solves": 338738,
+          "cso_evaluations": 1693690,
+          "cso_failed_or_nonconverged": 11435,
+          "mpc_failures": 6,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "mug",
+              "seed": 0
+            },
+            {
+              "object": "mug",
+              "seed": 1
+            }
+          ]
+        },
+        "rubber_duck": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 31916,
+          "planning_time_s": 0.08447415506680069,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.08571333333333334,
+            "std": 0.045646232411156715
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.81047,
+            "std": 0.1742664703837201
+          },
+          "stable_flip_successes": 1,
+          "cso_solves": 341998,
+          "cso_evaluations": 1709990,
+          "cso_failed_or_nonconverged": 5106,
+          "mpc_failures": 1,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        }
+      }
+    }
+  },
+  "a5": {
+    "rotation": {
+      "overall": {
+        "trials": 21,
+        "successes": 3,
+        "success_rate": 0.14285714285714285,
+        "execution_time_s": {
+          "n": 3,
+          "mean": 212.93334344712397,
+          "std": 200.07169398956435
+        },
+        "async_planner": true,
+        "headless_realtime": true,
+        "physics_policy_ticks": 1719113,
+        "planning_time_s": 0.8911476731372251,
+        "planning_cycles": 45720,
+        "final_pos_error_m": {
+          "n": 21,
+          "mean": 0.3400890476190476,
+          "std": 0.21317906074248386
+        },
+        "final_quat_error": {
+          "n": 21,
+          "mean": 0.6112961904761904,
+          "std": 0.43503086263478125
+        },
+        "stable_flip_successes": 21,
+        "cso_solves": 1832082,
+        "cso_evaluations": 571609584,
+        "cso_failed_or_nonconverged": 0,
+        "mpc_failures": 0,
+        "mpc_fallbacks": 0,
+        "successful_cases": [
+          {
+            "object": "mug",
+            "seed": 0
+          },
+          {
+            "object": "mug",
+            "seed": 1
+          },
+          {
+            "object": "rubber_duck",
+            "seed": 0
+          }
+        ]
+      },
+      "objects": {
+        "foam_brick": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 193017,
+          "planning_time_s": 0.513958691328211,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.50385,
+            "std": 0.06954071900692431
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.4097133333333334,
+            "std": 0.5113232072117726
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 261509,
+          "cso_evaluations": 81590808,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "stanford_bunny2": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 198640,
+          "planning_time_s": 0.5286704201540657,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.45465,
+            "std": 0.28349238631751644
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.98055,
+            "std": 0.01281716427295837
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 269863,
+          "cso_evaluations": 84197256,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "elephant": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 356109,
+          "planning_time_s": 1.195514626564714,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.54395,
+            "std": 0.10313496206427773
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.9488266666666667,
+            "std": 0.06349553081385602
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 300681,
+          "cso_evaluations": 93812472,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "piggy_bank": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 421563,
+          "planning_time_s": 1.4794757839735637,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.4361333333333333,
+            "std": 0.06269809593068465
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.8264133333333333,
+            "std": 0.15899501071836603
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 377945,
+          "cso_evaluations": 117918840,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "teapot": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 166261,
+          "planning_time_s": 0.442799373782201,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.2556,
+            "std": 0.06533552402789772
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.1820166666666667,
+            "std": 0.3130906332571023
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 221882,
+          "cso_evaluations": 69227184,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "mug": {
+          "trials": 3,
+          "successes": 2,
+          "success_rate": 0.6666666666666666,
+          "execution_time_s": {
+            "n": 2,
+            "mean": 249.40001184586436,
+            "std": 268.4743154327535
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 122031,
+          "planning_time_s": 0.7931093559585157,
+          "planning_cycles": 3081,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.04515333333333334,
+            "std": 0.052505620968933735
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.32863333333333333,
+            "std": 0.5655556270017419
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 162044,
+          "cso_evaluations": 50557728,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "mug",
+              "seed": 0
+            },
+            {
+              "object": "mug",
+              "seed": 1
+            }
+          ]
+        },
+        "rubber_duck": {
+          "trials": 3,
+          "successes": 1,
+          "success_rate": 0.3333333333333333,
+          "execution_time_s": {
+            "n": 1,
+            "mean": 140.00000664964318,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 261492,
+          "planning_time_s": 1.3809223529101144,
+          "planning_cycles": 5139,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.14128666666666667,
+            "std": 0.10533545905028056
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.60292,
+            "std": 0.5306217258085084
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 238158,
+          "cso_evaluations": 74305296,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "rubber_duck",
+              "seed": 0
+            }
+          ]
+        }
+      }
+    },
+    "flipping": {
+      "overall": {
+        "trials": 21,
+        "successes": 1,
+        "success_rate": 0.047619047619047616,
+        "execution_time_s": {
+          "n": 1,
+          "mean": 1409.2400669353083,
+          "std": null
+        },
+        "async_planner": true,
+        "headless_realtime": true,
+        "physics_policy_ticks": 1904688,
+        "planning_time_s": 0.7381231981234616,
+        "planning_cycles": 52032,
+        "final_pos_error_m": {
+          "n": 21,
+          "mean": 0.37184666666666666,
+          "std": 0.16730768701208362
+        },
+        "final_quat_error": {
+          "n": 21,
+          "mean": 0.6398885714285715,
+          "std": 0.2560416300386661
+        },
+        "stable_flip_successes": 11,
+        "cso_solves": 2422599,
+        "cso_evaluations": 755850888,
+        "cso_failed_or_nonconverged": 0,
+        "mpc_failures": 0,
+        "mpc_fallbacks": 0,
+        "successful_cases": [
+          {
+            "object": "mug",
+            "seed": 1
+          }
+        ]
+      },
+      "objects": {
+        "foam_brick": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 243779,
+          "planning_time_s": 0.6496629668683803,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.4514533333333334,
+            "std": 0.06790419525576706
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.5739666666666666,
+            "std": 0.09044240174460946
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 326307,
+          "cso_evaluations": 101807784,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "stanford_bunny2": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 242215,
+          "planning_time_s": 0.6454140038551588,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.34264666666666665,
+            "std": 0.15214097355194403
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.7273066666666667,
+            "std": 0.29822902949467095
+          },
+          "stable_flip_successes": 1,
+          "cso_solves": 339833,
+          "cso_evaluations": 106027896,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "elephant": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 205613,
+          "planning_time_s": 0.5472401589775012,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.6163233333333333,
+            "std": 0.15868195434054036
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.7980433333333333,
+            "std": 0.17654335567597362
+          },
+          "stable_flip_successes": 2,
+          "cso_solves": 277821,
+          "cso_evaluations": 86680152,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "piggy_bank": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 248881,
+          "planning_time_s": 0.6632493182292499,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.39232666666666666,
+            "std": 0.040102818271704206
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.3826233333333333,
+            "std": 0.04532264923118828
+          },
+          "stable_flip_successes": 3,
+          "cso_solves": 354308,
+          "cso_evaluations": 110544096,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "teapot": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 468182,
+          "planning_time_s": 1.293253054699321,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.40504,
+            "std": 0.0430479836926191
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.96213,
+            "std": 0.025319184426043403
+          },
+          "stable_flip_successes": 1,
+          "cso_solves": 363683,
+          "cso_evaluations": 113469096,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        },
+        "mug": {
+          "trials": 3,
+          "successes": 1,
+          "success_rate": 0.3333333333333333,
+          "execution_time_s": {
+            "n": 1,
+            "mean": 1409.2400669353083,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 280478,
+          "planning_time_s": 0.7973363937079894,
+          "planning_cycles": 7032,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.17453,
+            "std": 0.1356566563055422
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.36078333333333334,
+            "std": 0.30713263817662445
+          },
+          "stable_flip_successes": 1,
+          "cso_solves": 424433,
+          "cso_evaluations": 132423096,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": [
+            {
+              "object": "mug",
+              "seed": 1
+            }
+          ]
+        },
+        "rubber_duck": {
+          "trials": 3,
+          "successes": 0,
+          "success_rate": 0.0,
+          "execution_time_s": {
+            "n": 0,
+            "mean": null,
+            "std": null
+          },
+          "async_planner": true,
+          "headless_realtime": true,
+          "physics_policy_ticks": 215540,
+          "planning_time_s": 0.5744013939311049,
+          "planning_cycles": 7500,
+          "final_pos_error_m": {
+            "n": 3,
+            "mean": 0.22060666666666667,
+            "std": 0.09841599683655769
+          },
+          "final_quat_error": {
+            "n": 3,
+            "mean": 0.6743666666666667,
+            "std": 0.03299421363411063
+          },
+          "stable_flip_successes": 0,
+          "cso_solves": 336214,
+          "cso_evaluations": 104898768,
+          "cso_failed_or_nonconverged": 0,
+          "mpc_failures": 0,
+          "mpc_fallbacks": 0,
+          "successful_cases": []
+        }
+      }
+    }
+  }
+}
