@@ -1,0 +1,6500 @@
+import argparse
+import copy
+import json
+import logging
+import re
+import sys
+import time
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
+
+CURRENT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = next((p for p in Path(__file__).resolve().parents if p.name == "scsp-robot"), None) or next(p for p in Path(__file__).resolve().parents if (p / "planning" / "acados_env.py").is_file())
+CUROBO_SRC_ROOT = REPO_ROOT.parent / "thirdparty" / "curobo" / "src"
+for path in (REPO_ROOT, CUROBO_SRC_ROOT):
+    if str(path) not in sys.path:
+        sys.path.append(str(path))
+from planning.cpu_runtime import configure_compute_threads
+configure_compute_threads()
+
+import mujoco
+import mujoco.viewer
+import numpy as np
+import trimesh
+from scipy.linalg import pinv
+from scipy.spatial.transform import Rotation
+
+
+from planning.acados_env import ensure_acados_env
+ensure_acados_env()
+
+try:
+    import torch
+    from curobo.geom.types import Cuboid, WorldConfig
+    from curobo.types.math import Pose
+    from curobo.types.state import JointState
+    from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
+
+    _HAS_CUROBO = True
+    _CUROBO_IMPORT_ERROR = None
+except Exception as exc:  # pragma: no cover - runtime dependency
+    torch = None
+    Cuboid = None
+    WorldConfig = None
+    Pose = None
+    JointState = None
+    IKSolver = None
+    IKSolverConfig = None
+    _HAS_CUROBO = False
+    _CUROBO_IMPORT_ERROR = exc
+
+from planning.mppi_bigrasp_ee import BimanualEEMPPI
+from planning.bigrasp_ee_cost import numpy_pose_state
+from planning.planner_mode import resolve_planner_backend, resolve_planner_mode
+from planning.contact_pair import ContactPair
+from examples.mpc.franka.ik2.scene_friction import DEFAULT_TANGENTIAL_FORCE_PENALTY
+from planning.physical_bimanual_mppi import (
+    MujocoBimanualRolloutBackend,
+    PhysicalBimanualMPPI,
+)
+
+# #region agent log
+def _agent_dbg(hypothesis_id, location, message, **data):
+    import json as _json
+    payload = {
+        "sessionId": "a4aad5",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open("/home/zz/scsp-robot/.cursor/debug-a4aad5.log", "a") as _fh:
+            _fh.write(_json.dumps(payload) + "\n")
+            _fh.flush()
+    except OSError:
+        return
+# #endregion
+
+PANDA_XML_PATH = REPO_ROOT / "envs" / "xmls" / "panda_nohand.xml"
+GENERATED_SCENE_PATH = REPO_ROOT / "envs" / "xmls" / "_generated_bigrasp_scene.xml"
+OBJECT_ASSET_DIR = REPO_ROOT / "envs" / "assets" / "objects"
+
+PANDA_HOME_Q = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785], dtype=np.float64)
+TIP_RADIUS = 0.01
+TIP_CENTER_OFFSET = 0.06
+WORLD_UP = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+
+
+def mujoco_pair_sliding_friction(model, geom1, geom2):
+    """Read the same material combination used by this MuJoCo scene."""
+    for pair in range(model.npair):
+        if {int(model.pair_geom1[pair]), int(model.pair_geom2[pair])} == {geom1, geom2}:
+            return float(np.min(model.pair_friction[pair, :2]))
+    priorities = model.geom_priority[[geom1, geom2]]
+    if priorities[0] != priorities[1]:
+        return float(model.geom_friction[geom1 if priorities[0] > priorities[1] else geom2, 0])
+    return float(np.max(model.geom_friction[[geom1, geom2], 0]))
+
+
+def mujoco_pair_moment_friction(model, geom1, geom2):
+    dimension = max(int(model.geom_condim[geom1]), int(model.geom_condim[geom2]))
+    friction = np.max(model.geom_friction[[geom1, geom2]], axis=0)
+    priorities = model.geom_priority[[geom1, geom2]]
+    if priorities[0] != priorities[1]:
+        selected = geom1 if priorities[0] > priorities[1] else geom2
+        friction = model.geom_friction[selected]
+        dimension = int(model.geom_condim[selected])
+    for pair in range(model.npair):
+        if {int(model.pair_geom1[pair]), int(model.pair_geom2[pair])} == {geom1, geom2}:
+            dimension = int(model.pair_dim[pair])
+            return (float(model.pair_friction[pair, 2]) if dimension >= 4 else 0.,
+                    float(min(model.pair_friction[pair, 3:5])) if dimension >= 6 else 0.)
+    return (float(friction[1]) if dimension >= 4 else 0., float(friction[2]) if dimension >= 6 else 0.)
+
+
+def lambda_friction_options(args, pair_mu):
+    """Match the grouped SCM's Coulomb disk, with light force penalties."""
+    override = getattr(args, "optimizer_arm_friction", None)
+    options = dict(arm_friction=float(pair_mu if override is None else override),
+        friction_cone="coulomb", force_reg_coef=float(args.lambda_force_reg_coef),
+        friction_reg_coef=float(args.lambda_friction_reg_coef))
+    for name in ("arm_friction", "force_reg_coef", "friction_reg_coef"):
+        if not np.isfinite(options[name]) or options[name] < 0:
+            raise ValueError(name+" must be finite and nonnegative")
+    return options
+
+
+DEFAULT_SCALE_MAP = {
+    "stanford_bunny2": np.array([1.5, 1.5, 1.5], dtype=np.float64),
+    "rubber_duck": np.array([1.3, 1.4, 1.4], dtype=np.float64),
+    "Wolf_Duck": np.array([0.002, 0.002, 0.002], dtype=np.float64),
+}
+DEFAULT_OBJECT_SCALE_BOOST = 1.2
+ARM_OBSTACLE_SEGMENTS = (
+    ("link6", "link5", "link6", 0.12),
+    ("link7", "link6", "link7", 0.10),
+    ("fingertip", "attachment", "tip_center", 0.07),
+)
+ARM_OBSTACLE_LENGTH_PADDING = 0.06
+PANDA_TORQUE_LIMITS = np.array([87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0], dtype=np.float64)
+# Position-servo gains copied from the Franka ``general`` actuators.  SPIDER
+# writes these setpoints straight into ``data.ctrl``.
+PANDA_POSITION_ACTUATORS = (
+    (4500.0, 450.0, -2.8973, 2.8973, 87.0),
+    (4500.0, 450.0, -1.7628, 1.7628, 87.0),
+    (3500.0, 350.0, -2.8973, 2.8973, 87.0),
+    (3500.0, 350.0, -3.0718, -0.0698, 87.0),
+    (2000.0, 200.0, -2.8973, 2.8973, 12.0),
+    (2000.0, 200.0, -0.0175, 3.7525, 12.0),
+    (2000.0, 200.0, -2.8973, 2.8973, 12.0),
+)
+
+
+def _normalize(vec, eps=1e-9):
+    vec = np.asarray(vec, dtype=np.float64)
+    norm = float(np.linalg.norm(vec))
+    if norm < eps:
+        return np.zeros_like(vec)
+    return vec / norm
+
+
+def _project_to_plane(vec, normal):
+    vec = np.asarray(vec, dtype=np.float64)
+    normal = _normalize(normal)
+    return vec - np.dot(vec, normal) * normal
+
+
+def _project_to_rotation_matrix(rotation_matrix):
+    u, _, vh = np.linalg.svd(np.asarray(rotation_matrix, dtype=np.float64))
+    projected = u @ vh
+    if np.linalg.det(projected) < 0.0:
+        u[:, -1] *= -1.0
+        projected = u @ vh
+    return projected
+
+
+def _rotation_error(current_rot, target_rot):
+    current_rot = np.asarray(current_rot, dtype=np.float64).reshape(3, 3)
+    target_rot = np.asarray(target_rot, dtype=np.float64).reshape(3, 3)
+    return 0.5 * (
+        np.cross(current_rot[:, 0], target_rot[:, 0])
+        + np.cross(current_rot[:, 1], target_rot[:, 1])
+        + np.cross(current_rot[:, 2], target_rot[:, 2])
+    )
+
+
+def parse_bool_arg(value):
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    value = str(value).strip().lower()
+    if value in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+
+def _slerp_rotation_matrix(start_rot, end_rot, alpha):
+    start_rot = _project_to_rotation_matrix(start_rot)
+    end_rot = _project_to_rotation_matrix(end_rot)
+    alpha = float(np.clip(alpha, 0.0, 1.0))
+    if alpha <= 1e-9:
+        return start_rot
+    if alpha >= 1.0 - 1e-9:
+        return end_rot
+
+    q0 = Rotation.from_matrix(start_rot).as_quat()
+    q1 = Rotation.from_matrix(end_rot).as_quat()
+    dot = float(np.dot(q0, q1))
+    if dot < 0.0:
+        q1 = -q1
+        dot = -dot
+
+    if dot > 0.9995:
+        q = q0 + alpha * (q1 - q0)
+        q /= max(np.linalg.norm(q), 1e-9)
+        return _project_to_rotation_matrix(Rotation.from_quat(q).as_matrix())
+
+    theta_0 = float(np.arccos(np.clip(dot, -1.0, 1.0)))
+    sin_theta_0 = float(np.sin(theta_0))
+    theta = theta_0 * alpha
+    sin_theta = float(np.sin(theta))
+    s0 = float(np.sin(theta_0 - theta)) / max(sin_theta_0, 1e-9)
+    s1 = sin_theta / max(sin_theta_0, 1e-9)
+    q = s0 * q0 + s1 * q1
+    q /= max(np.linalg.norm(q), 1e-9)
+    return _project_to_rotation_matrix(Rotation.from_quat(q).as_matrix())
+
+
+def _rotate_vector_toward(source_vec, target_vec, max_angle):
+    source_vec = _normalize(source_vec)
+    target_vec = _normalize(target_vec)
+    max_angle = max(float(max_angle), 0.0)
+    if np.linalg.norm(source_vec) < 1e-9:
+        return target_vec if np.linalg.norm(target_vec) >= 1e-9 else np.array([0.0, 0.0, -1.0], dtype=np.float64)
+    if np.linalg.norm(target_vec) < 1e-9 or max_angle <= 1e-9:
+        return source_vec
+
+    dot = float(np.clip(np.dot(source_vec, target_vec), -1.0, 1.0))
+    angle = float(np.arccos(dot))
+    if angle <= 1e-9:
+        return source_vec
+
+    step_angle = min(angle, max_angle)
+    rot_axis = np.cross(source_vec, target_vec)
+    axis_norm = float(np.linalg.norm(rot_axis))
+    if axis_norm < 1e-9:
+        rot_axis = _project_to_plane(np.array([1.0, 0.0, 0.0], dtype=np.float64), source_vec)
+        if np.linalg.norm(rot_axis) < 1e-9:
+            rot_axis = _project_to_plane(np.array([0.0, 1.0, 0.0], dtype=np.float64), source_vec)
+        axis_norm = float(np.linalg.norm(rot_axis))
+        if axis_norm < 1e-9:
+            return source_vec
+    rot_axis = rot_axis / axis_norm
+
+    rotated = (
+        source_vec * np.cos(step_angle)
+        + np.cross(rot_axis, source_vec) * np.sin(step_angle)
+        + rot_axis * np.dot(rot_axis, source_vec) * (1.0 - np.cos(step_angle))
+    )
+    return _normalize(rotated)
+
+
+def _joint_index(name: str) -> int:
+    match = re.search(r"(\d+)$", str(name))
+    if match is None:
+        raise ValueError(f"Unable to extract joint index from name: {name}")
+    return int(match.group(1))
+
+
+def _tensor_to_numpy(value) -> np.ndarray:
+    if torch is not None and isinstance(value, torch.Tensor):
+        value = value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+def _scalar(value) -> float:
+    return float(_tensor_to_numpy(value).reshape(-1)[0])
+
+
+def quat_wxyz_to_mat(quat):
+    quat = np.asarray(quat, dtype=np.float64).reshape(4)
+    quat = quat / np.linalg.norm(quat)
+    w, x, y, z = quat
+    return np.array(
+        [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ],
+        dtype=np.float64,
+    )
+
+
+def mat_to_quat_wxyz(rotation_matrix):
+    rotation_matrix = _project_to_rotation_matrix(rotation_matrix)
+    quat = np.empty(4, dtype=np.float64)
+    mujoco.mju_mat2Quat(quat, rotation_matrix.reshape(-1))
+    if quat[0] < 0.0:
+        quat *= -1.0
+    return quat
+
+
+def quat_from_axis_angle(axis, angle):
+    axis = _normalize(axis)
+    if np.linalg.norm(axis) < 1e-9:
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    half = 0.5 * float(angle)
+    return np.array(
+        [np.cos(half), axis[0] * np.sin(half), axis[1] * np.sin(half), axis[2] * np.sin(half)],
+        dtype=np.float64,
+    )
+
+
+def quat_from_yaw(yaw):
+    return quat_from_axis_angle([0.0, 0.0, 1.0], yaw)
+
+
+def _extract_pose_from_kinematics(kinematics_state):
+    ee_pose = getattr(kinematics_state, "ee_pose", None)
+    if ee_pose is not None:
+        pos = _tensor_to_numpy(ee_pose.position).reshape(-1, 3)[0]
+        quat = _tensor_to_numpy(ee_pose.quaternion).reshape(-1, 4)[0]
+        return pos.astype(np.float64), quat.astype(np.float64)
+
+    pos = _tensor_to_numpy(kinematics_state.ee_pos_seq).reshape(-1, 3)[0]
+    quat = _tensor_to_numpy(kinematics_state.ee_quat_seq).reshape(-1, 4)[0]
+    return pos.astype(np.float64), quat.astype(np.float64)
+
+
+def build_curobo_state(arm_q_mj, curobo_joint_names, default_joint_vector):
+    arm_q_mj = np.asarray(arm_q_mj, dtype=np.float64).reshape(-1)
+    joint_vec = np.asarray(default_joint_vector, dtype=np.float64).reshape(len(curobo_joint_names)).copy()
+    arm_map = {
+        _joint_index(f"joint{joint_idx + 1}"): float(value)
+        for joint_idx, value in enumerate(arm_q_mj)
+    }
+    for idx, joint_name in enumerate(curobo_joint_names):
+        if "finger" in joint_name:
+            continue
+        joint_vec[idx] = arm_map[_joint_index(joint_name)]
+    return joint_vec
+
+
+def extract_mujoco_arm_configuration(curobo_joint_vector, curobo_joint_names):
+    curobo_joint_vector = np.asarray(curobo_joint_vector, dtype=np.float64).reshape(len(curobo_joint_names))
+    arm_map = {
+        _joint_index(name): value
+        for name, value in zip(curobo_joint_names, curobo_joint_vector)
+        if "finger" not in name
+    }
+    return np.array([arm_map[idx] for idx in range(1, 8)], dtype=np.float64)
+
+
+def make_joint_state(controller, joint_vector, joint_names=None):
+    joint_names = controller.joint_names if joint_names is None else joint_names
+    tensor = torch.tensor(
+        np.asarray(joint_vector, dtype=np.float32).reshape(1, -1),
+        device=controller.tensor_args.device,
+        dtype=controller.tensor_args.dtype,
+    )
+    return JointState.from_position(tensor, joint_names=joint_names)
+
+
+def make_pose(controller, position, quat_wxyz):
+    pos_t = torch.tensor(
+        np.asarray(position, dtype=np.float32).reshape(1, 3),
+        device=controller.tensor_args.device,
+        dtype=controller.tensor_args.dtype,
+    )
+    quat_t = torch.tensor(
+        np.asarray(quat_wxyz, dtype=np.float32).reshape(1, 4),
+        device=controller.tensor_args.device,
+        dtype=controller.tensor_args.dtype,
+    )
+    return Pose(position=pos_t, quaternion=quat_t)
+
+
+def make_joint_tensor(controller, joint_vector, extra_dim=False):
+    shape = (1, 1, -1) if extra_dim else (1, -1)
+    return torch.tensor(
+        np.asarray(joint_vector, dtype=np.float32).reshape(shape),
+        device=controller.tensor_args.device,
+        dtype=controller.tensor_args.dtype,
+    )
+
+
+def resolve_mesh_path(obj_name=None, mesh_path=None):
+    if mesh_path:
+        path = Path(mesh_path).expanduser().resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"Mesh file does not exist: {path}")
+        return path
+
+    if not obj_name:
+        raise ValueError("Either --obj or --mesh must be provided.")
+
+    candidates = [
+        OBJECT_ASSET_DIR / f"{obj_name}{suffix}"
+        for suffix in ("", ".stl", ".obj", ".ply", ".off")
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+
+    raise FileNotFoundError(f"Could not find mesh for object '{obj_name}' in {OBJECT_ASSET_DIR}")
+
+
+def load_mesh_bounds(mesh_path, scale):
+    mesh = trimesh.load(mesh_path, force="mesh")
+    if isinstance(mesh, trimesh.Scene):
+        mesh = trimesh.util.concatenate(tuple(mesh.geometry.values()))
+    mesh = mesh.copy()
+    mesh.apply_scale(np.asarray(scale, dtype=np.float64))
+    return np.asarray(mesh.bounds, dtype=np.float64)
+
+
+def format_vec(vec):
+    return " ".join(f"{float(v):.8f}" for v in np.asarray(vec, dtype=np.float64).reshape(-1))
+
+
+def prefix_robot_tree(element, prefix):
+    element = copy.deepcopy(element)
+    queue = [element]
+    while queue:
+        node = queue.pop()
+        if "name" in node.attrib:
+            node.attrib["name"] = f"{prefix}{node.attrib['name']}"
+        queue.extend(list(node))
+    return element
+
+
+def prefix_reference_attributes(element, prefix):
+    element = copy.deepcopy(element)
+    rename_keys = (
+        "joint",
+        "joint1",
+        "joint2",
+        "body",
+        "body1",
+        "body2",
+        "site",
+        "geom",
+        "geom1",
+        "geom2",
+        "camera",
+        "light",
+    )
+    queue = [element]
+    while queue:
+        node = queue.pop()
+        for key in rename_keys:
+            if key in node.attrib:
+                node.attrib[key] = f"{prefix}{node.attrib[key]}"
+        if "name" in node.attrib:
+            node.attrib["name"] = f"{prefix}{node.attrib['name']}"
+        queue.extend(list(node))
+    return element
+
+
+def build_bimanual_scene_xml(
+    mesh_path,
+    mesh_scale,
+    object_mass,
+    object_friction,
+    object_pos,
+    object_quat,
+    scene_center_x,
+    robot_span,
+    pedestal_size=(0.05, 0.07, 0.06),
+    pedestal_pos=(0.58, 0.0, 0.06),
+    mujoco_timestep=0.01,
+    scene_output_path=GENERATED_SCENE_PATH,
+    position_actuators=False,
+    support_noslip_iterations=0,
+    friction_cone="pyramidal",
+    contact_impratio=10.,
+    object_contact_dim=6,
+):
+    panda_root = ET.parse(PANDA_XML_PATH).getroot()
+
+    root = ET.Element("mujoco", {"model": "dual panda bigrasp"})
+    root.append(ET.Element("compiler", {"angle": "radian", "meshdir": "assets", "autolimits": "true"}))
+    root.append(
+        ET.Element(
+            "option",
+            {
+                "integrator": "implicitfast",
+                "cone": friction_cone,
+                "impratio": str(float(contact_impratio)),
+                "noslip_iterations": str(int(support_noslip_iterations)),
+                "timestep": f"{float(mujoco_timestep):.8f}",
+            },
+        )
+    )
+    root.append(ET.Element("statistic", {"center": f"{scene_center_x:.4f} 0 0.35", "extent": "1.2"}))
+
+    visual = ET.SubElement(root, "visual")
+    ET.SubElement(
+        visual,
+        "headlight",
+        {"diffuse": "0.6 0.6 0.6", "ambient": "0.25 0.25 0.25", "specular": "0.1 0.1 0.1"},
+    )
+    ET.SubElement(visual, "rgba", {"haze": "0.15 0.25 0.35 1"})
+    ET.SubElement(visual, "global", {"azimuth": "135", "elevation": "-25"})
+
+    asset = ET.SubElement(root, "asset")
+    ET.SubElement(
+        asset,
+        "texture",
+        {
+            "type": "skybox",
+            "builtin": "gradient",
+            "rgb1": "0.30 0.45 0.60",
+            "rgb2": "0.02 0.03 0.04",
+            "width": "512",
+            "height": "3072",
+        },
+    )
+    ET.SubElement(
+        asset,
+        "texture",
+        {
+            "type": "2d",
+            "name": "groundplane",
+            "builtin": "checker",
+            "mark": "edge",
+            "rgb1": "0.20 0.28 0.34",
+            "rgb2": "0.12 0.16 0.20",
+            "markrgb": "0.85 0.85 0.85",
+            "width": "300",
+            "height": "300",
+        },
+    )
+    ET.SubElement(
+        asset,
+        "material",
+        {
+            "name": "groundplane",
+            "texture": "groundplane",
+            "texuniform": "true",
+            "texrepeat": "5 5",
+            "reflectance": "0.2",
+        },
+    )
+    ET.SubElement(asset, "material", {"name": "pedestal_mat", "rgba": "0.28 0.30 0.34 1"})
+    ET.SubElement(asset, "material", {"name": "obj_mat", "rgba": "0.88 0.52 0.22 1"})
+    ET.SubElement(asset, "material", {"name": "ghost_obj_mat", "rgba": "0.88 0.52 0.22 0.20"})
+    ET.SubElement(asset, "material", {"name": "left_marker_mat", "rgba": "0.15 0.75 0.95 1"})
+    ET.SubElement(asset, "material", {"name": "right_marker_mat", "rgba": "0.95 0.25 0.35 1"})
+    ET.SubElement(
+        asset,
+        "mesh",
+        {
+            "name": "object_mesh",
+            "file": str(Path(mesh_path).resolve()),
+            "scale": format_vec(mesh_scale),
+        },
+    )
+    for child in list(panda_root.find("asset")):
+        asset.append(copy.deepcopy(child))
+
+    default = ET.SubElement(root, "default")
+    for child in list(panda_root.find("default")):
+        default.append(copy.deepcopy(child))
+
+    worldbody = ET.SubElement(root, "worldbody")
+    ET.SubElement(worldbody, "light", {"pos": "0.4 -0.2 1.6", "dir": "0 0 -1", "directional": "true"})
+    ET.SubElement(
+        worldbody,
+        "camera",
+        {
+            "name": "overview",
+            "pos": "1.15 -0.70 0.65",
+            "xyaxes": "0.51 0.86 0.00 -0.30 0.18 0.94",
+        },
+    )
+    ET.SubElement(worldbody, "geom", {"name": "floor", "size": "0 0 0.05", "type": "plane", "material": "groundplane"})
+
+    ET.SubElement(
+        ET.SubElement(
+            worldbody,
+            "body",
+            {"name": "pedestal", "pos": format_vec(pedestal_pos)},
+        ),
+        "geom",
+        {
+            "name": "pedestal_geom",
+            "type": "box",
+            "size": format_vec(pedestal_size),
+            "material": "pedestal_mat",
+            "contype": "8",
+            "conaffinity": "1",
+            "friction": "1.0 0.08 0.01",
+            "condim": "3",
+        },
+    )
+
+    goal_body = ET.SubElement(worldbody, "body", {"name": "goal", "pos": format_vec(object_pos), "quat": format_vec(object_quat)})
+    ET.SubElement(
+        goal_body,
+        "geom",
+        {
+            "name": "goal_geom",
+            "type": "mesh",
+            "mesh": "object_mesh",
+            "material": "ghost_obj_mat",
+            "contype": "0",
+            "conaffinity": "0",
+        },
+    )
+
+    obj_body = ET.SubElement(worldbody, "body", {"name": "obj"})
+    ET.SubElement(obj_body, "freejoint", {"name": "obj_freejoint"})
+    ET.SubElement(
+        obj_body,
+        "geom",
+        {
+            "name": "obj",
+            "type": "mesh",
+            "mesh": "object_mesh",
+            "material": "obj_mat",
+            "mass": f"{float(object_mass):.8f}",
+            # Arms and floor use this original mesh. Table support has
+            # separate convex pieces, avoiding a switching single-foot CCD
+            # manifold on the complete nonconvex mesh.
+            "contype": "2",
+            "conaffinity": "1",
+            # Retain the physical pad's torsional and rolling friction. A
+            # point-force planning approximation must not remove it in MuJoCo.
+            "condim": str(int(object_contact_dim)),
+            "friction": f"{float(object_friction):.8f} 0.08 0.01",
+            "solimp": "0.9 0.95 0.01",
+            "solref": "0.02 1.0",
+            "margin": "0.0",
+            "gap": "0.0",
+        },
+    )
+
+    from models.object_support_geometry import support_mesh_parts
+
+    for index, (vertices, faces) in enumerate(support_mesh_parts(mesh_path)):
+        name = f"object_support_{index}"
+        ET.SubElement(asset, "mesh", {
+            "name": name,
+            "vertex": " ".join(f"{value:.12g}" for value in vertices.reshape(-1)),
+            "face": " ".join(str(int(value)) for value in faces.reshape(-1)),
+            "scale": format_vec(mesh_scale),
+        })
+        ET.SubElement(obj_body, "geom", {
+            "name": name, "type": "mesh", "mesh": name, "mass": "0",
+            "group": "3", "rgba": "0 0 0 0", "contype": "8", "conaffinity": "8",
+            "condim": "6", "friction": f"{float(object_friction):.8f} 0.08 0.01",
+            "solimp": "0.9 0.95 0.01", "solref": "0.02 1.0", "margin": "0", "gap": "0",
+        })
+
+    marker_specs = [
+        ("obj_point", "1 1 0 1"),
+        ("contact_point1", "0 1 0 1"),
+        ("contact_point2", "0 0 1 1"),
+        ("left_goal", "0.15 0.75 0.95 1"),
+        ("right_goal", "0.95 0.25 0.35 1"),
+        ("left_desired_tip", "0.72 0.32 0.92 1"),
+        ("right_desired_tip", "0.72 0.32 0.92 1"),
+    ]
+    for name, rgba in marker_specs:
+        marker_body = ET.SubElement(worldbody, "body", {"name": name, "pos": format_vec(object_pos)})
+        ET.SubElement(
+            marker_body,
+            "geom",
+            {
+                "name": f"{name}_geom",
+                "type": "sphere",
+                "size": "0.008",
+                "rgba": rgba,
+                "contype": "0",
+                "conaffinity": "0",
+            },
+        )
+
+    robot_body = panda_root.find("./worldbody/body[@name='link0']")
+    if robot_body is None:
+        raise RuntimeError(f"Failed to find Panda root body in {PANDA_XML_PATH}")
+    robot_contact = panda_root.find("contact")
+    left_root = prefix_robot_tree(robot_body, "left_")
+    left_root.attrib["pos"] = format_vec([scene_center_x - 0.5 * robot_span, 0.0, 0.0])
+    left_root.attrib["quat"] = "1 0 0 0"
+    left_attachment = left_root.find(".//body[@name='left_attachment']")
+    if left_attachment is not None:
+        ET.SubElement(left_attachment, "site", {"name": "left_tip_center", "pos": "0 0 0.06", "size": "0.002"})
+
+    right_root = prefix_robot_tree(robot_body, "right_")
+    right_root.attrib["pos"] = format_vec([scene_center_x + 0.5 * robot_span, 0.0, 0.0])
+    right_root.attrib["quat"] = "0 0 0 1"
+    right_attachment = right_root.find(".//body[@name='right_attachment']")
+    if right_attachment is not None:
+        ET.SubElement(right_attachment, "site", {"name": "right_tip_center", "pos": "0 0 0.06", "size": "0.002"})
+
+    worldbody.append(left_root)
+    worldbody.append(right_root)
+
+    actuator = ET.SubElement(root, "actuator")
+    for prefix in ("left_", "right_"):
+        for joint_idx, torque_limit in enumerate(PANDA_TORQUE_LIMITS, start=1):
+            if position_actuators:
+                gain, damping, low, high, force = PANDA_POSITION_ACTUATORS[joint_idx - 1]
+                ET.SubElement(
+                    actuator,
+                    "general",
+                    {
+                        "name": f"{prefix}actuator{joint_idx}",
+                        "joint": f"{prefix}joint{joint_idx}",
+                        "dyntype": "none",
+                        "biastype": "affine",
+                        "gainprm": f"{gain:.8f}",
+                        "biasprm": f"0 {-gain:.8f} {-damping:.8f}",
+                        "ctrllimited": "true",
+                        "ctrlrange": f"{low:.8f} {high:.8f}",
+                        "forcerange": f"{-force:.8f} {force:.8f}",
+                    },
+                )
+            else:
+                ET.SubElement(
+                    actuator,
+                    "motor",
+                    {
+                        "name": f"{prefix}actuator{joint_idx}",
+                        "joint": f"{prefix}joint{joint_idx}",
+                        "ctrllimited": "true",
+                        "ctrlrange": f"{-float(torque_limit):.8f} {float(torque_limit):.8f}",
+                    },
+                )
+
+    contact = ET.SubElement(root, "contact")
+    for child in list(robot_contact):
+        contact.append(prefix_reference_attributes(child, "left_"))
+    for child in list(robot_contact):
+        contact.append(prefix_reference_attributes(child, "right_"))
+
+    tree = ET.ElementTree(root)
+    scene_output_path = Path(scene_output_path)
+    scene_output_path.parent.mkdir(parents=True, exist_ok=True)
+    tree.write(scene_output_path, encoding="utf-8", xml_declaration=False)
+    return scene_output_path
+
+
+@dataclass
+class ArmHandles:
+    prefix: str
+    joint_ids: np.ndarray
+    qpos_adr: np.ndarray
+    dof_adr: np.ndarray
+    actuator_ids: np.ndarray
+    body_id: int
+    tip_geom_id: int
+    tip_site_id: int
+    base_pos: np.ndarray
+    base_rot: np.ndarray
+    body_ids_by_name: dict
+    ik_solver: object = None
+    curobo_joint_names: tuple = ()
+    retract_cfg: np.ndarray = None
+    static_world_with_pedestal: object = None
+    static_world_floor_only: object = None
+    static_world: object = None
+    current_world: object = None
+    current_world_mode: str = "with_pedestal"
+    torque_limits: np.ndarray = None
+    home_q: np.ndarray = None
+    cartesian_stiffness: np.ndarray = None
+    cartesian_damping: np.ndarray = None
+    nullspace_stiffness: float = 10.0
+    position_d: np.ndarray = None
+    orientation_d: np.ndarray = None
+    p_d: np.ndarray = None
+    R_d: np.ndarray = None
+
+
+@dataclass
+class ArmIkResult:
+    q_mj: np.ndarray
+    success: bool
+    position_error: float
+    rotation_error: float
+    target_hand_pos_world: np.ndarray
+    target_hand_rot_world: np.ndarray
+    solved_hand_pos_world: np.ndarray
+    solved_hand_rot_world: np.ndarray
+    solved_tip_pos_world: np.ndarray
+    solved_tip_rot_world: np.ndarray
+    constraint_total: float = 0.0
+    bound_constraint: float = 0.0
+    world_constraint: float = 0.0
+    static_world_constraint: float = 0.0
+    self_constraint: float = 0.0
+    failure_reason: str = ""
+
+
+class DualArmPlanOnceParams:
+    def __init__(self, args, obj_mass):
+        self.contact_cost_param = float(args.planner_contact_cost_param)
+        self.attract_coef = float(args.planner_attract_coef)
+        self.reject_coef = float(args.planner_reject_coef)
+        self.contact_coef = float(args.planner_contact_coef)
+        self.reject_dis = float(args.planner_reject_distance)
+
+        self.h_ = float(args.planner_dt)
+        self.n_robot_qpos_ = 14
+        self.n_qpos_ = 21
+        self.n_qvel_ = 18
+        self.n_cmd_ = 12
+        self.n_ee_pose_ = 14
+        self.n_state_ = 21
+        self.n_action_ = 12
+        self.n_mj_q_ = self.n_qpos_
+        self.n_mj_v_ = self.n_qvel_
+        self.max_ncon_ = int(args.planner_max_contacts)
+
+        self.obj_inertia_ = np.identity(6, dtype=np.float32)
+        self.obj_inertia_[0:3, 0:3] = float(args.planner_object_inertia_pos) * np.eye(3, dtype=np.float32)
+        self.obj_inertia_[3:, 3:] = float(args.planner_object_inertia_rot) * np.eye(3, dtype=np.float32)
+        self.robot_stiff_ = np.diag(self.n_cmd_ * [float(args.planner_robot_stiffness)]).astype(np.float32)
+
+        self.Q = np.zeros((self.n_qvel_, self.n_qvel_), dtype=np.float32)
+        self.Q[:6, :6] = self.obj_inertia_
+        self.Q[6:, 6:] = self.robot_stiff_
+
+        self.obj_mass_ = float(obj_mass)
+        self.gravity_ = np.array([0.0, 0.0, -9.8, 0.0, 0.0, 0.0], dtype=np.float32)
+        self.model_params = float(args.contact_stiffness)
+
+        self.mpc_horizon_ = int(args.planner_horizon)
+        self.mpc_model = "mppi"
+        self.planner_solver_ = str(getattr(args, "planner_solver", None) or "acados").strip().lower()
+        self.mpc_cost_kind = "bigrasp_ee"
+        self.planner_joint_delta_limit = float(getattr(args, "planner_joint_delta_limit", 0.15))
+        rotation_limit = float(getattr(args, "planner_rotation_delta_limit", 0.12))
+        self.mpc_u_lb_ = np.asarray(
+            [-float(args.planner_cmd_limit)] * 3
+            + [-rotation_limit] * 3
+            + [-float(args.planner_cmd_limit)] * 3
+            + [-rotation_limit] * 3,
+            dtype=np.float32,
+        )
+        self.mpc_u_ub_ = -self.mpc_u_lb_.copy()
+
+        self.contact_stiffness = float(args.contact_stiffness)
+        self.arm_friction = float(args.arm_friction)
+        self.planner_object_inertia_pos = float(args.planner_object_inertia_pos)
+        self.planner_object_inertia_rot = float(args.planner_object_inertia_rot)
+        self.planner_ee_position_weight_ = float(getattr(args, "planner_ee_position_weight", 80.0))
+        self.planner_ee_orientation_weight_ = float(getattr(args, "planner_ee_orientation_weight", 2.0))
+        self.planner_force_tracking_weight_ = float(getattr(args, "planner_force_tracking_weight", 12.0))
+        self.planner_object_target_weight_ = float(getattr(args, "planner_object_target_weight", 300.0))
+        self.planner_object_lateral_weight_ = float(getattr(args, "planner_object_lateral_weight", 300.0))
+        self.planner_object_orientation_weight_ = float(getattr(args, "planner_object_orientation_weight", 15.0))
+        self.planner_synchronization_weight_ = float(getattr(args, "planner_synchronization_weight", 25.0))
+        self.planner_contact_gate_sync_weight_ = float(getattr(args, "planner_contact_gate_sync_weight", 25.0))
+        self.planner_action_weight_ = float(getattr(args, "planner_action_weight", 2.0))
+        self.planner_smooth_action_weight_ = float(getattr(args, "planner_smooth_action_weight", 3.0))
+        self.planner_workspace_weight_ = float(getattr(args, "planner_workspace_weight", 50.0))
+        self.planner_contact_gate_scale_ = float(getattr(args, "planner_contact_gate_scale", 0.004))
+        self.planner_contact_tangent_scale_ = float(getattr(args, "planner_contact_tangent_scale", 0.015))
+        self.planner_rotation_delta_limit_ = rotation_limit
+        self.planner_cmd_limit = float(args.planner_cmd_limit)
+        self.adam_multistart_count = int(getattr(args, "adam_multistart_count", 2))
+        self.adam_iters = int(getattr(args, "adam_iters", 40))
+        self.adam_lr = float(getattr(args, "adam_lr", 0.0015))
+        self.adam_horizon = int(getattr(args, "adam_horizon", 5))
+        self.adam_knot_substeps = int(getattr(args, "adam_knot_substeps", 6))
+        self.retarget_ca_iters = int(getattr(args, "retarget_ca_iters", 20))
+        self._squeeze_depth = float(getattr(args, "squeeze_depth", 0.0))
+        self.planner_workspace_lower_ = (-1.0, -1.0, 0.0)
+        self.planner_workspace_upper_ = (2.0, 1.0, 2.0)
+
+        self.sol_guess_ = None
+        self.mppi_samples_ = int(args.mppi_samples)
+        self.mppi_iterations_ = int(args.mppi_iterations)
+        self.mppi_init_iterations_ = int(args.mppi_init_iterations)
+        self.mppi_lambda_ = float(args.mppi_lambda)
+        self.mppi_noise_sigma_ = float(args.mppi_noise_sigma)
+        self.mppi_noise_decay_ = float(args.mppi_noise_decay)
+        self.mppi_elite_frac_ = float(args.mppi_elite_frac)
+        seed = None if args.mppi_seed is None else int(args.mppi_seed)
+        self.mppi_seed_ = None if seed is None or seed < 0 else seed
+        self.mppi_use_torch_compile_ = bool(args.mppi_use_torch_compile)
+        default_mppi_device = "cuda:0" if torch is not None and torch.cuda.is_available() else "cpu"
+        self.mppi_device_ = str(args.mppi_device or default_mppi_device)
+        self.apply_planner_mode(resolve_planner_mode(args))
+
+    def apply_planner_mode(self, mode: str):
+        mode = str(mode).strip().lower()
+        if mode == "mpc_ee":
+            self.n_qpos_, self.n_qvel_, self.n_cmd_ = 25, 12, 6
+            self.n_state_, self.n_action_, self.n_robot_qpos_ = 25, 6, 6
+            self.mpc_model = "explicit"
+            self.planner_solver_ = self.planner_solver_ if self.planner_solver_ in {"acados", "ipopt"} else "acados"
+            self.mpc_u_lb_ = -np.full(6, self.planner_cmd_limit, dtype=np.float32)
+            self.mpc_u_ub_ = -self.mpc_u_lb_
+            return
+        if mode == "mppi_ee":
+            squeeze = min(float(getattr(self, "_squeeze_depth", 0.0)), TIP_RADIUS * 0.9)
+            self.adam_approach_offset_ = max(TIP_RADIUS - squeeze, 0.001)
+            self.planner_contact_gate_scale_ = max(float(self.planner_contact_gate_scale_), 0.02)
+            self.planner_force_tracking_weight_ = 0.0
+            self.planner_ee_position_weight_ = 160.0
+            self.planner_object_target_weight_ = 40.0
+            self.planner_object_lateral_weight_ = 40.0
+        if mode == "mppi_ee":
+            from planning.mpc_explicit_adam import configure_adam_layout
+
+            configure_adam_layout(self)
+            if mode == "mppi_ee":
+                self.planner_solver_ = "mppi"
+            self.robot_stiff_ = np.diag(self.n_cmd_ * [float(np.mean(np.diag(self.robot_stiff_)))]).astype(np.float32)
+            self.Q = np.zeros((self.n_qvel_, self.n_qvel_), dtype=np.float32)
+            self.Q[:6, :6] = self.obj_inertia_
+            self.Q[6:, 6:] = self.robot_stiff_
+            self.adam_iters = int(getattr(self, "adam_iters", 40))
+            self.adam_lr = float(getattr(self, "adam_lr", 0.0015))
+            self.adam_horizon = int(getattr(self, "adam_horizon", 5))
+            self.adam_knot_substeps = int(getattr(self, "adam_knot_substeps", 6))
+            self.mpc_horizon_ = int(getattr(self, "adam_horizon", self.mpc_horizon_))
+            return
+        if mode in {"mppi_joint", "mpc_joint"}:
+            self.n_robot_qpos_ = 14
+            self.n_qpos_ = 21
+            self.n_qvel_ = 20
+            self.n_cmd_ = 14
+            self.n_state_ = 21
+            self.n_action_ = 14
+            self.robot_stiff_ = np.diag(self.n_cmd_ * [float(np.mean(np.diag(self.robot_stiff_)))]).astype(np.float32)
+            self.Q = np.zeros((self.n_qvel_, self.n_qvel_), dtype=np.float32)
+            self.Q[:6, :6] = self.obj_inertia_
+            self.Q[6:, 6:] = self.robot_stiff_
+            bound = np.full(14, float(self.planner_joint_delta_limit), dtype=np.float32)
+            self.mpc_u_lb_ = -bound
+            self.mpc_u_ub_ = bound
+            if mode == "mpc_joint":
+                self.mpc_model = "explicit"
+                self.planner_solver_ = "acados"
+                self.mpc_cost_kind = "bigrasp_joint"
+
+
+class BimanualPandaGrasper:
+    def __init__(self, args):
+        resolve_control_timing(args)
+        requested_ik_backend = str(getattr(args, "ik_backend", "mink")).strip().lower()
+        if resolve_planner_mode(args) == "mpc_ee":
+            # Online Cartesian OSC needs Jacobians, not a separate IK/CA solver.
+            requested_ik_backend = "mujoco"
+        if requested_ik_backend not in {"auto", "mink", "mujoco", "curobo"}:
+            raise ValueError(f"Unsupported IK backend: {requested_ik_backend}")
+        self._ik_backend = "mujoco"
+        if requested_ik_backend == "curobo" and _HAS_CUROBO:
+            self._ik_backend = "curobo"
+        elif requested_ik_backend != "mujoco":
+            try:
+                import mink  # noqa: F401
+
+                self._ik_backend = "mink"
+            except ImportError as exc:
+                if requested_ik_backend == "mink":
+                    raise ImportError("mink is required for the EE IK backend") from exc
+                print(f"mink is unavailable ({exc}); using MuJoCo Jacobian IK.")
+        self._use_curobo = self._ik_backend == "curobo"
+        print(f"EE IK backend: {self._ik_backend}")
+
+        self.args = args
+        self.planner_mode = resolve_planner_mode(args)
+        self.planner_backend = self.planner_mode
+        self._position_control = self.planner_mode in {"mppi_joint", "mpc_joint", "mppi_ee"}
+        if self._use_curobo:
+            logging.getLogger("curobo").setLevel(logging.WARNING)
+        self.mesh_path = resolve_mesh_path(args.obj, args.mesh)
+        self.mesh_scale = self._resolve_mesh_scale(args)
+        self.mesh_bounds = load_mesh_bounds(self.mesh_path, self.mesh_scale)
+        self.pedestal_size = np.asarray(args.pedestal_size, dtype=np.float64).copy()
+        self.pedestal_pos = np.asarray(args.pedestal_pos, dtype=np.float64).copy()
+        self.pedestal_pos[2] += float(args.initial_object_lift)
+
+        support_top = self.pedestal_pos[2] + self.pedestal_size[2]
+        self.support_top = float(support_top)
+        self.support_surface_point = np.array(
+            [self.pedestal_pos[0], self.pedestal_pos[1], self.support_top],
+            dtype=np.float64,
+        )
+        self.support_surface_normal = WORLD_UP.copy()
+        object_pos = np.array(
+            [
+                args.scene_center_x,
+                0.0,
+                support_top - self.mesh_bounds[0, 2] + args.object_z_offset,
+            ],
+            dtype=np.float64,
+        )
+        object_quat = quat_from_yaw(args.object_yaw)
+        self.object_target_pos = object_pos.copy()
+        self.object_target_pos[2] += float(args.lift_height)
+        self.object_target_quat = object_quat.copy()
+        self.contact_points_local = None
+        self.normals_local = None
+        self.desired_contact_forces_local = None
+        self.desired_force_vectors_local = None
+
+        self.left_base_pos = np.array(
+            [args.scene_center_x - 0.5 * args.robot_span, 0.0, 0.0],
+            dtype=np.float64,
+        )
+        self.right_base_pos = np.array(
+            [args.scene_center_x + 0.5 * args.robot_span, 0.0, 0.0],
+            dtype=np.float64,
+        )
+        self.left_base_rot = np.eye(3, dtype=np.float64)
+        self.right_base_rot = quat_wxyz_to_mat(np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64))
+
+        self.scene_path = build_bimanual_scene_xml(
+            mesh_path=self.mesh_path,
+            mesh_scale=self.mesh_scale,
+            object_mass=args.obj_mass,
+            object_friction=args.object_friction,
+            object_pos=object_pos,
+            object_quat=object_quat,
+            scene_center_x=args.scene_center_x,
+            robot_span=args.robot_span,
+            pedestal_size=self.pedestal_size,
+            pedestal_pos=self.pedestal_pos,
+            mujoco_timestep=args.mujoco_dt,
+            scene_output_path=args.scene_output,
+            position_actuators=self._position_control,
+            support_noslip_iterations=args.contact_noslip_iterations if self.planner_mode in {"mpc_ee", "mppi_ee"} else 0,
+            contact_impratio=args.contact_impratio,
+            friction_cone=args.contact_friction_cone,
+            object_contact_dim=args.object_contact_dim,
+        )
+
+        self.model = mujoco.MjModel.from_xml_path(str(self.scene_path))
+        self.model.opt.timestep = float(args.mujoco_dt)
+        self.data = mujoco.MjData(self.model)
+        
+        self.viewer = None
+        self._defer_viewer = self.planner_mode in {"mpc_ee", "mppi_ee"} and bool(getattr(args, "visualize", True))
+        if bool(getattr(args, "visualize", True)) and not self._defer_viewer:
+            self._launch_viewer()
+        elif not self._defer_viewer:
+            print("MuJoCo viewer: off")
+
+        self.left_arm = self._build_arm_handles("left_", self.left_base_pos, self.left_base_rot)
+        self.right_arm = self._build_arm_handles("right_", self.right_base_pos, self.right_base_rot)
+        self.obj_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "obj")
+        self.obj_joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "obj_freejoint")
+        self.obj_qpos_adr = int(self.model.jnt_qposadr[self.obj_joint_id])
+        self.obj_dof_adr = int(self.model.jnt_dofadr[self.obj_joint_id])
+        self.obj_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "obj")
+        # The XML fingertip previously inherited MuJoCo's default material,
+        # even though --arm-friction claimed to configure it. Configure the
+        # materials first, then derive the effective pair coefficient.
+        for arm in (self.left_arm, self.right_arm):
+            self.model.geom_friction[arm.tip_geom_id, 0] = float(args.arm_friction)
+        pair_mu = min(mujoco_pair_sliding_friction(self.model, arm.tip_geom_id, self.obj_geom_id)
+                      for arm in (self.left_arm, self.right_arm))
+        self.fingertip_object_friction = pair_mu
+        moments = np.array([mujoco_pair_moment_friction(self.model, arm.tip_geom_id, self.obj_geom_id)
+                            for arm in (self.left_arm, self.right_arm)])
+        self.pad_spin_friction, self.pad_roll_friction = moments[:, 0], moments[:, 1]
+        pedestal_geom = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "pedestal_geom")
+        self.table_object_friction = mujoco_pair_sliding_friction(self.model, pedestal_geom, self.obj_geom_id)
+        args.arm_friction = pair_mu  # All online contact Jacobians/force models.
+        self.marker_body_ids = {
+            name: mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, name)
+            for name in (
+                "obj_point",
+                "contact_point1",
+                "contact_point2",
+                "left_goal",
+                "right_goal",
+                "left_desired_tip",
+                "right_desired_tip",
+                "goal",
+            )
+        }
+        self.support_height_threshold = self.pedestal_pos[2] + self.pedestal_size[2] + args.ground_height_margin
+
+        self.reset(object_pos, object_quat)
+        optimizer_support_kwargs = {}
+        if bool(args.optimizer_use_support_filter):
+            optimizer_support_kwargs = {
+                "support_surface_point": self.support_surface_point,
+                "support_surface_normal": self.support_surface_normal,
+                "support_surface_clearance": args.ground_height_margin,
+                "support_surface_normal_alignment_threshold": args.support_normal_alignment_threshold,
+            }
+        optimizer_kwargs = dict(
+            mesh_path=str(self.mesh_path),
+            obj_mass=args.obj_mass,
+            arm_friction=lambda_friction_options(args, pair_mu)["arm_friction"],
+            contact_stiffness=args.contact_stiffness,
+            time_step=self.model.opt.timestep,
+            sample_num=args.sample_num,
+            pos_coef=args.pos_coef,
+            ori_coef=args.ori_coef,
+            scale_factors=tuple(self.mesh_scale.tolist()),
+            **optimizer_support_kwargs,
+        )
+        if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            from planning.lambda_contact_lm import LambdaContactBatchedLM
+
+            # Both online backends execute against MuJoCo's convex collider.
+            # Visual concavities are not reachable physical contact patches.
+            optimizer_kwargs["mesh_path"] = trimesh.load_mesh(self.mesh_path, process=False).convex_hull
+            optimizer_kwargs['paired_center_local'] = self.model.body_ipos[self.obj_body_id].copy()
+            optimizer_kwargs['paired_up_local'] = self.get_object_pose()[2].T @ WORLD_UP
+            optimizer_kwargs.update(
+                **lambda_friction_options(args, pair_mu),
+                contact_stiffness=args.comfree_stiffness,
+                comfree_damping=args.comfree_damping,
+                support_surface_point=self.support_surface_point,
+                support_surface_normal=self.support_surface_normal,
+                support_surface_clearance=args.ground_height_margin,
+            )
+            self.optimizer = LambdaContactBatchedLM(
+                tip_radius=TIP_RADIUS,
+                device=str(getattr(args, "mppi_device", None) or
+                           ("cpu" if self.planner_mode == "mpc_ee" else
+                            ("cuda:0" if torch is not None and torch.cuda.is_available() else "cpu"))),
+                lm_iterations=int(getattr(args, "lambda_lm_iters", 20)),
+                cone_half_angle_deg=float(getattr(args, "lambda_cone_half_angle", 45.0)),
+                quality_fraction=float(getattr(args, "lambda_quality_fraction", 0.015)),
+                max_per_arm=int(getattr(args, "lambda_max_per_arm", 32)),
+                switch_margin=float(getattr(args, "lambda_switch_margin", 0.002)),
+                max_mean_curvature=args.optimizer_max_region_mean_curvature,
+                max_point_curvature=args.optimizer_max_point_curvature,
+                curvature_penalty_weight=args.optimizer_curvature_penalty_weight,
+                body_sides=(getattr(args, "lambda_contact_region", "auto") == "body-sides"),
+                body_core_fraction=float(getattr(args, "lambda_body_core_fraction", 0.5)),
+                seed=0 if args.mppi_seed is None or int(args.mppi_seed) < 0 else int(args.mppi_seed),
+                **optimizer_kwargs,
+            )
+        else:
+            from planning.mlqp_point_v2 import LambdaContactControlOptimizer
+
+            self.optimizer = LambdaContactControlOptimizer(
+                curvature_neighbor_k=args.optimizer_curvature_neighbor_k,
+                region_max_mean_curvature=args.optimizer_max_region_mean_curvature,
+                region_max_point_curvature=args.optimizer_max_point_curvature,
+                curvature_penalty_weight=args.optimizer_curvature_penalty_weight,
+                nlp_solver=args.solver,
+                static_nlp_solver=args.solver,
+                **optimizer_kwargs,
+            )
+        self.optimizer.set_timing_print_enabled(bool(getattr(args, "print_contact_timing", False)))
+        print(f"Contact friction: fingertip/object={pair_mu:.3f}, Lambda={self.optimizer.mu_arm_obj:.3f}; "
+              f"Lambda tangential penalty={args.lambda_friction_reg_coef:.3f}")
+        print(f"Contact solver: impratio={self.model.opt.impratio:g}, "
+              f"noslip_iterations={self.model.opt.noslip_iterations}, "
+              f"cone={args.contact_friction_cone}, object_condim={self.model.geom_condim[self.obj_geom_id]}")
+        self.command_dt = (
+            float(self.model.opt.timestep)
+            * max(int(self.args.mj_steps_per_command), 1)
+            * max(int(self.args.command_substeps), 1)
+        )
+        self.plan_params = DualArmPlanOnceParams(self.args, args.obj_mass)
+        self.plan_params.retarget_object_speed = float(args.retarget_object_speed)
+        self.plan_params.retarget_object_angular_speed = float(args.retarget_object_angular_speed)
+        self.planner = None
+        self.physical_planner = None
+        self.spider_planner = None
+        self.explicit_planner = None
+        self._arm_mppi = None
+        self.physical_execution_steps = max(
+            int(getattr(args, "physical_mppi_physics_steps", 10)), 1
+        )
+        planner_backend = self.planner_mode
+        warp_kwargs = dict(
+            left_actuator_ids=self.left_arm.actuator_ids,
+            right_actuator_ids=self.right_arm.actuator_ids,
+            obj_qpos_adr=self.obj_qpos_adr,
+            left_site_id=int(self.left_arm.tip_site_id),
+            right_site_id=int(self.right_arm.tip_site_id),
+            left_qpos_adr=self.left_arm.qpos_adr,
+            right_qpos_adr=self.right_arm.qpos_adr,
+            left_dof_adr=self.left_arm.dof_adr,
+            right_dof_adr=self.right_arm.dof_adr,
+            num_samples=int(getattr(args, "spider_num_samples", 128)),
+            horizon=int(getattr(args, "spider_horizon", 8)),
+            knot_steps=int(getattr(args, "spider_knot_steps", 2)),
+            iterations=int(getattr(args, "spider_iterations", 2)),
+            temperature=float(getattr(args, "spider_temperature", 0.1)),
+            beta_traj=float(getattr(args, "spider_beta", 0.85)),
+            noise_scale=float(getattr(args, "spider_noise", 0.1)),
+            substeps=int(getattr(args, "spider_substeps", 1)),
+            comfree_stiffness=float(getattr(args, "comfree_stiffness", 0.2)),
+            comfree_damping=float(getattr(args, "comfree_damping", 0.001)),
+            device=str(getattr(args, "mppi_device", None) or "cuda:0"),
+        )
+        if planner_backend == "mppi_joint":
+            from planning.mppi_explicit import ExplicitJointMPPI
+
+            self.explicit_planner = ExplicitJointMPPI(
+                self.model,
+                self.data,
+                joint_delta_limit=float(getattr(args, "planner_joint_delta_limit", 0.15)),
+                **warp_kwargs,
+            )
+            self._arm_mppi = self.explicit_planner
+        elif planner_backend == "mpc_ee":
+            from planning.bimanual_online_mpc import BimanualOnlineMPC
+            from models.support_geometry import support_frame
+
+            self.plan_params.h_ = self._planner_tracking_steps() * float(self.model.opt.timestep)
+            self.plan_params.mppi_device_ = self.optimizer.device
+            self.plan_params.online_task_stiffness = float(args.online_task_stiffness)
+            self.plan_params.online_approach_speed = float(args.online_approach_speed)
+            self.plan_params.contact_command_force_limit_ = float(args.online_force_limit)
+            self.plan_params.contact_force_limit_ = float(args.online_force_limit)
+            self.plan_params.online_unilateral_force_limit = float(args.online_unilateral_force_limit)
+            self.plan_params.mpc_tip_effective_mass_ = float(args.online_tip_mass)
+            self.plan_params.mpc_tip_damping_ = float(args.online_task_damping)
+            self.plan_params.soft_scm_response_time = float(args.online_contact_time)
+            self.plan_params.soft_scm_damping_ratio = 1.0
+            self.plan_params.soft_scm_regularization = 1e-8
+            impedance = float(self.model.geom_solimp[self.obj_geom_id, 0])
+            self.plan_params.mpc_tangent_impedance_ = 1/(1+(1-impedance)/(impedance*self.model.opt.impratio))
+            self.plan_params.mpc_spin_friction_ = self.pad_spin_friction.copy()
+            self.plan_params.mpc_roll_friction_ = self.pad_roll_friction.copy()
+            self.plan_params.mpc_patch_radius_ = float(args.online_patch_radius)
+            self.plan_params.online_contact_offset = max(TIP_RADIUS - float(args.squeeze_depth), .001)
+            self.plan_params.tip_radius = TIP_RADIUS
+            self.plan_params.online_object_velocity_weight = float(args.online_object_velocity_weight)
+            self.plan_params.online_wrench_cost_weight = float(args.online_wrench_cost_weight)
+            self.plan_params.online_max_horizontal_error = float(args.online_max_horizontal_error)
+            self.plan_params.online_horizontal_recovery_weight = float(args.online_horizontal_recovery_weight)
+            self.plan_params.online_sqp_iters = int(args.online_sqp_iters)
+            self.plan_params.online_ipopt_iters = int(args.online_ipopt_iters)
+            self.plan_params.online_ipopt_fallback = bool(args.online_ipopt_fallback)
+            self.plan_params.online_terminal_weight = 2.0
+            diagnostic_path = getattr(args, "diagnostics_output", None)
+            self.plan_params.mpc_failure_snapshot_ = str(
+                diagnostic_path.with_name(diagnostic_path.stem + "_solver_failure.npz")
+                if diagnostic_path is not None else
+                REPO_ROOT / "output" / "diagnostics" / "bigrasp_mpc_solver_failure.npz")
+            self.plan_params.support_surface_point_ = self.support_surface_point.copy()
+            _, self._online_support_tangents = support_frame(WORLD_UP, np.array([[1., 0., 0.], [0., 1., 0.]]))
+            self.plan_params.support_surface_half_extents_ = self.pedestal_size[:2].copy()
+            # The reduced predictor handles two pads and four finite supports.
+            self.plan_params.max_ncon_ = 6
+            self.plan_params.robot_stiff_ = float(args.online_task_stiffness) * np.eye(6)
+            self.planner = BimanualOnlineMPC(self.plan_params)
+            self.plan_params.planner_solver_ = self.planner.planner_solver_
+            self._online_contact_stable_steps = 0
+            self._online_contact_ids = None
+            self._online_grasp_active = False
+            self._online_grasp_confirm_streak = 0
+            self._online_grasp_release_streak = 0
+            self._online_approach_origin = object_pos.copy()
+            self._online_previous_object_cost = None
+            self._online_vertices = np.asarray(trimesh.load_mesh(self.mesh_path, process=False).vertices) * self.mesh_scale
+            print(f"Online bimanual MPC: solver={self.planner.planner_solver_} state=25 action=6 horizon={self.planner.horizon} dt={self.plan_params.h_:.3f}s")
+            if getattr(self, "_defer_viewer", False):
+                self._launch_viewer()
+        elif planner_backend == "mppi_ee":
+            from models.dexforge_fast_step import DexForgeFastStep
+            from models.dexforge_planner_scene import write_dexforge_planner_scene
+            from planning.dexforge_retarget import DexForgeRetargetingMPC
+
+            self.plan_params.table_height = float(self.support_height_threshold)
+            self.plan_params.tip_radius = float(TIP_RADIUS)
+            planner_xml = write_dexforge_planner_scene(
+                self.scene_path,
+                self.optimizer.cloud,
+                tip_radius=float(TIP_RADIUS),
+                mutual_arm_contacts=bool(getattr(args, "retarget_full_contact_dynamics", False)),
+                pair_sliding_friction=self.fingertip_object_friction,
+            )
+            warp_device = str(getattr(args, "mppi_device", None) or "cuda:0")
+            self.plan_params.mppi_device_ = warp_device
+            print(f"DexForge planner scene: {planner_xml}")
+            fa_solver = "mppi" if planner_backend == "mppi_ee" else "adam"
+            print(f"Compiling DexForge Warp step + FA {fa_solver.upper()} (first run JIT-compiles GPU kernels)...")
+            warp_model = DexForgeFastStep(planner_xml, device=warp_device,
+                                          comfree_stiffness=args.comfree_stiffness,
+                                          comfree_damping=args.comfree_damping)
+            warp_model.set_cloud(self.optimizer.cloud)
+            self.planner = DexForgeRetargetingMPC(self.plan_params, warp_model, solver=fa_solver)
+            print(
+                f"DexForge singleton CA/FA MPC: horizon={self.planner.horizon} "
+                f"knot_substeps={getattr(self.planner, 'knot_substeps', 1)} "
+                f"solver={fa_solver} iters={self.planner.iters} u_limit={self.planner.u_limit}"
+            )
+            if fa_solver == "mppi":
+                print(f"FA MPPI samples={self.planner.num_samples} noise={self.plan_params.mppi_noise_sigma_} rad")
+            if getattr(self, "_defer_viewer", False):
+                self._launch_viewer()
+        elif planner_backend == "mpc_joint":
+            from planning.mpc_explicit import MPCExplicitJoint
+
+            self.planner = MPCExplicitJoint(self.plan_params)
+        if planner_backend == "physical_mppi":
+            # ``touch_offset`` is a pre-contact stand-off used by the legacy
+            # waypoint controller.  A physical rollout must put the
+            # fingertip sphere on the object (and apply the configured small
+            # squeeze), otherwise the MPPI objective can converge to a
+            # several-millimetre gap with zero MuJoCo contacts.
+            physical_contact_offset = max(
+                TIP_RADIUS - min(float(getattr(args, "squeeze_depth", 0.0)), TIP_RADIUS * 0.9),
+                0.001,
+            )
+            self.physical_planner = PhysicalBimanualMPPI(
+                MujocoBimanualRolloutBackend(
+                    self,
+                    ee_target_offset=physical_contact_offset,
+                    physics_steps=self.physical_execution_steps,
+                ),
+                horizon=int(args.planner_horizon),
+                samples=int(getattr(args, "physical_mppi_samples", min(int(args.mppi_samples), 64))),
+                iterations=int(getattr(args, "physical_mppi_iterations", min(int(args.mppi_iterations), 2))),
+                init_iterations=int(getattr(args, "physical_mppi_init_iterations", 4)),
+                temperature=float(args.mppi_lambda),
+                noise_sigma=float(args.mppi_noise_sigma),
+                noise_decay=float(args.mppi_noise_decay),
+                elite_frac=float(args.mppi_elite_frac),
+                translation_limit=float(args.planner_cmd_limit),
+                rotation_limit=float(args.planner_rotation_delta_limit),
+                dt=float(args.planner_dt),
+                seed=self.plan_params.mppi_seed_,
+            )
+        self._setup_curobo()
+
+    def _resolve_mesh_scale(self, args):
+        if args.scale is not None:
+            return np.asarray(args.scale, dtype=np.float64)
+        key = self.mesh_path.stem
+        base_scale = DEFAULT_SCALE_MAP.get(key, None)
+        if base_scale is None:
+            return np.ones(3, dtype=np.float64)
+        return DEFAULT_OBJECT_SCALE_BOOST * np.asarray(base_scale, dtype=np.float64).copy()
+
+    def _build_arm_handles(self, prefix, base_pos, base_rot):
+        joint_ids = np.array(
+            [
+                mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"{prefix}joint{i}")
+                for i in range(1, 8)
+            ],
+            dtype=np.int32,
+        )
+        qpos_adr = np.array([self.model.jnt_qposadr[jid] for jid in joint_ids], dtype=np.int32)
+        dof_adr = np.array([self.model.jnt_dofadr[jid] for jid in joint_ids], dtype=np.int32)
+        actuator_ids = np.array(
+            [
+                mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{prefix}actuator{i}")
+                for i in range(1, 8)
+            ],
+            dtype=np.int32,
+        )
+        body_ids_by_name = {
+            name: mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, f"{prefix}{name}")
+            for name in ("link0", "link1", "link2", "link3", "link4", "link5", "link6", "link7", "attachment")
+        }
+        return ArmHandles(
+            prefix=prefix,
+            joint_ids=joint_ids,
+            qpos_adr=qpos_adr,
+            dof_adr=dof_adr,
+            actuator_ids=actuator_ids,
+            body_id=mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, f"{prefix}attachment"),
+            tip_geom_id=mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"{prefix}fingertip"),
+            tip_site_id=mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f"{prefix}tip_center"),
+            base_pos=np.asarray(base_pos, dtype=np.float64).copy(),
+            base_rot=np.asarray(base_rot, dtype=np.float64).reshape(3, 3).copy(),
+            body_ids_by_name=body_ids_by_name,
+            torque_limits=PANDA_TORQUE_LIMITS.copy(),
+            home_q=PANDA_HOME_Q.copy(),
+            cartesian_stiffness=2.0
+            * np.diag(
+                [
+                    float(self.args.cartesian_stiffness_pos),
+                    float(self.args.cartesian_stiffness_pos),
+                    float(self.args.cartesian_stiffness_pos),
+                    float(self.args.cartesian_stiffness_rot),
+                    float(self.args.cartesian_stiffness_rot),
+                    float(self.args.cartesian_stiffness_rot),
+                ]
+            ).astype(np.float64),
+            nullspace_stiffness=float(self.args.nullspace_stiffness),
+        )
+
+    def _launch_viewer(self):
+        try:
+            self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+        except Exception as exc:
+            print(f"MuJoCo viewer failed to start: {exc}")
+            self.viewer = None
+        if self.viewer is not None:
+            print("MuJoCo viewer: on")
+            self.viewer.cam.distance = 1.8
+            self.viewer.cam.azimuth = 135
+            self.viewer.cam.elevation = -25
+        else:
+            print("MuJoCo viewer: off")
+
+    def _build_curobo_world_config_dict(self, arm, include_pedestal=True):
+        floor_world_pos = np.array([self.args.scene_center_x, 0.0, -0.05], dtype=np.float64)
+        floor_world_rot = np.eye(3, dtype=np.float64)
+
+        floor_local_pos, floor_local_rot = self.world_pose_to_arm_frame(arm, floor_world_pos, floor_world_rot)
+        cuboids = {
+            "floor": {
+                "dims": [4.0, 4.0, 0.1],
+                "pose": [*floor_local_pos.tolist(), *mat_to_quat_wxyz(floor_local_rot).tolist()],
+            }
+        }
+        if include_pedestal:
+            pedestal_world_pos = self.pedestal_pos.copy()
+            pedestal_world_rot = np.eye(3, dtype=np.float64)
+            pedestal_local_pos, pedestal_local_rot = self.world_pose_to_arm_frame(
+                arm,
+                pedestal_world_pos,
+                pedestal_world_rot,
+            )
+            cuboids["pedestal"] = {
+                "dims": (2.0 * self.pedestal_size).tolist(),
+                "pose": [*pedestal_local_pos.tolist(), *mat_to_quat_wxyz(pedestal_local_rot).tolist()],
+            }
+
+        return {"cuboid": cuboids}
+
+    def _build_curobo_world_config(self, arm, include_pedestal=True):
+        return WorldConfig.from_dict(self._build_curobo_world_config_dict(arm, include_pedestal=include_pedestal))
+
+    def _set_curobo_world_mode(self, world_mode):
+        if world_mode not in ("with_pedestal", "floor_only"):
+            raise ValueError(f"Unsupported cuRobo world mode: {world_mode}")
+
+        if not self._use_curobo:
+            for arm in (self.left_arm, self.right_arm):
+                arm.current_world_mode = world_mode
+            return
+
+        for arm in (self.left_arm, self.right_arm):
+            if world_mode == "floor_only":
+                static_world = arm.static_world_floor_only
+            else:
+                static_world = arm.static_world_with_pedestal
+            if static_world is None:
+                raise RuntimeError(f"cuRobo static world '{world_mode}' is not initialized for {arm.prefix}.")
+            arm.static_world = static_world
+            arm.current_world_mode = world_mode
+
+    def _build_segment_world_rotation(self, segment_dir, tangent_hint=None):
+        return self._build_contact_rotation(segment_dir, tangent_hint=tangent_hint)
+
+    def _get_body_pose(self, body_id, data=None):
+        data = self.data if data is None else data
+        pos = data.body(body_id).xpos.copy()
+        rot = data.body(body_id).xmat.reshape(3, 3).copy()
+        return pos, rot
+
+    def _get_obstacle_anchor_pose(self, arm, anchor_name, data=None):
+        if anchor_name == "tip_center":
+            return self.get_tip_pose(arm, data=data)
+        body_id = arm.body_ids_by_name[anchor_name]
+        return self._get_body_pose(body_id, data=data)
+
+    def _build_other_arm_obstacle_cuboids(self, target_arm, obstacle_arm):
+        cuboids = []
+        for name, start_name, end_name, thickness in ARM_OBSTACLE_SEGMENTS:
+            start_pos_world, _ = self._get_obstacle_anchor_pose(obstacle_arm, start_name)
+            end_pos_world, _ = self._get_obstacle_anchor_pose(obstacle_arm, end_name)
+            segment_world = end_pos_world - start_pos_world
+            segment_length = float(np.linalg.norm(segment_world))
+            if segment_length < 1e-5:
+                continue
+            center_world = 0.5 * (start_pos_world + end_pos_world)
+            seg_rot_world = self._build_segment_world_rotation(segment_world, tangent_hint=WORLD_UP)
+            center_local, seg_rot_local = self.world_pose_to_arm_frame(
+                target_arm,
+                center_world,
+                seg_rot_world,
+            )
+            cuboids.append(
+                Cuboid(
+                    name=f"{obstacle_arm.prefix}{name}_obs",
+                    pose=[*center_local.tolist(), *mat_to_quat_wxyz(seg_rot_local).tolist()],
+                    dims=[
+                        float(thickness),
+                        float(thickness),
+                        float(segment_length + ARM_OBSTACLE_LENGTH_PADDING),
+                    ],
+                )
+            )
+        return cuboids
+
+    def _visible_optimizer_point_indices(self, object_pos, object_rot):
+        if not bool(self.args.optimizer_use_support_filter):
+            return self.optimizer.point_idx.copy()
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        centers_world = (object_rot @ self.optimizer.sample_point.T).T + object_pos[None, :]
+        visible_idx = np.where(centers_world[:, 2] > float(self.support_height_threshold))[0]
+        if visible_idx.size == 0:
+            visible_idx = self.optimizer.point_idx.copy()
+        visible_idx = self.optimizer.get_contact_candidate_indices(
+            visible_face_idx=visible_idx,
+            object_pos=object_pos,
+            object_rot=object_rot,
+        )
+        if visible_idx.size == 0:
+            visible_idx = self.optimizer.get_contact_candidate_indices(
+                visible_face_idx=self.optimizer.point_idx,
+                object_pos=object_pos,
+                object_rot=object_rot,
+            )
+        return np.asarray(visible_idx, dtype=int)
+
+    def _update_inter_arm_worlds(self):
+        if not self._use_curobo:
+            return
+        for target_arm, obstacle_arm in (
+            (self.left_arm, self.right_arm),
+            (self.right_arm, self.left_arm),
+        ):
+            world = target_arm.static_world.clone()
+            for obstacle in self._build_other_arm_obstacle_cuboids(target_arm, obstacle_arm):
+                world.add_obstacle(obstacle)
+            target_arm.current_world = world
+            target_arm.ik_solver.update_world(world)
+
+    def _setup_curobo_arm(self, arm):
+        world_config = self._build_curobo_world_config_dict(arm, include_pedestal=True)
+        ik_config = IKSolverConfig.load_from_robot_config(
+            self.args.curobo_robot_cfg,
+            world_config,
+            position_threshold=self.args.ik_pos_tol,
+            rotation_threshold=self.args.ik_rot_tol,
+            num_seeds=self.args.ik_num_seeds,
+            self_collision_check=not self.args.disable_curobo_self_collision,
+            self_collision_opt=not self.args.disable_curobo_self_collision,
+            collision_cache={"obb": 16},
+            collision_activation_distance=self.args.curobo_collision_activation_distance,
+            use_cuda_graph=False,
+            regularization=True,
+        )
+        arm.ik_solver = IKSolver(ik_config)
+        arm.curobo_joint_names = tuple(arm.ik_solver.joint_names)
+        get_retract_config = getattr(arm.ik_solver, "get_retract_config", None)
+        if callable(get_retract_config):
+            retract_cfg = get_retract_config()
+        else:
+            retract_cfg = arm.ik_solver.rollout_fn.dynamics_model.retract_config
+        arm.retract_cfg = _tensor_to_numpy(retract_cfg).reshape(-1).astype(np.float64)
+        arm.cartesian_damping = 2.0 * np.sqrt(arm.cartesian_stiffness)
+        arm.static_world_with_pedestal = self._build_curobo_world_config(arm, include_pedestal=True)
+        arm.static_world_floor_only = self._build_curobo_world_config(arm, include_pedestal=False)
+        arm.static_world = arm.static_world_with_pedestal
+        arm.current_world = arm.static_world.clone()
+        arm.current_world_mode = "with_pedestal"
+        current_tip_pos, current_tip_rot = self.get_tip_pose(arm)
+        arm.position_d = current_tip_pos.copy()
+        arm.orientation_d = current_tip_rot.copy()
+        arm.p_d = current_tip_pos.copy()
+        arm.R_d = current_tip_rot.copy()
+
+    def _setup_curobo(self):
+        if not self._use_curobo:
+            self._setup_mujoco_ik()
+            return
+        self._setup_curobo_arm(self.left_arm)
+        self._setup_curobo_arm(self.right_arm)
+        self._update_inter_arm_worlds()
+
+    def _setup_mujoco_ik(self):
+        """Initialize the dependency-free EE IK fallback.
+
+        The MPPI controller already operates in EE pose space.  This small
+        Jacobian solver is only used once per arm to obtain a fixed contact
+        orientation; execution remains Cartesian impedance controlled.
+        """
+        for arm in (self.left_arm, self.right_arm):
+            arm.ik_solver = None
+            arm.curobo_joint_names = tuple()
+            arm.retract_cfg = self.data.qpos[arm.qpos_adr].copy()
+            arm.static_world_with_pedestal = None
+            arm.static_world_floor_only = None
+            arm.static_world = None
+            arm.current_world = None
+            arm.current_world_mode = "with_pedestal"
+            arm.cartesian_damping = 2.0 * np.sqrt(arm.cartesian_stiffness)
+            tip_pos, tip_rot = self.get_tip_pose(arm)
+            arm.position_d = tip_pos.copy()
+            arm.orientation_d = tip_rot.copy()
+            arm.p_d = tip_pos.copy()
+            arm.R_d = tip_rot.copy()
+
+    def reset(self, object_pos, object_quat):
+        self.data.qpos[self.left_arm.qpos_adr] = PANDA_HOME_Q
+        self.data.qpos[self.right_arm.qpos_adr] = PANDA_HOME_Q
+        if self._position_control:
+            self.data.ctrl[self.left_arm.actuator_ids] = PANDA_HOME_Q
+            self.data.ctrl[self.right_arm.actuator_ids] = PANDA_HOME_Q
+        else:
+            self.data.ctrl[self.left_arm.actuator_ids] = 0.0
+            self.data.ctrl[self.right_arm.actuator_ids] = 0.0
+        self.data.qpos[self.obj_qpos_adr : self.obj_qpos_adr + 7] = np.hstack([object_pos, object_quat])
+        self.data.qvel[:] = 0.0
+        self.data.act[:] = 0.0
+        mujoco.mj_forward(self.model, self.data)
+        for arm in (self.left_arm, self.right_arm):
+            tip_pos, tip_rot = self.get_tip_pose(arm)
+            arm.position_d = tip_pos.copy()
+            arm.orientation_d = tip_rot.copy()
+            arm.p_d = tip_pos.copy()
+            arm.R_d = tip_rot.copy()
+        mujoco.mj_forward(self.model, self.data)
+        self.sync_viewer()
+
+    def _print_viewer_camera_state(self):
+        if self.viewer is None:
+            return
+        cam = self.viewer.cam
+        lookat = np.asarray(cam.lookat, dtype=np.float64).reshape(3)
+        azimuth_rad = np.deg2rad(float(cam.azimuth))
+        elevation_rad = np.deg2rad(float(cam.elevation))
+        distance = float(cam.distance)
+        camera_pos = np.array(
+            [
+                lookat[0] - distance * np.cos(elevation_rad) * np.cos(azimuth_rad),
+                lookat[1] - distance * np.cos(elevation_rad) * np.sin(azimuth_rad),
+                lookat[2] - distance * np.sin(elevation_rad),
+            ],
+            dtype=np.float64,
+        )
+        print(
+            "viewer_camera "
+            f"pos={np.array2string(camera_pos, precision=5)} "
+            f"lookat={np.array2string(lookat, precision=5)} "
+            f"distance={distance:.5f} "
+            f"azimuth={float(cam.azimuth):.5f} "
+            f"elevation={float(cam.elevation):.5f}"
+        )
+
+    def sync_viewer(self):
+        if self.viewer is None:
+            return
+        self.viewer.sync()
+        if bool(getattr(self.args, "print_viewer_camera_state", False)):
+            self._print_viewer_camera_state()
+
+    def close(self):
+        if hasattr(self, '_contact_search_worker'):
+            self._contact_search_worker.close()
+        if self.viewer is not None:
+            self.viewer.close()
+            self.viewer = None
+
+    def is_running(self):
+        if self.viewer is None:
+            return True
+        is_running = getattr(self.viewer, "is_running", None)
+        if callable(is_running):
+            return bool(is_running())
+        return True
+
+    def get_object_pose(self):
+        qpos = self.data.qpos[self.obj_qpos_adr : self.obj_qpos_adr + 7].copy()
+        pos = qpos[:3]
+        quat = qpos[3:]
+        return pos, quat, quat_wxyz_to_mat(quat)
+
+    def apply_object_wrench_world(self, force_world=None, torque_world=None):
+        self.data.xfrc_applied[:] = 0.0
+        if force_world is not None:
+            self.data.xfrc_applied[self.obj_body_id, :3] = np.asarray(
+                force_world,
+                dtype=np.float64,
+            ).reshape(3)
+        if torque_world is not None:
+            self.data.xfrc_applied[self.obj_body_id, 3:] = np.asarray(
+                torque_world,
+                dtype=np.float64,
+            ).reshape(3)
+
+    def _get_tip_geom_pose(self, arm, data=None):
+        data = self.data if data is None else data
+        geom = data.geom(arm.tip_geom_id)
+        pos = np.asarray(geom.xpos, dtype=np.float64).copy()
+        rot = np.asarray(geom.xmat, dtype=np.float64).reshape(3, 3).copy()
+        return pos, rot
+
+    def get_tip_pos(self, arm):
+        pos, _ = self._get_tip_geom_pose(arm)
+        return pos
+
+    def get_tip_pose(self, arm, data=None):
+        return self._get_tip_geom_pose(arm, data=data)
+
+    def get_hand_pose(self, arm, data=None):
+        data = self.data if data is None else data
+        pos = data.body(arm.body_id).xpos.copy()
+        rot = data.body(arm.body_id).xmat.reshape(3, 3).copy()
+        return pos, rot
+
+    def world_pose_to_arm_frame(self, arm, pos_world, rot_world):
+        pos_world = np.asarray(pos_world, dtype=np.float64).reshape(3)
+        rot_world = _project_to_rotation_matrix(rot_world)
+        pos_local = arm.base_rot.T @ (pos_world - arm.base_pos)
+        rot_local = arm.base_rot.T @ rot_world
+        return pos_local, _project_to_rotation_matrix(rot_local)
+
+    def arm_pose_to_world_frame(self, arm, pos_local, rot_local):
+        pos_local = np.asarray(pos_local, dtype=np.float64).reshape(3)
+        rot_local = _project_to_rotation_matrix(rot_local)
+        pos_world = arm.base_pos + arm.base_rot @ pos_local
+        rot_world = arm.base_rot @ rot_local
+        return pos_world, _project_to_rotation_matrix(rot_world)
+
+    def tip_target_to_hand_pose(self, tip_pos_world, tip_rot_world):
+        tip_pos_world = np.asarray(tip_pos_world, dtype=np.float64).reshape(3)
+        tip_rot_world = _project_to_rotation_matrix(tip_rot_world)
+        hand_pos_world = tip_pos_world - tip_rot_world[:, 2] * TIP_CENTER_OFFSET
+        return hand_pos_world, tip_rot_world
+
+    def world_to_object(self, world_point):
+        obj_pos, _, obj_rot = self.get_object_pose()
+        return obj_rot.T @ (np.asarray(world_point, dtype=np.float64) - obj_pos)
+
+    @staticmethod
+    def _build_contact_rotation(approach_dir, tangent_hint=None, positive_y_hint=None):
+        z_axis = _normalize(approach_dir)
+        if np.linalg.norm(z_axis) < 1e-8:
+            z_axis = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+
+        candidate_hints = []
+        if tangent_hint is not None:
+            candidate_hints.append(np.asarray(tangent_hint, dtype=np.float64))
+        candidate_hints.extend(
+            [
+                WORLD_UP,
+                np.array([1.0, 0.0, 0.0], dtype=np.float64),
+                np.array([0.0, 1.0, 0.0], dtype=np.float64),
+            ]
+        )
+
+        x_axis = None
+        for hint in candidate_hints:
+            tangent = _project_to_plane(hint, z_axis)
+            if np.linalg.norm(tangent) > 1e-6:
+                x_axis = _normalize(tangent)
+                break
+        if x_axis is None:
+            x_axis = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+
+        y_axis = _normalize(np.cross(z_axis, x_axis))
+        if np.linalg.norm(y_axis) < 1e-8:
+            y_axis = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+        if positive_y_hint is not None:
+            positive_y_hint = _project_to_plane(np.asarray(positive_y_hint, dtype=np.float64), z_axis)
+            if np.linalg.norm(positive_y_hint) > 1e-6:
+                positive_y_hint = _normalize(positive_y_hint)
+                # Use the free yaw around the fingertip z-axis to keep the object on
+                # the local +y side, so the arm presses from +y toward -y instead of
+                # contacting from the local -y side.
+                if float(np.dot(y_axis, positive_y_hint)) < 0.0:
+                    x_axis = -x_axis
+                    y_axis = -y_axis
+
+        x_axis = _normalize(np.cross(y_axis, z_axis))
+        return _project_to_rotation_matrix(np.column_stack([x_axis, y_axis, z_axis]))
+
+    @staticmethod
+    def _max_normal_force(contact_items):
+        if not contact_items:
+            return 0.0
+        return float(max(float(item.get("normal_force", 0.0)) for item in contact_items))
+
+    def _ordered_contact_data(
+        self,
+        contact_points_local,
+        normals_local,
+        object_pos,
+        object_rot,
+        reference_points_world=None,
+        return_order=False,
+    ):
+        contact_points_local = np.asarray(contact_points_local, dtype=np.float64).reshape(-1, 3)
+        normals_local = np.asarray(normals_local, dtype=np.float64).reshape(-1, 3)
+        contact_points_world = (object_rot @ contact_points_local.T).T + object_pos[None, :]
+        if reference_points_world is None:
+            left_ref = self.get_tip_pos(self.left_arm)
+            right_ref = self.get_tip_pos(self.right_arm)
+        else:
+            reference_points_world = np.asarray(reference_points_world, dtype=np.float64).reshape(-1, 3)
+            if reference_points_world.shape[0] != 2:
+                raise ValueError(
+                    f"Expected 2 reference points for contact ordering, got {reference_points_world.shape[0]}."
+                )
+            left_ref = reference_points_world[0]
+            right_ref = reference_points_world[1]
+
+        keep_cost = np.linalg.norm(left_ref - contact_points_world[0]) + np.linalg.norm(right_ref - contact_points_world[1])
+        swap_cost = np.linalg.norm(left_ref - contact_points_world[1]) + np.linalg.norm(right_ref - contact_points_world[0])
+        order = np.array([0, 1], dtype=int) if keep_cost <= swap_cost else np.array([1, 0], dtype=int)
+        ordered = (
+            contact_points_local[order],
+            normals_local[order],
+            contact_points_world[order],
+        )
+        if return_order:
+            return (*ordered, order)
+        return ordered
+
+    def _compute_preferred_tip_approach(self, inward_normal_world):
+        downward_dir = -WORLD_UP
+        inward_normal_world = _normalize(inward_normal_world)
+        max_pitch = min(float(self.args.fingertip_max_pitch), np.pi * 0.49)
+        return _rotate_vector_toward(downward_dir, inward_normal_world, max_pitch)
+
+    def _compute_fingertip_targets(self, contact_points_world, inward_normals_world, center_offset):
+        contact_points_world = np.asarray(contact_points_world, dtype=np.float64).reshape(-1, 3)
+        inward_normals_world = np.asarray(inward_normals_world, dtype=np.float64).reshape(-1, 3)
+        if contact_points_world.shape[0] != 2:
+            raise ValueError(f"Expected exactly 2 contact points, got {contact_points_world.shape[0]}.")
+
+        pair_axis = contact_points_world[1] - contact_points_world[0]
+        if np.linalg.norm(pair_axis) < 1e-8:
+            pair_axis = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        pair_axis = _normalize(pair_axis)
+
+        outward_normals_world = -inward_normals_world
+        left_pos = contact_points_world[0] + outward_normals_world[0] * float(center_offset)
+        right_pos = contact_points_world[1] + outward_normals_world[1] * float(center_offset)
+        # Bias the fingertip to point mostly downward, while allowing a limited
+        # inward pitch toward the contact normal to make the IK target easier to reach.
+        left_approach = self._compute_preferred_tip_approach(inward_normals_world[0])
+        right_approach = self._compute_preferred_tip_approach(inward_normals_world[1])
+        left_rot = self._build_contact_rotation(
+            left_approach,
+            tangent_hint=pair_axis,
+            positive_y_hint=inward_normals_world[0],
+        )
+        right_rot = self._build_contact_rotation(
+            right_approach,
+            tangent_hint=-pair_axis,
+            positive_y_hint=inward_normals_world[1],
+        )
+        return (left_pos, left_rot), (right_pos, right_rot)
+
+    def _targets_from_object_pose(
+        self,
+        contact_points_local,
+        normals_local,
+        object_pos,
+        object_rot,
+        center_offset,
+    ):
+        contact_points_world = (object_rot @ np.asarray(contact_points_local, dtype=np.float64).T).T + object_pos[None, :]
+        inward_normals_world = (object_rot @ np.asarray(normals_local, dtype=np.float64).T).T
+        return self._compute_fingertip_targets(contact_points_world, inward_normals_world, center_offset)
+
+    def _stage_targets_from_object_pose(
+        self,
+        contact_points_local,
+        normals_local,
+        object_pos,
+        object_rot,
+        center_offset,
+    ):
+        contact_points_world = (object_rot @ np.asarray(contact_points_local, dtype=np.float64).T).T + object_pos[None, :]
+        inward_normals_world = (object_rot @ np.asarray(normals_local, dtype=np.float64).T).T
+        outward_normals_world = -inward_normals_world
+        (left_pos, left_rot), (right_pos, right_rot) = self._compute_fingertip_targets(
+            contact_points_world,
+            inward_normals_world,
+            center_offset,
+        )
+        return {
+            "left_tip_pos": np.asarray(left_pos, dtype=np.float64),
+            "left_tip_rot": _project_to_rotation_matrix(left_rot),
+            "right_tip_pos": np.asarray(right_pos, dtype=np.float64),
+            "right_tip_rot": _project_to_rotation_matrix(right_rot),
+            "left_outward_normal": _normalize(outward_normals_world[0]),
+            "right_outward_normal": _normalize(outward_normals_world[1]),
+            "object_target_pos": np.asarray(object_pos, dtype=np.float64).copy(),
+            "object_target_quat": mat_to_quat_wxyz(object_rot),
+        }
+
+    @staticmethod
+    def _offset_points_along_normals(points_world, outward_normals_world, offset):
+        points_world = np.asarray(points_world, dtype=np.float64).reshape(-1, 3)
+        outward_normals_world = np.asarray(outward_normals_world, dtype=np.float64).reshape(-1, 3)
+        return points_world + float(offset) * np.vstack([_normalize(normal) for normal in outward_normals_world])
+
+    @staticmethod
+    def _contact_dissipation_factor(distance_rate, dissipation_velocity):
+        dissipation_velocity = max(float(dissipation_velocity), 1e-9)
+        s = float(distance_rate) / dissipation_velocity
+        if s < 0.0:
+            return 1.0 - s
+        if s < 2.0:
+            return 0.25 * (s - 2.0) * (s - 2.0)
+        return 0.0
+
+    @staticmethod
+    def _compliant_normal_force(distance, stiffness, smoothing_factor):
+        distance = float(distance)
+        stiffness = max(float(stiffness), 1e-9)
+        smoothing_factor = max(float(smoothing_factor), 0.0)
+        if smoothing_factor <= 1e-9:
+            return max(-stiffness * distance, 0.0)
+
+        exponent = -distance / smoothing_factor
+        if exponent >= 37.0:
+            return max(-stiffness * distance, 0.0)
+        return float(smoothing_factor * stiffness * np.log1p(np.exp(exponent)))
+
+    @staticmethod
+    def _distance_from_normal_force(target_force, stiffness, smoothing_factor):
+        target_force = max(float(target_force), 0.0)
+        stiffness = max(float(stiffness), 1e-9)
+        smoothing_factor = max(float(smoothing_factor), 0.0)
+        if target_force <= 1e-9:
+            return 0.0
+        if smoothing_factor <= 1e-9:
+            return -target_force / stiffness
+
+        scaled_force = target_force / (smoothing_factor * stiffness)
+        if scaled_force >= 37.0:
+            return -target_force / stiffness
+        return float(-smoothing_factor * np.log(np.expm1(scaled_force)))
+
+    def _build_force_control_targets(
+        self,
+        contact_points_world,
+        outward_normals_world,
+        target_normal_forces,
+        previous_state=None,
+        contact_stiffness=None,
+        dissipation_velocity=None,
+        stiction_velocity=None,
+        smoothing_factor=None,
+    ):
+        contact_points_world = np.asarray(contact_points_world, dtype=np.float64).reshape(2, 3)
+        outward_normals_world = np.asarray(outward_normals_world, dtype=np.float64).reshape(2, 3)
+        target_normal_forces = np.asarray(target_normal_forces, dtype=np.float64).reshape(2)
+
+        default_force_control_stiffness = getattr(self.args, "force_control_stiffness", None)
+        contact_stiffness = (
+            float(default_force_control_stiffness)
+            if contact_stiffness is None and default_force_control_stiffness is not None
+            else contact_stiffness
+        )
+        contact_stiffness = max(float(1.0 if contact_stiffness is None else contact_stiffness), 1e-9)
+        dissipation_velocity = float(
+            getattr(self.args, "force_control_dissipation_velocity", 0.1)
+            if dissipation_velocity is None
+            else dissipation_velocity
+        )
+        stiction_velocity = float(
+            getattr(self.args, "force_control_stiction_velocity", 0.05)
+            if stiction_velocity is None
+            else stiction_velocity
+        )
+        smoothing_factor = float(
+            getattr(self.args, "force_control_smoothing", 0.0)
+            if smoothing_factor is None
+            else smoothing_factor
+        )
+
+        current_tip_positions = np.vstack(
+            [
+                self.get_tip_pos(self.left_arm),
+                self.get_tip_pos(self.right_arm),
+            ]
+        )
+        if previous_state is None:
+            previous_tip_positions = current_tip_positions.copy()
+            previous_contact_points_world = contact_points_world.copy()
+        else:
+            previous_tip_positions = np.asarray(
+                previous_state.get("tip_positions_world", current_tip_positions),
+                dtype=np.float64,
+            ).reshape(2, 3)
+            previous_contact_points_world = np.asarray(
+                previous_state.get("contact_points_world", contact_points_world),
+                dtype=np.float64,
+            ).reshape(2, 3)
+
+        dt = max(float(self.command_dt), float(self.model.opt.timestep), 1e-6)
+        goal_points_world = np.zeros((2, 3), dtype=np.float64)
+        desired_force_world = np.zeros((2, 3), dtype=np.float64)
+        modeled_force_world = np.zeros((2, 3), dtype=np.float64)
+        modeled_normal_forces = np.zeros(2, dtype=np.float64)
+        modeled_tangential_forces = np.zeros(2, dtype=np.float64)
+        modeled_distance = np.zeros(2, dtype=np.float64)
+        modeled_compression = np.zeros(2, dtype=np.float64)
+        modeled_distance_rate = np.zeros(2, dtype=np.float64)
+        desired_offsets = np.zeros(2, dtype=np.float64)
+
+        for idx in range(2):
+            outward_normal = _normalize(outward_normals_world[idx])
+            if np.linalg.norm(outward_normal) < 1e-9:
+                outward_normal = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+
+            current_tip_pos = current_tip_positions[idx]
+            previous_tip_pos = previous_tip_positions[idx]
+            contact_point_world = contact_points_world[idx]
+            previous_contact_point_world = previous_contact_points_world[idx]
+
+            tip_velocity = (current_tip_pos - previous_tip_pos) / dt
+            contact_point_velocity = (contact_point_world - previous_contact_point_world) / dt
+            relative_velocity = tip_velocity - contact_point_velocity
+
+            distance = float(np.dot(current_tip_pos - contact_point_world, outward_normal) - TIP_RADIUS)
+            distance_rate = float(np.dot(relative_velocity, outward_normal))
+            dissipation_factor = self._contact_dissipation_factor(distance_rate, dissipation_velocity)
+            compliant_force = self._compliant_normal_force(distance, contact_stiffness, smoothing_factor)
+            normal_force = float(compliant_force * dissipation_factor)
+
+            tangential_velocity = relative_velocity - distance_rate * outward_normal
+            tangential_speed = float(np.linalg.norm(tangential_velocity))
+            regularized_speed = np.sqrt(max(stiction_velocity, 0.0) ** 2 + tangential_speed**2)
+            if regularized_speed > 1e-12:
+                tangential_force_world = (
+                    tangential_velocity / regularized_speed
+                ) * float(self.args.arm_friction) * normal_force
+            else:
+                tangential_force_world = np.zeros(3, dtype=np.float64)
+
+            target_distance = self._distance_from_normal_force(
+                target_normal_forces[idx],
+                contact_stiffness,
+                smoothing_factor,
+            )
+            target_distance = min(float(target_distance), 0.0)
+            desired_offset = float(np.clip(TIP_RADIUS + target_distance, 0.001, TIP_RADIUS))
+
+            desired_force_world[idx] = -outward_normal * float(target_normal_forces[idx])
+            modeled_force_world[idx] = -outward_normal * normal_force + tangential_force_world
+            modeled_normal_forces[idx] = normal_force
+            modeled_tangential_forces[idx] = float(np.linalg.norm(tangential_force_world))
+            modeled_distance[idx] = distance
+            modeled_compression[idx] = max(-distance, 0.0)
+            modeled_distance_rate[idx] = distance_rate
+            desired_offsets[idx] = desired_offset
+            goal_points_world[idx] = contact_point_world + outward_normal * desired_offset
+
+        next_state = {
+            "tip_positions_world": current_tip_positions.copy(),
+            "contact_points_world": contact_points_world.copy(),
+        }
+        debug = {
+            "force_target_points_world": goal_points_world.copy(),
+            "desired_contact_force_world": desired_force_world.copy(),
+            "modeled_contact_force_world": modeled_force_world.copy(),
+            "desired_normal_forces": target_normal_forces.copy(),
+            "modeled_normal_forces": modeled_normal_forces.copy(),
+            "modeled_tangential_forces": modeled_tangential_forces.copy(),
+            "modeled_contact_distance": modeled_distance.copy(),
+            "modeled_contact_compression": modeled_compression.copy(),
+            "modeled_contact_distance_rate": modeled_distance_rate.copy(),
+            "force_target_offsets": desired_offsets.copy(),
+            "force_control_stiffness": float(contact_stiffness),
+            "force_control_dissipation_velocity": float(dissipation_velocity),
+            "force_control_stiction_velocity": float(stiction_velocity),
+            "force_control_smoothing": float(smoothing_factor),
+        }
+        return goal_points_world, debug, next_state
+
+    def _copy_nested_value(self, value):
+        if isinstance(value, np.ndarray):
+            return value.copy()
+        if isinstance(value, dict):
+            return {key: self._copy_nested_value(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._copy_nested_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._copy_nested_value(item) for item in value)
+        return copy.deepcopy(value)
+
+    def _copy_contact_targets(self, targets):
+        if targets is None:
+            return {}
+        return {key: self._copy_nested_value(value) for key, value in dict(targets).items()}
+
+    def _optimizer_support_kwargs(self):
+        if not bool(self.args.optimizer_use_support_filter):
+            return {}
+        return {
+            "support_surface_point": self.support_surface_point,
+            "support_surface_normal": self.support_surface_normal,
+            "support_surface_clearance": float(self.args.ground_height_margin),
+            "support_surface_normal_alignment_threshold": float(self.args.support_normal_alignment_threshold),
+        }
+
+    def _gravity_wrench_local(self, object_rot=None):
+        if object_rot is None:
+            _, _, object_rot = self.get_object_pose()
+        object_rot = _project_to_rotation_matrix(object_rot)
+        gravity_force_world = np.array([0.0, 0.0, -float(self.args.obj_mass) * 9.81], dtype=np.float64)
+        gravity_force_local = object_rot.T @ gravity_force_world
+        return np.hstack([gravity_force_local, np.zeros(3, dtype=np.float64)])
+
+    def _best_object_wrench_world(self, optimizer_result, object_rot):
+        if optimizer_result is None:
+            return None, None
+
+        object_rot = _project_to_rotation_matrix(object_rot)
+        wrench_source = optimizer_result
+        static_result = None
+        if isinstance(optimizer_result, dict):
+            static_result = optimizer_result.get("static_equilibrium", None)
+        if isinstance(static_result, dict) and bool(static_result.get("valid", False)):
+            wrench_source = static_result
+
+        wrench_info = self.optimizer._result_contact_wrench(
+            wrench_source,
+            r_obj_to_world=object_rot,
+        )
+        force_world = np.asarray(
+            wrench_info.get("contact_force_world", np.zeros(3, dtype=np.float64)),
+            dtype=np.float64,
+        ).reshape(3)
+        torque_world = np.asarray(
+            wrench_info.get("contact_torque_world", np.zeros(3, dtype=np.float64)),
+            dtype=np.float64,
+        ).reshape(3)
+        return force_world, torque_world
+
+    def _compute_lift_cost(self, static_result):
+        if static_result is None:
+            return 0.0
+
+        lift_cost_weight = float(self.args.grasp_lift_cost_weight)
+        lift_residual_weight = float(self.args.grasp_lift_residual_weight)
+        if lift_cost_weight <= 0.0 and lift_residual_weight <= 0.0:
+            return 0.0
+
+        static_cost = float(static_result.get("cost", float("inf")))
+        scaled_residual_norm = float(static_result.get("scaled_residual_norm", float("inf")))
+        if not np.isfinite(static_cost) or not np.isfinite(scaled_residual_norm):
+            return float("inf")
+
+        return (
+            lift_cost_weight * static_cost
+            + lift_residual_weight * scaled_residual_norm
+        )
+
+    def _precompute_contact_candidate_cache(self, object_pos, object_rot, external_wrench_local):
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        visible_idx = self._visible_optimizer_point_indices(object_pos, object_rot)
+        candidate_limit = int(getattr(self.args, "cached_contact_candidate_limit", 10))
+
+        cache = self.optimizer.precompute_contact_search_cache(
+            visible_face_idx=visible_idx,
+            object_pos=object_pos,
+            object_rot=object_rot,
+            top_candidate_count=(candidate_limit if candidate_limit > 0 else None),
+            **self._optimizer_support_kwargs(),
+        )
+
+        candidate_entries = list(cache.get("candidate_entries", []))
+        lift_precompute_t0 = time.perf_counter()
+        for entry in candidate_entries:
+            entry["offline_lift_cost"] = 0.0
+            contact_indices = np.asarray(entry.get("contact_indices", []), dtype=int).reshape(-1)
+            if contact_indices.size == 0:
+                continue
+
+            static_result = self.optimizer.solve_static_equilibrium(
+                contact_indices,
+                external_wrench=external_wrench_local,
+            )
+            entry["offline_static_equilibrium"] = self._copy_nested_value(static_result)
+            entry["offline_lift_cost"] = float(self._compute_lift_cost(static_result))
+            entry["offline_total_cost"] = float(
+                float(entry.get("offline_force_closure_total_cost", float("inf")))
+                + float(entry["offline_lift_cost"])
+            )
+
+        candidate_entries.sort(
+            key=lambda entry: (
+                float(entry.get("offline_total_cost", float("inf"))),
+                -float(entry.get("offline_region_score", entry.get("region_group", {}).get("stability_score", 0.0))),
+                -float(entry.get("offline_min_contact_distance", 0.0)),
+            )
+        )
+
+        cache["candidate_entries"] = candidate_entries
+        cache["visible_face_idx"] = np.asarray(visible_idx, dtype=int).copy()
+        cache["offline_lift_precompute_time"] = float(time.perf_counter() - lift_precompute_t0)
+        cache["candidate_entry_count_before_limit"] = int(
+            cache.get("candidate_entry_count_before_limit", len(candidate_entries))
+        )
+        cache["candidate_entry_count"] = int(len(candidate_entries))
+        return cache
+
+    def _evaluate_best_cached_grasp(self, candidate_cache, object_rot):
+        if candidate_cache is None:
+            return None
+
+        candidate_entries = list(candidate_cache.get("candidate_entries", []))
+        if not candidate_entries:
+            self.optimizer.last_grasp_result = None
+            return None
+
+        object_rot = _project_to_rotation_matrix(object_rot)
+        eval_t0 = time.perf_counter()
+        force_closure_solve_time = 0.0
+        evaluated_candidates = []
+        support_kwargs = self._optimizer_support_kwargs()
+
+        for entry in candidate_entries:
+            result = self.optimizer._evaluate_force_closure_candidate(
+                entry["contact_indices"],
+                region_group=entry.get("region_group", None),
+                object_rot=object_rot,
+                **support_kwargs,
+            )
+            force_closure_solve_time += float(result.get("solve_time", 0.0))
+
+            force_closure_total_cost = float(result.get("total_cost", float("inf")))
+            offline_lift_cost = float(entry.get("offline_lift_cost", 0.0))
+            result["base_total_cost"] = float(force_closure_total_cost)
+            result["force_closure_total_cost"] = float(force_closure_total_cost)
+            result["lift_cost"] = float(offline_lift_cost)
+            result["offline_lift_cost"] = float(offline_lift_cost)
+            result["total_cost"] = float(force_closure_total_cost + offline_lift_cost)
+            result["valid"] = bool(result.get("valid", True) and np.isfinite(result["total_cost"]))
+
+            static_result = entry.get("offline_static_equilibrium", None)
+            if static_result is not None:
+                copied_static_result = self._copy_nested_value(static_result)
+                result["static_equilibrium"] = copied_static_result
+                result["static_equilibrium_cost"] = float(copied_static_result.get("cost", float("inf")))
+                result["static_equilibrium_residual_norm"] = float(
+                    copied_static_result.get("residual_norm", float("inf"))
+                )
+                result["static_equilibrium_scaled_residual_norm"] = float(
+                    copied_static_result.get("scaled_residual_norm", float("inf"))
+                )
+
+            evaluated_candidates.append(result)
+
+        if not evaluated_candidates:
+            self.optimizer.last_grasp_result = None
+            return None
+
+        finite_total_costs = [
+            float(item["total_cost"])
+            for item in evaluated_candidates
+            if np.isfinite(float(item.get("total_cost", float("inf"))))
+        ]
+
+        if finite_total_costs:
+            best_result = min(
+                evaluated_candidates,
+                key=lambda item: (
+                    item["total_cost"],
+                    -item.get("region_score", 0.0),
+                    -item["min_contact_distance"],
+                ),
+            )
+            evaluated_total_cost_min = float(np.min(finite_total_costs))
+            evaluated_total_cost_max = float(np.max(finite_total_costs))
+        else:
+            best_result = min(
+                evaluated_candidates,
+                key=lambda item: (
+                    item.get("force_closure_total_cost", float("inf")),
+                    -item.get("region_score", 0.0),
+                    -item["min_contact_distance"],
+                ),
+            )
+            fallback_costs = [
+                float(item.get("force_closure_total_cost", float("inf")))
+                for item in evaluated_candidates
+                if np.isfinite(float(item.get("force_closure_total_cost", float("inf"))))
+            ]
+            if fallback_costs:
+                evaluated_total_cost_min = float(np.min(fallback_costs))
+                evaluated_total_cost_max = float(np.max(fallback_costs))
+            else:
+                evaluated_total_cost_min = float("inf")
+                evaluated_total_cost_max = float("inf")
+
+        wall_time = float(time.perf_counter() - eval_t0)
+        best_result["evaluated_candidate_count"] = int(len(evaluated_candidates))
+        best_result["candidate_cache_used"] = True
+        best_result["top_region_pairs"] = self._copy_nested_value(candidate_cache.get("region_groups", []))
+        best_result["evaluated_total_cost_min"] = float(evaluated_total_cost_min)
+        best_result["evaluated_total_cost_max"] = float(evaluated_total_cost_max)
+        best_result["wall_time"] = wall_time
+        best_result["search_timing"] = {
+            "mode": "precomputed_cache_force_closure_only",
+            "candidate_entry_count_before_limit": int(
+                candidate_cache.get("candidate_entry_count_before_limit", len(candidate_entries))
+            ),
+            "candidate_entry_count": int(len(candidate_entries)),
+            "evaluate_candidates_time": wall_time,
+            "force_closure_solve_time": float(force_closure_solve_time),
+            "wall_time": wall_time,
+        }
+        self.optimizer.last_grasp_result = best_result
+        return best_result
+
+    def _build_contact_targets_from_local_contacts(
+        self,
+        contact_points_local,
+        normals_local,
+        object_pos,
+        object_rot,
+        result=None,
+        previous_targets=None,
+        virtual_offset=None,
+        source="best",
+        projection_vertex_indices=None,
+        preserve_assignment=False,
+    ):
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        virtual_offset = float(self.args.planner_attract_offset if virtual_offset is None else virtual_offset)
+
+        contact_points_local = np.asarray(contact_points_local, dtype=np.float64).reshape(2, 3)
+        normals_local = np.asarray(normals_local, dtype=np.float64).reshape(2, 3)
+        raw_contact_points_local = contact_points_local.copy()
+        raw_normals_local = normals_local.copy()
+
+        reference_points_world = None
+        if previous_targets is not None:
+            prev_world = np.asarray(previous_targets.get("contact_points_world", []), dtype=np.float64).reshape(-1, 3)
+            if prev_world.shape[0] == 2:
+                reference_points_world = prev_world
+
+        if preserve_assignment:
+            contact_points_world = (object_rot @ contact_points_local.T).T + object_pos
+            order = np.arange(2, dtype=int)
+        else:
+            contact_points_local, normals_local, contact_points_world, order = self._ordered_contact_data(
+                contact_points_local,
+                normals_local,
+                object_pos,
+                object_rot,
+                reference_points_world=reference_points_world,
+                return_order=True,
+            )
+        inward_normals_world = (object_rot @ normals_local.T).T
+        outward_normals_world = -inward_normals_world
+        virtual_points_world = self._offset_points_along_normals(
+            contact_points_world,
+            outward_normals_world,
+            virtual_offset,
+        )
+
+        contact_indices = np.zeros((0,), dtype=int)
+        witness_contact_forces_local = np.zeros((0, 3), dtype=np.float64)
+        witness_force_vectors_local = np.zeros((0, 3), dtype=np.float64)
+        desired_contact_forces_local = np.zeros((0, 3), dtype=np.float64)
+        desired_force_vectors_local = np.zeros((0, 3), dtype=np.float64)
+        base_total_cost = float("inf")
+        total_cost = float("inf")
+        force_closure_cost = float("inf")
+        lift_cost = 0.0
+        region_score = 0.0
+        antipodal_margin = 0.0
+        static_result = None
+
+        if result is not None:
+            contact_indices = np.asarray(result.get("contact_indices", []), dtype=int).reshape(-1)
+            if contact_indices.shape[0] == order.shape[0]:
+                contact_indices = contact_indices[order]
+
+            witness_contact_forces_local = np.asarray(
+                result.get("witness_contact_forces_local", np.zeros((0, 3), dtype=np.float64)),
+                dtype=np.float64,
+            ).reshape(-1, 3)
+            if witness_contact_forces_local.shape[0] == order.shape[0]:
+                witness_contact_forces_local = witness_contact_forces_local[order]
+
+            witness_force_vectors_local = np.asarray(
+                result.get("witness_force_vectors_local", np.zeros((0, 3), dtype=np.float64)),
+                dtype=np.float64,
+            ).reshape(-1, 3)
+            if witness_force_vectors_local.shape[0] == order.shape[0]:
+                witness_force_vectors_local = witness_force_vectors_local[order]
+
+            static_result = result.get("static_equilibrium", None)
+            if static_result is not None:
+                desired_contact_forces_local = np.asarray(
+                    static_result.get("contact_forces_local", np.zeros((0, 3), dtype=np.float64)),
+                    dtype=np.float64,
+                ).reshape(-1, 3)
+                if desired_contact_forces_local.shape[0] == order.shape[0]:
+                    desired_contact_forces_local = desired_contact_forces_local[order]
+
+                desired_force_vectors_local = np.asarray(
+                    static_result.get("force_vectors_local", np.zeros((0, 3), dtype=np.float64)),
+                    dtype=np.float64,
+                ).reshape(-1, 3)
+                if desired_force_vectors_local.shape[0] == order.shape[0]:
+                    desired_force_vectors_local = desired_force_vectors_local[order]
+
+            if desired_contact_forces_local.shape[0] != 2:
+                desired_contact_forces_local = witness_contact_forces_local.copy()
+            if desired_force_vectors_local.shape[0] != 2:
+                desired_force_vectors_local = witness_force_vectors_local.copy()
+
+            base_total_cost = float(result.get("base_total_cost", result.get("total_cost", float("inf"))))
+            total_cost = float(result.get("total_cost", base_total_cost))
+            force_closure_cost = float(result.get("force_closure_cost", float("inf")))
+            lift_cost = float(result.get("lift_cost", 0.0))
+            region_score = float(result.get("region_score", 0.0))
+            antipodal_margin = float(result.get("antipodal_margin", 0.0))
+
+        targets = {
+            "target_source": str(source),
+            "contact_points_local": contact_points_local.copy(),
+            "normals_local": normals_local.copy(),
+            "contact_points_world": contact_points_world.copy(),
+            "inward_normals_world": inward_normals_world.copy(),
+            "outward_normals_world": outward_normals_world.copy(),
+            "virtual_points_world": virtual_points_world.copy(),
+            "left_virtual_point": virtual_points_world[0].copy(),
+            "right_virtual_point": virtual_points_world[1].copy(),
+            "object_pos": object_pos.copy(),
+            "object_quat": mat_to_quat_wxyz(object_rot),
+            "contact_indices": contact_indices.copy(),
+            "raw_contact_points_local": raw_contact_points_local.copy(),
+            "raw_normals_local": raw_normals_local.copy(),
+            "contact_order": order.copy(),
+            "witness_contact_forces_local": witness_contact_forces_local.copy(),
+            "witness_force_vectors_local": witness_force_vectors_local.copy(),
+            "desired_contact_forces_local": desired_contact_forces_local.copy(),
+            "desired_force_vectors_local": desired_force_vectors_local.copy(),
+            "base_total_cost": float(base_total_cost),
+            "total_cost": float(total_cost),
+            "force_closure_cost": float(force_closure_cost),
+            "lift_cost": float(lift_cost),
+            "region_score": float(region_score),
+            "antipodal_margin": float(antipodal_margin),
+        }
+
+        if projection_vertex_indices is not None:
+            projection_vertex_indices = np.asarray(projection_vertex_indices, dtype=int).reshape(-1)
+            if projection_vertex_indices.shape[0] == order.shape[0]:
+                projection_vertex_indices = projection_vertex_indices[order]
+            targets["projection_vertex_indices"] = projection_vertex_indices.copy()
+
+        if result is not None:
+            targets["search_timing"] = self._copy_nested_value(result.get("search_timing", {}))
+            if static_result is not None:
+                targets["static_equilibrium"] = self._copy_nested_value(static_result)
+
+        if desired_force_vectors_local.shape[0] == 2:
+            targets["desired_contact_force_world"] = (object_rot @ desired_force_vectors_local.T).T
+        if witness_force_vectors_local.shape[0] == 2:
+            targets["witness_contact_force_world"] = (object_rot @ witness_force_vectors_local.T).T
+
+        return targets
+
+    def _project_current_tip_contacts(self, object_pos, object_rot):
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+
+        tip_positions_world = np.vstack(
+            [
+                self.get_tip_pos(self.left_arm),
+                self.get_tip_pos(self.right_arm),
+            ]
+        )
+        tip_positions_local = (object_rot.T @ (tip_positions_world - object_pos).T).T
+
+        contact_points_local = np.zeros((2, 3), dtype=np.float64)
+        normals_local = np.zeros((2, 3), dtype=np.float64)
+        projection_vertex_indices = np.zeros((2,), dtype=int)
+
+        for idx in range(2):
+            vertex_idx, inward_normal, _t1, _t2 = self.optimizer.pp.project_point_to_mesh(tip_positions_local[idx])
+            projection_vertex_indices[idx] = int(vertex_idx)
+            contact_points_local[idx] = np.asarray(
+                self.optimizer.pp.scaled_mesh.vertices[int(vertex_idx)],
+                dtype=np.float64,
+            ).reshape(3)
+            normals_local[idx] = _normalize(inward_normal)
+
+        return contact_points_local, normals_local, tip_positions_local, projection_vertex_indices
+
+    def _evaluate_nearest_tip_grasp(self, object_pos, object_rot, previous_targets=None, virtual_offset=None):
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        gravity_local = self._gravity_wrench_local(object_rot)
+        contact_points_local, normals_local, tip_positions_local, projection_vertex_indices = self._project_current_tip_contacts(
+            object_pos,
+            object_rot,
+        )
+
+        eval_t0 = time.perf_counter()
+        result = self.optimizer.optimize_multi_contact_input(contact_points_local)
+        static_result = self.optimizer.solve_static_equilibrium(result, external_wrench=gravity_local)
+        result["base_total_cost"] = float(result.get("total_cost", float("inf")))
+        result["lift_cost"] = float(self._compute_lift_cost(static_result))
+        result["total_cost"] = float(result["base_total_cost"] + result["lift_cost"])
+        result["valid"] = bool(result.get("valid", True) and np.isfinite(result["total_cost"]))
+        result["static_equilibrium"] = self._copy_nested_value(static_result)
+        result["static_equilibrium_cost"] = float(static_result.get("cost", float("inf")))
+        result["static_equilibrium_residual_norm"] = float(static_result.get("residual_norm", float("inf")))
+        result["static_equilibrium_scaled_residual_norm"] = float(
+            static_result.get("scaled_residual_norm", float("inf"))
+        )
+        result["wall_time"] = float(time.perf_counter() - eval_t0)
+        result["search_timing"] = {
+            "mode": "nearest_projection_pair",
+            "candidate_entry_count": 1,
+            "evaluate_candidates_time": float(result["wall_time"]),
+            "force_closure_solve_time": float(result.get("solve_time", 0.0)),
+            "static_equilibrium_solve_time": float(static_result.get("solve_time", 0.0)),
+            "wall_time": float(result["wall_time"]),
+        }
+
+        targets = self._build_contact_targets_from_local_contacts(
+            contact_points_local,
+            normals_local,
+            object_pos,
+            object_rot,
+            result=result,
+            previous_targets=previous_targets,
+            virtual_offset=virtual_offset,
+            source="nearest",
+            projection_vertex_indices=projection_vertex_indices,
+        )
+        targets["tip_points_local"] = np.asarray(tip_positions_local, dtype=np.float64).copy()
+        return targets, result
+
+    def _update_contact_selection_mode(self, state, best_valid, nearest_valid, improvement):
+        current_mode = str(state.get("mode", "best"))
+        low_improvement = float(self.args.nearest_contact_low_improvement)
+        high_improvement = max(low_improvement, float(self.args.nearest_contact_high_improvement))
+        switch_steps = max(int(self.args.nearest_contact_switch_steps), 1)
+
+        if not nearest_valid:
+            state["mode"] = "best"
+            state["pending_mode"] = None
+            state["pending_steps"] = 0
+            return state["mode"], False
+        if not best_valid:
+            state["mode"] = "nearest"
+            state["pending_mode"] = None
+            state["pending_steps"] = 0
+            return state["mode"], True
+
+        if current_mode == "nearest":
+            desired_mode = "best" if improvement <= low_improvement else "nearest"
+        else:
+            desired_mode = "nearest" if improvement >= high_improvement else "best"
+
+        switched = False
+        if desired_mode == current_mode:
+            state["pending_mode"] = None
+            state["pending_steps"] = 0
+            return current_mode, switched
+
+        pending_mode = state.get("pending_mode", None)
+        pending_steps = int(state.get("pending_steps", 0))
+        if pending_mode != desired_mode:
+            pending_mode = desired_mode
+            pending_steps = 1
+        else:
+            pending_steps += 1
+
+        if pending_steps >= switch_steps:
+            current_mode = desired_mode
+            pending_mode = None
+            pending_steps = 0
+            switched = True
+
+        state["mode"] = current_mode
+        state["pending_mode"] = pending_mode
+        state["pending_steps"] = pending_steps
+        return current_mode, switched
+
+    def _select_live_contact_targets(
+        self,
+        object_pos,
+        object_rot,
+        candidate_cache=None,
+        previous_targets=None,
+        virtual_offset=None,
+        selection_state=None,
+    ):
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        selection_state = {} if selection_state is None else selection_state
+        selection_state.setdefault("mode", "best")
+        selection_state.setdefault("pending_mode", None)
+        selection_state.setdefault("pending_steps", 0)
+
+        best_result = self._evaluate_best_cached_grasp(candidate_cache, object_rot) if candidate_cache is not None else None
+        best_targets = None
+        if best_result is not None:
+            best_targets = self._build_contact_targets_from_local_contacts(
+                best_result["contact_points"],
+                best_result["contact_normals"],
+                object_pos,
+                object_rot,
+                result=best_result,
+                previous_targets=previous_targets,
+                virtual_offset=virtual_offset,
+                source="best",
+            )
+
+        nearest_targets, nearest_result = self._evaluate_nearest_tip_grasp(
+            object_pos,
+            object_rot,
+            previous_targets=previous_targets,
+            virtual_offset=virtual_offset,
+        )
+
+        best_cost = float("inf") if best_result is None else float(best_result.get("total_cost", float("inf")))
+        nearest_cost = float(nearest_result.get("total_cost", float("inf")))
+        candidate_cost_min = float("inf")
+        candidate_cost_max = float("inf")
+        if best_result is not None:
+            candidate_cost_min = float(best_result.get("evaluated_total_cost_min", best_cost))
+            candidate_cost_max = float(best_result.get("evaluated_total_cost_max", best_cost))
+
+        best_valid = bool(best_result is not None and best_result.get("valid", False) and np.isfinite(best_cost))
+        nearest_valid = bool(nearest_result.get("valid", False) and np.isfinite(nearest_cost))
+        if not np.isfinite(candidate_cost_min):
+            candidate_cost_min = best_cost
+        if not np.isfinite(candidate_cost_max):
+            candidate_cost_max = best_cost
+
+        cost_span = float(max(candidate_cost_max - candidate_cost_min, 0.0))
+        if not nearest_valid:
+            improvement = float("-inf")
+        elif not best_valid:
+            improvement = 1.0
+        elif cost_span <= 1e-9:
+            improvement = 1.0 if nearest_cost <= candidate_cost_min + 1e-9 else 0.0
+        else:
+            improvement = float((candidate_cost_max - nearest_cost) / cost_span)
+
+        selected_mode, mode_switched = self._update_contact_selection_mode(
+            selection_state,
+            best_valid=best_valid,
+            nearest_valid=nearest_valid,
+            improvement=improvement,
+        )
+        if selected_mode == "nearest" or best_targets is None:
+            selected_targets = nearest_targets
+            selected_result = nearest_result
+        else:
+            selected_targets = best_targets
+            selected_result = best_result
+
+        if selected_result is not None:
+            self.optimizer.last_grasp_result = selected_result
+            static_result = selected_result.get("static_equilibrium", None)
+            if static_result is not None:
+                self.optimizer.last_static_equilibrium_result = static_result
+
+        selected_search_timing = {}
+        if selected_targets is not None:
+            selected_search_timing = self._copy_nested_value(selected_targets.get("search_timing", {}))
+
+        selection_debug = {
+            "selected_contact_source": str(selected_mode),
+            "contact_selection_mode": str(selection_state.get("mode", selected_mode)),
+            "contact_selection_pending_mode": selection_state.get("pending_mode", None),
+            "contact_selection_pending_steps": int(selection_state.get("pending_steps", 0)),
+            "contact_selection_switched": bool(mode_switched),
+            "best_contact_cost": float(best_cost),
+            "best_contact_force_closure_cost": float(
+                best_result.get("force_closure_cost", float("inf")) if best_result is not None else float("inf")
+            ),
+            "best_contact_lift_cost": float(
+                best_result.get("lift_cost", 0.0) if best_result is not None else 0.0
+            ),
+            "nearest_contact_cost": float(nearest_cost),
+            "nearest_contact_force_closure_cost": float(
+                nearest_result.get("force_closure_cost", float("inf"))
+            ),
+            "nearest_contact_lift_cost": float(nearest_result.get("lift_cost", 0.0)),
+            "candidate_cost_min": float(candidate_cost_min),
+            "candidate_cost_max": float(candidate_cost_max),
+            "nearest_contact_improvement": float(improvement),
+            "best_contact_points_world": np.asarray(
+                best_targets["contact_points_world"] if best_targets is not None else np.zeros((0, 3), dtype=np.float64),
+                dtype=np.float64,
+            ).copy(),
+            "nearest_contact_points_world": np.asarray(
+                nearest_targets["contact_points_world"],
+                dtype=np.float64,
+            ).copy(),
+            "best_contact_points_local": np.asarray(
+                best_targets["contact_points_local"] if best_targets is not None else np.zeros((0, 3), dtype=np.float64),
+                dtype=np.float64,
+            ).copy(),
+            "nearest_contact_points_local": np.asarray(
+                nearest_targets["contact_points_local"],
+                dtype=np.float64,
+            ).copy(),
+            "selected_search_timing": selected_search_timing,
+        }
+        return self._copy_contact_targets(selected_targets), selection_debug
+
+    def _get_fixed_optimizer_regions(self, object_pos, object_rot):
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        visible_idx = self._visible_optimizer_point_indices(object_pos, object_rot)
+        return self.optimizer.get_best_regions(
+            visible_face_idx=visible_idx,
+            top_k=self.optimizer.top_region_pairs,
+            object_pos=object_pos,
+            object_rot=object_rot,
+        )
+
+    def _get_live_contact_targets(
+        self,
+        object_pos,
+        object_rot,
+        previous_targets=None,
+        virtual_offset=None,
+        fixed_region_groups=None,
+    ):
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        virtual_offset = float(self.args.planner_attract_offset if virtual_offset is None else virtual_offset)
+
+        visible_idx = self._visible_optimizer_point_indices(object_pos, object_rot)
+        contact_points_local, normals_local, total_cost, region_score, antipodal_margin = self.optimizer.choose_contact_set(
+            visible_face_idx=visible_idx,
+            object_pos=object_pos,
+            object_rot=object_rot,
+            fixed_region_groups=fixed_region_groups,
+        )
+
+        contact_points_local = np.asarray(contact_points_local, dtype=np.float64).reshape(-1, 3)
+        normals_local = np.asarray(normals_local, dtype=np.float64).reshape(-1, 3)
+        if contact_points_local.shape[0] != 2 or normals_local.shape[0] != 2:
+            if previous_targets is None:
+                raise RuntimeError(f"Expected 2 optimizer contacts, got {contact_points_local.shape[0]}")
+            contact_points_local = np.asarray(previous_targets["contact_points_local"], dtype=np.float64).reshape(2, 3)
+            normals_local = np.asarray(previous_targets["normals_local"], dtype=np.float64).reshape(2, 3)
+        raw_contact_points_local = contact_points_local.copy()
+        raw_normals_local = normals_local.copy()
+
+        reference_points_world = None
+        if previous_targets is not None:
+            prev_world = np.asarray(previous_targets.get("contact_points_world", []), dtype=np.float64).reshape(-1, 3)
+            if prev_world.shape[0] == 2:
+                reference_points_world = prev_world
+
+        contact_points_local, normals_local, contact_points_world, order = self._ordered_contact_data(
+            contact_points_local,
+            normals_local,
+            object_pos,
+            object_rot,
+            reference_points_world=reference_points_world,
+            return_order=True,
+        )
+        inward_normals_world = (object_rot @ normals_local.T).T
+        outward_normals_world = -inward_normals_world
+        virtual_points_world = self._offset_points_along_normals(
+            contact_points_world,
+            outward_normals_world,
+            virtual_offset,
+        )
+        grasp_result = self.optimizer.last_grasp_result
+        contact_indices = np.zeros((0,), dtype=int)
+        raw_contact_indices = np.zeros((0,), dtype=int)
+        witness_contact_forces_local = np.zeros((0, 3), dtype=np.float64)
+        witness_force_vectors_local = np.zeros((0, 3), dtype=np.float64)
+        if grasp_result is not None:
+            contact_indices = np.asarray(grasp_result.get("contact_indices", []), dtype=int).reshape(-1)
+            raw_contact_indices = contact_indices.copy()
+            if contact_indices.shape[0] == order.shape[0]:
+                contact_indices = contact_indices[order]
+
+            witness_contact_forces_local = np.asarray(
+                grasp_result.get("witness_contact_forces_local", np.zeros((0, 3), dtype=np.float64)),
+                dtype=np.float64,
+            ).reshape(-1, 3)
+            if witness_contact_forces_local.shape[0] == order.shape[0]:
+                witness_contact_forces_local = witness_contact_forces_local[order]
+
+            witness_force_vectors_local = np.asarray(
+                grasp_result.get("witness_force_vectors_local", np.zeros((0, 3), dtype=np.float64)),
+                dtype=np.float64,
+            ).reshape(-1, 3)
+            if witness_force_vectors_local.shape[0] == order.shape[0]:
+                witness_force_vectors_local = witness_force_vectors_local[order]
+
+        return {
+            "contact_points_local": contact_points_local.copy(),
+            "normals_local": normals_local.copy(),
+            "contact_points_world": contact_points_world.copy(),
+            "inward_normals_world": inward_normals_world.copy(),
+            "outward_normals_world": outward_normals_world.copy(),
+            "virtual_points_world": virtual_points_world.copy(),
+            "left_virtual_point": virtual_points_world[0].copy(),
+            "right_virtual_point": virtual_points_world[1].copy(),
+            "object_pos": object_pos.copy(),
+            "object_quat": mat_to_quat_wxyz(object_rot),
+            "contact_indices": contact_indices.copy(),
+            "raw_contact_indices": raw_contact_indices.copy(),
+            "raw_contact_points_local": raw_contact_points_local.copy(),
+            "raw_normals_local": raw_normals_local.copy(),
+            "contact_order": order.copy(),
+            "witness_contact_forces_local": witness_contact_forces_local.copy(),
+            "witness_force_vectors_local": witness_force_vectors_local.copy(),
+            "total_cost": float(total_cost),
+            "region_score": float(region_score),
+            "antipodal_margin": float(antipodal_margin),
+        }
+
+    def _project_cached_contact_targets(self, cached_targets, object_pos, object_rot, virtual_offset=None):
+        cached_targets = self._copy_contact_targets(cached_targets)
+        object_pos = np.asarray(object_pos, dtype=np.float64).reshape(3)
+        object_rot = _project_to_rotation_matrix(object_rot)
+        virtual_offset = float(self.args.planner_attract_offset if virtual_offset is None else virtual_offset)
+
+        contact_points_local = np.asarray(cached_targets["contact_points_local"], dtype=np.float64).reshape(2, 3)
+        normals_local = np.asarray(cached_targets["normals_local"], dtype=np.float64).reshape(2, 3)
+        contact_points_world = (object_rot @ contact_points_local.T).T + object_pos[None, :]
+        inward_normals_world = (object_rot @ normals_local.T).T
+        outward_normals_world = -inward_normals_world
+        virtual_points_world = self._offset_points_along_normals(
+            contact_points_world,
+            outward_normals_world,
+            virtual_offset,
+        )
+
+        projected = self._copy_contact_targets(cached_targets)
+        projected.update(
+            {
+                "contact_points_world": contact_points_world.copy(),
+                "inward_normals_world": inward_normals_world.copy(),
+                "outward_normals_world": outward_normals_world.copy(),
+                "virtual_points_world": virtual_points_world.copy(),
+                "left_virtual_point": virtual_points_world[0].copy(),
+                "right_virtual_point": virtual_points_world[1].copy(),
+                "object_pos": object_pos.copy(),
+                "object_quat": mat_to_quat_wxyz(object_rot),
+            }
+        )
+
+        desired_force_vectors_local = np.asarray(
+            projected.get("desired_force_vectors_local", np.zeros((0, 3), dtype=np.float64)),
+            dtype=np.float64,
+        ).reshape(-1, 3)
+        if desired_force_vectors_local.shape[0] == 2:
+            projected["desired_contact_force_world"] = (object_rot @ desired_force_vectors_local.T).T
+
+        witness_force_vectors_local = np.asarray(
+            projected.get("witness_force_vectors_local", np.zeros((0, 3), dtype=np.float64)),
+            dtype=np.float64,
+        ).reshape(-1, 3)
+        if witness_force_vectors_local.shape[0] == 2:
+            projected["witness_contact_force_world"] = (object_rot @ witness_force_vectors_local.T).T
+        return projected
+
+    def _resolve_stage_object_target(self, object_target_fn, step, current_pos, current_quat, current_rot):
+        current_pos = np.asarray(current_pos, dtype=np.float64).reshape(3)
+        current_quat = np.asarray(current_quat, dtype=np.float64).reshape(4)
+        current_rot = _project_to_rotation_matrix(current_rot)
+        if object_target_fn is None:
+            return current_pos.copy(), current_quat.copy()
+
+        target = object_target_fn(step, current_pos.copy(), current_quat.copy(), current_rot.copy())
+        if isinstance(target, dict):
+            target_pos = np.asarray(
+                target.get("object_target_pos", target.get("pos", current_pos)),
+                dtype=np.float64,
+            ).reshape(3)
+            if "object_target_quat" in target:
+                target_quat = np.asarray(target["object_target_quat"], dtype=np.float64).reshape(4)
+            elif "quat" in target:
+                target_quat = np.asarray(target["quat"], dtype=np.float64).reshape(4)
+            elif "object_target_rot" in target:
+                target_quat = mat_to_quat_wxyz(target["object_target_rot"])
+            elif "rot" in target:
+                target_quat = mat_to_quat_wxyz(target["rot"])
+            else:
+                target_quat = current_quat.copy()
+            return target_pos, target_quat
+
+        target_pos, target_quat = target
+        return (
+            np.asarray(target_pos, dtype=np.float64).reshape(3),
+            np.asarray(target_quat, dtype=np.float64).reshape(4),
+        )
+
+    def _run_live_contact_plan_stage(
+        self,
+        label,
+        max_steps,
+        left_step_rot,
+        right_step_rot,
+        verify_cost_1,
+        verify_cost_2,
+        virtual_offset,
+        goal_offset,
+        pos_tol,
+        rot_tol=None,
+        success_fn=None,
+        world_mode="with_pedestal",
+        object_target_fn=None,
+        initial_contact_targets=None,
+        contact_candidate_cache=None,
+        contact_selection_state=None,
+        planner_target_fn=None,
+    ):
+        rot_tol = self.args.ik_rot_tol if rot_tol is None else float(rot_tol)
+        if int(max_steps) <= 0:
+            return False, {}
+        if initial_contact_targets is None and contact_candidate_cache is None:
+            raise ValueError(f"{label} requires cached contact targets from the initial optimizer solve.")
+
+        self._set_curobo_world_mode(world_mode)
+        planner_sol_guess = None
+        last_report_step = -1
+        info = {}
+        cached_contact_targets = self._copy_contact_targets(initial_contact_targets)
+        if contact_selection_state is None:
+            contact_selection_state = {
+                "mode": "best",
+                "pending_mode": None,
+                "pending_steps": 0,
+            }
+        left_step_rot = _project_to_rotation_matrix(left_step_rot)
+        right_step_rot = _project_to_rotation_matrix(right_step_rot)
+        stage_uses_viewer = self.viewer is not None
+        timing_sum = {
+            "contact_plan_wall": 0.0,
+            "pre_plan_setup": 0.0,
+            "planner_contacts": 0.0,
+            "planner_solve": 0.0,
+            "cartesian_step": 0.0,
+            "post_update": 0.0,
+            "wall_total": 0.0,
+        }
+
+        for step in range(max_steps):
+            if not self.is_running():
+                break
+
+            loop_t0 = time.perf_counter()
+            object_pos, object_quat, object_rot = self.get_object_pose()
+            step_t0 = time.perf_counter()
+            selection_debug = {}
+            if contact_candidate_cache is not None:
+                live_targets, selection_debug = self._select_live_contact_targets(
+                    object_pos,
+                    object_rot,
+                    candidate_cache=contact_candidate_cache,
+                    previous_targets=cached_contact_targets,
+                    virtual_offset=virtual_offset,
+                    selection_state=contact_selection_state,
+                )
+            else:
+                live_targets = self._project_cached_contact_targets(
+                    cached_contact_targets,
+                    object_pos,
+                    object_rot,
+                    virtual_offset=virtual_offset,
+                )
+            cached_contact_targets = self._copy_contact_targets(live_targets)
+            step_t1 = time.perf_counter()
+
+            planner_contact_points_world = live_targets["contact_points_world"].copy()
+            planner_virtual_points_world = live_targets["virtual_points_world"].copy()
+            goal_points_world = self._offset_points_along_normals(
+                live_targets["contact_points_world"],
+                live_targets["outward_normals_world"],
+                goal_offset,
+            )
+            stage_debug = {}
+            post_step_debug_fn = None
+            if planner_target_fn is not None:
+                stage_targets = planner_target_fn(step, live_targets)
+                if stage_targets is None:
+                    stage_targets = {}
+                if "goal_points_world" in stage_targets:
+                    goal_points_world = np.asarray(stage_targets["goal_points_world"], dtype=np.float64).reshape(2, 3)
+                if "planner_contact_points_world" in stage_targets:
+                    planner_contact_points_world = np.asarray(
+                        stage_targets["planner_contact_points_world"],
+                        dtype=np.float64,
+                    ).reshape(2, 3)
+                if "planner_virtual_points_world" in stage_targets:
+                    planner_virtual_points_world = np.asarray(
+                        stage_targets["planner_virtual_points_world"],
+                        dtype=np.float64,
+                    ).reshape(2, 3)
+                if stage_targets.get("debug") is not None:
+                    stage_debug = dict(stage_targets["debug"])
+                post_step_debug_fn = stage_targets.get("post_step_debug_fn")
+            object_target_pos, object_target_quat = self._resolve_stage_object_target(
+                object_target_fn,
+                step,
+                object_pos,
+                object_quat,
+                object_rot,
+            )
+            step_t1a = time.perf_counter()
+
+            curr_x = self.get_planner_state()
+            phi_vec, jac_mat = self._detect_planner_contacts()
+            step_t2 = time.perf_counter()
+            planner_result = self.planner.plan_once(
+                object_target_pos,
+                object_target_quat,
+                curr_x,
+                phi_vec,
+                jac_mat,
+                sol_guess=planner_sol_guess,
+                verify_cost_param_1=float(verify_cost_1),
+                verify_cost_param_2=float(verify_cost_2),
+                virtual_point_1=planner_virtual_points_world[0],
+                virtual_point_2=planner_virtual_points_world[1],
+                contact_point_1=planner_contact_points_world[0],
+                contact_point_2=planner_contact_points_world[1],
+            )
+            step_t3 = time.perf_counter()
+            planner_sol_guess = planner_result["sol_guess"]
+            self.plan_params.sol_guess_ = planner_sol_guess
+            planner_backend = str(planner_result.get("solver_backend", self.plan_params.planner_solver_))
+            planner_status = str(planner_result.get("solve_status", ""))
+            action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
+            if action.shape[0] != 6:
+                raise RuntimeError(f"Expected a 6D dual-arm plan_once action, got shape {action.shape}.")
+
+            applied_object_torque_world = None
+            if bool(self.args.test_force):
+                _, applied_object_torque_world = self._best_object_wrench_world(
+                    live_targets,
+                    object_rot,
+                )
+            self.step_cartesian_action(
+                action[:3],
+                action[3:6],
+                left_step_rot,
+                right_step_rot,
+                object_torque_world=applied_object_torque_world,
+            )
+            step_t4 = time.perf_counter()
+
+            self.set_marker("contact_point1", live_targets["contact_points_world"][0])
+            self.set_marker("contact_point2", live_targets["contact_points_world"][1])
+            self.set_marker("left_goal", goal_points_world[0])
+            self.set_marker("right_goal", goal_points_world[1])
+            self.set_marker("obj_point", object_target_pos)
+            self.set_marker("goal", object_target_pos, object_target_quat)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None:
+                self.sync_viewer()
+            step_t5 = time.perf_counter()
+            if callable(post_step_debug_fn):
+                post_step_debug = post_step_debug_fn()
+                if post_step_debug is not None:
+                    stage_debug = dict(post_step_debug)
+            loop_t1 = time.perf_counter()
+
+            timing = {
+                "contact_plan_wall": step_t1 - step_t0,
+                "pre_plan_setup": step_t1a - step_t1,
+                "planner_contacts": step_t2 - step_t1a,
+                "planner_solve": step_t3 - step_t2,
+                "cartesian_step": step_t4 - step_t3,
+                "post_update": step_t5 - step_t4,
+                "wall_total": loop_t1 - loop_t0,
+            }
+            optimizer_search_timing = selection_debug.get("selected_search_timing", {})
+            if optimizer_search_timing:
+                timing["contact_force_closure_total"] = float(
+                    optimizer_search_timing.get("force_closure_solve_time", 0.0)
+                )
+                timing["contact_static_total"] = float(
+                    optimizer_search_timing.get("static_equilibrium_solve_time", 0.0)
+                )
+            for key, value in timing.items():
+                if key not in timing_sum:
+                    timing_sum[key] = 0.0
+                timing_sum[key] += float(value)
+
+            left_err, left_rot_err = self._tip_target_error(self.left_arm, goal_points_world[0], left_step_rot)
+            right_err, right_rot_err = self._tip_target_error(self.right_arm, goal_points_world[1], right_step_rot)
+            contacts = self.extract_object_contacts()
+            info = {
+                "step": step,
+                "contacts": contacts,
+                "left_force": self._max_normal_force(contacts["left"]),
+                "right_force": self._max_normal_force(contacts["right"]),
+                "left_pos_err": float(left_err),
+                "right_pos_err": float(right_err),
+                "left_rot_err": float(left_rot_err),
+                "right_rot_err": float(right_rot_err),
+                "left_goal_pos": goal_points_world[0].copy(),
+                "right_goal_pos": goal_points_world[1].copy(),
+                "left_goal_rot": left_step_rot.copy(),
+                "right_goal_rot": right_step_rot.copy(),
+                "left_planner_cmd": action[:3].copy(),
+                "right_planner_cmd": action[3:6].copy(),
+                "planner_backend": planner_backend,
+                "planner_status": planner_status,
+                "object_pos": self.get_object_pose()[0].copy(),
+                "planner_object_target_pos": np.asarray(object_target_pos, dtype=np.float64).copy(),
+                "planner_object_target_quat": np.asarray(object_target_quat, dtype=np.float64).copy(),
+                "contact_points_local": live_targets["contact_points_local"].copy(),
+                "contact_points_world": live_targets["contact_points_world"].copy(),
+                "normals_local": live_targets["normals_local"].copy(),
+                "inward_normals_world": live_targets["inward_normals_world"].copy(),
+                "outward_normals_world": live_targets["outward_normals_world"].copy(),
+                "planner_contact_points_world": planner_contact_points_world.copy(),
+                "planner_virtual_points_world": planner_virtual_points_world.copy(),
+                "left_virtual_point": planner_virtual_points_world[0].copy(),
+                "right_virtual_point": planner_virtual_points_world[1].copy(),
+                "grasp_cost": float(live_targets["total_cost"]),
+                "force_closure_cost": float(live_targets.get("force_closure_cost", float("inf"))),
+                "lift_cost": float(live_targets.get("lift_cost", 0.0)),
+                "region_score": float(live_targets["region_score"]),
+                "antipodal_margin": float(live_targets["antipodal_margin"]),
+                "contact_search_timing": self._copy_nested_value(live_targets.get("search_timing", {})),
+                "contact_targets": self._copy_contact_targets(live_targets),
+                "timing": dict(timing),
+            }
+            for key, value in selection_debug.items():
+                if isinstance(value, np.ndarray):
+                    info[key] = value.copy()
+                else:
+                    info[key] = copy.deepcopy(value)
+            for key, value in stage_debug.items():
+                if isinstance(value, np.ndarray):
+                    info[key] = value.copy()
+                else:
+                    info[key] = copy.deepcopy(value)
+            if "modeled_normal_forces" in info:
+                modeled_normal_forces = np.asarray(info["modeled_normal_forces"], dtype=np.float64).reshape(-1)
+                if modeled_normal_forces.size == 2:
+                    info["left_modeled_force"] = float(modeled_normal_forces[0])
+                    info["right_modeled_force"] = float(modeled_normal_forces[1])
+
+            loop_hz = 1.0 / max(timing["wall_total"], 1e-9)
+            contact_search_timing = info.get("contact_search_timing", {})
+            raw_candidate_entry_count = int(
+                contact_search_timing.get(
+                    "candidate_entry_count_before_limit",
+                    contact_search_timing.get("candidate_entry_count", 0),
+                )
+            )
+            candidate_entry_count = int(contact_search_timing.get("candidate_entry_count", 0))
+            fc_total_time = float(contact_search_timing.get("force_closure_solve_time", 0.0))
+            static_total_time = float(contact_search_timing.get("static_equilibrium_solve_time", 0.0))
+            print(
+                f"[timing:{label}] step={step:04d} "
+                f"contact_plan_wall={timing['contact_plan_wall']:.4f}s "
+                f"pre_plan_setup={timing['pre_plan_setup']:.4f}s "
+                f"planner_contacts={timing['planner_contacts']:.4f}s "
+                f"planner_solve={timing['planner_solve']:.4f}s "
+                f"cartesian_step={timing['cartesian_step']:.4f}s "
+                f"post_update={timing['post_update']:.4f}s "
+                f"wall_total={timing['wall_total']:.4f}s "
+                f"hz={loop_hz:.2f} "
+                f"planner={planner_backend} "
+                f"contact_mode={contact_search_timing.get('mode', 'unknown')} "
+                f"candidates={raw_candidate_entry_count}->{candidate_entry_count} "
+                f"fc_total={fc_total_time:.4f}s "
+                f"static_total={static_total_time:.4f}s"
+            )
+
+            if step == 0 or step == max_steps - 1 or step - last_report_step >= 40:
+                modeled_force_text = ""
+                if "left_modeled_force" in info and "right_modeled_force" in info:
+                    modeled_force_text = (
+                        f" modeled_force=({info['left_modeled_force']:.3f},{info['right_modeled_force']:.3f})"
+                    )
+                print(
+                    f"[{label}] step={step:04d} "
+                    f"left_err={left_err:.4f}/{left_rot_err:.4f} "
+                    f"right_err={right_err:.4f}/{right_rot_err:.4f} "
+                    f"left_force={info['left_force']:.3f} right_force={info['right_force']:.3f} "
+                    f"{modeled_force_text} "
+                    f"grasp_cost={info['grasp_cost']:.4f} "
+                    f"fc={info['force_closure_cost']:.4f} "
+                    f"lift={info['lift_cost']:.4f} "
+                    f"source={info.get('selected_contact_source', 'fixed')} "
+                    f"planner={planner_backend} "
+                    f"time(contact_plan={timing['contact_plan_wall']:.4f}s "
+                    f"setup={timing['pre_plan_setup']:.4f}s "
+                    f"contacts={timing['planner_contacts']:.4f}s "
+                    f"plan={timing['planner_solve']:.4f}s "
+                    f"ctrl={timing['cartesian_step']:.4f}s "
+                    f"post={timing['post_update']:.4f}s "
+                    f"wall={timing['wall_total']:.4f}s)"
+                )
+                if step == 0:
+                    print(
+                        f"  stage_cfg: world_mode={world_mode} "
+                        f"verify=({float(verify_cost_1):.1f},{float(verify_cost_2):.1f}) "
+                        f"virtual_offset={float(virtual_offset):.4f} goal_offset={float(goal_offset):.4f} "
+                        f"contacts={'online_select' if contact_candidate_cache is not None else 'projected_local'} "
+                        f"viewer={'on' if stage_uses_viewer else 'off'}"
+                    )
+                if planner_status:
+                    print(f"  planner_status: {planner_status}")
+                if contact_search_timing:
+                    print(
+                        "  contact_timing: "
+                        f"mode={contact_search_timing.get('mode', 'unknown')} "
+                        f"candidates={candidate_entry_count} "
+                        f"fc_total={fc_total_time:.4f}s "
+                        f"static_total={static_total_time:.4f}s "
+                        f"search_wall={float(contact_search_timing.get('wall_time', 0.0)):.4f}s"
+                    )
+                last_report_step = step
+
+            pose_ok = (
+                left_err < pos_tol
+                and right_err < pos_tol
+                and left_rot_err < rot_tol
+                and right_rot_err < rot_tol
+            )
+            if success_fn is None:
+                if pose_ok:
+                    info["timing_avg"] = {
+                        key: value / max(step + 1, 1)
+                        for key, value in timing_sum.items()
+                    }
+                    return True, info
+            elif success_fn(info):
+                info["timing_avg"] = {
+                    key: value / max(step + 1, 1)
+                    for key, value in timing_sum.items()
+                }
+                return True, info
+
+        if max_steps > 0:
+            info["timing_avg"] = {
+                key: value / max(int(max_steps), 1)
+                for key, value in timing_sum.items()
+            }
+        return False, info
+
+    def _solve_stage_ik_pose_set(self, contact_points_local, normals_local, stage_specs):
+        stage_pose_set = {}
+        original_world_mode = self.left_arm.current_world_mode
+        for stage_name, spec in stage_specs.items():
+            world_mode = str(spec.get("world_mode", "with_pedestal"))
+            center_offset = float(spec["center_offset"])
+            object_pos = np.asarray(spec["object_pos"], dtype=np.float64).reshape(3)
+            object_rot = _project_to_rotation_matrix(spec["object_rot"])
+
+            self._set_curobo_world_mode(world_mode)
+            self._update_inter_arm_worlds()
+            stage_targets = self._stage_targets_from_object_pose(
+                contact_points_local,
+                normals_local,
+                object_pos,
+                object_rot,
+                center_offset=center_offset,
+            )
+            left_ik = self.solve_arm_ik(
+                self.left_arm,
+                stage_targets["left_tip_pos"],
+                stage_targets["left_tip_rot"],
+            )
+            right_ik = self.solve_arm_ik(
+                self.right_arm,
+                stage_targets["right_tip_pos"],
+                stage_targets["right_tip_rot"],
+            )
+            stage_pose_set[stage_name] = {
+                "targets": stage_targets,
+                "left": left_ik,
+                "right": right_ik,
+                "world_mode": world_mode,
+            }
+
+        self._set_curobo_world_mode(original_world_mode)
+        self._update_inter_arm_worlds()
+        return stage_pose_set
+
+    def _build_stage2_tracking_rotations(self, stage_targets):
+        def _keep_current_rotation(_step, _curr_pos, curr_rot):
+            return _project_to_rotation_matrix(curr_rot)
+
+        return _keep_current_rotation, _keep_current_rotation
+
+    def _run_precomputed_dual_arm_plan_stage(
+        self,
+        label,
+        max_steps,
+        left_virtual_point,
+        right_virtual_point,
+        left_contact_ik,
+        right_contact_ik,
+        object_target_pos,
+        object_target_quat,
+        left_goal_pos,
+        right_goal_pos,
+        left_goal_rot,
+        right_goal_rot,
+        verify_cost_1,
+        verify_cost_2,
+        pos_tol,
+        rot_tol=None,
+        success_fn=None,
+        world_mode="with_pedestal",
+    ):
+        rot_tol = self.args.ik_rot_tol if rot_tol is None else float(rot_tol)
+        if int(max_steps) <= 0:
+            return False, {}
+
+        self._set_curobo_world_mode(world_mode)
+        planner_sol_guess = None
+        last_report_step = -1
+        info = {}
+
+        left_virtual_point = np.asarray(left_virtual_point, dtype=np.float64).reshape(3)
+        right_virtual_point = np.asarray(right_virtual_point, dtype=np.float64).reshape(3)
+        object_target_pos = np.asarray(object_target_pos, dtype=np.float64).reshape(3)
+        object_target_quat = np.asarray(object_target_quat, dtype=np.float64).reshape(4)
+        left_goal_pos = np.asarray(left_goal_pos, dtype=np.float64).reshape(3)
+        right_goal_pos = np.asarray(right_goal_pos, dtype=np.float64).reshape(3)
+
+        for step in range(max_steps):
+            if not self.is_running():
+                break
+
+            self._update_inter_arm_worlds()
+            left_curr_pos, left_curr_rot = self.get_tip_pose(self.left_arm)
+            right_curr_pos, right_curr_rot = self.get_tip_pose(self.right_arm)
+            left_step_rot = left_goal_rot(step, left_curr_pos, left_curr_rot) if callable(left_goal_rot) else left_goal_rot
+            right_step_rot = right_goal_rot(step, right_curr_pos, right_curr_rot) if callable(right_goal_rot) else right_goal_rot
+            left_step_rot = _project_to_rotation_matrix(left_step_rot)
+            right_step_rot = _project_to_rotation_matrix(right_step_rot)
+
+            curr_x = self.get_planner_state()
+            phi_vec, jac_mat = self._detect_planner_contacts()
+            planner_result = self.planner.plan_once(
+                object_target_pos,
+                object_target_quat,
+                curr_x,
+                phi_vec,
+                jac_mat,
+                sol_guess=planner_sol_guess,
+                verify_cost_param_1=float(verify_cost_1),
+                verify_cost_param_2=float(verify_cost_2),
+                virtual_point_1=left_virtual_point,
+                virtual_point_2=right_virtual_point,
+                contact_point_1=left_contact_ik.solved_tip_pos_world,
+                contact_point_2=right_contact_ik.solved_tip_pos_world,
+            )
+            planner_sol_guess = planner_result["sol_guess"]
+            self.plan_params.sol_guess_ = planner_sol_guess
+            action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
+            if action.shape[0] != 6:
+                raise RuntimeError(f"Expected a 6D dual-arm plan_once action, got shape {action.shape}.")
+
+            self.step_cartesian_action(
+                action[:3],
+                action[3:6],
+                left_step_rot,
+                right_step_rot,
+            )
+
+            self.set_marker("left_goal", left_goal_pos)
+            self.set_marker("right_goal", right_goal_pos)
+            self.set_marker("obj_point", object_target_pos)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None:
+                self.sync_viewer()
+
+            left_err, left_rot_err = self._tip_target_error(self.left_arm, left_goal_pos, left_step_rot)
+            right_err, right_rot_err = self._tip_target_error(self.right_arm, right_goal_pos, right_step_rot)
+            contacts = self.extract_object_contacts()
+            info = {
+                "step": step,
+                "contacts": contacts,
+                "left_force": self._max_normal_force(contacts["left"]),
+                "right_force": self._max_normal_force(contacts["right"]),
+                "left_pos_err": float(left_err),
+                "right_pos_err": float(right_err),
+                "left_rot_err": float(left_rot_err),
+                "right_rot_err": float(right_rot_err),
+                "left_goal_pos": left_goal_pos.copy(),
+                "right_goal_pos": right_goal_pos.copy(),
+                "left_goal_rot": left_step_rot.copy(),
+                "right_goal_rot": right_step_rot.copy(),
+                "left_goal_q_mj": np.asarray(left_contact_ik.q_mj, dtype=np.float64).copy(),
+                "right_goal_q_mj": np.asarray(right_contact_ik.q_mj, dtype=np.float64).copy(),
+                "left_ik_ok": bool(left_contact_ik.success),
+                "right_ik_ok": bool(right_contact_ik.success),
+                "left_ik_pos_err": float(left_contact_ik.position_error),
+                "right_ik_pos_err": float(right_contact_ik.position_error),
+                "left_ik_rot_err": float(left_contact_ik.rotation_error),
+                "right_ik_rot_err": float(right_contact_ik.rotation_error),
+                "left_ik_constraint_total": float(left_contact_ik.constraint_total),
+                "right_ik_constraint_total": float(right_contact_ik.constraint_total),
+                "left_ik_failure_reason": str(left_contact_ik.failure_reason),
+                "right_ik_failure_reason": str(right_contact_ik.failure_reason),
+                "object_pos": self.get_object_pose()[0].copy(),
+                "left_planner_cmd": action[:3].copy(),
+                "right_planner_cmd": action[3:6].copy(),
+            }
+
+            if step == 0 or step == max_steps - 1 or step - last_report_step >= 40:
+                print(
+                    f"[{label}] step={step:04d} "
+                    f"left_err={left_err:.4f}/{left_rot_err:.4f} "
+                    f"right_err={right_err:.4f}/{right_rot_err:.4f} "
+                    f"left_force={info['left_force']:.3f} right_force={info['right_force']:.3f} "
+                    f"left_ik={left_contact_ik.success} right_ik={right_contact_ik.success}"
+                )
+                if step == 0:
+                    print(
+                        f"  stage_cfg: world_mode={world_mode} "
+                        f"verify=({float(verify_cost_1):.1f},{float(verify_cost_2):.1f}) planner=plan_once+impedance"
+                    )
+                last_report_step = step
+
+            pose_ok = (
+                left_err < pos_tol
+                and right_err < pos_tol
+                and left_rot_err < rot_tol
+                and right_rot_err < rot_tol
+            )
+            if success_fn is None:
+                if pose_ok:
+                    return True, info
+            elif success_fn(info):
+                return True, info
+
+        return False, info
+
+    def set_marker(self, name, pos, quat=None):
+        body_id = self.marker_body_ids[name]
+        self.model.body_pos[body_id] = np.asarray(pos, dtype=np.float64)
+        if quat is not None:
+            self.model.body_quat[body_id] = np.asarray(quat, dtype=np.float64)
+
+    @staticmethod
+    def _constraint_scalar(value):
+        if value is None:
+            return 0.0
+        array = np.asarray(_tensor_to_numpy(value), dtype=np.float64)
+        if array.size == 0:
+            return 0.0
+        return float(np.max(array))
+
+    def _diagnose_ik_solution(self, arm, q_curobo):
+        joint_state = make_joint_state(arm.ik_solver, q_curobo)
+        rollout_fn = arm.ik_solver.rollout_fn
+        aug_state = rollout_fn._get_augmented_state(joint_state)
+
+        bound_constraint = self._constraint_scalar(rollout_fn.bound_constraint.forward(aug_state.state_seq))
+
+        world_constraint = 0.0
+        static_world_constraint = 0.0
+        primitive_constraint = getattr(rollout_fn, "primitive_collision_constraint", None)
+        if primitive_constraint is not None and getattr(primitive_constraint, "enabled", False):
+            world_constraint = self._constraint_scalar(
+                primitive_constraint.forward(aug_state.robot_spheres, env_query_idx=None)
+            )
+            if arm.static_world is not None:
+                restore_world = arm.current_world if arm.current_world is not None else arm.static_world
+                arm.ik_solver.update_world(arm.static_world)
+                try:
+                    static_world_constraint = self._constraint_scalar(
+                        primitive_constraint.forward(aug_state.robot_spheres, env_query_idx=None)
+                    )
+                finally:
+                    arm.ik_solver.update_world(restore_world)
+
+        self_constraint = 0.0
+        self_collision_constraint = getattr(rollout_fn, "robot_self_collision_constraint", None)
+        if self_collision_constraint is not None and getattr(self_collision_constraint, "enabled", False):
+            self_constraint = self._constraint_scalar(self_collision_constraint.forward(aug_state.robot_spheres))
+
+        total_constraint = bound_constraint + world_constraint + self_constraint
+        eps = 1e-6
+        failure_reasons = []
+        static_world_reason = "floor clearance" if arm.current_world_mode == "floor_only" else "pedestal/floor clearance"
+        if bound_constraint > eps:
+            failure_reasons.append("joint bound")
+        if world_constraint > eps:
+            if static_world_constraint > eps and world_constraint > static_world_constraint + eps:
+                failure_reasons.append(f"{static_world_reason} + other-arm clearance")
+            elif static_world_constraint > eps:
+                failure_reasons.append(static_world_reason)
+            else:
+                failure_reasons.append("other-arm clearance")
+        if self_constraint > eps:
+            failure_reasons.append("self-collision clearance")
+        if not failure_reasons and total_constraint > eps:
+            failure_reasons.append("feasibility constraint")
+
+        return {
+            "constraint_total": total_constraint,
+            "bound_constraint": bound_constraint,
+            "world_constraint": world_constraint,
+            "static_world_constraint": static_world_constraint,
+            "self_constraint": self_constraint,
+            "failure_reason": ", ".join(failure_reasons),
+        }
+
+    def _current_arm_q_curobo(self, arm):
+        return build_curobo_state(
+            self.data.qpos[arm.qpos_adr].copy(),
+            arm.curobo_joint_names,
+            arm.retract_cfg,
+        )
+
+    def _solve_arm_ik_mujoco(self, arm, target_tip_pos_world, target_tip_rot_world):
+        """Solve one EE pose with MuJoCo's analytic geom Jacobian.
+
+        This is deliberately a small local IK solve rather than a second
+        planner.  It supplies the fixed contact orientation that MPPI needs;
+        Cartesian impedance remains responsible for execution.  It avoids a
+        hard dependency on cuRobo, Mink, Pinocchio, or DAQP.
+        """
+        target_tip_pos_world = np.asarray(target_tip_pos_world, dtype=np.float64).reshape(3)
+        target_tip_rot_world = _project_to_rotation_matrix(target_tip_rot_world)
+        target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
+            target_tip_pos_world,
+            target_tip_rot_world,
+        )
+        q_initial = np.asarray(self.data.qpos[arm.qpos_adr], dtype=np.float64).copy()
+        q = q_initial.copy()
+        damping = 2.0e-3
+        max_iters = max(int(getattr(self.args, "ik_max_iters", 80)), 1)
+        position_error = float("inf")
+        rotation_error = float("inf")
+        for _ in range(max_iters):
+            self.data.qpos[arm.qpos_adr] = q
+            mujoco.mj_forward(self.model, self.data)
+            current_pos, current_rot = self.get_tip_pose(arm)
+            pos_delta = target_tip_pos_world - current_pos
+            rot_delta = _rotation_error(current_rot, target_tip_rot_world)
+            position_error = float(np.linalg.norm(pos_delta))
+            rotation_error = float(np.linalg.norm(rot_delta))
+            if position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol):
+                break
+
+            jac_pos = np.zeros((3, self.model.nv), dtype=np.float64)
+            jac_rot = np.zeros((3, self.model.nv), dtype=np.float64)
+            mujoco.mj_jacGeom(self.model, self.data, jac_pos, jac_rot, int(arm.tip_geom_id))
+            jacobian = np.vstack((jac_pos[:, arm.dof_adr], jac_rot[:, arm.dof_adr]))
+            error = np.concatenate((pos_delta, rot_delta))
+            jjt = jacobian @ jacobian.T + damping * np.eye(6, dtype=np.float64)
+            dq = jacobian.T @ np.linalg.solve(jjt, error)
+            dq = np.clip(dq, -0.15, 0.15)
+            q += 0.75 * dq
+            for idx, joint_id in enumerate(arm.joint_ids):
+                if bool(self.model.jnt_limited[int(joint_id)]):
+                    q[idx] = np.clip(q[idx], *self.model.jnt_range[int(joint_id)])
+
+        solved_tip_pos, solved_tip_rot = self.get_tip_pose(arm)
+        solved_hand_pos, solved_hand_rot = self.tip_target_to_hand_pose(solved_tip_pos, solved_tip_rot)
+        success = position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol)
+        self.data.qpos[arm.qpos_adr] = q_initial
+        mujoco.mj_forward(self.model, self.data)
+        return ArmIkResult(
+            q_mj=q.copy(),
+            success=bool(success),
+            position_error=position_error,
+            rotation_error=rotation_error,
+            target_hand_pos_world=target_hand_pos_world,
+            target_hand_rot_world=target_hand_rot_world,
+            solved_hand_pos_world=solved_hand_pos,
+            solved_hand_rot_world=solved_hand_rot,
+            solved_tip_pos_world=solved_tip_pos,
+            solved_tip_rot_world=solved_tip_rot,
+            failure_reason="mujoco Jacobian IK did not reach tolerance" if not success else "",
+        )
+
+    def _solve_arm_ik_mink(self, arm, target_tip_pos_world, target_tip_rot_world):
+        """Solve one fingertip pose with mink differential IK."""
+        import mink
+
+        target_tip_pos_world = np.asarray(target_tip_pos_world, dtype=np.float64).reshape(3)
+        target_tip_rot_world = _project_to_rotation_matrix(target_tip_rot_world)
+        target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
+            target_tip_pos_world,
+            target_tip_rot_world,
+        )
+        configuration = mink.Configuration(self.model, q=np.asarray(self.data.qpos, dtype=np.float64).copy())
+        geom_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, int(arm.tip_geom_id))
+        frame_task = mink.FrameTask(
+            frame_name=geom_name,
+            frame_type="geom",
+            position_cost=float(getattr(self.args, "ik_pos_weight", 1.0)),
+            orientation_cost=float(getattr(self.args, "ik_rot_weight", 0.35)),
+            lm_damping=1.0e-3,
+        )
+        target = np.eye(4, dtype=np.float64)
+        target[:3, :3] = target_tip_rot_world
+        target[:3, 3] = target_tip_pos_world
+        frame_task.set_target(mink.SE3.from_matrix(target))
+        posture = mink.PostureTask(self.model, cost=1.0e-3)
+        posture.set_target_from_configuration(configuration)
+        limits = [mink.ConfigurationLimit(self.model)]
+        dt = 0.02
+        max_iters = max(int(getattr(self.args, "ik_max_iters", 80)), 1)
+        position_error = float("inf")
+        rotation_error = float("inf")
+        for _ in range(max_iters):
+            velocity = mink.solve_ik(
+                configuration,
+                [frame_task, posture],
+                dt,
+                "daqp",
+                damping=1.0e-3,
+                safety_break=False,
+                limits=limits,
+            )
+            masked = np.zeros_like(velocity)
+            masked[arm.dof_adr] = velocity[arm.dof_adr]
+            configuration.integrate_inplace(masked, dt)
+            current_pos, current_rot = self.get_tip_pose(arm, data=configuration.data)
+            position_error = float(np.linalg.norm(target_tip_pos_world - current_pos))
+            rotation_error = float(np.linalg.norm(_rotation_error(current_rot, target_tip_rot_world)))
+            if position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol):
+                break
+        solved_tip_pos, solved_tip_rot = self.get_tip_pose(arm, data=configuration.data)
+        solved_hand_pos, solved_hand_rot = self.tip_target_to_hand_pose(solved_tip_pos, solved_tip_rot)
+        success = position_error <= float(self.args.ik_pos_tol) and rotation_error <= float(self.args.ik_rot_tol)
+        return ArmIkResult(
+            q_mj=np.asarray(configuration.q[arm.qpos_adr], dtype=np.float64).copy(),
+            success=bool(success),
+            position_error=position_error,
+            rotation_error=rotation_error,
+            target_hand_pos_world=target_hand_pos_world,
+            target_hand_rot_world=target_hand_rot_world,
+            solved_hand_pos_world=solved_hand_pos,
+            solved_hand_rot_world=solved_hand_rot,
+            solved_tip_pos_world=solved_tip_pos,
+            solved_tip_rot_world=solved_tip_rot,
+            failure_reason="" if success else "mink IK did not reach tolerance",
+        )
+
+    def solve_arm_ik(self, arm, target_tip_pos_world, target_tip_rot_world):
+        if self._ik_backend == "mink":
+            return self._solve_arm_ik_mink(arm, target_tip_pos_world, target_tip_rot_world)
+        if not self._use_curobo:
+            return self._solve_arm_ik_mujoco(arm, target_tip_pos_world, target_tip_rot_world)
+        target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
+            target_tip_pos_world,
+            target_tip_rot_world,
+        )
+        target_hand_pos_local, target_hand_rot_local = self.world_pose_to_arm_frame(
+            arm,
+            target_hand_pos_world,
+            target_hand_rot_world,
+        )
+        goal_pose = make_pose(
+            arm.ik_solver,
+            target_hand_pos_local,
+            mat_to_quat_wxyz(target_hand_rot_local),
+        )
+        current_q_curobo = self._current_arm_q_curobo(arm)
+        retract_cfg = make_joint_tensor(arm.ik_solver, current_q_curobo, extra_dim=False)
+        seed_cfg = make_joint_tensor(arm.ik_solver, current_q_curobo, extra_dim=True)
+        result = arm.ik_solver.solve_single(
+            goal_pose,
+            retract_config=retract_cfg,
+            seed_config=seed_cfg,
+            return_seeds=1,
+            num_seeds=self.args.ik_num_seeds,
+            use_nn_seed=False,
+            newton_iters=self.args.ik_max_iters,
+        )
+
+        ik_success = bool(_tensor_to_numpy(result.success).reshape(-1)[0])
+        ik_pos_err = float(_tensor_to_numpy(result.position_error).reshape(-1)[0])
+        ik_rot_err = float(_tensor_to_numpy(result.rotation_error).reshape(-1)[0])
+        solution = _tensor_to_numpy(result.solution).reshape(-1, len(arm.curobo_joint_names))[0]
+        q_mj = extract_mujoco_arm_configuration(solution, arm.curobo_joint_names)
+        ik_diag = {
+            "constraint_total": 0.0,
+            "bound_constraint": 0.0,
+            "world_constraint": 0.0,
+            "static_world_constraint": 0.0,
+            "self_constraint": 0.0,
+            "failure_reason": "",
+        }
+        if not ik_success:
+            ik_diag = self._diagnose_ik_solution(arm, solution)
+
+        fk_state = arm.ik_solver.fk(
+            torch.tensor(
+                np.asarray(solution, dtype=np.float32).reshape(1, -1),
+                device=arm.ik_solver.tensor_args.device,
+                dtype=arm.ik_solver.tensor_args.dtype,
+            )
+        )
+        solved_hand_pos_local, solved_hand_quat_local = _extract_pose_from_kinematics(fk_state)
+        solved_hand_rot_local = quat_wxyz_to_mat(solved_hand_quat_local)
+        solved_hand_pos_world, solved_hand_rot_world = self.arm_pose_to_world_frame(
+            arm,
+            solved_hand_pos_local,
+            solved_hand_rot_local,
+        )
+        solved_tip_pos_world = solved_hand_pos_world + solved_hand_rot_world[:, 2] * TIP_CENTER_OFFSET
+        solved_tip_rot_world = solved_hand_rot_world.copy()
+
+        return ArmIkResult(
+            q_mj=q_mj,
+            success=ik_success,
+            position_error=ik_pos_err,
+            rotation_error=ik_rot_err,
+            target_hand_pos_world=target_hand_pos_world,
+            target_hand_rot_world=target_hand_rot_world,
+            solved_hand_pos_world=solved_hand_pos_world,
+            solved_hand_rot_world=solved_hand_rot_world,
+            solved_tip_pos_world=solved_tip_pos_world,
+            solved_tip_rot_world=solved_tip_rot_world,
+            constraint_total=ik_diag["constraint_total"],
+            bound_constraint=ik_diag["bound_constraint"],
+            world_constraint=ik_diag["world_constraint"],
+            static_world_constraint=ik_diag["static_world_constraint"],
+            self_constraint=ik_diag["self_constraint"],
+            failure_reason=ik_diag["failure_reason"],
+        )
+
+    def build_pose_goal_result(self, arm, target_tip_pos_world, target_tip_rot_world, reference_q_mj=None):
+        target_tip_pos_world = np.asarray(target_tip_pos_world, dtype=np.float64).reshape(3)
+        target_tip_rot_world = _project_to_rotation_matrix(target_tip_rot_world)
+        target_hand_pos_world, target_hand_rot_world = self.tip_target_to_hand_pose(
+            target_tip_pos_world,
+            target_tip_rot_world,
+        )
+        if reference_q_mj is None:
+            q_mj = self.data.qpos[arm.qpos_adr].copy()
+        else:
+            q_mj = np.asarray(reference_q_mj, dtype=np.float64).reshape(-1).copy()
+        return ArmIkResult(
+            q_mj=q_mj,
+            success=True,
+            position_error=0.0,
+            rotation_error=0.0,
+            target_hand_pos_world=target_hand_pos_world,
+            target_hand_rot_world=target_hand_rot_world,
+            solved_hand_pos_world=target_hand_pos_world.copy(),
+            solved_hand_rot_world=target_hand_rot_world.copy(),
+            solved_tip_pos_world=target_tip_pos_world.copy(),
+            solved_tip_rot_world=target_tip_rot_world.copy(),
+            constraint_total=0.0,
+            bound_constraint=0.0,
+            world_constraint=0.0,
+            static_world_constraint=0.0,
+            self_constraint=0.0,
+            failure_reason="",
+        )
+
+    def get_planner_state(self):
+        if getattr(self, "planner_mode", "") == "mpc_ee":
+            tip_velocities = [self.get_arm_jacobian(arm)[:3] @ self.get_current_joint_velocity(arm)
+                              for arm in (self.left_arm, self.right_arm)]
+            return np.concatenate([self.get_planner_state_tips(),
+                                   self.data.qvel[self.obj_dof_adr:self.obj_dof_adr + 6]] + tip_velocities)
+        if getattr(self, "planner_mode", "") in {"mppi_ee", "mppi_joint", "mpc_joint"}:
+            return self.get_planner_state_joints()
+        return self.get_planner_state_poses()
+
+    def get_planner_state_poses(self):
+        obj_pos, obj_quat, _ = self.get_object_pose()
+        left_tip_pos, left_tip_rot = self.get_tip_pose(self.left_arm)
+        right_tip_pos, right_tip_rot = self.get_tip_pose(self.right_arm)
+        return numpy_pose_state(
+            obj_pos,
+            obj_quat,
+            (left_tip_pos, mat_to_quat_wxyz(left_tip_rot)),
+            (right_tip_pos, mat_to_quat_wxyz(right_tip_rot)),
+        )
+
+    def get_planner_state_tips(self):
+        obj_pos, obj_quat, _ = self.get_object_pose()
+        left_tip_pos, _ = self.get_tip_pose(self.left_arm)
+        right_tip_pos, _ = self.get_tip_pose(self.right_arm)
+        return np.concatenate(
+            (
+                np.asarray(obj_pos, dtype=np.float64).reshape(3),
+                np.asarray(obj_quat, dtype=np.float64).reshape(4),
+                np.asarray(left_tip_pos, dtype=np.float64).reshape(3),
+                np.asarray(right_tip_pos, dtype=np.float64).reshape(3),
+            )
+        )
+
+    def get_planner_state_joints(self):
+        obj_pos, obj_quat, _ = self.get_object_pose()
+        return np.concatenate(
+            (
+                np.asarray(obj_pos, dtype=np.float64).reshape(3),
+                np.asarray(obj_quat, dtype=np.float64).reshape(4),
+                np.asarray(self.data.qpos[self.left_arm.qpos_adr], dtype=np.float64).reshape(7),
+                np.asarray(self.data.qpos[self.right_arm.qpos_adr], dtype=np.float64).reshape(7),
+            )
+        )
+
+    def _build_object_jacobian(self, point_local):
+        jacobian = np.zeros((3, self.plan_params.n_qvel_), dtype=np.float64)
+        jacobian[:, :3] = np.eye(3, dtype=np.float64)
+        jacobian[0, 4] = point_local[2]
+        jacobian[0, 5] = -point_local[1]
+        jacobian[1, 3] = -point_local[2]
+        jacobian[1, 5] = point_local[0]
+        jacobian[2, 3] = point_local[1]
+        jacobian[2, 4] = -point_local[0]
+        return jacobian
+
+    def _build_tip_jacobian_block(self, arm):
+        n_qvel = int(self.plan_params.n_qvel_)
+        jacobian = np.zeros((3, n_qvel), dtype=np.float64)
+        if n_qvel == 20:
+            jacp = np.zeros((3, self.model.nv), dtype=np.float64)
+            mujoco.mj_jacSite(self.model, self.data, jacp, None, int(arm.tip_site_id))
+            offset = 6 if arm.prefix == "left_" else 13
+            jacobian[:, offset : offset + 7] = jacp[:, arm.dof_adr]
+            return jacobian
+        if arm.prefix == "left_":
+            jacobian[:, 6:9] = np.eye(3, dtype=np.float64)
+        else:
+            col = 9 if n_qvel >= 12 else 6
+            jacobian[:, col : col + 3] = np.eye(3, dtype=np.float64)
+        return jacobian
+
+    def _reformat_planner_contacts(self, con_phi_list=None, con_jac_list=None):
+        con_phi_list = [] if con_phi_list is None else con_phi_list
+        con_jac_list = [] if con_jac_list is None else con_jac_list
+        phi_vec = np.ones((self.plan_params.max_ncon_ * 4,), dtype=np.float32)
+        jac_mat = np.zeros((self.plan_params.max_ncon_ * 4, self.plan_params.n_qvel_), dtype=np.float32)
+        for i in range(min(len(con_phi_list), self.plan_params.max_ncon_)):
+            phi_vec[4 * i : 4 * i + 4] = float(con_phi_list[i])
+            jac_mat[4 * i : 4 * i + 4] = np.asarray(con_jac_list[i], dtype=np.float32)
+        return phi_vec, jac_mat
+
+    def _detect_planner_contacts(self):
+        mujoco.mj_forward(self.model, self.data)
+        mujoco.mj_collision(self.model, self.data)
+
+        obj_pos, _, obj_rot = self.get_object_pose()
+        left_robot_jacobian = self._build_tip_jacobian_block(self.left_arm)
+        right_robot_jacobian = self._build_tip_jacobian_block(self.right_arm)
+
+        con_phi_list = []
+        con_jac_list = []
+        for i in range(self.data.ncon):
+            contact_i = self.data.contact[i]
+            geom1 = int(contact_i.geom1)
+            geom2 = int(contact_i.geom2)
+            if self.obj_geom_id not in {geom1, geom2}:
+                continue
+
+            geom1_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom1) or ""
+            geom2_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom2) or ""
+            body1_id = int(self.model.geom_bodyid[geom1])
+            body2_id = int(self.model.geom_bodyid[geom2])
+            body1_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body1_id) or ""
+            body2_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body2_id) or ""
+
+            object_is_first = body1_name == "obj"
+            other_body_name = body2_name if object_is_first else body1_name
+            other_geom_name = geom2_name if object_is_first else geom1_name
+
+            con_pos = np.asarray(contact_i.pos, dtype=np.float64).copy()
+            con_dist = float(contact_i.dist) * 0.5
+            con_mu = float(self.args.arm_friction)
+            con_frame = np.asarray(contact_i.frame, dtype=np.float64).reshape((-1, 3)).T
+            con_frame_pmd = np.hstack((con_frame, -con_frame[:, -2:]))
+
+            con_pos_local = obj_rot.T @ (con_pos - obj_pos)
+            object_jacobian = self._build_object_jacobian(con_pos_local)
+            con_jacp_obj = con_frame_pmd.T @ object_jacobian
+
+            if other_body_name.startswith("left_"):
+                con_jacp_other = con_frame_pmd.T @ left_robot_jacobian
+            elif other_body_name.startswith("right_"):
+                con_jacp_other = con_frame_pmd.T @ right_robot_jacobian
+            else:
+                con_jacp_other = np.zeros((5, self.plan_params.n_qvel_), dtype=np.float64)
+
+            con_jac = con_jacp_obj - con_jacp_other
+            con_jac = con_jac[0] + con_mu * con_jac[1:]
+            con_phi_list.append(con_dist)
+            con_jac_list.append(con_jac)
+
+        return self._reformat_planner_contacts(con_phi_list, con_jac_list)
+
+    def get_current_joint_position(self, arm, update_kinematics=False):
+        if update_kinematics:
+            mujoco.mj_forward(self.model, self.data)
+        return np.asarray(self.data.qpos[arm.qpos_adr], dtype=np.float64).copy()
+
+    def get_current_joint_velocity(self, arm, update_kinematics=False):
+        if update_kinematics:
+            mujoco.mj_forward(self.model, self.data)
+        return np.asarray(self.data.qvel[arm.dof_adr], dtype=np.float64).copy()
+
+    def get_arm_jacobian(self, arm, update_kinematics=False):
+        if update_kinematics:
+            mujoco.mj_forward(self.model, self.data)
+        jacp = np.zeros((3, self.model.nv), dtype=np.float64)
+        jacr = np.zeros((3, self.model.nv), dtype=np.float64)
+        tip_pos, _ = self._get_tip_geom_pose(arm)
+        tip_body_id = int(self.model.geom_bodyid[arm.tip_geom_id])
+        mujoco.mj_jac(
+            self.model,
+            self.data,
+            jacp=jacp,
+            jacr=jacr,
+            point=tip_pos,
+            body=tip_body_id,
+        )
+        return np.vstack([jacp[:, arm.dof_adr], jacr[:, arm.dof_adr]])
+
+    def set_control_torque(self, arm, torque):
+        self.data.ctrl[arm.actuator_ids] = np.clip(
+            np.asarray(torque, dtype=np.float64),
+            -arm.torque_limits,
+            arm.torque_limits,
+        )
+
+    def set_desired_tip_pose(self, arm, position, orientation):
+        arm.position_d = np.asarray(position, dtype=np.float64).copy()
+        arm.orientation_d = _project_to_rotation_matrix(orientation)
+        arm.p_d = arm.position_d.copy()
+        arm.R_d = arm.orientation_d.copy()
+
+    def _compute_cartesian_impedance_control(self, arm, q=None, dq=None, jacobian=None, tip_pose=None):
+        q = self.get_current_joint_position(arm) if q is None else np.asarray(q, dtype=np.float64).copy()
+        dq = self.get_current_joint_velocity(arm) if dq is None else np.asarray(dq, dtype=np.float64).copy()
+        jacobian = self.get_arm_jacobian(arm) if jacobian is None else np.asarray(jacobian, dtype=np.float64).copy()
+        if tip_pose is None:
+            p_current, rot_current = self.get_tip_pose(arm)
+        else:
+            p_current, rot_current = tip_pose
+            p_current = np.asarray(p_current, dtype=np.float64).copy()
+            rot_current = np.asarray(rot_current, dtype=np.float64).reshape(3, 3).copy()
+
+        error = np.zeros(6, dtype=np.float64)
+        error[:3] = p_current - arm.position_d
+        rot_error = rot_current.T @ arm.orientation_d
+        error_quat = Rotation.from_matrix(rot_error).as_quat()
+        if error_quat[3] < 0.0:
+            error_quat = -error_quat
+        error[3:] = -rot_current @ error_quat[:3]
+
+        velocity = jacobian @ dq
+        desired_wrench = -arm.cartesian_stiffness @ error - arm.cartesian_damping @ velocity
+        tau_task = jacobian.T @ desired_wrench
+
+        jacobian_pinv = pinv(jacobian.T)
+        nullspace_proj = np.eye(7) - jacobian.T @ jacobian_pinv
+        tau_nullspace = nullspace_proj @ (
+            arm.nullspace_stiffness * (arm.home_q - q)
+            - 2.0 * np.sqrt(arm.nullspace_stiffness) * dq
+        )
+        tau_bias = np.asarray(self.data.qfrc_bias[arm.dof_adr], dtype=np.float64).copy()
+        tau = tau_task + tau_nullspace + tau_bias
+        return np.clip(tau, -arm.torque_limits, arm.torque_limits)
+
+    def _gather_arm_control_state(self, arm):
+        q = np.asarray(self.data.qpos[arm.qpos_adr], dtype=np.float64).copy()
+        dq = np.asarray(self.data.qvel[arm.dof_adr], dtype=np.float64).copy()
+        tip_pose = self.get_tip_pose(arm)
+        jacobian = self.get_arm_jacobian(arm)
+        return {
+            "q": q,
+            "dq": dq,
+            "tip_pose": tip_pose,
+            "jacobian": jacobian,
+        }
+
+    def _compute_dual_arm_cartesian_impedance_control(self):
+        mujoco.mj_forward(self.model, self.data)
+        left_state = self._gather_arm_control_state(self.left_arm)
+        right_state = self._gather_arm_control_state(self.right_arm)
+        left_tau = self._compute_cartesian_impedance_control(
+            self.left_arm,
+            q=left_state["q"],
+            dq=left_state["dq"],
+            jacobian=left_state["jacobian"],
+            tip_pose=left_state["tip_pose"],
+        )
+        right_tau = self._compute_cartesian_impedance_control(
+            self.right_arm,
+            q=right_state["q"],
+            dq=right_state["dq"],
+            jacobian=right_state["jacobian"],
+            tip_pose=right_state["tip_pose"],
+        )
+        return left_tau, right_tau
+
+    def _planner_tracking_steps(self):
+        base_steps = max(int(self.args.mj_steps_per_command) * max(int(self.args.command_substeps), 1), 1)
+        planner_steps = max(int(np.ceil(float(self.plan_params.h_) / float(self.model.opt.timestep))), 1)
+        return max(base_steps, planner_steps)
+
+    def step_cartesian_action(
+        self,
+        left_cmd,
+        right_cmd,
+        left_rot_world,
+        right_rot_world,
+        object_force_world=None,
+        object_torque_world=None,
+    ):
+        left_curr_pos, left_curr_rot = self.get_tip_pose(self.left_arm)
+        right_curr_pos, right_curr_rot = self.get_tip_pose(self.right_arm)
+        left_target_pos = left_curr_pos + np.asarray(left_cmd, dtype=np.float64)
+        right_target_pos = right_curr_pos + np.asarray(right_cmd, dtype=np.float64)
+        self.set_marker("left_desired_tip", left_target_pos)
+        self.set_marker("right_desired_tip", right_target_pos)
+
+        num_steps = self._planner_tracking_steps()
+        for step_idx in range(num_steps):
+            alpha = float(step_idx + 1) / float(num_steps)
+            left_interp_pos = left_curr_pos + alpha * (left_target_pos - left_curr_pos)
+            right_interp_pos = right_curr_pos + alpha * (right_target_pos - right_curr_pos)
+            left_interp_rot = _slerp_rotation_matrix(left_curr_rot, left_rot_world, alpha)
+            right_interp_rot = _slerp_rotation_matrix(right_curr_rot, right_rot_world, alpha)
+
+            self.set_desired_tip_pose(self.left_arm, left_interp_pos, left_interp_rot)
+            self.set_desired_tip_pose(self.right_arm, right_interp_pos, right_interp_rot)
+            left_tau, right_tau = self._compute_dual_arm_cartesian_impedance_control()
+            self.set_control_torque(self.left_arm, left_tau)
+            self.set_control_torque(self.right_arm, right_tau)
+            self.apply_object_wrench_world(
+                force_world=object_force_world,
+                torque_world=object_torque_world,
+            )
+            mujoco.mj_step(self.model, self.data)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None:
+                self.sync_viewer()
+            if self.args.real_time and self.viewer is not None:
+                time.sleep(self.model.opt.timestep)
+
+    def step_ee_pose_delta(
+        self,
+        action,
+        right_delta=None,
+        hold_mask=(False, False),
+        object_force_world=None,
+        object_torque_world=None,
+        orientation_reference=None,
+    ):
+        """Execute one 12D dual-EE SE(3) increment through impedance control.
+
+        ``hold_mask`` freezes an arm at its measured pose while the other arm
+        catches up.  This is the execution-side synchronization guard used by
+        the unified MPPI loop; the planner itself still evaluates one shared
+        object target and cost.
+        """
+        action = np.asarray(action, dtype=np.float64).reshape(-1)
+        if right_delta is not None:
+            right_array = np.asarray(right_delta)
+            if action.size == 12 and right_array.size == 2:
+                hold_mask = right_array.astype(bool)
+                right_delta = None
+            else:
+                right_delta = right_array.astype(np.float64).reshape(6)
+        if right_delta is not None:
+            if action.size != 6:
+                raise ValueError("left EE delta must contain six SE(3) values")
+            action = np.concatenate([action, right_delta])
+        if action.size != 12:
+            raise ValueError("EE pose action must contain 12 SE(3) values")
+        action = action.reshape(12)
+        hold = np.asarray(hold_mask, dtype=bool).reshape(2)
+        left_pos, left_rot = self.get_tip_pose(self.left_arm)
+        right_pos, right_rot = self.get_tip_pose(self.right_arm)
+        left_delta = np.zeros(6, dtype=np.float64) if hold[0] else action[:6]
+        right_delta = np.zeros(6, dtype=np.float64) if hold[1] else action[6:12]
+        if orientation_reference is None:
+            left_reference_rot = left_rot
+            right_reference_rot = right_rot
+        else:
+            reference_quat = np.asarray(orientation_reference, dtype=np.float64).reshape(2, 4)
+            left_reference_rot = Rotation.from_quat(
+                [reference_quat[0, 1], reference_quat[0, 2], reference_quat[0, 3], reference_quat[0, 0]]
+            ).as_matrix()
+            right_reference_rot = Rotation.from_quat(
+                [reference_quat[1, 1], reference_quat[1, 2], reference_quat[1, 3], reference_quat[1, 0]]
+            ).as_matrix()
+        left_target_rot = _project_to_rotation_matrix(
+            Rotation.from_rotvec(left_delta[3:6]).as_matrix() @ left_reference_rot
+        )
+        right_target_rot = _project_to_rotation_matrix(
+            Rotation.from_rotvec(right_delta[3:6]).as_matrix() @ right_reference_rot
+        )
+        self.step_cartesian_action(
+            left_delta[:3],
+            right_delta[:3],
+            left_target_rot,
+            right_target_rot,
+            object_force_world=object_force_world,
+            object_torque_world=object_torque_world,
+        )
+
+    def step_joint_delta(self, action, substeps=1):
+        """Apply a 14-D joint increment to position actuators and step MuJoCo."""
+        action = np.asarray(action, dtype=np.float64).reshape(14)
+        left_cmd = np.asarray(self.data.qpos[self.left_arm.qpos_adr], dtype=np.float64) + action[:7]
+        right_cmd = np.asarray(self.data.qpos[self.right_arm.qpos_adr], dtype=np.float64) + action[7:]
+        self.data.ctrl[self.left_arm.actuator_ids] = np.clip(
+            left_cmd,
+            self.model.actuator_ctrlrange[self.left_arm.actuator_ids, 0],
+            self.model.actuator_ctrlrange[self.left_arm.actuator_ids, 1],
+        )
+        self.data.ctrl[self.right_arm.actuator_ids] = np.clip(
+            right_cmd,
+            self.model.actuator_ctrlrange[self.right_arm.actuator_ids, 0],
+            self.model.actuator_ctrlrange[self.right_arm.actuator_ids, 1],
+        )
+        for _ in range(max(int(substeps), 1)):
+            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_forward(self.model, self.data)
+
+    def step_joint_controls(self, controls):
+        """Execute FA's absolute position targets at the rollout physics rate."""
+        controls = np.asarray(controls, dtype=np.float64)
+        if controls.ndim != 2 or controls.shape[1] != 14 or not np.isfinite(controls).all():
+            raise ValueError("FA controls must be a finite (steps, 14) array")
+        actuator_ids = np.concatenate((self.left_arm.actuator_ids, self.right_arm.actuator_ids))
+        limits = self.model.actuator_ctrlrange[actuator_ids]
+        for control in controls:
+            self.data.ctrl[actuator_ids] = np.clip(control, limits[:, 0], limits[:, 1])
+            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_forward(self.model, self.data)
+
+    def _lambda_object_dynamics(self, object_rotation):
+        """Mass and external wrench in the measured free-joint coordinates.
+
+        The object origin may differ from its centre of mass. MuJoCo's full
+        block preserves that translation/rotation coupling and its bias force
+        includes gravity torque and the current gyroscopic terms.
+        """
+        mass = np.empty((self.model.nv, self.model.nv), dtype=np.float64)
+        try:
+            mujoco.mj_fullM(self.model, self.data, mass)
+        except TypeError:  # MuJoCo before the MjData overload.
+            mujoco.mj_fullM(self.model, mass, self.data.qM)
+        dofs = np.arange(self.obj_dof_adr, self.obj_dof_adr + 6)
+        external = np.asarray(
+            self.data.qfrc_passive[dofs] + self.data.qfrc_applied[dofs] - self.data.qfrc_bias[dofs],
+            dtype=np.float64,
+        )
+        # Lambda accepts a world-frame torque and converts it
+        # to the body-frame angular coordinates used by this mass block.
+        external[3:] = object_rotation @ external[3:]
+        return mass[np.ix_(dofs, dofs)], external
+
+    def _update_warp_lambda_contacts(self, object_pos, object_quat, object_rot, *, initial=False):
+        """Select contact anchors and forces for online MPC or FA MPPI."""
+        if not initial and getattr(self, 'planner_mode', None) in {"mpc_ee", "mppi_ee"}:
+            return self._update_live_grasp_contacts(object_pos, object_quat, object_rot)
+        tips_world = np.asarray([
+            self.get_tip_pose(self.left_arm)[0],
+            self.get_tip_pose(self.right_arm)[0],
+        ], dtype=np.float64)
+        object_inertia, external_wrench = self._lambda_object_dynamics(object_rot)
+        solve = self.optimizer.initialize_offline if initial else self.optimizer.update_contacts
+        points, normals, predicted_pose, cost, info = solve(
+            np.concatenate((self.object_target_pos, self.object_target_quat)),
+            np.concatenate((object_pos, object_quat)),
+            tips_world=tips_world,
+            object_inertia=object_inertia,
+            tau_o=external_wrench,
+            v_obj=np.asarray(self.data.qvel[self.obj_dof_adr:self.obj_dof_adr + 6]),
+            prediction_dt=(float(self.plan_params.h_) if getattr(self, "planner_mode", None) == "mpc_ee" else
+                           float(self.model.opt.timestep) * self.planner.knot_substeps),
+            **(self._lambda_selection_options(object_pos, object_rot) if initial and
+               getattr(self, 'planner_mode', None) in {'mpc_ee', 'mppi_ee'} else {}),
+        )
+        targets = self._build_contact_targets_from_local_contacts(
+            points, normals, object_pos, object_rot,
+            result=self.optimizer.last_grasp_result,
+            virtual_offset=float(self.args.planner_attract_offset),
+            source=info["source"], preserve_assignment=True,
+        )
+        if initial and getattr(self, 'planner_mode', None) in {'mpc_ee', 'mppi_ee'}:
+            self._online_approach_phase = np.zeros(2, dtype=int)
+            self._online_approach_points = points.copy()
+            self._online_approach_normals = normals.copy()
+            self._online_approach_origin = object_pos.copy()
+        return targets, predicted_pose, cost, info
+
+    def _online_contact_approach_centers(self, object_pos, rotation, grasp_established=False):
+        """Reach the selected side patch from outside, before squeezing it.
+
+        A straight descent to a low torso patch can first touch an ear. These
+        Cartesian waypoints are consumed as MPC cost targets, without joint
+        tracking or changing any measured contact used for force allocation.
+        """
+        points = getattr(self, '_online_approach_points', self.contact_points_local)
+        if getattr(self, '_online_recovery_stage', None) in {'release', 'retreat', 'waiting'}:
+            tips = np.array([self.get_tip_pos(arm) for arm in (self.left_arm, self.right_arm)])
+            mask = self._online_recovery_mask
+            if self._online_recovery_stage == 'release':
+                gaps = self._online_pad_distances()
+                separated = np.all(gaps[mask] >= .001)
+                reached = np.all(np.linalg.norm(tips[mask]-self._online_release_centers[mask], axis=1) <= .004)
+                if not (separated or reached):
+                    return self._online_release_centers.copy(), mask.copy()
+                # Once actually separated, lift at the measured XY rather
+                # than insisting on the last millimetres of a stale release.
+                self._online_retreat_centers[mask, :2] = tips[mask, :2]
+                self._online_recovery_stage = 'retreat'
+            if np.all(np.linalg.norm(tips[mask]-self._online_retreat_centers[mask], axis=1) <= .006):
+                self._online_recovery_stage = 'waiting' if self._online_recovery_waiting else 'approach'
+            if self._online_recovery_stage != 'approach':
+                return self._online_retreat_centers.copy(), mask.copy()
+        normals = getattr(self, '_online_approach_normals', self.normals_local) @ rotation.T
+        surface = points @ rotation.T + object_pos
+        pre = surface-(TIP_RADIUS+float(self.args.pregrasp_offset))*normals
+        top = object_pos[2]+np.max(self.optimizer.surface.mesh.vertices @ rotation[2])
+        above = pre.copy()
+        above[:, 2] = np.maximum(pre[:, 2], top+TIP_RADIUS+.01)
+        touch = surface-max(TIP_RADIUS-min(self.args.squeeze_depth, .9*TIP_RADIUS), .001)*normals
+        stages = np.stack((above, pre, touch))
+        phase = getattr(self, '_online_approach_phase', np.full(2, 2, int))
+        if grasp_established and not getattr(self, '_online_recovery_stage', None):
+            phase[:] = 2
+        tips = np.array([self.get_tip_pos(arm) for arm in (self.left_arm, self.right_arm)])
+        for side in range(2):
+            if phase[side] == 0 and np.linalg.norm(tips[side]-above[side]) <= .012:
+                phase[side] = 1
+        ready = (phase == 2) | ((phase == 1) & (np.linalg.norm(tips-pre, axis=1) <= .006))
+        if ready.all():
+            phase[:] = 2
+        self._online_approach_phase = phase
+        centers = stages[phase, np.arange(2)]
+        if (getattr(self, '_online_recovery_stage', None) == 'approach' and
+                np.all(phase[self._online_recovery_mask] == 2)):
+            self._online_recovery_stage = None
+            self._online_recovery_mask[:] = False
+        return centers, phase < 2
+
+    def _online_pad_distances(self):
+        return np.array([mujoco.mj_geomDistance(self.model, self.data, self.obj_geom_id,
+            arm.tip_geom_id, 1., None) for arm in (self.left_arm, self.right_arm)])
+
+    def _begin_contact_recovery(self, object_pos, rotation, release, normals=None):
+        """Release pad pressure, lift clear, then traverse to a new Lambda pair."""
+        if getattr(self, '_online_recovery_stage', None):
+            return
+        tips = np.array([self.get_tip_pos(arm) for arm in (self.left_arm, self.right_arm)])
+        vertices = self.optimizer.surface.mesh.vertices
+        top = object_pos[2]+np.max(vertices @ rotation[2])
+        opened = tips.copy()
+        opened[release] -= .008*((self.normals_local if normals is None else normals) @ rotation.T)[release]
+        retreat = opened.copy()
+        retreat[release, 2] = np.maximum(tips[release, 2]+.025, top+TIP_RADIUS+.02)
+        self._online_release_centers = opened
+        self._online_retreat_centers = retreat
+        self._online_retreat_axes = np.array([self.get_tip_pose(arm)[1][:, 2]
+                                             for arm in (self.left_arm, self.right_arm)])
+        self._online_recovery_mask = np.asarray(release, bool).copy()
+        self._online_recovery_stage = 'release'
+        self._online_recovery_waiting = True
+        self._online_grasp_active = False
+        self._online_grasp_confirm_streak = 0
+        self.planner.reset()
+        self.plan_params.sol_guess_ = None
+
+    def _contact_search_snapshot(self, touching, points, normals):
+        """No executing MjData, LM buffers or predictor state enter the worker."""
+        snapshot = copy.copy(self)
+        snapshot.data = mujoco.MjData(self.model)
+        mujoco.mj_copyData(snapshot.data, self.model, self.data)
+        snapshot.args = copy.copy(self.args)
+        snapshot.optimizer = self.optimizer.fork_for_search()
+        snapshot.contact_points_local, snapshot.normals_local = points.copy(), normals.copy()
+        if hasattr(self, '_lambda_contact_prediction'):
+            snapshot._lambda_contact_prediction = copy.copy(self._lambda_contact_prediction)
+            snapshot._lambda_contact_prediction.model = copy.copy(self._lambda_contact_prediction.model)
+        pos, quat, rotation = snapshot.get_object_pose()
+        target = np.r_[self.object_target_pos, self.object_target_quat].copy()
+        tips = np.array([snapshot.get_tip_pos(arm) for arm in (self.left_arm, self.right_arm)])
+        touching = touching.copy()
+        def search():
+            started = time.perf_counter()
+            inertia, external = snapshot._lambda_object_dynamics(rotation)
+            options = snapshot._lambda_selection_options(pos, rotation, touching, points, normals)
+            # Expensive whole-arm checks are off the control thread. Continue
+            # past the short startup shortlist instead of repeatedly failing
+            # on the same first 32 cost-ranked pairs.
+            options['max_candidate_checks'] = 128
+            guess, directions, _, _, info = snapshot.optimizer.initialize_offline(target, np.r_[pos, quat],
+                tips_world=tips, object_inertia=inertia, tau_o=external,
+                v_obj=snapshot.data.qvel[snapshot.obj_dof_adr:snapshot.obj_dof_adr+6].copy(),
+                prediction_dt=(float(snapshot.plan_params.h_) if snapshot.planner_mode == 'mpc_ee' else
+                               float(snapshot.model.opt.timestep)*snapshot.planner.knot_substeps),
+                **options)
+            return dict(points=guess, normals=directions, pose=np.r_[pos, quat], target=target,
+                        released=~touching, info=info, wall_time=time.perf_counter()-started)
+        return search
+
+    def _lambda_selection_options(self, object_pos, object_rot, touching=None,
+                                  anchors=None, anchor_normals=None):
+        from planning.bimanual_lambda_prediction import BimanualLambdaPrediction
+        from models.support_geometry import mesh_support_points
+        if not hasattr(self, '_lambda_contact_prediction'):
+            self._lambda_contact_prediction = BimanualLambdaPrediction(
+                step=(float(self.plan_params.h_) if self.planner_mode == 'mpc_ee' else
+                      float(self.model.opt.timestep)*self.planner.knot_substeps),
+                horizon=int(getattr(self.args, 'lambda_prediction_horizon', 8)),
+                stiffness=self.args.online_task_stiffness, damping=self.args.online_task_damping,
+                tip_mass=self.args.online_tip_mass, force_limit=self.args.online_force_limit,
+                unilateral_limit=self.args.online_unilateral_force_limit,
+                response_time=self.args.online_contact_time, patch_radius=self.args.online_patch_radius,
+                approach_speed=self.args.online_approach_speed,
+                support_point=self.support_surface_point, support_half_extents=self.pedestal_size[:2],
+                position_weight=self.args.planner_object_target_weight,
+                orientation_weight=self.args.planner_object_orientation_weight,
+                velocity_weight=self.args.online_object_velocity_weight,
+                pressure_weight=self.args.planner_force_tracking_weight,
+                force_weight=self.args.lambda_force_reg_coef, tangent_weight=self.args.lambda_friction_reg_coef,
+                tangent_impedance=1/(1+(1-float(self.model.geom_solimp[self.obj_geom_id, 0]))/
+                    (float(self.model.geom_solimp[self.obj_geom_id, 0])*self.model.opt.impratio)),
+                spin_friction=self.pad_spin_friction, roll_friction=self.pad_roll_friction)
+        prediction = self._lambda_contact_prediction
+        inertia, external = self._lambda_object_dynamics(object_rot)
+        vertices = getattr(self, '_online_vertices', self.optimizer.surface.mesh.vertices)
+        supports = mesh_support_points(vertices, object_pos, object_rot,
+            self.support_surface_point, WORLD_UP, tangents=np.array([[1., 0., 0.], [0., 1., 0.]]),
+            half_extents=self.pedestal_size[:2], max_points=4)
+        minimum = (.35*self.args.obj_mass*9.81 if self.args.min_normal_force is None else
+                   float(self.args.min_normal_force))
+        prediction.set_observation(np.r_[object_pos, mat_to_quat_wxyz(object_rot)],
+            np.r_[self.object_target_pos, self.object_target_quat],
+            self.data.qvel[self.obj_dof_adr:self.obj_dof_adr+6], inertia, external,
+            friction=self.fingertip_object_friction, support_friction=self.table_object_friction,
+            support_points=supports, tip_radius=TIP_RADIUS, squeeze_depth=self.args.squeeze_depth,
+            minimum_normal=minimum)
+        if touching is not None:
+            anchors = self.contact_points_local if anchors is None else anchors
+            anchor_normals = self.normals_local if anchor_normals is None else anchor_normals
+            prediction.tips_world = np.array([self.get_tip_pos(arm) for arm in (self.left_arm, self.right_arm)])
+            prediction.observed_tip_mask = np.asarray(touching, bool).copy()
+            measured = self.extract_object_contacts()
+            prediction.measured_normal = np.array([sum(c['normal_force'] for c in measured[key])
+                                                   if touching[side] else 0.
+                                                   for side, key in enumerate(('left', 'right'))])
+        def rank(points, normals, tips, curvature, reductions):
+            if touching is not None:
+                points, normals = points.copy(), normals.copy()
+                points[:, touching] = anchors[touching]
+                normals[:, touching] = anchor_normals[touching]
+            scores = prediction.rank(points, normals, np.isfinite(reductions),
+                refinements=int(getattr(self.args, 'lambda_predictive_refinements', 12)))
+            return scores, prediction.results
+        def validate(points, normals):
+            if touching is not None:
+                points, normals = points.copy(), normals.copy()
+                points[touching] = anchors[touching]
+                normals[touching] = anchor_normals[touching]
+            return self._prospective_pair_feasible(points, normals, object_pos, object_rot, touching)
+        return dict(candidate_ranker=rank, candidate_validator=validate, max_candidate_checks=32)
+
+    def _prospective_pair_feasible(self, points, normals, object_pos, object_rot, touching=None):
+        """Check approach and lifted whole-arm geometry in isolated FK data."""
+        probe = mujoco.MjData(self.model)
+        probe.qpos[:] = self.data.qpos
+        arms = (self.left_arm, self.right_arm)
+        starts = np.array([self.get_tip_pos(arm) for arm in arms])
+        world_normals = np.asarray(normals) @ object_rot.T
+        approach = np.array([self._compute_preferred_tip_approach(n) for n in world_normals])
+        initial_axes = np.array([self.get_tip_pose(arm)[1][:, 2] for arm in arms])
+        surface = np.asarray(points) @ object_rot.T + object_pos
+        pre = surface-(TIP_RADIUS+float(self.args.pregrasp_offset))*world_normals
+        above = pre.copy()
+        above[:, 2] = np.maximum(pre[:, 2], object_pos[2]+np.max(
+            self.optimizer.surface.mesh.vertices @ object_rot[2])+TIP_RADIUS+.01)
+        # Validate the MPC's physical contact centre, not the legacy 4 mm
+        # touch stand-off (which can conceal a colliding rod at actual touch).
+        touch = surface-TIP_RADIUS*world_normals
+        opening = bool(getattr(self, '_online_recovery_stage', None))
+        opened = starts-.008*world_normals if opening else starts
+        retreat = opened.copy()
+        retreat[:, 2] = np.maximum(starts[:, 2], above[:, 2])
+        stages = ([(starts+fraction*(opened-starts), np.zeros(3)) for fraction in (.33, .66, 1.)]
+                  if opening else [])
+        stages.extend((opened+fraction*(retreat-opened), np.zeros(3)) for fraction in (.33, .66, 1.))
+        stages.extend((retreat+fraction*(above-retreat), np.zeros(3)) for fraction in (.33, .66, 1.))
+        stages.extend((above+fraction*(pre-above), np.zeros(3)) for fraction in (.33, .66, 1.))
+        stages.append((touch, np.zeros(3)))
+        squeeze = max(TIP_RADIUS-min(float(self.args.squeeze_depth), .9*TIP_RADIUS), .001)
+        touch = surface-squeeze*world_normals
+        stages.append((touch, np.zeros(3)))
+        lift = np.asarray(self.object_target_pos)-object_pos
+        stages.extend((touch+fraction*lift, fraction*lift) for fraction in (.25, .5, 1.))
+        bodies = set().union(*(set(arm.body_ids_by_name.values()) for arm in arms))
+        arm_geoms = [g for g in range(self.model.ngeom)
+                     if int(self.model.geom_bodyid[g]) in bodies and
+                     (self.model.geom_contype[g] or self.model.geom_conaffinity[g])]
+        tips = {arm.tip_geom_id for arm in arms}
+        # With a made contact, test only the new arm's approach. Existing
+        # physical anchors are retained, never replaced by a global guess.
+        touching = np.zeros(2, bool) if touching is None else np.asarray(touching, bool)
+        clearance_stage = 6 if opening else 3
+        touch_stage = 12 if opening else 9
+        if touching.any():
+            stages = [(np.where(touching[:, None], starts, target), shift)
+                      for target, shift in stages[:touch_stage+2]]
+        for stage, (targets, shift) in enumerate(stages):
+            probe.qpos[self.obj_qpos_adr:self.obj_qpos_adr+3] = object_pos+shift
+            for _ in range(70):
+                mujoco.mj_forward(self.model, probe)
+                done = True
+                for side, arm in enumerate(arms):
+                    if touching[side]:
+                        continue
+                    position, rotation = self.get_tip_pose(arm, data=probe)
+                    error = targets[side]-position
+                    axis_error = np.cross(rotation[:, 2], initial_axes[side] if stage < clearance_stage else approach[side])
+                    if np.linalg.norm(error) <= .002 and np.linalg.norm(axis_error) <= .15:
+                        continue
+                    done = False
+                    jp, jr = np.zeros((3, self.model.nv)), np.zeros((3, self.model.nv))
+                    mujoco.mj_jacGeom(self.model, probe, jp, jr, arm.tip_geom_id)
+                    jac = np.vstack((jp[:, arm.dof_adr], .04*jr[:, arm.dof_adr]))
+                    delta = jac.T @ np.linalg.solve(jac@jac.T+1e-5*np.eye(6), np.r_[error, .04*axis_error])
+                    limits = self.model.jnt_range[arm.joint_ids]
+                    probe.qpos[arm.qpos_adr] = np.clip(probe.qpos[arm.qpos_adr]+np.clip(delta, -.12, .12),
+                                                     limits[:, 0], limits[:, 1])
+                if done:
+                    break
+            mujoco.mj_forward(self.model, probe)
+            if not done:
+                return dict(valid=False, reason=f'IK approach/lift stage {stage}')
+            for contact in probe.contact:
+                pair = {int(contact.geom1), int(contact.geom2)}
+                if self.obj_geom_id in pair and pair & tips:
+                    loaded = any(touching[side] and arm.tip_geom_id in pair for side, arm in enumerate(arms))
+                    if not loaded and clearance_stage <= stage < touch_stage and contact.dist < -.0003:
+                        return dict(valid=False, reason=f'pad hits object before assigned patch, stage {stage}')
+                    continue
+                if contact.dist < -.0003 and any(int(self.model.geom_bodyid[g]) in bodies for g in pair):
+                    return dict(valid=False, reason=f'arm collision stage {stage}')
+            for geom in arm_geoms:
+                if geom in tips:
+                    continue
+                gap = mujoco.mj_geomDistance(self.model, probe, self.obj_geom_id, geom, .002, None)
+                if gap < .002:
+                    return dict(valid=False, reason=f'non-pad object clearance stage {stage}')
+        return dict(valid=True, approach_and_lift_collision_free=True)
+
+    def _nearby_contact_reachable(self, arm, target):
+        """Bounded local FK check, without modifying the executing state."""
+        if not hasattr(self, '_online_reachability_data'):
+            self._online_reachability_data = mujoco.MjData(self.model)
+        probe = self._online_reachability_data
+        probe.qpos[:] = self.data.qpos
+        probe.qvel[:] = 0.
+        ranges = self.model.jnt_range[arm.joint_ids]
+        for _ in range(8):
+            mujoco.mj_forward(self.model, probe)
+            error = np.asarray(target)-probe.site_xpos[arm.tip_site_id]
+            if np.linalg.norm(error) <= .003:
+                break
+            jp = np.zeros((3, self.model.nv))
+            mujoco.mj_jacSite(self.model, probe, jp, None, arm.tip_site_id)
+            jac = jp[:, arm.dof_adr]
+            delta = jac.T @ np.linalg.solve(jac @ jac.T + 1e-5*np.eye(3), error)
+            probe.qpos[arm.qpos_adr] = np.clip(probe.qpos[arm.qpos_adr]+np.clip(delta, -.1, .1),
+                                             ranges[:, 0], ranges[:, 1])
+        mujoco.mj_forward(self.model, probe)
+        if np.linalg.norm(probe.site_xpos[arm.tip_site_id]-target) > .003:
+            return False
+        bodies = set(arm.body_ids_by_name.values())
+        for contact in probe.contact:
+            pair = {int(contact.geom1), int(contact.geom2)}
+            if pair == {self.obj_geom_id, arm.tip_geom_id}:
+                continue
+            if contact.dist < -.001 and any(int(self.model.geom_bodyid[g]) in bodies for g in pair):
+                return False
+        return True
+
+    def _update_live_grasp_contacts(self, object_pos, object_quat, object_rot):
+        """Keep real patches, certify nearby replacements, then reallocate forces."""
+        from planning.bimanual_live_grasp import (choose_nearby_pair, contact_certificate,
+            live_force_target, requested_contact_wrench)
+        from planning.grasp_diagnostics import object_contact_wrenches
+
+        started = time.perf_counter()
+        pose = np.r_[object_pos, object_quat]
+        goal = np.r_[self.object_target_pos, self.object_target_quat]
+        points, normals = self.contact_points_local.copy(), self.normals_local.copy()
+        previous_points = points.copy()
+        arms = (self.left_arm, self.right_arm)
+        tips = np.array([self.get_tip_pos(arm) for arm in arms])
+        contacts = self.extract_object_contacts()
+        measured = [[dict(point=c['local_pos'], normal=c['normal_local'], normal_force=c['normal_force'])
+                     for c in contacts[key] if c['normal_force'] > 1e-5 and c['dist'] <= 1e-5]
+                    for key in ('left', 'right')]
+        touching = np.array([bool(patches) for patches in measured])
+        moment_friction = (getattr(self, 'pad_spin_friction', np.zeros(2)),
+                           getattr(self, 'pad_roll_friction', np.zeros(2)))
+        real_moment_friction = tuple(np.repeat(value, [len(patches) for patches in measured])
+                                     for value in moment_friction)
+        candidates = [[], []]
+        radius = float(getattr(self.args, 'online_nearby_contact_radius', .02))
+        capacity = int(getattr(self.args, 'online_nearby_contact_candidates', 4))
+        samples, sample_normals = self.optimizer.sample_point, self.optimizer.normal
+        if (not bool(getattr(self.args, 'freeze_contact_pair', False)) and
+                not getattr(self, '_online_recovery_stage', None)):
+            for side, arm in enumerate(arms):
+                if touching[side]:
+                    continue
+                local_tip = (tips[side]-object_pos) @ object_rot
+                distances = np.linalg.norm(samples-local_tip, axis=1)-TIP_RADIUS
+                nearby = np.flatnonzero(distances <= radius)
+                nearby = nearby[np.argsort(distances[nearby])]
+                options = []
+                # Include the already validated assigned patch. Otherwise a
+                # nearest-point truncation can discard it just before touch.
+                if np.linalg.norm(points[side]-local_tip)-TIP_RADIUS <= radius:
+                    options.append((points[side], normals[side]))
+                segment = np.zeros(6)
+                gap = mujoco.mj_geomDistance(self.model, self.data, self.obj_geom_id, arm.tip_geom_id, 10., segment)
+                direction = segment[:3]-segment[3:]
+                if 0 <= gap <= radius and np.linalg.norm(direction) > 1e-9:
+                    options.append(((segment[:3]-object_pos) @ object_rot,
+                                    direction @ object_rot / np.linalg.norm(direction)))
+                options.extend((samples[i], sample_normals[i]) for i in nearby[:capacity])
+                for point, normal in options:
+                    center = object_pos + object_rot @ (point-TIP_RADIUS*normal)
+                    if (tips[side]-object_pos-object_rot @ point) @ (object_rot @ normal) > .001:
+                        continue
+                    if center[2]-TIP_RADIUS < self.support_top+.001:
+                        continue
+                    if self._nearby_contact_reachable(arm, center):
+                        candidates[side].append((point, normal))
+                    if len(candidates[side]) >= capacity:
+                        break
+        inertia, external = self._lambda_object_dynamics(object_rot)
+        hand_bodies = set().union(*(set(arm.body_ids_by_name.values()) for arm in arms))
+        hand_geoms = [g for g in range(self.model.ngeom) if int(self.model.geom_bodyid[g]) in hand_bodies]
+        other, _ = object_contact_wrenches(self.model, self.data, self.obj_body_id,
+            [arm.tip_geom_id for arm in arms], hand_geoms)
+        external = external + other['other_hand']
+        external_local = np.r_[object_rot.T @ external[:3], object_rot.T @ external[3:]]
+        friction = float(self.fingertip_object_friction)
+        force_limit = float(self.args.online_force_limit)
+        pair_quality = None
+        if any(candidates):
+            self._lambda_selection_options(object_pos, object_rot)
+            prediction = self._lambda_contact_prediction
+            prediction.tips_world = tips.copy()
+            prediction.observed_tip_mask = np.ones(2, bool)
+            prediction.tip_velocity = self.get_planner_state()[19:25].copy()
+            prediction.measured_normal = np.array([sum(c['normal_force'] for c in patches) for patches in measured])
+            def pair_quality(future_points, future_normals):
+                return prediction.evaluate(future_points, future_normals)['cost']
+        points, normals, replacements, planned = choose_nearby_pair(points, normals, measured, candidates,
+            friction, external_local, force_limit=force_limit, pair_quality=pair_quality,
+            rotational_friction=moment_friction)
+        events = [dict(arm=('left', 'right')[side], point_local=points[side].copy(),
+                       predictive_certificate=planned) for side in replacements
+                  if np.linalg.norm(points[side]-previous_points[side]) > .001]
+        global_replan = False
+        global_replan_error = None
+        self._online_lost_contact_steps = (0 if touching.all() else
+            getattr(self, '_online_lost_contact_steps', 0)+1)
+        origin = getattr(self, '_online_approach_origin', object_pos)
+        drifted = np.linalg.norm(object_pos-origin) >= float(getattr(self.args, 'contact_replan_drift_m', .01))
+        lost = self._online_lost_contact_steps >= int(getattr(self.args, 'contact_replan_lost_steps', 3))
+        # The live LM receives current geometry; it cannot switch a loaded arm
+        # back to its offline Lambda anchor. Exact wrench allocation below has
+        # priority whenever the real two-pad geometry admits the requested task.
+        dt = (float(self.plan_params.h_) if self.planner_mode == 'mpc_ee' else
+              float(self.model.opt.timestep)*self.planner.knot_substeps)
+        velocity = self.data.qvel[self.obj_dof_adr:self.obj_dof_adr+6].copy()
+        result = self.optimizer.lm.solve(points[None], normals[None], current_x=pose, x_d=goal,
+            object_inertia=inertia, tau_o=external, v_obj=velocity, prediction_dt=dt)
+        forces = np.asarray(result['force_vectors_local']).reshape(2, 3)
+        allocation = dict(feasible=False, task_wrench_scale=None)
+        available = False
+        if touching.all():
+            requested = requested_contact_wrench(pose, goal, velocity, inertia, external)
+            minimum = (.35*self.args.obj_mass*9.81 if self.args.min_normal_force is None
+                       else float(self.args.min_normal_force))
+            allocation = live_force_target(points, normals, friction, requested, external_local,
+                minimum_normal=minimum, force_limit=force_limit, rotational_friction=moment_friction)
+            if allocation['feasible']:
+                forces = allocation['forces']
+                caps = [sum(c['normal_force'] for c in patches) for patches in measured]
+                available = contact_certificate(points, normals, friction, -allocation['requested_wrench'],
+                    normal_limits=caps, force_limit=force_limit, rotational_friction=moment_friction)['load_feasible']
+        real = [patch for patches in measured for patch in patches]
+        actual = contact_certificate([p['point'] for p in real], [p['normal'] for p in real],
+            friction, external_local, normal_limits=[p['normal_force'] for p in real], force_limit=force_limit,
+            rotational_friction=real_moment_friction)
+        # Distinguish an impossible geometry from pressure that can still be
+        # increased at the same patches. Do not retreat on a brief weak Fn.
+        geometry = actual
+        if touching.all() and not (actual['force_closure_in_contact_span'] and actual['task_load_feasible']):
+            geometry = contact_certificate([p['point'] for p in real], [p['normal'] for p in real],
+                friction, external_local, force_limit=force_limit, rotational_friction=real_moment_friction)
+        impossible = bool(touching.all() and not (
+            geometry['force_closure_in_contact_span'] and geometry['task_load_feasible']))
+        self._online_infeasible_contact_steps = (getattr(self, '_online_infeasible_contact_steps', 0)+1
+                                                 if impossible else 0)
+        bad = self._online_infeasible_contact_steps >= int(getattr(self.args, 'contact_replan_lost_steps', 3))
+        squeezing = bool(np.all(getattr(self, '_online_approach_phase', np.zeros(2)) == 2) and
+                         not getattr(self, '_online_recovery_stage', None))
+        self._online_touch_miss_steps = (getattr(self, '_online_touch_miss_steps', 0)+1
+                                         if squeezing and not touching.all() else 0)
+        touch_dt = (float(self.plan_params.h_) if self.planner_mode == 'mpc_ee' else
+                    float(self.model.opt.timestep)*self.planner.knot_substeps)
+        touch_timed_out = self._online_touch_miss_steps >= max(3, int(np.ceil(.3/touch_dt)))
+        missed = bool(not touching.all() and not events and lost and
+            (drifted or getattr(self, '_online_grasp_active', False) or touch_timed_out))
+        recovering = bool(getattr(self, '_online_recovery_stage', None))
+        enabled = not bool(getattr(self.args, 'freeze_contact_pair', False))
+        if enabled and (bad or missed) and not recovering:
+            self._begin_contact_recovery(object_pos, object_rot, np.ones(2, bool) if bad else ~touching, normals)
+            recovering = True
+        search_wall_time = None
+        if enabled and (recovering or hasattr(self, '_contact_search_worker')):
+            from planning.contact_search_worker import ContactSearchWorker
+            if not hasattr(self, '_contact_search_worker'):
+                self._contact_search_worker = ContactSearchWorker()
+            worker = self._contact_search_worker
+            completed = worker.poll()
+            if completed is not None:
+                if 'error' in completed:
+                    global_replan_error = completed['error']
+                    if (recovering and worker.failures >= 2 and not self._online_recovery_mask.all()):
+                        # No candidate works with the retained anchor. Free it
+                        # as well instead of repeatedly searching the same grip.
+                        self._online_recovery_stage = None
+                        self._begin_contact_recovery(object_pos, object_rot, np.ones(2, bool), normals)
+                    print(f"[regrasp] no accepted new guess; retreat/hold continues; "
+                          f"retry in {completed['retry_after']:.2f}s: {global_replan_error}", flush=True)
+                else:
+                    found = completed['result']
+                    search_wall_time = found['wall_time']
+                    stale = (np.linalg.norm(pose[:3]-found['pose'][:3]) > .02 or
+                             abs(pose[3:]@found['pose'][3:]) < np.cos(.15) or
+                             not np.allclose(goal, found['target']))
+                    if recovering and not stale:
+                        release = self._online_recovery_mask & found['released']
+                        # Keep any other currently loaded arm at its real patch.
+                        points[release], normals[release] = found['points'][release], found['normals'][release]
+                        self._online_approach_phase = getattr(self, '_online_approach_phase', np.full(2, 2, int))
+                        self._online_approach_points = getattr(self, '_online_approach_points', points.copy())
+                        self._online_approach_normals = getattr(self, '_online_approach_normals', normals.copy())
+                        self._online_approach_phase[release] = 0
+                        self._online_approach_points[release] = points[release]
+                        self._online_approach_normals[release] = normals[release]
+                        self._online_approach_origin = object_pos.copy()
+                        self._online_lost_contact_steps = 0
+                        self._online_touch_miss_steps = 0
+                        self._online_recovery_waiting = False
+                        if self._online_recovery_stage == 'waiting':
+                            self._online_recovery_stage = 'approach'
+                        global_replan = bool(release.any())
+                    elif stale:
+                        global_replan_error = 'Discarded stale object/goal snapshot'
+            if recovering and self._online_recovery_waiting and worker.ready:
+                retained = touching & ~self._online_recovery_mask
+                worker.submit(self._contact_search_snapshot(retained, points, normals))
+        if events or global_replan:
+            self._online_pair_revision = getattr(self, '_online_pair_revision', 0)+1
+            self.planner.reset()
+            self.plan_params.sol_guess_ = None
+        moments = np.asarray(allocation.get('moments', np.zeros((2, 3)))).copy()
+        if recovering:
+            # A released contact is still reported as measured until separation,
+            # but supplies no force target or lifting permission during retreat.
+            forces[self._online_recovery_mask] = 0.
+            moments[self._online_recovery_mask] = 0.
+            allocation['feasible'] = False
+            available = False
+        self._online_live_grasp = dict(actual_certificate=actual, predictive_certificate=planned,
+            measured_contact_mask=touching.copy(), force_allocation_feasible=allocation['feasible'],
+            task_wrench_scale=allocation['task_wrench_scale'], allocated_wrench_available=available,
+            uncontrolled_task_wrench=allocation.get('uncontrolled_wrench'),
+            desired_moments_local=moments.copy(),
+            local_contact_updates=events, other_hand_wrench_world=other['other_hand'].copy(),
+            global_contact_replan=global_replan,
+            global_contact_replan_error=global_replan_error,
+            global_contact_search_pending=bool(getattr(self, '_contact_search_worker', None) and
+                                               self._contact_search_worker.pending),
+            global_contact_search_wall_time=search_wall_time,
+            recovery_stage=getattr(self, '_online_recovery_stage', None),
+            geometry_infeasible=impossible,
+            force_points_local=points.copy(), force_normals_local=normals.copy())
+        # Recompute the force-only prediction when exact allocation replaces LM.
+        generalized = np.r_[external[:3], object_rot.T @ external[3:]]
+        wrench = np.r_[object_rot @ forces.sum(0), np.cross(points, forces).sum(0)+moments.sum(0)]
+        next_velocity = velocity + dt*np.linalg.solve(inertia, generalized+wrench)
+        predicted = pose.copy()
+        predicted[:3] += dt*next_velocity[:3]
+        quat = object_quat.copy()
+        quat += .5*dt*np.r_[-np.dot(quat[1:], next_velocity[3:]),
+            quat[0]*next_velocity[3:] + np.cross(quat[1:], next_velocity[3:])]
+        predicted[3:] = quat/np.linalg.norm(quat)
+        coefficients = np.zeros((2, 3))
+        coefficients[:, 0] = np.sum(forces*normals, axis=1)
+        for side, normal in enumerate(normals):
+            helper = np.array([1., 0., 0.]) if abs(normal[0]) <= .9 else np.array([0., 1., 0.])
+            tangent = np.cross(normal, helper)
+            tangent /= np.linalg.norm(tangent)
+            coefficients[side, 1:] = [forces[side] @ tangent, forces[side] @ np.cross(normal, tangent)]
+        info = {key: result[key] for key in ('pose_cost', 'pose_reduction', 'baseline_reduction',
+            'cost', 'solver_failed', 'solver_converged', 'solve_time') if key in result}
+        info.update(source='live_measured_and_nearby', force_vectors_local=forces,
+                    contact_forces_local=coefficients, x_plus_opt=predicted,
+                    moment_vectors_local=moments.copy(), prediction_kind='ideal_allocated_wrench_reference',
+                    live_grasp=self._online_live_grasp, live_force_solve_time=time.perf_counter()-started)
+        targets = self._build_contact_targets_from_local_contacts(points, normals, object_pos, object_rot,
+            result=dict(witness_force_vectors_local=forces, witness_contact_forces_local=coefficients),
+            source=info['source'], preserve_assignment=True)
+        return targets, predicted, float(result['cost']), info
+
+    def _online_mpc_contacts(self):
+        """Measured/nearest collision patches, independent of Lambda's anchors."""
+        from models.support_geometry import mesh_support_points, support_jacobians
+
+        obj_pos, _, rotation = self.get_object_pose()
+        gaps = np.ones(24)
+        rows = np.zeros((24, 12))
+        measured = self.extract_object_contacts()
+        for side, arm in enumerate((self.left_arm, self.right_arm)):
+            patches = [c for c in measured['left' if side == 0 else 'right']
+                       if c['normal_force'] > 1e-5 and c['dist'] <= 1e-5]
+            if patches:
+                patch = max(patches, key=lambda c: c['normal_force'])
+                block, _ = support_jacobians(obj_pos, rotation, patch['world_pos'], 12,
+                    float(self.args.arm_friction), patch['normal_world'])
+                block[:, 6+3*side:9+3*side] = -block[:, :3]
+                gaps[4*side:4*side+4] = patch['dist']
+                rows[4*side:4*side+4] = block
+                continue
+            segment = np.zeros(6)
+            gap = float(mujoco.mj_geomDistance(self.model, self.data, self.obj_geom_id,
+                                              arm.tip_geom_id, 10.0, segment))
+            delta = segment[:3] - segment[3:]
+            norm = np.linalg.norm(delta)
+            if norm <= 1e-9:
+                # Deepest measured patch is more reliable at exact tangency.
+                contacts = self.extract_object_contacts()["left" if side == 0 else "right"]
+                if not contacts:
+                    continue
+                patch = min(contacts, key=lambda item: item["dist"])
+                point, gap = patch["world_pos"], patch["dist"]
+                delta = obj_pos - self.get_tip_pos(arm)
+                norm = np.linalg.norm(delta)
+            else:
+                point = segment[:3]
+            # Positive gap: tip -> object. Inside overlap the closest segment
+            # reverses; recover the closing normal from the measured manifold.
+            inward = delta / max(norm, 1e-10)
+            if gap < 0:
+                inward *= -1
+            block, _ = support_jacobians(obj_pos, rotation, point, 12, float(self.args.arm_friction), inward)
+            block[:, 6 + 3 * side:9 + 3 * side] = -block[:, :3]
+            gaps[4 * side:4 * side + 4] = gap
+            rows[4 * side:4 * side + 4] = block
+        support = mesh_support_points(self._online_vertices, obj_pos, rotation,
+            self.support_surface_point, WORLD_UP, tangents=self._online_support_tangents,
+            half_extents=self.pedestal_size[:2], max_points=4)
+        for patch, point in enumerate(support, start=2):
+            block, _ = support_jacobians(obj_pos, rotation, point, 12, self.table_object_friction)
+            rows[4 * patch:4 * patch + 4] = block
+            gaps[4 * patch:4 * patch + 4] = point[2] - self.support_top
+        return gaps, rows
+
+    def _online_measured_contact_mask(self, contact_points_local):
+        """Loaded contacts at the currently assigned Lambda surface patches."""
+        contacts = self.extract_object_contacts()
+        mask = np.zeros(2, dtype=bool)
+        required = max(float(.35 * self.args.obj_mass * 9.81 if self.args.min_normal_force is None else
+                             self.args.min_normal_force), 1e-6)
+        tolerance = float(self.args.online_contact_tolerance)
+        for side, key in enumerate(("left", "right")):
+            mask[side] = any(item["normal_force"] >= required and
+                             np.linalg.norm(item["local_pos"] - contact_points_local[side]) <= tolerance
+                             for item in contacts[key])
+        return mask
+
+    def _online_selected_contacts(self, contact_points_local):
+        """Confirm the same bilateral pair over consecutive measurements."""
+        mask = self._online_measured_contact_mask(contact_points_local)
+        if hasattr(self, '_online_live_grasp'):
+            mask = self._online_live_grasp['measured_contact_mask'].copy()
+        ids = np.asarray(getattr(self.optimizer, "last_grasp_result", {}).get("contact_indices", []))
+        if hasattr(self, '_online_live_grasp'):
+            ids = np.array([getattr(self, '_online_pair_revision', 0)])
+        changed = self._online_contact_ids is None or not np.array_equal(ids, self._online_contact_ids)
+        if changed:
+            self._online_contact_stable_steps = 0
+            self.planner.reset()
+        self._online_contact_ids = ids.copy()
+        self._online_contact_stable_steps = self._online_contact_stable_steps + 1 if np.all(mask) else 0
+        return mask, self._online_contact_stable_steps >= int(self.args.online_contact_confirm_steps)
+
+    def _online_grasp_observation(self):
+        """Latch actual bilateral load independently of the desired anchors."""
+        contacts = self.extract_object_contacts()
+        force = np.array([sum(max(float(item["normal_force"]), 0.) for item in contacts[key])
+                          for key in ("left", "right")])
+        required = max(float(.35 * self.args.obj_mass * 9.81 if self.args.min_normal_force is None else
+                             self.args.min_normal_force), 1e-6)
+        active = bool(getattr(self, "_online_grasp_active", False))
+        was_active = active
+        mask = force >= required * (.5 if active else 1.)
+        ready = bool(np.all(mask))
+        if hasattr(self, '_online_live_grasp'):
+            certificate = self._online_live_grasp['actual_certificate']
+            ready = ready and certificate['force_closure_in_contact_span'] and certificate['task_load_feasible']
+        if getattr(self, '_online_recovery_stage', None):
+            ready = False
+        if active:
+            misses = 0 if ready else getattr(self, "_online_grasp_release_streak", 0) + 1
+            self._online_grasp_release_streak = misses
+            if misses >= int(getattr(self.args, "online_grasp_release_steps", 3)):
+                active = False
+                self._online_grasp_confirm_streak = 0
+        else:
+            streak = getattr(self, "_online_grasp_confirm_streak", 0) + 1 if ready else 0
+            self._online_grasp_confirm_streak = streak
+            if streak >= int(self.args.online_contact_confirm_steps):
+                active = True
+                self._online_grasp_release_streak = 0
+        self._online_grasp_active = active
+        if active and not was_active and hasattr(self, 'left_arm'):
+            # Rotational contact friction assumes stationary wrists. Preserve
+            # their full world orientation once measured bilateral load exists.
+            self._online_grasp_wrist_rotations = np.array([
+                self.get_tip_pose(arm)[1].copy() for arm in (self.left_arm, self.right_arm)])
+        elif not active:
+            self._online_grasp_wrist_rotations = None
+        return mask, force, active
+
+    def step_online_mpc_action(self, action):
+        """Execute the predictor's capped OSC with free-space velocity reference."""
+        from models.bimanual_rigid_contact import online_tip_velocity_reference
+
+        action = np.asarray(action, dtype=float).reshape(2, 3)
+        interval = self._planner_tracking_steps() * float(self.model.opt.timestep)
+        for _ in range(self._planner_tracking_steps()):
+            mujoco.mj_forward(self.model, self.data)
+            _, _, rotation = self.get_object_pose()
+            normals = np.asarray(self.normals_local) @ rotation.T
+            gaps, contact_rows = self._online_mpc_contacts()
+            pad_gaps = gaps[:8].reshape(2, 4).mean(axis=1)
+            physical_normals = contact_rows[:8].reshape(2, 4, 12).mean(axis=1)[:, :3]
+            for side, (arm, increment, normal) in enumerate(zip((self.left_arm, self.right_arm), action, normals)):
+                velocity = self.get_arm_jacobian(arm)[:3] @ self.get_current_joint_velocity(arm)
+                force_limit = float(self.args.online_force_limit)
+                v_ref = online_tip_velocity_reference(increment, pad_gaps[side],
+                    getattr(self, "_online_grasp_active", False), interval, float(self.args.online_approach_speed))
+                requested_force = (float(self.args.online_task_stiffness) * increment -
+                                   float(self.args.online_task_damping) * (velocity - v_ref))
+                if (not getattr(self, "_online_grasp_active", False) and
+                        pad_gaps[side] <= 1e-6 and pad_gaps[1 - side] > 1e-6 and
+                        np.dot(requested_force, physical_normals[side]) > 0):
+                    force_limit = min(force_limit, float(self.args.online_unilateral_force_limit))
+                approach = self._compute_preferred_tip_approach(normal)
+                if (getattr(self, '_online_recovery_stage', None) in {'release', 'retreat', 'waiting'} and
+                        self._online_recovery_mask[side]):
+                    approach = self._online_retreat_axes[side]
+                torque = self._compute_arm_osc_torque(arm, increment, velocity, v_ref=v_ref,
+                    k_task=float(self.args.online_task_stiffness), d_task=float(self.args.online_task_damping),
+                    force_limit=force_limit,
+                    approach_direction=approach,
+                    orientation_reference=(self._online_grasp_wrist_rotations[side]
+                        if getattr(self, '_online_grasp_active', False) and
+                        getattr(self, '_online_grasp_wrist_rotations', None) is not None else None))
+                self.set_control_torque(arm, torque)
+            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_forward(self.model, self.data)
+
+    def _compute_arm_osc_torque(self, arm, remain, velocity, v_ref=None, k_task=600.0, d_task=40.0, force_limit=12.0,
+                               approach_direction=None, orientation_reference=None):
+        from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque, isaac_task_force
+
+        q = self.get_current_joint_position(arm)
+        dq = self.get_current_joint_velocity(arm)
+        jacobian = np.asarray(self.get_arm_jacobian(arm)[:3], dtype=np.float64)
+        force = isaac_task_force(remain, velocity, v_ref=v_ref, k_task=k_task, d_task=d_task, limit=force_limit)
+        tau_task = jacobian.T @ np.asarray(force, dtype=np.float64)
+        tau_null = franka_nullspace_posture_torque(
+            jacobian, q, dq, arm.home_q, float(arm.nullspace_stiffness)
+        )
+        if approach_direction is not None or orientation_reference is not None:
+            # Before touch, keep wrists outside the contact normals. Loaded
+            # condim=6 pads also need full orientation, including axial spin.
+            full_jacobian = self.get_arm_jacobian(arm)
+            _, current_rotation = self.get_tip_pose(arm)
+            axis = current_rotation[:, 2]
+            angular = full_jacobian[3:] @ dq
+            if orientation_reference is None:
+                angular -= axis * np.dot(axis, angular)
+                orientation_error = np.cross(axis, approach_direction)
+            else:
+                orientation_error = _rotation_error(current_rotation, orientation_reference)
+            stiffness = float(self.args.online_orientation_stiffness)
+            orientation_torque = full_jacobian[3:].T @ (
+                stiffness * orientation_error - 2 * np.sqrt(stiffness) * angular)
+            mass = np.empty((self.model.nv, self.model.nv))
+            try:
+                mujoco.mj_fullM(self.model, self.data, mass)
+            except TypeError:
+                mujoco.mj_fullM(self.model, mass, self.data.qM)
+            arm_mass = mass[np.ix_(arm.dof_adr, arm.dof_adr)]
+            inverse_jt = np.linalg.solve(arm_mass, jacobian.T)
+            task_inverse = np.linalg.pinv(jacobian @ inverse_jt, rcond=1e-8)
+            # J M^-1 N_tau = 0: wrist alignment must not introduce an
+            # unmodelled fingertip acceleration or unilateral contact push.
+            projector = np.eye(7) - jacobian.T @ task_inverse @ inverse_jt.T
+            posture = float(arm.nullspace_stiffness) * (arm.home_q - q)
+            posture -= 2 * np.sqrt(float(arm.nullspace_stiffness)) * dq
+            if orientation_reference is not None:
+                inverse_full_jt = np.linalg.solve(arm_mass, full_jacobian.T)
+                full_task_inverse = np.linalg.pinv(full_jacobian @ inverse_full_jt, rcond=1e-8)
+                full_projector = np.eye(7) - full_jacobian.T @ full_task_inverse @ inverse_full_jt.T
+                # Home posture must not fight the held wrist orientation. A
+                # translation-only projector leaves all three rotation tasks
+                # exposed to its steady torque and causes gradual object tilt.
+                tau_null = projector @ orientation_torque + .1 * full_projector @ posture
+            else:
+                tau_null = projector @ (orientation_torque + .1 * posture)
+        tau_bias = np.asarray(self.data.qfrc_bias[arm.dof_adr], dtype=np.float64)
+        return np.clip(tau_task + np.asarray(tau_null, dtype=np.float64) + tau_bias, -arm.torque_limits, arm.torque_limits)
+
+    def step_osc_tip_delta(self, left_cmd, right_cmd, object_force_world=None, object_torque_world=None):
+        """Track dual-arm 3D fingertip increments with position-only OSC."""
+        from examples.mpc.franka.ik2.contact_frames import mpc_ball_trajectory, remaining_along_action
+
+        left_cmd = np.asarray(left_cmd, dtype=np.float64).reshape(3)
+        right_cmd = np.asarray(right_cmd, dtype=np.float64).reshape(3)
+        left_p0, left_rot = self.get_tip_pose(self.left_arm)
+        right_p0, right_rot = self.get_tip_pose(self.right_arm)
+        num_steps = self._planner_tracking_steps()
+        horizon = max(float(num_steps) * float(self.model.opt.timestep), 1.0e-6)
+        for step_idx in range(num_steps):
+            t = float(step_idx + 1) * float(self.model.opt.timestep)
+            left_pref, left_vref = mpc_ball_trajectory(left_p0, left_cmd, t, horizon)
+            right_pref, right_vref = mpc_ball_trajectory(right_p0, right_cmd, t, horizon)
+            self.set_desired_tip_pose(self.left_arm, left_pref, left_rot)
+            self.set_desired_tip_pose(self.right_arm, right_pref, right_rot)
+            mujoco.mj_forward(self.model, self.data)
+            left_curr, _ = self.get_tip_pose(self.left_arm)
+            right_curr, _ = self.get_tip_pose(self.right_arm)
+            left_jac = self.get_arm_jacobian(self.left_arm)[:3]
+            right_jac = self.get_arm_jacobian(self.right_arm)[:3]
+            left_vel = left_jac @ self.get_current_joint_velocity(self.left_arm)
+            right_vel = right_jac @ self.get_current_joint_velocity(self.right_arm)
+            left_tau = self._compute_arm_osc_torque(
+                self.left_arm,
+                remaining_along_action(left_curr, left_p0, left_cmd),
+                left_vel,
+                v_ref=left_vref,
+            )
+            right_tau = self._compute_arm_osc_torque(
+                self.right_arm,
+                remaining_along_action(right_curr, right_p0, right_cmd),
+                right_vel,
+                v_ref=right_vref,
+            )
+            self.set_control_torque(self.left_arm, left_tau)
+            self.set_control_torque(self.right_arm, right_tau)
+            self.apply_object_wrench_world(
+                force_world=object_force_world,
+                torque_world=object_torque_world,
+            )
+            mujoco.mj_step(self.model, self.data)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None:
+                self.sync_viewer()
+            if self.args.real_time and self.viewer is not None:
+                time.sleep(self.model.opt.timestep)
+
+    def hold_current_pose(self, num_steps=1, object_force_world=None, object_torque_world=None):
+        for arm in (self.left_arm, self.right_arm):
+            tip_pos, tip_rot = self.get_tip_pose(arm)
+            self.set_desired_tip_pose(arm, tip_pos, tip_rot)
+
+        for _ in range(max(int(num_steps), 1)):
+            left_tau, right_tau = self._compute_dual_arm_cartesian_impedance_control()
+            self.set_control_torque(self.left_arm, left_tau)
+            self.set_control_torque(self.right_arm, right_tau)
+            self.apply_object_wrench_world(
+                force_world=object_force_world,
+                torque_world=object_torque_world,
+            )
+            mujoco.mj_step(self.model, self.data)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None:
+                self.sync_viewer()
+            if self.args.real_time and self.viewer is not None:
+                time.sleep(self.model.opt.timestep)
+
+    def extract_object_contacts(self):
+        obj_pos, _, obj_rot = self.get_object_pose()
+        contacts = {"left": [], "right": []}
+        for i in range(self.data.ncon):
+            contact = self.data.contact[i]
+            geom_ids = {int(contact.geom1), int(contact.geom2)}
+            if self.obj_geom_id not in geom_ids:
+                continue
+            other_geom = int(contact.geom2) if int(contact.geom1) == self.obj_geom_id else int(contact.geom1)
+            if other_geom == self.left_arm.tip_geom_id:
+                key = "left"
+            elif other_geom == self.right_arm.tip_geom_id:
+                key = "right"
+            else:
+                continue
+
+            world_pos = np.asarray(contact.pos, dtype=np.float64).copy()
+            local_pos = obj_rot.T @ (world_pos - obj_pos)
+            contact_force = np.zeros(6, dtype=np.float64)
+            if hasattr(mujoco, "mj_contactForce"):
+                mujoco.mj_contactForce(self.model, self.data, i, contact_force)
+            normal_force = float(abs(contact_force[0]))
+            tangential_force = float(np.linalg.norm(contact_force[1:3]))
+            sign = 1. if int(contact.geom2) == self.obj_geom_id else -1.
+            frame = np.asarray(contact.frame).reshape(3, 3)
+            normal_world = sign*frame[0]
+            force_world = sign*frame.T @ contact_force[:3]
+            contacts[key].append(
+                {
+                    "world_pos": world_pos,
+                    "local_pos": local_pos,
+                    "dist": float(contact.dist),
+                    "force_local": contact_force.copy(),
+                    "normal_force": normal_force,
+                    "tangential_force": tangential_force,
+                    "normal_world": normal_world.copy(),
+                    "normal_local": obj_rot.T @ normal_world,
+                    "force_world": force_world,
+                    "sliding_friction": float(contact.friction[0]),
+                }
+            )
+        return contacts
+
+    def _tip_target_error(self, arm, target_pos, target_rot=None):
+        current_pos, current_rot = self.get_tip_pose(arm)
+        pos_err = float(np.linalg.norm(np.asarray(target_pos, dtype=np.float64) - current_pos))
+        rot_err = 0.0
+        if target_rot is not None:
+            rot_err = float(np.linalg.norm(_rotation_error(current_rot, target_rot)))
+        return pos_err, rot_err
+
+    def _run_dual_arm_stage(
+        self,
+        label,
+        max_steps,
+        target_fn,
+        pos_tol,
+        rot_tol=None,
+        success_fn=None,
+        solve_ik_once=False,
+        use_ik=True,
+        fixed_joint_goals=None,
+        world_mode="with_pedestal",
+        waypoint_offset=None,
+    ):
+        rot_tol = self.args.ik_rot_tol if rot_tol is None else float(rot_tol)
+        if int(max_steps) <= 0:
+            return False, {}
+
+        self._set_curobo_world_mode(world_mode)
+        last_report_step = -1
+        info = {}
+        cached_targets = None
+        cached_ik = None
+        planner_sol_guess = None
+        waypoint_offset = self.args.planner_attract_offset if waypoint_offset is None else float(waypoint_offset)
+        waypoint_done = waypoint_offset <= 1e-9
+        if fixed_joint_goals is None:
+            left_joint_goal = None
+            right_joint_goal = None
+        else:
+            left_joint_goal, right_joint_goal = fixed_joint_goals
+        for step in range(max_steps):
+            if not self.is_running():
+                break
+
+            self._update_inter_arm_worlds()
+            left_curr_pos, left_curr_rot = self.get_tip_pose(self.left_arm)
+            right_curr_pos, right_curr_rot = self.get_tip_pose(self.right_arm)
+            if solve_ik_once:
+                if cached_targets is None:
+                    cached_targets = target_fn(step)
+                    left_target = cached_targets["left_tip_pos"]
+                    left_rot = cached_targets["left_tip_rot"]
+                    right_target = cached_targets["right_tip_pos"]
+                    right_rot = cached_targets["right_tip_rot"]
+                    if use_ik:
+                        left_ik = self.solve_arm_ik(self.left_arm, left_target, left_rot)
+                        right_ik = self.solve_arm_ik(self.right_arm, right_target, right_rot)
+                    else:
+                        left_ik = self.build_pose_goal_result(
+                            self.left_arm,
+                            left_target,
+                            left_rot,
+                            reference_q_mj=left_joint_goal,
+                        )
+                        right_ik = self.build_pose_goal_result(
+                            self.right_arm,
+                            right_target,
+                            right_rot,
+                            reference_q_mj=right_joint_goal,
+                        )
+                    cached_ik = (left_ik, right_ik)
+                else:
+                    left_target = cached_targets["left_tip_pos"]
+                    left_rot = cached_targets["left_tip_rot"]
+                    right_target = cached_targets["right_tip_pos"]
+                    right_rot = cached_targets["right_tip_rot"]
+                    left_ik, right_ik = cached_ik
+                stage_targets = cached_targets
+            else:
+                stage_targets = target_fn(step)
+                left_target = stage_targets["left_tip_pos"]
+                left_rot = stage_targets["left_tip_rot"]
+                right_target = stage_targets["right_tip_pos"]
+                right_rot = stage_targets["right_tip_rot"]
+                if use_ik:
+                    left_ik = self.solve_arm_ik(self.left_arm, left_target, left_rot)
+                    right_ik = self.solve_arm_ik(self.right_arm, right_target, right_rot)
+                else:
+                    left_ik = self.build_pose_goal_result(
+                        self.left_arm,
+                        left_target,
+                        left_rot,
+                        reference_q_mj=left_joint_goal,
+                    )
+                    right_ik = self.build_pose_goal_result(
+                        self.right_arm,
+                        right_target,
+                        right_rot,
+                        reference_q_mj=right_joint_goal,
+                    )
+
+            left_attract = left_ik.solved_tip_pos_world + stage_targets["left_outward_normal"] * waypoint_offset
+            right_attract = right_ik.solved_tip_pos_world + stage_targets["right_outward_normal"] * waypoint_offset
+
+            if not waypoint_done:
+                left_waypoint_dist = float(np.linalg.norm(self.get_tip_pos(self.left_arm) - left_attract))
+                right_waypoint_dist = float(np.linalg.norm(self.get_tip_pos(self.right_arm) - right_attract))
+                if (
+                    left_waypoint_dist < float(self.args.planner_attract_tol)
+                    and right_waypoint_dist < float(self.args.planner_attract_tol)
+                ):
+                    waypoint_done = True
+                    planner_sol_guess = None
+
+            waypoint_active = not waypoint_done
+            left_step_target = left_attract if waypoint_active else left_ik.solved_tip_pos_world
+            right_step_target = right_attract if waypoint_active else right_ik.solved_tip_pos_world
+            left_step_rot = left_curr_rot if waypoint_active else left_ik.solved_tip_rot_world
+            right_step_rot = right_curr_rot if waypoint_active else right_ik.solved_tip_rot_world
+
+            curr_x = self.get_planner_state()
+            phi_vec, jac_mat = self._detect_planner_contacts()
+            object_target_pos = np.asarray(stage_targets.get("object_target_pos", curr_x[:3]), dtype=np.float64)
+            object_target_quat = np.asarray(stage_targets.get("object_target_quat", curr_x[3:7]), dtype=np.float64)
+            planner_result = self.planner.plan_once(
+                object_target_pos,
+                object_target_quat,
+                curr_x,
+                phi_vec,
+                jac_mat,
+                sol_guess=planner_sol_guess,
+                verify_cost_param_1=0.0 if waypoint_active else 1.0,
+                verify_cost_param_2=0.0 if waypoint_active else 1.0,
+                virtual_point_1=left_attract,
+                virtual_point_2=right_attract,
+                contact_point_1=left_ik.solved_tip_pos_world,
+                contact_point_2=right_ik.solved_tip_pos_world,
+            )
+            planner_sol_guess = planner_result["sol_guess"]
+            self.plan_params.sol_guess_ = planner_sol_guess
+            action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
+            if action.shape[0] != 6:
+                raise RuntimeError(f"Expected a 6D dual-arm plan_once action, got shape {action.shape}.")
+            self.step_cartesian_action(
+                action[:3],
+                action[3:6],
+                left_step_rot,
+                right_step_rot,
+            )
+
+            self.set_marker("left_goal", left_step_target)
+            self.set_marker("right_goal", right_step_target)
+            self.set_marker("obj_point", object_target_pos)
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer is not None:
+                self.sync_viewer()
+
+            left_err, left_rot_err = self._tip_target_error(
+                self.left_arm,
+                left_ik.solved_tip_pos_world,
+                left_ik.solved_tip_rot_world,
+            )
+            right_err, right_rot_err = self._tip_target_error(
+                self.right_arm,
+                right_ik.solved_tip_pos_world,
+                right_ik.solved_tip_rot_world,
+            )
+            left_plan_pose_err, _ = self._tip_target_error(
+                self.left_arm,
+                left_step_target,
+                left_ik.solved_tip_rot_world,
+            )
+            right_plan_pose_err, _ = self._tip_target_error(
+                self.right_arm,
+                right_step_target,
+                right_ik.solved_tip_rot_world,
+            )
+            contacts = self.extract_object_contacts()
+            info = {
+                "step": step,
+                "contacts": contacts,
+                "left_force": self._max_normal_force(contacts["left"]),
+                "right_force": self._max_normal_force(contacts["right"]),
+                "waypoint_active": waypoint_active,
+                "left_waypoint_pos_err": float(np.linalg.norm(self.get_tip_pos(self.left_arm) - left_attract)),
+                "right_waypoint_pos_err": float(np.linalg.norm(self.get_tip_pos(self.right_arm) - right_attract)),
+                "left_pos_err": left_err,
+                "right_pos_err": right_err,
+                "left_rot_err": left_rot_err,
+                "right_rot_err": right_rot_err,
+                "left_ik_ok": bool(left_ik.success),
+                "right_ik_ok": bool(right_ik.success),
+                "left_ik_pos_err": float(left_ik.position_error),
+                "right_ik_pos_err": float(right_ik.position_error),
+                "left_ik_rot_err": float(left_ik.rotation_error),
+                "right_ik_rot_err": float(right_ik.rotation_error),
+                "left_ik_constraint_total": float(left_ik.constraint_total),
+                "right_ik_constraint_total": float(right_ik.constraint_total),
+                "left_ik_bound_constraint": float(left_ik.bound_constraint),
+                "right_ik_bound_constraint": float(right_ik.bound_constraint),
+                "left_ik_world_constraint": float(left_ik.world_constraint),
+                "right_ik_world_constraint": float(right_ik.world_constraint),
+                "left_ik_static_world_constraint": float(left_ik.static_world_constraint),
+                "right_ik_static_world_constraint": float(right_ik.static_world_constraint),
+                "left_ik_self_constraint": float(left_ik.self_constraint),
+                "right_ik_self_constraint": float(right_ik.self_constraint),
+                "left_ik_failure_reason": str(left_ik.failure_reason),
+                "right_ik_failure_reason": str(right_ik.failure_reason),
+                "left_mpc_pose_err": float(left_plan_pose_err),
+                "right_mpc_pose_err": float(right_plan_pose_err),
+                "left_goal_q_mj": left_ik.q_mj.copy(),
+                "right_goal_q_mj": right_ik.q_mj.copy(),
+                "object_pos": self.get_object_pose()[0].copy(),
+                "left_planner_cmd": action[:3].copy(),
+                "right_planner_cmd": action[3:6].copy(),
+            }
+            if step == 0 or step == max_steps - 1 or step - last_report_step >= 40:
+                print(
+                    f"[{label}] step={step:04d} "
+                    f"left_err={left_err:.4f}/{left_rot_err:.4f} "
+                    f"right_err={right_err:.4f}/{right_rot_err:.4f} "
+                    f"left_force={info['left_force']:.3f} right_force={info['right_force']:.3f} "
+                    f"left_ik={left_ik.success} right_ik={right_ik.success} "
+                    f"left_ik_res={left_ik.position_error:.4f}/{left_ik.rotation_error:.4f} "
+                    f"right_ik_res={right_ik.position_error:.4f}/{right_ik.rotation_error:.4f} "
+                    f"left_mpc={left_plan_pose_err:.4f} right_mpc={right_plan_pose_err:.4f}"
+                )
+                if step == 0:
+                    print(
+                        f"  stage_cfg: world_mode={world_mode} "
+                        f"use_ik={use_ik} planner=plan_once waypoint_offset={waypoint_offset:.4f}"
+                    )
+                if not left_ik.success and left_ik.failure_reason:
+                    print(
+                        "  left_ik_diag: "
+                        f"reason={left_ik.failure_reason} "
+                        f"constraint={left_ik.constraint_total:.4f} "
+                        f"bound={left_ik.bound_constraint:.4f} "
+                        f"world={left_ik.world_constraint:.4f} "
+                        f"static_world={left_ik.static_world_constraint:.4f} "
+                        f"self={left_ik.self_constraint:.4f}"
+                    )
+                if not right_ik.success and right_ik.failure_reason:
+                    print(
+                        "  right_ik_diag: "
+                        f"reason={right_ik.failure_reason} "
+                        f"constraint={right_ik.constraint_total:.4f} "
+                        f"bound={right_ik.bound_constraint:.4f} "
+                        f"world={right_ik.world_constraint:.4f} "
+                        f"static_world={right_ik.static_world_constraint:.4f} "
+                        f"self={right_ik.self_constraint:.4f}"
+                    )
+                if waypoint_active:
+                    print(
+                        "  waypoint_track: "
+                        f"left={info['left_waypoint_pos_err']:.4f} "
+                        f"right={info['right_waypoint_pos_err']:.4f}"
+                    )
+                last_report_step = step
+
+            pose_ok = (
+                left_err < pos_tol
+                and right_err < pos_tol
+                and left_rot_err < rot_tol
+                and right_rot_err < rot_tol
+            )
+            if success_fn is None:
+                if pose_ok:
+                    return True, info
+            elif success_fn(info):
+                return True, info
+
+        return False, info
+
+    def run(self):
+        """Run receding-horizon grasp control, with live lambda cones for CA/FA."""
+        for planner in (
+            self.planner,
+            self.explicit_planner,
+            self.physical_planner,
+            self.spider_planner,
+        ):
+            reset = getattr(planner, "reset", None)
+            if callable(reset):
+                reset()
+        object_pos, object_quat, object_rot = self.get_object_pose()
+        touch_offset = TIP_RADIUS + float(self.args.touch_offset)
+
+        if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            self._online_approach_origin = object_pos.copy()
+            self._online_pair_revision = 0
+            self._online_lost_contact_steps = 0
+            self._online_last_replan_time = -np.inf
+            self._online_grasp_active = False
+            self._online_grasp_confirm_streak = 0
+            self._online_grasp_release_streak = 0
+            if self.planner_mode == "mpc_ee":
+                self._online_contact_ids = None
+                self._online_contact_stable_steps = 0
+                self._online_grasp_active = False
+                self._online_grasp_confirm_streak = 0
+                self._online_grasp_release_streak = 0
+                self._online_approach_origin = object_pos.copy()
+            self.optimizer.reset()
+            contact_targets, x_plus_opt, _, lambda_info = self._update_warp_lambda_contacts(
+                object_pos, object_quat, object_rot, initial=True,
+            )
+            initial_contact_selection = self._copy_nested_value(lambda_info.get('contact_selection'))
+            print(f"[lambda-selection] cost={initial_contact_selection.get('prediction_cost', float('nan')):.4g} "
+                  f"next_rotation_cost={initial_contact_selection.get('next_orientation_cost', float('nan')):.4g} "
+                  f"robot_checks={initial_contact_selection.get('candidate_checks', 0)}", flush=True)
+        else:
+            initial_contact_selection = None
+            contact_targets = self._get_live_contact_targets(
+                object_pos, object_rot, previous_targets=None,
+                virtual_offset=float(self.args.planner_attract_offset),
+            )
+        contact_points_local = np.asarray(contact_targets["contact_points_local"], dtype=np.float64).reshape(2, 3)
+        normals_local = np.asarray(contact_targets["normals_local"], dtype=np.float64).reshape(2, 3)
+        self.contact_points_local = contact_points_local.copy()
+        self.normals_local = normals_local.copy()
+        contact_points_world = (object_rot @ contact_points_local.T).T + object_pos[None, :]
+        self.contact_points_world = contact_points_world.copy()
+        grasp_result = self._copy_nested_value(getattr(self.optimizer, "last_grasp_result", None)) or {}
+        static_result = grasp_result.get("static_equilibrium", None)
+        desired_contact_forces_local = np.zeros((0, 3), dtype=np.float64)
+        desired_force_vectors_local = np.zeros((0, 3), dtype=np.float64)
+        if isinstance(static_result, dict) and bool(static_result.get("valid", True)):
+            desired_contact_forces_local = np.asarray(
+                static_result.get("contact_forces_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+            desired_force_vectors_local = np.asarray(
+                static_result.get("force_vectors_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+        contact_order = np.asarray(contact_targets.get("contact_order", [0, 1]), dtype=int).reshape(-1)
+        if contact_order.size == 2:
+            if desired_contact_forces_local.shape[0] == 2:
+                desired_contact_forces_local = desired_contact_forces_local[contact_order]
+            if desired_force_vectors_local.shape[0] == 2:
+                desired_force_vectors_local = desired_force_vectors_local[contact_order]
+        if desired_contact_forces_local.shape[0] != 2:
+            desired_contact_forces_local = np.asarray(
+                grasp_result.get("witness_contact_forces_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+            if desired_contact_forces_local.shape[0] == 2 and contact_order.size == 2:
+                desired_contact_forces_local = desired_contact_forces_local[contact_order]
+        if desired_force_vectors_local.shape[0] != 2:
+            desired_force_vectors_local = np.asarray(
+                grasp_result.get("witness_force_vectors_local", []), dtype=np.float64
+            ).reshape(-1, 3)
+            if desired_force_vectors_local.shape[0] == 2 and contact_order.size == 2:
+                desired_force_vectors_local = desired_force_vectors_local[contact_order]
+        required_normal_force = (
+            0.35 * float(self.args.obj_mass) * 9.81
+            if self.args.min_normal_force is None
+            else float(self.args.min_normal_force)
+        )
+        desired_normal_thresholds = np.full(2, required_normal_force, dtype=np.float64)
+        if desired_contact_forces_local.shape[0] == 2:
+            desired_normal_thresholds = np.maximum(
+                desired_normal_thresholds,
+                np.maximum(desired_contact_forces_local[:, 0], 0.0),
+            )
+        desired_normal_forces_local = np.zeros((2, 3), dtype=np.float64)
+        if desired_force_vectors_local.shape[0] == 2:
+            desired_normal_forces_local[:] = desired_force_vectors_local
+        else:
+            normals_unit = normals_local / np.maximum(np.linalg.norm(normals_local, axis=1, keepdims=True), 1.0e-9)
+            desired_normal_forces_local[:] = normals_unit * required_normal_force
+        contact_targets["desired_force_vectors_local"] = desired_normal_forces_local.copy()
+        contact_pair = ContactPair.from_lambda_targets(contact_targets)
+        contact_replan_origin = object_pos.copy()
+        contact_lost_steps = 0
+
+        self._set_curobo_world_mode("floor_only")
+        self._update_inter_arm_worlds()
+        initial_touch_targets = self._stage_targets_from_object_pose(
+            contact_points_local,
+            normals_local,
+            object_pos,
+            object_rot,
+            center_offset=touch_offset,
+        )
+        if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+            print("Online MPC will optimize the two Cartesian actions" if self.planner_mode == "mpc_ee" else
+                  "ContactAware will compute the touch joint reference during each CA/FA cycle")
+            _, left_fixed_rot = self.get_tip_pose(self.left_arm)
+            _, right_fixed_rot = self.get_tip_pose(self.right_arm)
+            left_fixed_rot = _project_to_rotation_matrix(left_fixed_rot)
+            right_fixed_rot = _project_to_rotation_matrix(right_fixed_rot)
+            left_touch_ik = ArmIkResult(
+                q_mj=self.get_current_joint_position(self.left_arm),
+                success=False,
+                position_error=0.0,
+                rotation_error=0.0,
+                target_hand_pos_world=initial_touch_targets["left_tip_pos"],
+                target_hand_rot_world=initial_touch_targets["left_tip_rot"],
+                solved_hand_pos_world=initial_touch_targets["left_tip_pos"],
+                solved_hand_rot_world=initial_touch_targets["left_tip_rot"],
+                solved_tip_pos_world=initial_touch_targets["left_tip_pos"],
+                solved_tip_rot_world=initial_touch_targets["left_tip_rot"],
+            )
+            right_touch_ik = ArmIkResult(
+                q_mj=self.get_current_joint_position(self.right_arm),
+                success=False,
+                position_error=0.0,
+                rotation_error=0.0,
+                target_hand_pos_world=initial_touch_targets["right_tip_pos"],
+                target_hand_rot_world=initial_touch_targets["right_tip_rot"],
+                solved_hand_pos_world=initial_touch_targets["right_tip_pos"],
+                solved_hand_rot_world=initial_touch_targets["right_tip_rot"],
+                solved_tip_pos_world=initial_touch_targets["right_tip_pos"],
+                solved_tip_rot_world=initial_touch_targets["right_tip_rot"],
+            )
+        else:
+            left_touch_ik = self.solve_arm_ik(
+                self.left_arm,
+                initial_touch_targets["left_tip_pos"],
+                initial_touch_targets["left_tip_rot"],
+            )
+            right_touch_ik = self.solve_arm_ik(
+                self.right_arm,
+                initial_touch_targets["right_tip_pos"],
+                initial_touch_targets["right_tip_rot"],
+            )
+            left_fixed_rot = _project_to_rotation_matrix(
+                left_touch_ik.solved_tip_rot_world if left_touch_ik.success else initial_touch_targets["left_tip_rot"]
+            )
+            right_fixed_rot = _project_to_rotation_matrix(
+                right_touch_ik.solved_tip_rot_world if right_touch_ik.success else initial_touch_targets["right_tip_rot"]
+            )
+        ee_target_quat = np.asarray(
+            [mat_to_quat_wxyz(left_fixed_rot), mat_to_quat_wxyz(right_fixed_rot)],
+            dtype=np.float64,
+        )
+
+        object_target_pos = self.object_target_pos.copy()
+        object_target_quat = self.object_target_quat.copy()
+        self.desired_contact_forces_local = desired_contact_forces_local.copy()
+        self.desired_force_vectors_local = desired_normal_forces_local.copy()
+        self.set_marker("contact_point1", contact_points_world[0])
+        self.set_marker("contact_point2", contact_points_world[1])
+        self.set_marker("goal", object_target_pos, object_target_quat)
+        mujoco.mj_forward(self.model, self.data)
+        if self.viewer is not None:
+            self.sync_viewer()
+
+        print("Generated scene:", self.scene_path)
+        print("Mesh:", self.mesh_path)
+        print("Object pose:", object_pos, object_quat)
+        if self._arm_mppi is not None:
+            planner_name = {
+                "mppi_ee": "Explicit EE MPPI",
+                "mppi_joint": "Explicit joint MPPI",
+            }.get(self.planner_mode, "Warp MPPI")
+            print(
+                f"{planner_name}:",
+                f"action_dim={self._arm_mppi.action_dim} horizon={self._arm_mppi.horizon} "
+                f"samples={self._arm_mppi.num_samples} "
+                f"knots={self._arm_mppi.num_knots} "
+                f"substeps={self._arm_mppi.substeps} device={self._arm_mppi.device}",
+            )
+        elif self.planner_mode in {"mpc_ee", "mppi_ee", "mpc_joint"}:
+            print(
+                f"Explicit MPC ({self.planner_mode}):",
+                f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
+                f"solver={self.plan_params.planner_solver_}",
+            )
+        else:
+            print(
+                "Unified MPPI:",
+                f"state_dim={self.plan_params.n_qpos_} action_dim={self.plan_params.n_cmd_} "
+                f"horizon={self.plan_params.mpc_horizon_} samples={self.plan_params.mppi_samples_}",
+            )
+        print("Initial contact points local:\n", contact_points_local)
+        print("Initial desired contact forces local:\n", desired_normal_forces_local)
+        print(
+            f"Initial contact projection world:\n{contact_points_world}\n"
+            f"target object pose: {object_target_pos} {object_target_quat}"
+        )
+        if self.planner_mode not in {"mpc_ee", "mppi_ee"}:
+            print(
+                f"IK orientation references: left_success={left_touch_ik.success} "
+                f"right_success={right_touch_ik.success}"
+            )
+
+        stable_steps = 0
+        last_info = {}
+        telemetry = []
+        measured_contact_mask = np.zeros(2, dtype=bool)
+        measured_force = np.zeros(2, dtype=np.float64)
+        control_steps = max(int(getattr(self.args, "control_steps", 1600)), 1)
+        sync_pos_tol = float(getattr(self.args, "planner_sync_pos_tol", self.args.planner_attract_tol))
+        sync_rot_tol = float(getattr(self.args, "planner_sync_rot_tol", self.args.ik_rot_tol))
+        report_stride = max(1, control_steps // 20)
+        print_mppi_timing = bool(getattr(self.args, "print_mppi_timing", False))
+
+        if torch is not None:
+            torch.set_num_threads(1)
+        for step_idx in range(control_steps):
+            loop_t0 = time.perf_counter()
+            # #region agent log
+            if step_idx == 0:
+                _agent_dbg(
+                    "C",
+                    "bigrasp.py:run.loop0",
+                    "control loop start",
+                    warp_loaded=any(n == "warp" or n.startswith("warp.") for n in sys.modules),
+                    planner=type(self.planner).__name__ if self.planner is not None else None,
+                    device=str(getattr(getattr(self, "planner", None), "device", None)),
+                )
+            # #endregion
+            current_pos, current_quat, current_rot = self.get_object_pose()
+            if self.planner_mode in {"mpc_ee", "mppi_ee"}:
+                contact_targets, x_plus_opt, _, lambda_info = self._update_warp_lambda_contacts(
+                    current_pos, current_quat, current_rot,
+                )
+                contact_points_local = np.asarray(contact_targets["contact_points_local"], dtype=np.float64).reshape(2, 3)
+                normals_local = np.asarray(contact_targets["normals_local"], dtype=np.float64).reshape(2, 3)
+                desired_contact_forces_local = np.asarray(lambda_info["contact_forces_local"], dtype=np.float64).reshape(2, 3)
+                desired_normal_forces_local = np.asarray(lambda_info["force_vectors_local"], dtype=np.float64).reshape(2, 3)
+                desired_normal_thresholds = np.maximum(required_normal_force, desired_contact_forces_local[:, 0])
+                self.contact_points_local = contact_points_local.copy()
+                self.normals_local = normals_local.copy()
+                self.desired_contact_forces_local = desired_contact_forces_local.copy()
+                self.desired_force_vectors_local = desired_normal_forces_local.copy()
+                contact_targets["desired_force_vectors_local"] = desired_normal_forces_local.copy()
+                contact_pair = ContactPair.from_lambda_targets(contact_targets)
+                live = lambda_info.get('live_grasp', {})
+                for update in live.get('local_contact_updates', []):
+                    print(f"[local-contact] step={step_idx} arm={update['arm']}; nearby task-supporting patch adopted")
+                if live.get('global_contact_replan'):
+                    print(f"[regrasp] step={step_idx}; new predicted-cost pair accepted; lift then approach")
+            elif self.physical_planner is not None:
+                drifted = float(np.linalg.norm(current_pos - contact_replan_origin)) >= float(
+                    getattr(self.args, "contact_replan_drift_m", 0.01)
+                )
+                lost = contact_lost_steps >= max(int(getattr(self.args, "contact_replan_lost_steps", 3)), 1)
+                if drifted or lost:
+                    refreshed = self._get_live_contact_targets(
+                        current_pos,
+                        current_rot,
+                        previous_targets=contact_targets,
+                        virtual_offset=float(self.args.planner_attract_offset),
+                    )
+                    contact_targets = refreshed
+                    contact_points_local = np.asarray(refreshed["contact_points_local"], dtype=np.float64).reshape(2, 3)
+                    normals_local = np.asarray(refreshed["normals_local"], dtype=np.float64).reshape(2, 3)
+                    self.contact_points_local = contact_points_local.copy()
+                    self.normals_local = normals_local.copy()
+                    refreshed_force = np.asarray(
+                        refreshed.get("desired_force_vectors_local", []), dtype=np.float64
+                    ).reshape(-1, 3)
+                    if refreshed_force.shape[0] == 2:
+                        desired_normal_forces_local = refreshed_force.copy()
+                    refreshed["desired_force_vectors_local"] = desired_normal_forces_local.copy()
+                    contact_pair = ContactPair.from_lambda_targets(refreshed)
+                    contact_replan_origin = current_pos.copy()
+                    contact_lost_steps = 0
+            contact_points_world = (current_rot @ contact_points_local.T).T + current_pos[None, :]
+            self.contact_points_world = contact_points_world.copy()
+            inward_normals_world = (current_rot @ normals_local.T).T
+            outward_normals_world = -inward_normals_world
+            self.set_marker("contact_point1", contact_points_world[0])
+            self.set_marker("contact_point2", contact_points_world[1])
+            self.set_marker("goal", object_target_pos, object_target_quat)
+
+            # #region agent log
+            if step_idx == 0:
+                _agent_dbg("B", "bigrasp.py:run.before_stage", "before _stage_targets_from_object_pose")
+            # #endregion
+            approach_targets = self._stage_targets_from_object_pose(
+                contact_points_local,
+                normals_local,
+                current_pos,
+                current_rot,
+                center_offset=touch_offset,
+            )
+            # #region agent log
+            if step_idx == 0:
+                _agent_dbg("B", "bigrasp.py:run.after_stage", "after _stage_targets_from_object_pose")
+            # #endregion
+            # Reproject the contact-frame orientation with the measured
+            # object pose on every physical cycle.  Keeping the initial IK
+            # quaternion fixed while a unilateral contact yaws the object
+            # leaves the impedance controller tracking a stale normal and
+            # creates a tangential miss at the other fingertip.
+            ee_target_quat_cycle = np.asarray(
+                [
+                    mat_to_quat_wxyz(approach_targets["left_tip_rot"]),
+                    mat_to_quat_wxyz(approach_targets["right_tip_rot"]),
+                ],
+                dtype=np.float64,
+            )
+            left_pos, left_rot = self.get_tip_pose(self.left_arm)
+            right_pos, right_rot = self.get_tip_pose(self.right_arm)
+            left_pos_err = float(np.linalg.norm(left_pos - approach_targets["left_tip_pos"]))
+            right_pos_err = float(np.linalg.norm(right_pos - approach_targets["right_tip_pos"]))
+            left_rot_err = float(np.linalg.norm(_rotation_error(left_rot, left_fixed_rot)))
+            right_rot_err = float(np.linalg.norm(_rotation_error(right_rot, right_fixed_rot)))
+            ready_mask = np.asarray(
+                [
+                    left_pos_err <= sync_pos_tol and left_rot_err <= sync_rot_tol,
+                    right_pos_err <= sync_pos_tol and right_rot_err <= sync_rot_tol,
+                ],
+                dtype=bool,
+            )
+            # A ready arm used to be frozen until the other caught up.  The
+            # 3 cm ready ball already contains the contact pose, so that hold
+            # locked the first fingertip against the object.  Both arms stay
+            # free; simultaneous contact has to come from the rollout cost.
+            hold_mask = np.zeros(2, dtype=bool)
+            contact_hold_mask = np.zeros(2, dtype=bool)
+            planner_state = self.get_planner_state()
+            planner_t0 = time.perf_counter()
+            trajectory_path = None
+            if self._arm_mppi is not None:
+                approach_q = None
+                if self.planner_mode == "mppi_joint" and bool(left_touch_ik.success) and bool(right_touch_ik.success):
+                    approach_q = np.concatenate(
+                        (
+                            np.asarray(left_touch_ik.q_mj, dtype=np.float64).reshape(7),
+                            np.asarray(right_touch_ik.q_mj, dtype=np.float64).reshape(7),
+                        )
+                    )
+                planner_result = self._arm_mppi.plan_once(
+                    contact_points_local,
+                    object_target_pos,
+                    object_target_quat,
+                    approach_q=approach_q,
+                )
+            elif self.planner_mode == "mpc_ee":
+                phi_vec, jac_mat = self._online_mpc_contacts()
+                selected_mask, established = self._online_selected_contacts(contact_points_local)
+                physical_mask, physical_force, grasp_established = self._online_grasp_observation()
+                inertia, external = self._lambda_object_dynamics(current_rot)
+                external += self._online_live_grasp['other_hand_wrench_world']
+                approach_centers, approach_mask = self._online_contact_approach_centers(
+                    current_pos, current_rot, grasp_established)
+                planner_result = self.planner.plan_once(
+                    object_target_pos, object_target_quat, planner_state, phi_vec, jac_mat,
+                    contact_points_local=contact_points_local, normals_local=normals_local,
+                    desired_force_local=desired_normal_forces_local,
+                    object_inertia=inertia, external_wrench=external,
+                    contact_established=established, selected_contact_mask=selected_mask,
+                    grasp_established=grasp_established, measured_normal_force=physical_force,
+                    approach_origin=self._online_approach_origin,
+                    live_grasp=self._online_live_grasp,
+                    approach_centers_world=approach_centers, approach_mask=approach_mask,
+                )
+                planner_result["lambda_prediction"] = lambda_info
+                planner_result["lambda_x_plus_opt"] = x_plus_opt.copy()
+                planner_result["diagnostics"]["physical_contact_mask"] = physical_mask.copy()
+                planner_result['diagnostics']['approach_phase'] = self._online_approach_phase.copy()
+                self.plan_params.sol_guess_ = planner_result.get("sol_guess")
+            elif self.planner_mode == "mppi_ee":
+                # The live LM pair and predicted pose share this measured state.
+                physical_mask, physical_force, grasp_established = self._online_grasp_observation()
+                planner_result = self.planner.plan_once(
+                    object_target_pos,
+                    object_target_quat,
+                    self.get_planner_state(),
+                    sol_guess=getattr(self.plan_params, "sol_guess_", None),
+                    verify_cost_param_1=1.0,
+                    verify_cost_param_2=1.0,
+                    contact_points_local=contact_points_local,
+                    normals_local=normals_local,
+                    desired_force_local=desired_normal_forces_local,
+                    approach_offset=float(getattr(self.plan_params, "adam_approach_offset_", TIP_RADIUS)),
+                    x_plus_opt=x_plus_opt,
+                    qpos0=np.asarray(self.data.qpos, dtype=np.float32),
+                    qvel0=np.asarray(self.data.qvel, dtype=np.float32),
+                    contact_established=grasp_established,
+                )
+                planner_result["lambda_prediction"] = lambda_info
+                planner_result.setdefault('diagnostics', {})['live_grasp'] = self._online_live_grasp
+                self.plan_params.sol_guess_ = planner_result.get("sol_guess")
+            elif self.planner_mode == "mpc_joint":
+                phi_vec, jac_mat = self._detect_planner_contacts()
+                planner_virtual = np.asarray(contact_points_world, dtype=np.float64).reshape(2, 3)
+                planner_result = self.planner.plan_once(
+                    object_target_pos,
+                    object_target_quat,
+                    self.get_planner_state(),
+                    phi_vec,
+                    jac_mat,
+                    sol_guess=getattr(self.plan_params, "sol_guess_", None),
+                    verify_cost_param_1=1.0,
+                    verify_cost_param_2=1.0,
+                    virtual_point_1=np.asarray(planner_virtual[0], dtype=np.float64),
+                    virtual_point_2=np.asarray(planner_virtual[1], dtype=np.float64),
+                    contact_point_1=np.asarray(contact_points_world[0], dtype=np.float64),
+                    contact_point_2=np.asarray(contact_points_world[1], dtype=np.float64),
+                )
+                self.plan_params.sol_guess_ = planner_result.get("sol_guess")
+            elif self.physical_planner is not None:
+                trajectory_path = getattr(self.args, "planner_trajectory_path", None)
+                if trajectory_path:
+                    trajectory_path = str(trajectory_path)
+                    if control_steps > 1:
+                        trajectory_file = Path(trajectory_path)
+                        if trajectory_file.suffix.lower() != ".npz":
+                            trajectory_file = trajectory_file.with_suffix(".npz")
+                        trajectory_path = str(
+                            trajectory_file.with_name(f"{trajectory_file.stem}_{step_idx:04d}{trajectory_file.suffix}")
+                        )
+                planner_result = self.physical_planner.plan_once(
+                    contact_pair,
+                    object_target_pos,
+                    object_target_quat,
+                    state=planner_state,
+                    trajectory_path=trajectory_path,
+                    hold_mask=hold_mask,
+                    ee_target_quat=ee_target_quat_cycle,
+                    # The backend writes the coordinated approach seed only
+                    # while there is no warm start.  Reimposing it every cycle
+                    # deletes a mean that has learned to wait for the farther arm.
+                    approach_seed_weight=0.0,
+                )
+            else:
+                planner_result = self.planner.plan_once(
+                    planner_state,
+                    contact_points_local,
+                    normals_local,
+                    desired_normal_forces_local,
+                    object_target_pos,
+                    object_target_quat,
+                    ee_target_quat,
+                    support_z=float(self.support_height_threshold),
+                    hold_mask=hold_mask,
+                    approach_offset=touch_offset,
+                )
+            planner_wall_time = float(
+                planner_result.get("solve_time", time.perf_counter() - planner_t0)
+            )
+            action = np.asarray(planner_result["action"], dtype=np.float64).reshape(-1)
+            # The mask is applied again at the execution boundary so a ready
+            # arm is exactly stationary even if a backend returns stale noise.
+            control_t0 = time.perf_counter()
+            if self.planner_mode == "mppi_joint":
+                self.step_joint_delta(action, substeps=self._arm_mppi.substeps)
+            elif self.planner_mode == "mpc_joint":
+                self.step_joint_delta(action, substeps=max(int(getattr(self.args, "spider_substeps", 1)), 1))
+            elif self.planner_mode == "mpc_ee":
+                self.step_online_mpc_action(action)
+            elif self.planner_mode == "mppi_ee":
+                self.step_joint_controls(planner_result["control_sequence"])
+            elif self._arm_mppi is not None:
+                self.step_ee_pose_delta(action, hold_mask=hold_mask)
+            elif self.physical_planner is not None:
+                original_command_steps = int(self.args.mj_steps_per_command)
+                self.args.mj_steps_per_command = self.physical_execution_steps
+                try:
+                    self.step_ee_pose_delta(
+                        action,
+                        hold_mask=hold_mask,
+                        orientation_reference=ee_target_quat_cycle,
+                    )
+                finally:
+                    self.args.mj_steps_per_command = original_command_steps
+            else:
+                self.step_ee_pose_delta(action, hold_mask=hold_mask)
+            control_wall_time = float(time.perf_counter() - control_t0)
+
+            if self.viewer is not None:
+                self.sync_viewer()
+            contacts = self.extract_object_contacts()
+            measured_contact_mask = np.asarray(
+                [bool(contacts["left"]), bool(contacts["right"])], dtype=bool
+            )
+            if self.physical_planner is not None:
+                contact_lost_steps = 0 if bool(np.all(measured_contact_mask)) else contact_lost_steps + 1
+            measured_force = np.asarray(
+                [
+                    max((float(item.get("normal_force", 0.0)) for item in contacts["left"]), default=0.0),
+                    max((float(item.get("normal_force", 0.0)) for item in contacts["right"]), default=0.0),
+                ],
+                dtype=np.float64,
+            )
+            post_pos, post_quat, _ = self.get_object_pose()
+            post_targets = self._stage_targets_from_object_pose(
+                contact_points_local,
+                normals_local,
+                post_pos,
+                quat_wxyz_to_mat(post_quat),
+                center_offset=touch_offset,
+            )
+            post_left_pos, post_left_rot = self.get_tip_pose(self.left_arm)
+            post_right_pos, post_right_rot = self.get_tip_pose(self.right_arm)
+            post_left_pos_err = float(np.linalg.norm(post_left_pos - post_targets["left_tip_pos"]))
+            post_right_pos_err = float(np.linalg.norm(post_right_pos - post_targets["right_tip_pos"]))
+            if self.planner_mode == "mpc_ee":
+                offset = float(self.plan_params.online_contact_offset)
+                anchors = (contact_points_local - offset * normals_local) @ quat_wxyz_to_mat(post_quat).T + post_pos
+                post_left_pos_err, post_right_pos_err = np.linalg.norm(
+                    np.asarray([post_left_pos, post_right_pos]) - anchors, axis=1)
+                ready_mask = np.array([post_left_pos_err, post_right_pos_err]) <= float(self.args.online_contact_tolerance)
+                diagnostics = planner_result["diagnostics"]
+                actual_cost = self.planner._object_cost(self.get_planner_state(), object_target_pos, object_target_quat)
+                diagnostics["actual_cost_reduction"] = diagnostics["object_cost_now"] - actual_cost
+                diagnostics["actual_horizontal_displacement"] = post_pos[:2] - current_pos[:2]
+                diagnostics["prediction_position_error"] = post_pos - planner_result["x_plus_opt"][:3]
+            elif self.planner_mode == "mppi_ee":
+                # FA tracks a body-local surface query against the lambda
+                # anchor, rather than the legacy touch-offset waypoint.
+                query_local = np.asarray(planner_result["query_local"]).reshape(2, 3)
+                anchors = contact_points_local @ quat_wxyz_to_mat(post_quat).T + post_pos
+                query_errors = []
+                for arm, local, anchor in zip((self.left_arm, self.right_arm), query_local, anchors):
+                    body = int(self.model.site_bodyid[arm.tip_site_id])
+                    query = self.data.xpos[body] + self.data.xmat[body].reshape(3, 3) @ local
+                    query_errors.append(float(np.linalg.norm(query - anchor)))
+                post_left_pos_err, post_right_pos_err = query_errors
+            post_left_rot_err = float(np.linalg.norm(_rotation_error(post_left_rot, left_fixed_rot)))
+            post_right_rot_err = float(np.linalg.norm(_rotation_error(post_right_rot, right_fixed_rot)))
+            object_pos_error = float(np.linalg.norm(post_pos - object_target_pos))
+            object_rot_error = float(np.linalg.norm(_rotation_error(quat_wxyz_to_mat(post_quat), quat_wxyz_to_mat(object_target_quat))))
+            force_ok = bool(np.all(measured_force >= desired_normal_thresholds))
+            if self.planner_mode == "mpc_ee":
+                force_ok = grasp_established and bool(np.all(measured_force >= required_normal_force))
+            object_ok = object_pos_error <= float(self.args.target_tol) and object_rot_error <= float(self.args.ik_rot_tol)
+            if bool(np.all(ready_mask)) and force_ok and object_ok:
+                stable_steps += 1
+            else:
+                stable_steps = 0
+
+            best_diagnostics = planner_result.get("best_diagnostics") or {}
+            terminal_diagnostics = best_diagnostics.get("terminal", {})
+
+            def _diag_scalar(name, default=0.0):
+                value = terminal_diagnostics.get(name, default)
+                values = np.asarray(value, dtype=np.float64).reshape(-1)
+                return float(values[0]) if values.size else float(default)
+
+            predicted_force_gate = np.asarray(
+                terminal_diagnostics.get("force_gate", np.zeros(2)), dtype=np.float64
+            ).reshape(-1)
+            predicted_tangent_distance = np.asarray(
+                terminal_diagnostics.get("tangential_distance", np.zeros(2)), dtype=np.float64
+            ).reshape(-1)
+            predicted_force_world = np.asarray(
+                terminal_diagnostics.get("predicted_force_world", np.zeros((2, 3))), dtype=np.float64
+            ).reshape(-1, 3)
+            if self.planner_mode == "mpc_ee":
+                predicted_force_world = np.asarray(planner_result["diagnostics"]["predicted_force_world"], dtype=np.float64)
+            predicted_contact_mask = np.asarray(
+                planner_result.get("contact_mask", np.zeros((0, 2))), dtype=bool
+            )
+            predicted_normal_force = np.asarray(
+                planner_result.get("normal_force", np.zeros((0, 2))), dtype=np.float64
+            )
+            loop_wall_time = float(time.perf_counter() - loop_t0)
+
+            last_info = {
+                "step": step_idx,
+                "best_contact_point_world": contact_points_world.copy(),
+                "desired_force_vectors_local": desired_normal_forces_local.copy(),
+                "desired_force_world": (current_rot @ desired_normal_forces_local.T).T,
+                "measured_normal_force": measured_force.copy(),
+                "ready_mask": ready_mask.copy(),
+                "hold_mask": hold_mask.copy(),
+                "contact_hold_mask": contact_hold_mask.copy(),
+                "mppi_cost": planner_result.get("cost"),
+                "mppi_action": action.copy(),
+                "planner_backend": planner_result.get("solver_backend", "mppi_ee"),
+                "planner_diagnostics": self._copy_nested_value(planner_result.get("diagnostics")),
+                "retargeting": self._copy_nested_value(planner_result.get("retargeting")),
+                "lambda_prediction": self._copy_nested_value(planner_result.get("lambda_prediction")),
+                "x_plus_opt": self._copy_nested_value(planner_result.get("x_plus_opt")),
+                "lambda_x_plus_opt": self._copy_nested_value(planner_result.get("lambda_x_plus_opt")),
+                "object_pose": (post_pos.copy(), post_quat.copy()),
+                "object_target_pose": (object_target_pos.copy(), object_target_quat.copy()),
+                "object_position_error": object_pos_error,
+                "object_orientation_error": object_rot_error,
+                "left_pos_err": float(left_pos_err),
+                "right_pos_err": float(right_pos_err),
+                "left_rot_err": float(left_rot_err),
+                "right_rot_err": float(right_rot_err),
+                "post_left_pos_err": post_left_pos_err,
+                "post_right_pos_err": post_right_pos_err,
+                "post_left_rot_err": post_left_rot_err,
+                "post_right_rot_err": post_right_rot_err,
+                "contact_count": np.asarray(
+                    [len(contacts["left"]), len(contacts["right"])], dtype=np.int32
+                ),
+                "object_xy_delta": (post_pos[:2] - current_pos[:2]).copy(),
+                "predicted_force_gate": predicted_force_gate.copy(),
+                "predicted_tangential_distance": predicted_tangent_distance.copy(),
+                "predicted_bilateral_gate": _diag_scalar("bilateral_gate"),
+                "predicted_unilateral_gate": _diag_scalar("unilateral_gate"),
+                "predicted_force_world": predicted_force_world.copy(),
+                "predicted_contact_mask": predicted_contact_mask.copy(),
+                "predicted_normal_force": predicted_normal_force.copy(),
+                "rollout_object_pose_se3": np.asarray(
+                    planner_result.get("object_pose_se3", np.zeros((0, 6))), dtype=np.float64
+                ).copy(),
+                "rollout_ee_delta_pose": np.asarray(
+                    planner_result.get("ee_delta_pose", np.zeros((0, 12))), dtype=np.float64
+                ).copy(),
+                "planner_trajectory_path": trajectory_path,
+                "planner_wall_time": planner_wall_time,
+                "control_wall_time": control_wall_time,
+                "loop_wall_time": loop_wall_time,
+            }
+            telemetry.append(last_info)
+            retargeting = planner_result.get("retargeting") or {}
+            solver_fallback = self.planner_mode == "mpc_ee" and planner_result.get("fallback_reason") is not None
+            if (step_idx % report_stride == 0 or stable_steps == int(self.args.contact_stable_steps) or solver_fallback
+                    or (self.planner_mode in {"mpc_ee", "mppi_ee"} and step_idx < 20)):
+                print(
+                    f"[{step_idx:04d}] cost={planner_result.get('cost', float('nan')):.4f} "
+                    f"ready={ready_mask.astype(int).tolist()} hold={hold_mask.astype(int).tolist()} "
+                    f"ee={post_left_pos_err:.4f}/{post_right_pos_err:.4f} "
+                    f"tip_z={post_left_pos[2]:.4f}/{post_right_pos[2]:.4f} "
+                    f"phase={retargeting.get('phase', (planner_result.get('diagnostics') or {}).get('phase', 'control'))} "
+                    f"contacts={len(contacts['left'])}/{len(contacts['right'])} "
+                    f"force={np.array2string(measured_force, precision=3)} "
+                    f"dxy={np.array2string(post_pos[:2] - current_pos[:2], precision=5)} "
+                    f"obj_err={object_pos_error:.4f} target_z={object_target_pos[2]:.4f} "
+                    f"plan={planner_wall_time*1000:.1f}ms "
+                    f"live={(planner_result.get('lambda_prediction') or {}).get('live_force_solve_time', 0.)*1000:.1f}ms "
+                    f"loop={loop_wall_time*1000:.1f}ms "
+                    f"({(1.0/loop_wall_time) if loop_wall_time > 1e-6 else 0.0:.1f} Hz)",
+                    flush=True,
+                )
+                if solver_fallback:
+                    print("  solver_fallback: "
+                          f"{planner_result['fallback_reason']} "
+                          f"backend={planner_result.get('solver_backend')} status={planner_result.get('solve_status')} "
+                          f"iters={planner_result.get('ipopt_iterations', -1)} "
+                          f"init={planner_result.get('ipopt_initialization_time', 0.):.3f}s "
+                          f"solve={planner_result.get('ipopt_solve_time', 0.):.3f}s "
+                          f"control={(planner_result.get('diagnostics') or {}).get('fallback_control')}", flush=True)
+                    qp_diagnostics = planner_result.get("acados_qp_diagnostics")
+                    if qp_diagnostics:
+                        print("  qp_input: "
+                              f"finite={qp_diagnostics.get('finite')} "
+                              f"nonfinite={qp_diagnostics.get('nonfinite_fields', [])} "
+                              f"snapshot={planner_result.get('acados_failure_snapshot')}", flush=True)
+                if print_mppi_timing:
+                    fa_diagnostics = planner_result.get("diagnostics") or {}
+                    if fa_diagnostics.get("cost_components"):
+                        print("  fa_cost: " + " ".join(
+                            f"{key}={value:.3g}" for key, value in fa_diagnostics["cost_components"].items()
+                            if key not in {"trajectory", "total"}), flush=True)
+                    if "mean_cost" in fa_diagnostics:
+                        print(f"  fa_mppi: mean={fa_diagnostics['mean_cost']:.3g} "
+                              f"selected={fa_diagnostics['best_candidate_cost']:.3g} "
+                              f"selected_mean={fa_diagnostics['selected_mean']} "
+                              f"ESS={fa_diagnostics['effective_samples']:.1f}", flush=True)
+                    print(
+                        "  mppi_timing: "
+                        f"plan={planner_wall_time:.4f}s ctrl={control_wall_time:.4f}s "
+                        f"loop={loop_wall_time:.4f}s "
+                        f"force_gate={np.array2string(predicted_force_gate, precision=3)} "
+                        f"tangent={np.array2string(predicted_tangent_distance, precision=4)} "
+                        f"bilateral={_diag_scalar('bilateral_gate'):.3f} "
+                        f"unilateral={_diag_scalar('unilateral_gate'):.3f}"
+                    )
+            if stable_steps >= max(int(self.args.contact_stable_steps), 1):
+                print(f"Unified MPPI grasp reached a stable target at step {step_idx}.")
+                break
+
+        final_pos, final_quat, _ = self.get_object_pose()
+        final_height = float(final_pos[2] - object_pos[2])
+        success = (
+            stable_steps >= max(int(self.args.contact_stable_steps), 1)
+            and final_height >= float(self.args.lift_height) - float(self.args.lift_success_margin)
+        )
+        if telemetry:
+            left_errors = np.asarray([item["post_left_pos_err"] for item in telemetry], dtype=np.float64)
+            right_errors = np.asarray([item["post_right_pos_err"] for item in telemetry], dtype=np.float64)
+            contact_counts = np.asarray([item["contact_count"] for item in telemetry], dtype=np.int32)
+            xy_steps = np.asarray([item["object_xy_delta"] for item in telemetry], dtype=np.float64)
+            measured_forces = np.asarray([item["measured_normal_force"] for item in telemetry], dtype=np.float64)
+            both_contact_steps = int(np.count_nonzero(np.all(contact_counts > 0, axis=1)))
+            one_contact_steps = int(np.count_nonzero(np.sum(contact_counts > 0, axis=1) == 1))
+            max_xy_step = float(np.max(np.linalg.norm(xy_steps, axis=1)))
+            net_xy = float(np.linalg.norm(final_pos[:2] - object_pos[:2]))
+            max_normal_force = float(np.max(measured_forces))
+            print(
+                "Contact diagnostics: "
+                f"min_ee={np.min(left_errors):.4f}/{np.min(right_errors):.4f} "
+                f"one_arm_steps={one_contact_steps} both_arm_steps={both_contact_steps} "
+                f"max_dxy_step={max_xy_step:.5f} net_xy={net_xy:.5f} "
+                f"max_normal_force={max_normal_force:.3f}"
+            )
+        result_label = "Online MPC" if self.planner_mode == "mpc_ee" else "Unified MPPI"
+        print(
+            f"{result_label} result: success={success} height_gain={final_height:.4f} "
+            f"target_gain={float(self.args.lift_height):.4f}"
+        )
+        print("Final object pose:", final_pos, final_quat)
+        if int(self.args.hold_steps) > 0:
+            self.hold_current_pose(int(self.args.hold_steps))
+        return {
+            "success": bool(success),
+            "initial_contact_selection": initial_contact_selection,
+            "contact_solver_settings": dict(impratio=float(self.model.opt.impratio),
+                noslip_iterations=int(self.model.opt.noslip_iterations),
+                friction_cone='pyramidal' if self.model.opt.cone == mujoco.mjtCone.mjCONE_PYRAMIDAL else 'elliptic',
+                object_contact_dim=int(self.model.geom_condim[self.obj_geom_id]),
+                fingertip_object_friction=self.fingertip_object_friction,
+                table_object_friction=self.table_object_friction),
+            "stable_steps": stable_steps,
+            "last": last_info,
+            "telemetry": telemetry,
+        }
+
+
+def resolve_control_timing(args):
+    """Match online OSC intervals; retain 60 ms knots for FA MPPI."""
+    mode = resolve_planner_mode(args)
+    retarget = mode == "mppi_ee"
+    if getattr(args, "planner_horizon", None) is None:
+        args.planner_horizon = 8 if mode == "mpc_ee" else 20
+    if args.planner_horizon < 1:
+        raise ValueError("planner_horizon must be positive")
+    if getattr(args, "mujoco_dt", None) is None:
+        args.mujoco_dt = 0.01
+    if not np.isfinite(args.mujoco_dt) or args.mujoco_dt <= 0:
+        raise ValueError("mujoco_dt must be finite and positive")
+    if getattr(args, "adam_knot_substeps", None) is None:
+        args.adam_knot_substeps = max(1, round(0.06 / args.mujoco_dt)) if retarget else 6
+    if args.adam_knot_substeps < 1:
+        raise ValueError("adam_knot_substeps must be positive")
+    for name in ("online_contact_confirm_steps", "online_grasp_release_steps"):
+        if int(getattr(args, name, 3)) < 1:
+            raise ValueError(name + " must be positive")
+    if not np.isfinite(args.online_nearby_contact_radius) or args.online_nearby_contact_radius <= 0:
+        raise ValueError('online_nearby_contact_radius must be finite and positive')
+    if args.online_nearby_contact_candidates < 1:
+        raise ValueError('online_nearby_contact_candidates must be positive')
+    if not np.isfinite(args.online_wrench_cost_weight) or args.online_wrench_cost_weight < 0:
+        raise ValueError('online_wrench_cost_weight must be finite and nonnegative')
+    if not np.isfinite(args.contact_impratio) or args.contact_impratio <= 0:
+        raise ValueError('contact_impratio must be finite and positive')
+    if args.contact_noslip_iterations < 0:
+        raise ValueError('contact_noslip_iterations must be nonnegative')
+    return args
+
+
+def build_argparser():
+    parser = argparse.ArgumentParser(description="Dual Panda grasping with live Lambda contacts and goal-driven online MPC or FA MPPI.")
+    parser.add_argument('--compute-threads', type=int, default=None,
+        help='CPU numerical threads (default 1 unless set in the environment; 0 uses library defaults).')
+    parser.add_argument("--obj", type=str, default="elephant", help="Object asset name in envs/assets/objects.")
+    parser.add_argument("--mesh", type=str, default=None, help="Absolute or relative mesh path. Overrides --obj.")
+    parser.add_argument("--scale", type=float, nargs=3, default=None, help="Mesh scale factors sx sy sz.")
+    parser.add_argument("--obj-mass", type=float, default=0.01, help="Object mass used in MuJoCo and grasp scoring.")
+    parser.add_argument(
+        "--arm-friction",
+        type=float,
+        default=5.0,
+        help="Fingertip material sliding friction; the contact model uses MuJoCo's effective fingertip/object coefficient.",
+    )
+    parser.add_argument(
+        "--optimizer-arm-friction",
+        type=float,
+        default=None,
+        help="Explicit experimental override of Lambda pair friction; by default match the MuJoCo fingertip/object contact.",
+    )
+    parser.add_argument("--lambda-friction-reg-coef", "--friction_reg_coef", type=float,
+                        default=DEFAULT_TANGENTIAL_FORCE_PENALTY, help="Small tangential-force penalty, matching ik2/test_mpc_isaac.py (default 0.03).")
+    parser.add_argument("--lambda-force-reg-coef", "--force_reg_coef", type=float,
+                        default=.01, help="Lambda total-force regularization, matching the Isaac CSO (default 0.01).")
+    parser.add_argument("--object-friction", type=float, default=5.0, help="Sliding friction coefficient used by the MuJoCo object geom.")
+    parser.add_argument("--contact-stiffness", type=float, default=12.5, help="Legacy ideal-contact compliance gain; Warp planners use --comfree-stiffness.")
+    parser.add_argument(
+        "--sample-num",
+        type=int,
+        default=70,
+        help="Low-curvature surface candidate count for CA/FA lambda LM; legacy optimizer surface samples in other modes.",
+    )
+    parser.add_argument(
+        "--optimizer-use-support-filter",
+        action="store_true",
+        help="Enable the old support-aware candidate filtering before calling mlqp_point_v2. Disabled by default to match standalone mlqp_point_v2.py behavior.",
+    )
+    parser.add_argument("--optimizer-curvature-neighbor-k", type=int, default=8, help="Neighbor count used to estimate local surface curvature in mlqp_point_v2.")
+    parser.add_argument("--optimizer-max-region-mean-curvature", type=float, default=0.12, help="Reject candidate contact regions whose mean curvature score exceeds this value.")
+    parser.add_argument("--optimizer-max-point-curvature", type=float, default=0.25, help="Reject candidate contact regions that contain points above this curvature score.")
+    parser.add_argument("--optimizer-curvature-penalty-weight", type=float, default=1.5, help="Quality penalty weight applied to higher-curvature regions in mlqp_point_v2.")
+    parser.add_argument("--lambda-lm-iters", type=int, default=20, help="Warp batched LM iterations for CA/FA contact-force candidates (--mpc/--mppi).")
+    parser.add_argument("--lambda-cone-half-angle", type=float, default=45.0, help="Online contact cone half angle in degrees, around each tip-to-geometric-centre direction.")
+    parser.add_argument("--lambda-quality-fraction", type=float, default=0.015, help="Maximum relative loss of pose-cost reduction versus the current offline/online reference.")
+    parser.add_argument("--lambda-max-per-arm", type=int, default=32, help="Closest admissible surface candidates per arm in the live cones; pairs are evaluated in parallel.")
+    parser.add_argument("--lambda-switch-margin", type=float, default=0.002, help="Keep a quality-eligible incumbent if its summed tip distance is within this many metres of the best pair.")
+    parser.add_argument("--lambda-contact-region", choices=("auto", "body-sides", "all"), default="auto", help="auto/all let predicted motion cost select from the physical collider; body-sides explicitly restricts the candidate pool.")
+    parser.add_argument("--lambda-prediction-horizon", type=int, default=8,
+                        help="Coupled pad/object soft-SCM steps in Lambda contact selection.")
+    parser.add_argument("--lambda-predictive-refinements", type=int, default=12,
+                        help="Number of best predicted-cost candidates whose Cartesian commands are optimized.")
+    parser.add_argument("--lambda-body-core-fraction", type=float, default=0.5, help="Fraction of the longitudinal half extent eligible for body-side contacts, excluding the head and tail.")
+    parser.add_argument(
+        "--solver",
+        type=str,
+        choices=("acados", "ipopt"),
+        default="acados",
+        help="Legacy mlqp_point_v2 backend in other modes; --mpc/--mppi lambda uses Warp batched LM.",
+    )
+    parser.add_argument(
+        "--print-contact-timing",
+        action="store_true",
+        help="Enable detailed timing prints from mlqp_point_v2 region search / candidate evaluation.",
+    )
+    parser.add_argument(
+        "--cached-contact-candidate-limit",
+        type=int,
+        default=10,
+        help="Legacy compatibility option; the unified path solves one contact pair at startup.",
+    )
+    parser.add_argument("--pos-coef", type=float, default=1.0, help="Position coefficient for mlqp_point_v2.")
+    parser.add_argument("--ori-coef", type=float, default=0.0005, help="Orientation coefficient for mlqp_point_v2.")
+    parser.add_argument("--scene-center-x", type=float, default=0.58, help="Midpoint between the two Panda bases.")
+    parser.add_argument("--robot-span", type=float, default=0.75, help="Distance between the two Panda bases.") # 間距
+    parser.add_argument("--pedestal-pos", type=float, nargs=3, default=(0.58, 0.0, 0.06), help="Central pedestal position.")
+    parser.add_argument("--pedestal-size", type=float, nargs=3, default=(0.05, 0.07, 0.06), help="Central pedestal half sizes.")
+    parser.add_argument("--object-yaw", type=float, default=0.0, help="Initial object yaw in radians.")
+    parser.add_argument("--object-z-offset", type=float, default=0.0, help="Extra object height above the pedestal.")
+    parser.add_argument("--initial-object-lift", type=float, default=0.2, help="Extra height added to the pedestal/support under the object.") # 臺子高度
+    parser.add_argument("--ground-height-margin", type=float, default=0.003, help="Margin above support top for visible point filtering.")
+    parser.add_argument(
+        "--support-normal-alignment-threshold",
+        type=float,
+        default=0.25,
+        help="Normal alignment threshold used to reject support-facing bottom contacts.",
+    )
+    parser.add_argument("--pregrasp-offset", type=float, default=0.01, help="Extra stand-off beyond the fingertip radius.")
+    parser.add_argument("--touch-offset", type=float, default=0.004, help="Stand-off used for initial touch.")
+    parser.add_argument("--squeeze-depth", type=float, default=0.003, help="Inward squeeze depth relative to fingertip radius.")
+    parser.add_argument(
+        "--fingertip-max-pitch",
+        type=float,
+        default=0.35,
+        help="Maximum inward pitch, in radians, allowed away from the vertical-down fingertip pose.",
+    )
+    parser.add_argument("--lift-height", type=float, default=0.06, help="Height offset used to construct the fixed airborne object target.")
+    parser.add_argument(
+        "--control-steps",
+        type=int,
+        default=1600,
+        help="Maximum number of unified receding-horizon EE-MPPI control cycles.",
+    )
+    parser.add_argument("--approach-steps", type=int, default=1000, help="Legacy alias retained for command-line compatibility.")
+    parser.add_argument(
+        "--touch-steps",
+        type=int,
+        default=320,
+        help="Legacy option kept for CLI compatibility; the explicit touch/verify stage is no longer used.",
+    )
+    parser.add_argument("--squeeze-steps", type=int, default=480, help="Legacy alias retained for command-line compatibility.")
+    parser.add_argument("--squeeze-extra-steps", type=int, default=360, help="Legacy alias retained for command-line compatibility.")
+    parser.add_argument("--lift-steps", type=int, default=320, help="Legacy alias retained for command-line compatibility.")
+    parser.add_argument("--hold-steps", type=int, default=0, help="Extra simulation steps after lifting.")
+    parser.add_argument("--target-tol", type=float, default=0.006, help="Combined object target position tolerance in meters.")
+    parser.add_argument("--ik-pos-tol", type=float, default=0.0015, help="EE IK position threshold in meters.")
+    parser.add_argument("--ik-rot-tol", type=float, default=0.10, help="EE IK rotation threshold in radians.")
+    parser.add_argument(
+        "--ik-backend",
+        type=str,
+        choices=("auto", "mink", "mujoco", "curobo"),
+        default="mink",
+        help="EE-pose IK backend. mink is the default differential IK. mujoco is the Jacobian fallback.",
+    )
+    parser.add_argument("--ik-max-iters", type=int, default=120, help="Maximum iterations used by the selected EE IK backend.")
+    parser.add_argument("--ik-num-seeds", type=int, default=32, help="Number of cuRobo IK seeds when cuRobo is selected.")
+    parser.add_argument("--ik-damping", type=float, default=0.05, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
+    parser.add_argument("--ik-step-scale", type=float, default=0.7, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
+    parser.add_argument("--ik-home-weight", type=float, default=0.01, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
+    parser.add_argument("--ik-pos-weight", type=float, default=1.0, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
+    parser.add_argument("--ik-rot-weight", type=float, default=0.35, help="Legacy option kept for CLI compatibility; unused with cuRobo IK.")
+    parser.add_argument("--curobo-robot-cfg", type=str, default="franka.yml", help="Robot config passed to cuRobo.")
+    parser.add_argument("--retarget-full-contact-dynamics", action="store_true", help="Also simulate arm/arm and arm/floor GS contacts in CA/FA rollouts; slower. CA constraints and FA inter-arm costs are always active.")
+    parser.add_argument("--mujoco-dt", type=float, default=None, help="MuJoCo physics timestep (default 0.01 s); CA/FA includes implicit servo velocity feedback.")
+    parser.add_argument("--mj-steps-per-command", type=int, default=1, help="Number of MuJoCo steps executed after each MPC command.")
+    parser.add_argument(
+        "--physical-mppi-physics-steps",
+        type=int,
+        default=10,
+        help="MuJoCo steps per physical-MPPI action, used consistently in candidate rollouts and execution.",
+    )
+    parser.add_argument("--command-substeps", type=int, default=1, help="Multiplier used when matching cuRobo MPC dt to the MuJoCo control cadence.")
+    parser.add_argument("--curobo-collision-activation-distance", type=float, default=0.06, help="Collision activation distance passed to cuRobo.")
+    parser.add_argument("--disable-curobo-self-collision", action="store_true", help="Disable cuRobo self-collision checking.")
+    parser.add_argument("--disable-curobo-cuda-graph", action="store_true", help="Disable cuRobo CUDA graph capture.")
+    parser.add_argument("--pose-only-mpc", action="store_true", help="Legacy option kept for CLI compatibility; plan_once tracking is pose-based by default.")
+    parser.add_argument("--planner-dt", type=float, default=0.01, help="Time step used by the plan_once object-motion model.")
+    parser.add_argument("--planner-horizon", type=int, default=None,
+                        help="plan_once horizon length (default: 8 for online Cartesian MPC, 20 for other modes).")
+    planner_mode = parser.add_mutually_exclusive_group()
+    planner_mode.add_argument("--mppi", dest="planner_mode", action="store_const", const="mppi_ee", help="Alias for --mppi-ee.")
+    planner_mode.add_argument("--mppi-ee", dest="planner_mode", action="store_const", const="mppi_ee", help="Singleton lambda -> DexForge CA/FA retargeting with FA solved by Warp MPPI (default).")
+    planner_mode.add_argument("--mppi-joint", dest="planner_mode", action="store_const", const="mppi_joint", help="Warp MPPI over 14-D joint increments.")
+    planner_mode.add_argument("--mpc", dest="planner_mode", action="store_const", const="mpc_ee", help="Alias for --mpc-ee.")
+    planner_mode.add_argument("--mpc-ee", dest="planner_mode", action="store_const", const="mpc_ee", help="Isaac-style online coupled contact MPC over two Cartesian OSC increments; no reference trajectory.")
+    planner_mode.add_argument("--mpc-joint", dest="planner_mode", action="store_const", const="mpc_joint", help="Acados explicit MPC over 14-D joint increments.")
+    parser.add_argument(
+        "--planner-solver",
+        type=str,
+        choices=("mppi", "ipopt", "acados", "physical_mppi", "spider_mjwp", "explicit_mjwp"),
+        default=None,
+        help="Legacy solver name. Prefer --mppi/--mpc. acados maps to --mpc-ee.",
+    )
+    parser.add_argument(
+        "--planner-backend",
+        type=str,
+        choices=("surrogate_mppi", "physical_mppi", "spider_mjwp", "explicit_mjwp"),
+        default=None,
+        help="Legacy backend name. Prefer --mppi/--mpc. explicit_mjwp maps to --mppi-joint.",
+    )
+    parser.add_argument("--planner-joint-delta-limit", type=float, default=0.15, help="Joint-increment limit in radians for FA and joint-space planners.")
+    parser.add_argument("--spider-num-samples", type=int, default=128, help="Parallel MuJoCo Warp worlds used by SPIDER MPPI.")
+    parser.add_argument("--spider-horizon", type=int, default=8, help="SPIDER control horizon. Rounded up to a multiple of --spider-knot-steps.")
+    parser.add_argument("--spider-knot-steps", type=int, default=2, help="Interpolation factor from SPIDER control knots to the horizon.")
+    parser.add_argument("--spider-iterations", type=int, default=2, help="SPIDER MPPI iterations per replan. Noise scale is multiplied by --spider-beta each iteration.")
+    parser.add_argument("--spider-temperature", type=float, default=0.1, help="Temperature of SPIDER's top-10-percent reward softmax.")
+    parser.add_argument("--spider-beta", type=float, default=0.85, help="Per-iteration SPIDER noise decay.")
+    parser.add_argument("--spider-noise", type=float, default=0.1, help="Joint-position knot noise in radians.")
+    parser.add_argument("--spider-substeps", type=int, default=1, help="MuJoCo Warp / CPU steps executed for each sampled control. SPIDER uses one simulation step per horizon index.")
+    parser.add_argument("--comfree-stiffness", type=float, default=0.2, help="Dimensionless ASU ComFree stiffness for lambda, ADAM and MPPI.")
+    parser.add_argument("--comfree-damping", type=float, default=0.001, help="Dimensionless ASU ComFree damping for lambda, ADAM and MPPI.")
+    parser.add_argument(
+        "--planner-trajectory-path",
+        type=str,
+        default=None,
+        help="Optional .npz path for the latest physical MPPI best trajectory.",
+    )
+    parser.add_argument(
+        "--contact-replan-lost-steps",
+        type=int,
+        default=3,
+        help="Re-run lambda contact selection after this many consecutive lost-contact cycles.",
+    )
+    parser.add_argument(
+        "--contact-replan-drift-m",
+        type=float,
+        default=0.01,
+        help="Re-run lambda contact selection after this object translation drift in meters.",
+    )
+    parser.add_argument("--planner-max-contacts", type=int, default=15, help="Maximum object contacts modeled by plan_once.")
+    parser.add_argument("--planner-cmd-limit", type=float, default=0.05, help="Per-step Cartesian delta limit in meters for each arm.")
+    parser.add_argument("--planner-rotation-delta-limit", type=float, default=0.12, help="Per-step EE rotation-vector increment limit in radians.")
+    parser.add_argument("--planner-attract-offset", type=float, default=0.025, help="Outward offset from the IK fingertip pose used as the first attract waypoint.")
+    parser.add_argument("--planner-attract-tol", type=float, default=0.03, help="Legacy alias for the bimanual ready position tolerance.")
+    parser.add_argument("--planner-sync-pos-tol", type=float, default=0.03, help="Position tolerance used by the bimanual ready/hold mask.")
+    parser.add_argument("--planner-sync-rot-tol", type=float, default=0.10, help="Orientation tolerance used by the bimanual ready/hold mask.")
+    parser.add_argument("--online-task-stiffness", type=float, default=600.0, help="Cartesian OSC stiffness shared by online MPC prediction and execution.")
+    parser.add_argument("--contact-impratio", type=float, default=10.,
+                        help="MuJoCo tangential-to-normal contact impedance ratio; does not change the friction coefficient.")
+    parser.add_argument("--contact-noslip-iterations", type=int, default=10,
+                        help="MuJoCo friction-only NoSlip sweeps (default 10, matching the successful previous MPC scene); 0 disables polishing.")
+    parser.add_argument('--contact-friction-cone', choices=('pyramidal', 'elliptic'), default='pyramidal',
+                        help='Execution friction cone (default pyramidal, matching the previous scene).')
+    parser.add_argument('--object-contact-dim', type=int, choices=(3, 4, 6), default=6,
+                        help='Object/pad contact dimension: 3 sliding, 4 adds torsion, 6 adds rolling (default 6).')
+    parser.add_argument("--freeze-contact-pair", dest="freeze_contact_pair", action="store_true", default=False,
+                        help="Disable prospective nearby patch replacements; real contact geometry and forces still update online.")
+    parser.add_argument("--allow-contact-switch", dest="freeze_contact_pair", action="store_false",
+                        help="Enable reachable nearby patch replacements in MPC and MPPI (default); preserve loaded contacts.")
+    parser.add_argument("--online-nearby-contact-radius", type=float, default=.02,
+                        help="Search radius outside each spherical pad for certified nearby contact replacements (m).")
+    parser.add_argument("--online-nearby-contact-candidates", type=int, default=4,
+                        help="Maximum reachable nearby patches tested per uncontacted arm.")
+    parser.add_argument("--online-wrench-cost-weight", type=float, default=1.,
+                        help="MPC cost on the balanced live contact wrench, scaled to equivalent OSC displacement.")
+    parser.add_argument("--online-task-damping", type=float, default=40.0, help="Cartesian OSC damping shared by online MPC prediction and execution.")
+    parser.add_argument("--online-approach-speed", type=float, default=0.25,
+                        help="Free-space OSC velocity-reference norm limit in m/s; 0 restores raw velocity damping. Disabled on contact or while grasping.")
+    parser.add_argument("--online-orientation-stiffness", type=float, default=15.0, help="Wrist orientation stiffness: pad-axis alignment before grasp, full orientation hold after measured bilateral load.")
+    parser.add_argument("--online-force-limit", type=float, default=12.0, help="OSC force norm limit in N.")
+    parser.add_argument("--online-unilateral-force-limit", type=float, default=0.05, help="Inward OSC force cap while only one pad has reached the object; shared with prediction.")
+    parser.add_argument("--online-tip-mass", type=float, default=2.5, help="Effective Cartesian fingertip response mass in kg.")
+    parser.add_argument("--online-contact-time", type=float, default=0.05, help="Finite soft-SCM contact response time in seconds.")
+    parser.add_argument("--online-patch-radius", type=float, default=0.03, help="Tangential validity radius of transported measured contact patches.")
+    parser.add_argument("--online-contact-tolerance", type=float, default=0.015, help="Actual contact distance to the current live surface patch.")
+    parser.add_argument("--online-contact-confirm-steps", type=int, default=3, help="Consecutive loaded bilateral patch observations before manipulation.")
+    parser.add_argument("--online-grasp-release-steps", type=int, default=3,
+                        help="Consecutive weak/missing physical contacts before releasing the grasp latch.")
+    parser.add_argument("--online-object-velocity-weight", type=float, default=0.05, help="Penalty on residual object motion in online MPC.")
+    parser.add_argument("--online-max-horizontal-error", type=float, default=0.005, help="Predicted horizontal approach corridor in metres, anchored to the initial object pose.")
+    parser.add_argument("--online-horizontal-recovery-weight", type=float, default=2e6,
+                        help="Soft XY corridor penalty, allowing finite braking after measured drift.")
+    parser.add_argument("--online-sqp-iters", type=int, default=1, help="1 uses Isaac-style SQP-RTI; larger values use iterative SQP.")
+    parser.add_argument("--online-ipopt-iters", type=int, default=80, help="Maximum IPOPT iterations, including fallback solves.")
+    parser.add_argument("--online-ipopt-fallback", action="store_true",
+                        help="Allow blocking IPOPT after acados failure; disabled by default for online MPC.")
+    parser.add_argument("--planner-ee-position-weight", type=float, default=80.0, help="EE contact/approach position cost weight.")
+    parser.add_argument("--planner-ee-orientation-weight", type=float, default=2.0, help="EE contact orientation cost weight.")
+    parser.add_argument("--planner-force-tracking-weight", type=float, default=12.0, help="Contact force tracking cost weight.")
+    parser.add_argument("--planner-object-target-weight", type=float, default=300.0, help="Gated object target position cost weight.")
+    parser.add_argument("--planner-object-lateral-weight", type=float, default=300.0, help="Always-on horizontal object displacement cost weight.")
+    parser.add_argument("--planner-object-orientation-weight", type=float, default=15.0, help="Gated object target orientation cost weight.")
+    parser.add_argument("--planner-synchronization-weight", type=float, default=25.0, help="Dual-arm synchronization cost weight.")
+    parser.add_argument("--planner-contact-gate-sync-weight", type=float, default=25.0, help="Cost on unequal predicted contact gates between the two fingertips.")
+    parser.add_argument("--planner-action-weight", type=float, default=2.0, help="Action magnitude cost weight.")
+    parser.add_argument("--planner-smooth-action-weight", type=float, default=3.0, help="Action smoothness cost weight.")
+    parser.add_argument("--planner-workspace-weight", type=float, default=50.0, help="Workspace violation cost weight.")
+    parser.add_argument("--planner-contact-gate-scale", type=float, default=0.004, help="Soft contact gate length scale in meters.")
+    parser.add_argument("--planner-contact-tangent-scale", type=float, default=0.015, help="Tangential distance scale used by the soft contact gate.")
+    parser.add_argument("--planner-attract-coef", type=float, default=0.5, help="Attract cost coefficient for plan_once.")
+    parser.add_argument("--planner-reject-coef", type=float, default=0.001, help="Reject cost coefficient for plan_once.")
+    parser.add_argument("--planner-contact-coef", type=float, default=0.7, help="Contact cost coefficient for plan_once.")
+    parser.add_argument("--planner-contact-cost-param", type=float, default=0.0, help="Blend factor inside the dual-arm contact cost.")
+    parser.add_argument("--planner-reject-distance", type=float, default=0.005, help="Reject distance threshold used by plan_once.")
+    parser.add_argument("--planner-object-inertia-pos", type=float, default=40.0, help="Translational object inertia weight used by plan_once.")
+    parser.add_argument("--planner-object-inertia-rot", type=float, default=0.05, help="Rotational object inertia weight used by plan_once.")
+    parser.add_argument("--planner-robot-stiffness", type=float, default=300.0, help="Cartesian point stiffness used by the plan_once robot model.")
+    parser.add_argument("--mppi-samples", type=int, default=256, help="Number of sampled FA trajectories for --mppi (at least 2).")
+    parser.add_argument("--mppi-iterations", type=int, default=4, help="Number of MPPI update iterations after warm start.")
+    parser.add_argument("--adam-iters", type=int, default=40, help="Adam iterations for --mpc (DexForge n_iter).")
+    parser.add_argument("--adam-lr", type=float, default=0.0015, help="FA Adam lr_max for --mpc, matching DexForge; cosine-decays to 1e-5.")
+    parser.add_argument("--adam-horizon", type=int, default=5, help="FA rollout horizon for --mpc and --mppi (DexForge horizon).")
+    parser.add_argument("--retarget-ca-iters", type=int, default=20, help="Maximum contact-aware QP iterations per one-frame lambda reference.")
+    parser.add_argument("--adam-multistart-count", type=int, default=2, help="FA Adam starts: shifted warm trajectory plus fresh CA reference; scored with the same original FA objective.")
+    parser.add_argument("--retarget-object-speed", type=float, default=0.05, help="Maximum translation speed of the contacted object's CA/FA reference, in m/s.")
+    parser.add_argument("--retarget-object-angular-speed", type=float, default=0.5, help="Maximum angular speed of the contacted object's CA/FA reference, in rad/s.")
+    parser.add_argument(
+        "--adam-knot-substeps",
+        type=int,
+        default=None,
+        help="Physics steps per FA control knot; automatically preserves a 0.06 s knot with the selected physics timestep.",
+    )
+    parser.add_argument(
+        "--physical-mppi-samples",
+        type=int,
+        default=64,
+        help="Sample count for physical rollouts; defaults lower than analytic MPPI because acc rollouts are sequential.",
+    )
+    parser.add_argument(
+        "--physical-mppi-iterations",
+        type=int,
+        default=2,
+        help="MPPI iterations for physical rollouts.",
+    )
+    parser.add_argument(
+        "--physical-mppi-init-iterations",
+        type=int,
+        default=4,
+        help="Initial physical MPPI iterations before the warm-start distribution is available.",
+    )
+    parser.add_argument("--mppi-init-iterations", type=int, default=8, help="Number of MPPI iterations used before a warm start exists.")
+    parser.add_argument("--mppi-lambda", type=float, default=1.0, help="MPPI temperature; FA uses DexForge's 1e-6 loss normalization.")
+    parser.add_argument("--mppi-noise-sigma", type=float, default=0.005, help="MPPI action noise sigma; radians for the FA joint targets in --mppi.")
+    parser.add_argument("--mppi-noise-decay", type=float, default=0.85, help="Per-iteration MPPI noise decay.")
+    parser.add_argument("--mppi-elite-frac", type=float, default=0.1, help="Elite fraction for legacy MPPI backends; FA --mppi weights all finite samples.")
+    parser.add_argument("--mppi-seed", type=int, default=0, help="Random seed for reproducible MPPI rollouts; use a negative value to disable seeding.")
+    parser.add_argument("--mppi-device", type=str, default=None, help="Planner device; FA --mpc/--mppi use CUDA, for example cuda:0.")
+    parser.add_argument("--mppi-use-torch-compile", action="store_true", help="Enable torch.compile for legacy Torch MPPI backends.")
+    parser.add_argument("--print-mppi-timing", action="store_true", help="Print per-cycle MPPI, control, and bilateral-contact diagnostics.")
+    parser.add_argument("--cartesian-stiffness-pos", type=float, default=500.0, help="Translational stiffness used by the Cartesian impedance controller.")
+    parser.add_argument("--cartesian-stiffness-rot", type=float, default=50.0, help="Rotational stiffness used by the Cartesian impedance controller.")
+    parser.add_argument("--nullspace-stiffness", type=float, default=10.0, help="Nullspace stiffness used by the Cartesian impedance controller.")
+    parser.add_argument(
+        "--grasp-lift-cost-weight",
+        type=float,
+        default=1.0,
+        help="Weight on the offline static-equilibrium objective used to prefer contact pairs that can lift the object.",
+    )
+    parser.add_argument(
+        "--grasp-lift-residual-weight",
+        type=float,
+        default=10.0,
+        help="Weight on the offline static-equilibrium residual norm used to reject weak lift candidates.",
+    )
+    parser.add_argument(
+        "--nearest-contact-low-improvement",
+        type=float,
+        default=0.75,
+        help="SCSP-style lower hysteresis threshold for falling back from current nearest-point grasping to cached best contacts.",
+    )
+    parser.add_argument(
+        "--nearest-contact-high-improvement",
+        type=float,
+        default=0.85,
+        help="SCSP-style upper hysteresis threshold for switching from cached best contacts to the current nearest-point pair.",
+    )
+    parser.add_argument(
+        "--nearest-contact-switch-steps",
+        type=int,
+        default=5,
+        help="Number of consecutive planner iterations required before switching between nearest-point and cached best-contact modes.",
+    )
+    parser.add_argument("--min-normal-force", type=float, default=None, help="Required normal force per fingertip before lifting. Defaults to a mass-based value.")
+    parser.add_argument(
+        "--force-control-stiffness",
+        type=float,
+        default=None,
+        help="Legacy compatibility option for the old spring model.",
+    )
+    parser.add_argument(
+        "--force-control-dissipation-velocity",
+        type=float,
+        default=0.1,
+        help="Legacy compatibility option for the old spring model.",
+    )
+    parser.add_argument(
+        "--force-control-stiction-velocity",
+        type=float,
+        default=0.05,
+        help="Legacy compatibility option for the old spring model.",
+    )
+    parser.add_argument(
+        "--force-control-smoothing",
+        type=float,
+        default=0.0,
+        help="Legacy compatibility option for the old spring model.",
+    )
+    parser.add_argument("--contact-stable-steps", type=int, default=15, help="Number of consecutive squeeze steps that must satisfy the normal-force threshold.")
+    parser.add_argument("--lift-success-margin", type=float, default=0.005, help="Allowed height error when deciding whether the lift succeeded.")
+    parser.add_argument(
+        "--test_force",
+        "--test-force",
+        nargs="?",
+        const=True,
+        default=False,
+        type=parse_bool_arg,
+        help="If true, project the current best optimizer wrench to world coordinates and apply it directly to the object every simulation step.",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        default=True,
+        help="Launch the MuJoCo passive viewer. Use --no-visualize for a headless run.",
+    )
+    parser.add_argument("--no-visualize", dest="visualize", action="store_false", help="Run without the MuJoCo viewer.")
+    parser.add_argument("--diagnostics-output", type=Path, default=None,
+                        help="Write result and per-cycle contact/MPC telemetry to a JSON file.")
+    parser.add_argument("--print-viewer-camera-state", action="store_true", help="Print the passive-viewer camera state on every viewer sync. Disabled by default to avoid slowing down the control loop.")
+    parser.add_argument("--real-time", action="store_true", help="Sleep to approximate real-time playback when visualizing.")
+    parser.add_argument(
+        "--scene-output",
+        type=Path,
+        default=GENERATED_SCENE_PATH,
+        help="Path where the generated dual-Panda scene XML will be written.",
+    )
+    return parser
+
+
+def main():
+    args = build_argparser().parse_args()
+    grasper = BimanualPandaGrasper(args)
+    try:
+        result = grasper.run()
+        if args.diagnostics_output is not None:
+            args.diagnostics_output.parent.mkdir(parents=True, exist_ok=True)
+            args.diagnostics_output.write_text(json.dumps(result, default=lambda value: np.asarray(value).tolist()))
+    finally:
+        grasper.close()
+
+
+if __name__ == "__main__":
+    main()

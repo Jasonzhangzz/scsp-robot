@@ -1,0 +1,88 @@
+{
+  "runs": [
+    {
+      "run": "wrench_mpc",
+      "success": false,
+      "best_height_gain_m": 0.005306263328099081,
+      "replan_count": 8,
+      "local_contact_updates": 0,
+      "lift_steps": 0
+    },
+    {
+      "run": "local_priority_fixed",
+      "success": false,
+      "best_height_gain_m": 0.0098317528481916,
+      "replan_count": 8,
+      "local_contact_updates": 39,
+      "lift_steps": 0
+    },
+    {
+      "run": "local_three_contact",
+      "success": false,
+      "best_height_gain_m": 0.003062745062353378,
+      "replan_count": 10,
+      "local_contact_updates": 38,
+      "lift_steps": 18
+    },
+    {
+      "run": "pressure_early",
+      "success": false,
+      "best_height_gain_m": 0.004629902168372224,
+      "replan_count": 12,
+      "local_contact_updates": 103,
+      "lift_steps": 54
+    },
+    {
+      "run": "local_transport",
+      "success": false,
+      "best_height_gain_m": 0.008301154137408728,
+      "replan_count": 13,
+      "local_contact_updates": 90,
+      "lift_steps": 33
+    },
+    {
+      "run": "pressure_gain03",
+      "success": false,
+      "best_height_gain_m": 0.07597074052701941,
+      "replan_count": 10,
+      "local_contact_updates": 58,
+      "lift_steps": 193
+    },
+    {
+      "run": "pressure_gain08",
+      "success": false,
+      "best_height_gain_m": 0.019432553782076423,
+      "replan_count": 5,
+      "local_contact_updates": 57,
+      "lift_steps": 42
+    },
+    {
+      "run": "pressure_gain01",
+      "success": false,
+      "best_height_gain_m": 0.0060428818335441226,
+      "replan_count": 8,
+      "local_contact_updates": 44,
+      "lift_steps": 43
+    },
+    {
+      "run": "sticking_patches",
+      "success": false,
+      "best_height_gain_m": 0.05657931154336315,
+      "replan_count": 8,
+      "local_contact_updates": 31,
+      "lift_steps": 151
+    }
+  ],
+  "current_full_run": "sticking_patches",
+  "warm_start": {
+    "scene_seconds": 0.04494367399820476,
+    "surface_preprocessing_seconds": 0.713612641000509,
+    "mpc_initialization_seconds": 2.610187288002635,
+    "contact_selection_seconds": 0.5640664139973524,
+    "hand_ik_seconds": 0.2505506310008059,
+    "pregrasp_ik_seconds": 0.0035276019989396445,
+    "first_mpc_seconds": 0.057467250000627246
+  },
+  "regression_tests_passed": 67,
+  "stable_20cm_lift_verified": false
+}

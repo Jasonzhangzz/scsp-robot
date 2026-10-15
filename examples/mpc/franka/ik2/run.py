@@ -50,6 +50,7 @@ from examples.mpc.franka.ik2.test_mpc_isaac import (
     _add_rollout_policy_args,
     adapt_param_for_cartesian_solver,
 )
+from examples.mpc.franka.ik2.contact_frames import resolve_nullspace_stiffness
 from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
 
 
@@ -102,6 +103,8 @@ def refresh_contact(env, contact, table_ground):
         "actual_contact": payload.get("actual_contact"),
         "fingertip_linear_velocity": payload.get("fingertip_linear_velocity"),
         "executed_action": payload.get("executed_action"),
+        "tool_quaternion_world": payload.get("tool_quaternion_world"),
+        "tool_angular_velocity": payload.get("tool_angular_velocity"),
         "contact_distance": float(contact_distance),
         "table_ground": float(table_ground),
     }
@@ -140,6 +143,12 @@ def apply_incoming(env, cmd, default_kind):
             path_blocked=cmd.get("path_blocked"),
             release_pressure=bool(cmd.get("release_pressure", False)),
             preserve_upright=bool(cmd.get("preserve_upright", False)),
+            object_cost_stage=cmd.get("object_cost_stage"),
+            tool_rotation_world=cmd.get("tool_rotation_world"),
+            approach_phase=cmd.get("approach_phase"),
+            tool_rotation_action=cmd.get("tool_rotation_action"),
+            tool_force_world=cmd.get("tool_force_world"),
+            tool_normal_world=cmd.get("tool_normal_world"),
         )
     else:
         action = np.asarray(cmd.get("action", np.zeros(7)), dtype=np.float32).reshape(7)
@@ -164,7 +173,7 @@ def build_osc_param(args, trial_count):
     param = _configure_rollout_param(param, args)
     param.osc_pos_stiffness_ = float(args.osc_pos_stiffness)
     param.osc_ori_stiffness_ = float(args.osc_ori_stiffness)
-    param.nullspace_stiffness_ = float(args.nullspace_stiffness)
+    param.nullspace_stiffness_ = resolve_nullspace_stiffness(args)
     stiffness = args.cartesian_stiffness
     if stiffness is None:
         from examples.mpc.franka.ik2.test_mpc_isaac import DEFAULT_CARTESIAN_STIFFNESS

@@ -22,8 +22,8 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
     global _KERNELS
     if int(num_contacts) != num_contacts or num_contacts < 1:
         raise ValueError("num_contacts must be a positive integer")
-    if friction_cone not in ("box", "coulomb"):
-        raise ValueError("friction_cone must be box or coulomb")
+    if friction_cone not in ("box", "coulomb", "pyramidal"):
+        raise ValueError("friction_cone must be box, coulomb or pyramidal")
     cache_key = (int(num_contacts), friction_cone)
     if cache_key in _KERNELS:
         return _KERNELS[cache_key]
@@ -33,6 +33,7 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
     Vec6 = wp.types.vector(length=6, dtype=wp.float32)
     NC, NF, NR = wp.constant(int(num_contacts)), wp.constant(3 * int(num_contacts)), wp.constant(6 + 3 * int(num_contacts))
     CIRCULAR = wp.constant(friction_cone == "coulomb")
+    PYRAMIDAL = wp.constant(friction_cone == "pyramidal")
     VecForce = wp.types.vector(length=3 * int(num_contacts), dtype=wp.float32)
     VecResidual = wp.types.vector(length=6 + 3 * int(num_contacts), dtype=wp.float32)
     MatForce = wp.types.matrix(shape=(3 * int(num_contacts), 3 * int(num_contacts)), dtype=wp.float32)
@@ -59,6 +60,9 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
     class Job:
         points: wp.array(dtype=wp.vec3)
         normals: wp.array(dtype=wp.vec3)
+        tangent1: wp.array(dtype=wp.vec3)
+        tangent2: wp.array(dtype=wp.vec3)
+        use_tangents: wp.array(dtype=int)
         mask: wp.array(dtype=int)
         initial: wp.array2d(dtype=float)
         use_initial: wp.array(dtype=int)
@@ -189,10 +193,18 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
         return n, tangent, wp.cross(n, tangent)
 
     @wp.func
+    def contact_frame(job: Job, index: int):
+        n,t1,t2=frame(job.normals[index])
+        if job.use_tangents[0]!=0:
+            t1=job.tangent1[index]
+            t2=job.tangent2[index]
+        return n,t1,t2
+
+    @wp.func
     def projected_force(force: VecForce, mu: float, limit: float):
         result = VecForce(0.0)
         normal_limit = limit / wp.sqrt(1.0 + 2.0 * mu * mu)
-        if CIRCULAR:
+        if CIRCULAR or PYRAMIDAL:
             normal_limit = limit / wp.sqrt(1.0 + mu * mu)
         for contact in range(NC):
             offset = 3 * contact
@@ -208,16 +220,25 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
                 result[offset+1] = ratio*force[offset+1]
                 result[offset+2] = ratio*force[offset+2]
                 continue
-            a = wp.abs(force[offset + 1])
-            b = wp.abs(force[offset + 2])
+            first,second=force[offset+1],force[offset+2]
+            bound_mu=mu
+            if PYRAMIDAL:
+                # A 45-degree rotation maps the native L1 diamond into a box.
+                # Rotate isometrically so the existing Euclidean projection
+                # also optimizes the normal rather than merely clipping Ft.
+                first=(force[offset+1]+force[offset+2])/wp.sqrt(2.0)
+                second=(force[offset+1]-force[offset+2])/wp.sqrt(2.0)
+                bound_mu=mu/wp.sqrt(2.0)
+            a = wp.abs(first)
+            b = wp.abs(second)
             lo = float(0.0)
             hi = normal_limit
             # Euclidean projection onto the bounded square friction pyramid.
             # A tangential proposal can therefore produce a positive normal.
             for iteration in range(25):
                 mid = 0.5 * (lo + hi)
-                derivative = mid - normal - mu * wp.max(a - mu * mid, 0.0)
-                derivative -= mu * wp.max(b - mu * mid, 0.0)
+                derivative = mid - normal - bound_mu * wp.max(a - bound_mu * mid, 0.0)
+                derivative -= bound_mu * wp.max(b - bound_mu * mid, 0.0)
                 if derivative > 0.0:
                     hi = mid
                 else:
@@ -226,20 +247,25 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
             if normal <= 0.0 and a == 0.0 and b == 0.0:
                 fn = 0.0
             result[offset] = fn
-            result[offset + 1] = wp.clamp(force[offset + 1], -mu * fn, mu * fn)
-            result[offset + 2] = wp.clamp(force[offset + 2], -mu * fn, mu * fn)
+            first=wp.clamp(first,-bound_mu*fn,bound_mu*fn)
+            second=wp.clamp(second,-bound_mu*fn,bound_mu*fn)
+            if PYRAMIDAL:
+                result[offset+1]=(first+second)/wp.sqrt(2.0)
+                result[offset+2]=(first-second)/wp.sqrt(2.0)
+            else:
+                result[offset+1]=first
+                result[offset+2]=second
         return result
 
     @wp.func
-    def predict(physics: Physics, force: VecForce, points: wp.array(dtype=wp.vec3),
-                normals: wp.array(dtype=wp.vec3), candidate: int):
+    def predict(physics: Physics, force: VecForce, job: Job, candidate: int):
         total_force, angular = wp.vec3(0.0), wp.vec3(0.0)
         if wp.length(force) > 0.0:
             for contact in range(NC):
-                n, t1, t2 = frame(normals[NC * candidate + contact])
+                n, t1, t2 = contact_frame(job,NC * candidate + contact)
                 f = n * force[3 * contact] + t1 * force[3 * contact + 1] + t2 * force[3 * contact + 2]
                 total_force += f
-                angular += wp.cross(points[NC * candidate + contact], f)
+                angular += wp.cross(job.points[NC * candidate + contact], f)
         linear = wp.quat_rotate(physics.quaternion, total_force)
         wrench = Vec6(linear[0], linear[1], linear[2], angular[0], angular[1], angular[2])
         velocity = physics.free_velocity + physics.dt * (physics.inverse * wrench)
@@ -270,7 +296,7 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
     def residual(job: Job, force: VecForce, candidate: int):
         result = VecResidual(0.0)
         physics = job.physics[0]
-        p, q, velocity = predict(physics, force, job.points, job.normals, candidate)
+        p, q, velocity = predict(physics, force, job, candidate)
         difference = wp.quat_inverse(physics.target_quaternion) * q
         position = p - physics.target_position
         for component in range(3):
@@ -355,7 +381,7 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
         job.physics[0] = physics
         # A zero force prediction still includes velocity, external wrench and
         # environment response, using exactly the same physics as every pair.
-        position, quaternion, next_velocity = predict(physics, VecForce(0.0), job.points, job.normals, 0)
+        position, quaternion, next_velocity = predict(physics, VecForce(0.0), job, 0)
         for component in range(3):
             job.baseline_pose[component] = position[component]
         job.baseline_pose[3] = quaternion[3]
@@ -477,7 +503,7 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
         if zero_cost < job.costs[candidate]:
             force = zero
         physics = job.physics[0]
-        position, quaternion, velocity = predict(physics, force, job.points, job.normals, candidate)
+        position, quaternion, velocity = predict(physics, force, job, candidate)
         terms = residual(job, force, candidate)
         cost = wp.dot(terms, terms)
         task_cost = pose_cost(physics, position, quaternion, job.pos_weight, job.ori_weight)
@@ -493,7 +519,7 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
         job.reductions[candidate] = job.current_pose_cost[0] - task_cost
         job.baseline_reductions[candidate] = job.baseline_cost[0] - task_cost
         for contact in range(NC):
-            n, t1, t2 = frame(job.normals[NC * candidate + contact])
+            n, t1, t2 = contact_frame(job,NC * candidate + contact)
             vector = n * force[3 * contact] + t1 * force[3 * contact + 1] + t2 * force[3 * contact + 2]
             job.force_vectors_local[NC * candidate + contact] = vector
         for component in range(NF):
@@ -527,7 +553,7 @@ def ensure_kernels(num_contacts=2, friction_cone="box"):
         for contact in range(NC):
             point = job.points[NC * best + contact]
             normal = job.normals[NC * best + contact]
-            n, t1, t2 = frame(normal)
+            n, t1, t2 = contact_frame(job,NC * best + contact)
             force = n * job.forces[best, 3 * contact] + t1 * job.forces[best, 3 * contact + 1]
             force += t2 * job.forces[best, 3 * contact + 2]
             job.selected_points[contact] = point
@@ -611,6 +637,8 @@ class BatchedLambdaLM:
         integer = lambda n: wp.zeros(n, dtype=int, device=self.device)
         matrix = lambda rows, cols: wp.zeros((rows, cols), dtype=float, device=self.device)
         job.points, job.normals = vector(self.num_contacts * count), vector(self.num_contacts * count)
+        job.tangent1,job.tangent2=vector(self.num_contacts*count),vector(self.num_contacts*count)
+        job.use_tangents=integer(1)
         job.mask, job.initial, job.use_initial = integer(count), matrix(count, self.force_dim), integer(1)
         job.physics = wp.empty(1, dtype=kernels.Physics, device=self.device)
         job.pose, job.target, job.velocity = scalar(7), scalar(7), scalar(6)
@@ -659,7 +687,8 @@ class BatchedLambdaLM:
     def solve_device(self, points, normals, *, current_x, x_d, prediction_dt,
                      object_inertia, v_obj=None, tau_o=None, initial_forces=None,
                      valid_mask=None, valid=None, support_row=None, support_gap=0.0,
-                     support_stiffness=0.2, support_damping=0.001, bias_wrench=None):
+                     support_stiffness=0.2, support_damping=0.001, bias_wrench=None,
+                     tangent_directions=None):
         """Return device buffers; accept flat Warp vec3 arrays or host (batch, num_contacts, 3).
 
         ``reductions`` compares the current pose with the resulting pose, as
@@ -698,6 +727,19 @@ class BatchedLambdaLM:
         job = self._allocate(count)
         self._copy(job.points, points, (self.num_contacts * count, 3) if not isinstance(points, wp.array) else (self.num_contacts * count,), "points")
         self._copy(job.normals, normals, (self.num_contacts * count, 3) if not isinstance(normals, wp.array) else (self.num_contacts * count,), "normals")
+        job.use_tangents.fill_(int(tangent_directions is not None))
+        if tangent_directions is not None:
+            tangent=np.asarray(tangent_directions,float)
+            if tangent.shape!=(count,self.num_contacts,2,3) or not np.isfinite(tangent).all():
+                raise ValueError('tangent_directions must be finite with shape (batch, contacts, 2, 3)')
+            normal=(normals.numpy() if isinstance(normals,wp.array) else np.asarray(normals)).reshape(count,self.num_contacts,3)
+            normal=normal/np.maximum(np.linalg.norm(normal,axis=-1,keepdims=True),1e-20)
+            if (not np.allclose(np.linalg.norm(tangent,axis=-1),1.,atol=1e-6,rtol=0) or
+                not np.allclose(np.sum(tangent*normal[:,:,None,:],axis=-1),0.,atol=1e-6,rtol=0) or
+                not np.allclose(np.sum(tangent[:,:,0]*tangent[:,:,1],axis=-1),0.,atol=1e-6,rtol=0)):
+                raise ValueError('tangent_directions must be orthonormal and perpendicular to normals')
+            job.tangent1.assign(np.asarray(tangent[:,:,0].reshape(-1,3),np.float32))
+            job.tangent2.assign(np.asarray(tangent[:,:,1].reshape(-1,3),np.float32))
         self._copy(job.pose, current_x, (7,), "current_x")
         self._copy(job.target, x_d, (7,), "x_d")
         self._copy(job.inertia, object_inertia, (6, 6), "object_inertia")

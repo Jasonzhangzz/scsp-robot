@@ -1,0 +1,40 @@
+[ablation] a5; isolated test_mpc_isaac runtime
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[mpc-startup] trial=0 building contact/MPC runtime
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[acados] reusing solver: mpc_soft_scm_v3_3ec07800e9_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=0 ready in 2.11s (contact=cma-es mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 0.78s
+[mpc-startup] trial=1 building contact/MPC runtime
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[acados] reusing solver: mpc_soft_scm_v3_3ec07800e9_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=1 ready in 2.27s (contact=cma-es mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 0.85s
+[mpc-startup] trial=2 building contact/MPC runtime
+[acados] reusing solver: mpc_soft_scm_v3_3ec07800e9_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=2 ready in 2.63s (contact=cma-es mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=2 physics ready in 0.77s

@@ -426,7 +426,8 @@ class ExplicitMPCParams:
 
         combine_mode = ('max' if getattr(args, 'physics_backend', 'isaac') == 'mjwarp'
                         and getattr(args, 'mjwarp_scene', 'isaac') == 'legacy' else 'average')
-        configure_scene_friction(self, combine_mode)
+        configure_scene_friction(self, combine_mode,
+                                 physics_backend=getattr(args, 'physics_backend', 'isaac'))
         self.n_mj_q_ = self.n_qpos_
         self.n_mj_v_ = self.n_qvel_
         self.max_ncon_ = 10
@@ -470,7 +471,12 @@ class ExplicitMPCParams:
         self.solver_backend_ = str(requested_solver)
         self.torch_solver = resolve_solver_backend(requested_solver)
         self.planner_solver_ = self.torch_solver
-        self.mpc_horizon_ = 5
+        horizon = getattr(args, 'mpc_horizon', None)
+        if horizon is None:
+            horizon = 5
+        if int(horizon) != horizon or int(horizon) < 1:
+            raise ValueError('MPC horizon must be a positive integer')
+        self.mpc_horizon_ = int(horizon)
         self.ipopt_max_iter_ = 100
         self.comple_relax = 0.01
 

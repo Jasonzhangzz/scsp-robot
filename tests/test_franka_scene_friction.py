@@ -16,6 +16,10 @@ from examples.mpc.franka.ik2.scene_friction import configure_scene_friction
 ])
 def test_cso_receives_scene_pair_friction_at_initial_construction(
         monkeypatch, suffix, backend, scene, arm_mu, table_mu):
+    materials = (.5, .9, 1.5)
+    if suffix == '' and backend == 'isaac':
+        arm_mu = 1.6
+        materials = (.2, 1.2, 2.)
     entry=importlib.import_module('examples.mpc.franka.ik2.test_mpc_isaac'+suffix)
     params=importlib.import_module('examples.mpc.franka.ik2.params'+suffix)
     args=entry._add_rollout_policy_args(argparse.ArgumentParser()).parse_args([
@@ -34,7 +38,7 @@ def test_cso_receives_scene_pair_friction_at_initial_construction(
     assert p.mu_fingertip_object_==pytest.approx(arm_mu)
     assert p.mu_table_object_==pytest.approx(table_mu)
     assert p.mu_object_==pytest.approx(table_mu)
-    assert (p.table_friction_,p.object_friction_,p.fingertip_friction_)==(.5,.9,1.5)
+    assert (p.table_friction_,p.object_friction_,p.fingertip_friction_)==materials
 
 
 @pytest.mark.parametrize('suffix', ['', '_ablation'])

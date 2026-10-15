@@ -1,0 +1,71 @@
+[startup] building MuJoCo scene with palm facing the object
+[startup] preprocessing contact surface
+Warp 1.16.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.16.0
+[startup] surface preprocessing: 0.785s
+[startup] constructing MPC (acados compiles on cache miss)
+[acados] reusing solver: mpc_soft_scm_allegro_v3_e9f808b0f0_param_staged2_c1242d5b6a_current_h4_c12_x79_u22_profile_e8ddba0a_jvp_v1_cost_jvp_v1
+[startup] MPC initialization: 2.069s
+[startup] selecting contact anchors with shared Lambda LM
+Module planning.lambda_batched_lm 12ecb9f load on device 'cpu' took 0.74 ms  (cached)
+[startup] contact selection: 0.546s
+[startup] hand IK: at most 16 sets, 3.0s budget
+[startup] hand IK: 0.232s
+[startup] planned force closure: True; rank=6; bounded gravity support=True
+[startup] pregrasp IK: 0.011s; minimum pad clearance=12.4 mm
+Online Allegro MPC: n_EE=4 state=79 action=22 objective=pad_contact_and_object_pose solver=acados dt=0.025s
+Initial IK mean/max tip error: 0.0013/0.0016 m
+Initial IK max hand self-penetration: 0.000 mm
+Object goal: [0.5801431670110428, -0.00015001912510215253, 0.5994996336651792]; lift=0.200 m; confirmed physical force closure and load support enable contact transport
+[startup] solving the first MPC command
+[startup] first MPC solve: 0.046s
+step=0000 phase=approach contacts=0/4 tip_error=0.2057 height=0.0001 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=+149.2mm/0.00N index=+153.9mm/0.00N middle=+129.1mm/0.00N ring=+164.0mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0025 phase=approach contacts=1/4 tip_error=0.0223 height=-0.0018 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=+1.7mm/0.00N index=-3.7mm/0.24N middle=+4.1mm/0.00N ring=+0.1mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0050 phase=approach contacts=3/4 tip_error=0.0107 height=-0.0036 target_z=0.5995 lift_gate=contacts thumb=-4.7mm/0.28N index=-0.4mm/0.05N middle=+2.8mm/0.00N ring=-4.0mm/0.25N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0075 phase=approach contacts=3/4 tip_error=0.0117 height=-0.0004 target_z=0.5995 lift_gate=contacts,load_support thumb=-3.3mm/0.20N index=-0.4mm/0.02N middle=+0.1mm/0.00N ring=-2.4mm/0.15N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=81 reason=object_moved attempt=1 object=[0.5799117997235443, -0.006717827627611835, 0.3982899696193015] new_patches=True
+[regrasp] step=100 pads clear; resume contact MPC
+step=0100 phase=regrasp contacts=0/4 tip_error=0.0188 height=-0.0004 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=+13.6mm/0.00N index=+10.5mm/0.00N middle=+15.8mm/0.00N ring=+12.0mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+[audit] captured first loaded state 115 physical/model/lambda Fz 0.019608431993683513 0.04694632340349355 0.3382118260674699
+step=0125 phase=lift contacts=4/4 tip_error=0.0045 height=0.0039 target_z=0.5995 lift_gate=ready thumb=-5.8mm/0.36N index=-5.0mm/0.30N middle=-5.6mm/0.36N ring=-2.9mm/0.13N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=133 reason=lost_grasp attempt=2 object=[0.5697009390540556, -0.02336844892861271, 0.4081898383744495] new_patches=True
+step=0150 phase=regrasp_open contacts=1/4 tip_error=0.0124 height=-0.0038 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=+12.6mm/0.00N index=-2.2mm/0.13N middle=+7.2mm/0.00N ring=+17.1mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=170 pads clear; resume contact MPC
+step=0175 phase=regrasp contacts=0/4 tip_error=0.0132 height=-0.0002 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=+10.6mm/0.00N index=+5.2mm/0.00N middle=+4.1mm/0.00N ring=+9.1mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0200 phase=lift contacts=4/4 tip_error=0.0087 height=0.0191 target_z=0.5995 lift_gate=ready thumb=-9.5mm/0.59N index=-3.2mm/0.18N middle=-11.4mm/0.71N ring=-2.9mm/0.19N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=211 reason=lost_grasp attempt=3 object=[0.5789073705414742, -0.03021379191225644, 0.41304618010275834] new_patches=True
+step=0225 phase=regrasp_open contacts=2/4 tip_error=0.0247 height=-0.0061 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=-5.1mm/0.31N index=+7.6mm/0.00N middle=+11.1mm/0.00N ring=-5.9mm/0.33N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=240 pads clear; resume contact MPC
+step=0250 phase=regrasp contacts=1/4 tip_error=0.0082 height=0.0001 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=+0.9mm/0.00N index=+0.7mm/0.00N middle=-1.4mm/0.17N ring=+1.3mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=272 reason=lost_grasp attempt=4 object=[0.5651395424497623, -0.036883386748883334, 0.4196627729077174] new_patches=True
+step=0275 phase=regrasp_open contacts=2/4 tip_error=0.0223 height=0.0097 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=-4.1mm/0.13N index=+0.0mm/0.00N middle=-3.8mm/0.15N ring=+5.1mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0300 phase=regrasp_open contacts=2/4 tip_error=0.0190 height=-0.0014 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=-1.6mm/0.06N index=+9.6mm/0.00N middle=+13.4mm/0.00N ring=-6.3mm/0.44N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=312 reason=object_moved attempt=5 object=[0.5625480313960954, -0.033355919247285405, 0.39734617752995743] new_patches=True
+step=0325 phase=regrasp_open contacts=1/4 tip_error=0.0133 height=-0.0008 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=+3.3mm/0.00N index=+12.4mm/0.00N middle=+12.3mm/0.00N ring=-0.2mm/0.02N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=348 pads clear; resume contact MPC
+step=0350 phase=regrasp contacts=0/4 tip_error=0.0159 height=0.0003 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=+9.8mm/0.00N index=+10.9mm/0.00N middle=+11.6mm/0.00N ring=+8.4mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=371 reason=lost_grasp attempt=6 object=[0.5577610148629617, -0.03324274702308092, 0.4068464890448603] new_patches=True
+step=0375 phase=regrasp_open contacts=3/4 tip_error=0.0188 height=-0.0009 target_z=0.5995 lift_gate=contacts,load_support,regrasp_clearance thumb=-4.1mm/0.13N index=-3.7mm/0.15N middle=-1.5mm/0.01N ring=+6.1mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0400 phase=regrasp_open contacts=0/4 tip_error=0.0221 height=0.0005 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=+2.5mm/0.00N index=+9.3mm/0.00N middle=+8.7mm/0.00N ring=+0.2mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=411 reason=object_moved attempt=7 object=[0.5541686919506974, -0.027451742712187203, 0.3991942252123912] new_patches=True
+step=0425 phase=regrasp_open contacts=0/4 tip_error=0.0066 height=-0.0016 target_z=0.5995 lift_gate=contacts,force_closure,load_support,regrasp_clearance thumb=+0.6mm/0.00N index=+13.7mm/0.00N middle=+14.8mm/0.00N ring=+15.5mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+[regrasp] step=447 pads clear; resume contact MPC
+grasp_success: False; best_contacts: 4; best_height_gain: 0.0203 m
+[audit] counterfactual execution from identical measured grasp
+[audit] hold_servo -0.00018260081871451783 3
+[audit] base_lift 0.0010014874071454516 0
+[audit] base_lift_extra_preload 0.0008646409769336727 0
+[audit] independent nonlinear solve of the original MPC cost
+[audit] nonlinear comparison {'success': False, 'message': 'STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT', 'iterations': 100, 'initial_cost': 1356.65329369466, 'optimized_cost': 1332.405199022166, 'action': array([-0.001     ,  0.001     ,  0.001     , -0.005     , -0.005     ,
+       -0.005     , -0.00762986,  0.0125    ,  0.0125    ,  0.0125    ,
+       -0.00709724,  0.0125    ,  0.0125    ,  0.0125    ,  0.0125    ,
+        0.0125    ,  0.0125    ,  0.0125    , -0.0125    ,  0.0125    ,
+       -0.0125    ,  0.01176081]), 'pad_force_sum': array([-0.03638631, -0.08284396,  0.0611269 ]), 'predicted_object_positions': array([[ 0.5777284 , -0.01158469,  0.39815703],
+       [ 0.57730648, -0.01207437,  0.39766167],
+       [ 0.5768446 , -0.0126914 ,  0.39735732],
+       [ 0.57643017, -0.01345847,  0.397192  ]]), 'state_bound_violation': 0.0}

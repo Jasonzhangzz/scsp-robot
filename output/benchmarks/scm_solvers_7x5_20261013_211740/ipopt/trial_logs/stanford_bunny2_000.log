@@ -1,0 +1,14 @@
+
+******************************************************************************
+This program contains Ipopt, a library for large-scale nonlinear optimization.
+ Ipopt is released as open source code under the Eclipse Public License (EPL).
+         For more information visit https://github.com/coin-or/Ipopt
+******************************************************************************
+
+direct_force solver=ipopt object=stanford_bunny2 seed=0 step=0 pos=0.055795 quat=0.594285 hold=0 success=False
+direct_force solver=ipopt object=stanford_bunny2 seed=0 step=50 pos=0.026881 quat=0.968011 hold=0 success=False
+direct_force solver=ipopt object=stanford_bunny2 seed=0 step=100 pos=0.043471 quat=0.057306 hold=0 success=False
+direct_force solver=ipopt object=stanford_bunny2 seed=0 step=150 pos=0.022637 quat=0.000130 hold=0 success=False
+direct_force solver=ipopt object=stanford_bunny2 seed=0 step=200 pos=0.015953 quat=0.000127 hold=0 success=False
+direct_force solver=ipopt object=stanford_bunny2 seed=0 step=210 pos=0.015936 quat=0.000139 hold=10 success=True
+TRIAL_RESULT {"solver": "ipopt", "object": "stanford_bunny2", "seed": 0, "steps": 211, "success": true, "settled": true, "final_pos": 0.015936191837900945, "final_quat": 0.00013895065379099236, "solver_backends": ["ipopt"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-14T04:33:27+08:00", "completed_at": "2026-10-14T04:35:22+08:00", "execution_time_s": 112.84010035998654, "elapsed_wall_time_s": 112.84010035998654, "simulation_time_s": 4.220000000000381, "planning_time_ms": {"n": 211, "mean": 532.9101907486047, "std": 161.51970025066558, "median": 498.9603759604506, "p95": 806.6349665168673, "min": 302.00554500333965, "max": 1108.9124049758539}, "planning_rounds": 211}

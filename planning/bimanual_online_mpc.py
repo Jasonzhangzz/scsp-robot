@@ -37,6 +37,7 @@ class BimanualOnlineMPC(MPCExplicit):
                                         qp_solver="FULL_CONDENSING_HPIPM", nlp_solver_max_iter=iterations,
                                         levenberg_marquardt=.01)
         param.mpc_ipopt_fallback_ = bool(getattr(param, "online_ipopt_fallback", False))
+        param.mpc_prune_codegen_ = bool(getattr(param, 'mpc_prune_codegen_', True))
         param.ipopt_max_iter_ = int(getattr(param, "online_ipopt_iters", getattr(param, "ipopt_max_iter_", 80)))
         if param.ipopt_max_iter_ < 1:
             raise ValueError("Online IPOPT iterations must be positive")
@@ -64,17 +65,18 @@ class BimanualOnlineMPC(MPCExplicit):
         self.support_vertices = None
 
     def _build_online_costs(self, param, model):
-        self._head_size = 38
+        self._head_size = 42
         self._phi_size, self._jac_size = 24, 288
         cp = cs.SX.sym("dual_objective", self._head_size + 24 + 288 + model.model_parameter_dim)
         x, u = cs.SX.sym("state", 25), cs.SX.sym("action", 6)
         target, points, normals, forces = cp[:7], cs.reshape(cp[7:13], 3, 2), cs.reshape(cp[13:19], 3, 2), cp[19:25]
         established, previous = cp[25], cp[29:35]
         selected_established = cp[37]
-        # cp[35:37] records the selected measured-contact mask for diagnostics.
-        phi = cp[38:62]
-        jac = cs.reshape(cp[62:350], 24, 12)
-        mp = cp[350:]
+        reference_moment = cp[39:42]
+        # Contact mode per pad: -1 fixed world waypoint, 0 prospective, 1 loaded.
+        phi = cp[42:66]
+        jac = cs.reshape(cp[66:354], 24, 12)
+        mp = cp[354:]
         tolerance = float(getattr(param, "online_max_horizontal_error", .005))
         radius = cs.fmax(cs.fabs(mp[:2] - cp[26:28]), tolerance)
         corridor_lower = cs.if_else(established > .5, cs.fmin(mp[:2], target[:2]) - tolerance,
@@ -82,12 +84,23 @@ class BimanualOnlineMPC(MPCExplicit):
         corridor_upper = cs.if_else(established > .5, cs.fmax(mp[:2], target[:2]) + tolerance,
                                     cp[26:28] + radius)
 
-        def state_residual(state, predicted_force=None):
+        def state_residual(state, predicted_force=None, predicted_moment=None):
             rotation = rotation_cs(state[3:7])
             errors = []
             for arm in range(2):
                 center = state[:3] + rotation @ (points[:, arm] - param.online_contact_offset * normals[:, arm])
-                errors.append(state[7 + 3 * arm:10 + 3 * arm] - center)
+                world_waypoint = mp[:3] + rotation_cs(mp[3:7]) @ (
+                    points[:, arm] - param.online_contact_offset * normals[:, arm])
+                center = cs.if_else(cp[35+arm] < -.5, world_waypoint, center)
+                error = state[7 + 3 * arm:10 + 3 * arm] - center
+                # A made contact follows its real tangent patch. Its normal
+                # displacement is free to build the allocated pressure.
+                normal = rotation @ normals[:, arm]
+                # Retain a soft compression attraction. Dropping the entire
+                # normal residual removed the preload that made the previous
+                # grasp hold while the force model settled.
+                error -= .75 * cs.fmax(cp[35+arm], 0) * cp[38] * normal * cs.dot(normal, error)
+                errors.append(error)
             # Keep actual load while correcting anchors. An off-anchor grasp
             # must not use the full pre-contact attraction against the grip.
             anchor_scale = 1 - established * (1 - selected_established) * .75
@@ -118,8 +131,21 @@ class BimanualOnlineMPC(MPCExplicit):
                 scale = 1.0 / param.online_task_stiffness
                 terms.append(np.sqrt(param.planner_contact_gate_sync_weight_) * scale *
                              (1 - established) * (normal_force[0] - normal_force[1]))
-                terms.append(np.sqrt(param.planner_force_tracking_weight_) * scale * established *
-                             (predicted_force - cs.vertcat(rotation @ forces[:3], rotation @ forces[3:6])))
+                reference_normal = [cs.dot(normals[:, arm], forces[3*arm:3*arm+3]) for arm in range(2)]
+                terms.append(np.sqrt(param.planner_force_tracking_weight_) * scale *
+                    cs.vertcat(*[cs.fmax(cp[35+arm], 0)*(normal_force[arm]-reference_normal[arm]) for arm in range(2)]))
+                # Penalize the resulting wrench, allowing useful tangential
+                # force redistribution rather than tracking each tangent force.
+                predicted_local = [rotation.T @ predicted_force[3*arm:3*arm+3] for arm in range(2)]
+                force_error = sum(predicted_local)-forces[:3]-forces[3:6]
+                torque_error = sum(cs.cross(points[:, arm], predicted_local[arm]-forces[3*arm:3*arm+3])
+                                   for arm in range(2))
+                if predicted_moment is not None:
+                    torque_error += sum(rotation.T@predicted_moment[3*arm:3*arm+3] for arm in range(2))
+                torque_error -= reference_moment
+                radius = cs.fmax(cs.norm_2(points[:, 1]-points[:, 0])*.5, .01)
+                terms.append(np.sqrt(float(getattr(param, 'online_wrench_cost_weight', 1.))) *
+                    scale*cp[38]*cs.fmax(cp[35], 0)*cs.fmax(cp[36], 0)*cs.vertcat(force_error, torque_error/radius))
             lower, upper = cs.DM(param.planner_workspace_lower_), cs.DM(param.planner_workspace_upper_)
             for tip in (state[7:10], state[10:13]):
                 terms.append(np.sqrt(param.planner_workspace_weight_) * cs.fmax(lower - tip, 0))
@@ -130,7 +156,8 @@ class BimanualOnlineMPC(MPCExplicit):
 
         predicted = model.prediction_fn(x, u, phi, jac, mp)
         predicted_force = model.contact_force_fn(x, u, phi, jac, mp)
-        terms = state_residual(predicted, predicted_force)
+        predicted_moment = model.contact_moment_fn(x, u, phi, jac, mp)
+        terms = state_residual(predicted, predicted_force, predicted_moment)
         terms += [np.sqrt(param.planner_action_weight_) * u,
                   np.sqrt(param.planner_smooth_action_weight_) * (u - previous)]
         residual = cs.vertcat(*terms)
@@ -152,13 +179,16 @@ class BimanualOnlineMPC(MPCExplicit):
                   contact_points_local, normals_local, desired_force_local,
                   object_inertia, external_wrench, contact_established=False,
                   selected_contact_mask=(False, False), approach_origin=None,
-                  grasp_established=None, measured_normal_force=None, **unused):
+                  grasp_established=None, measured_normal_force=None, live_grasp=None,
+                  approach_centers_world=None, approach_mask=None, **unused):
         started = time.perf_counter()
         state = np.asarray(curr_x, float).reshape(25)
         grasp = bool(contact_established if grasp_established is None else grasp_established)
         self.model.set_observation(state, object_inertia, external_wrench, grasp_established=grasp)
         phi = np.asarray(phi_vec, float).reshape(24)
         jac = np.asarray(jac_mat, float).reshape(24, 12)
+        if measured_normal_force is not None:
+            self.model.set_contact_preload(state, phi, jac, measured_normal_force)
         mp = self.model.runtime_parameters()
         normals = np.asarray(normals_local, float).reshape(2, 3)
         lengths = np.linalg.norm(normals, axis=1, keepdims=True)
@@ -167,15 +197,26 @@ class BimanualOnlineMPC(MPCExplicit):
         normals = normals / lengths
         physical_normals = jac[:8].reshape(2, 4, 12).mean(axis=1)[:, :3]
         force_reference = np.asarray(desired_force_local, float).reshape(2, 3)
-        if grasp and not contact_established:
+        if grasp and not contact_established and live_grasp is None:
             hold_force = self._grasp_hold_force(jac, external_wrench, measured_normal_force)
             rotation = np.asarray(rotation_cs(cs.DM(state[3:7])), float)
             force_reference = hold_force @ rotation
         origin = state[:3] if approach_origin is None else np.asarray(approach_origin, float).reshape(3)
-        head = np.r_[target_p, target_q, np.asarray(contact_points_local).reshape(6),
+        anchor_points = np.asarray(contact_points_local, float).reshape(2, 3).copy()
+        contact_modes = np.asarray(selected_contact_mask, float).reshape(2).copy()
+        if approach_centers_world is not None:
+            mask = np.asarray(approach_mask, bool).reshape(2)
+            rotation = np.asarray(rotation_cs(cs.DM(state[3:7])), float)
+            centers = np.asarray(approach_centers_world, float).reshape(2, 3)
+            anchor_points[mask] = ((centers[mask]-state[:3]) @ rotation +
+                                   self.param_.online_contact_offset*normals[mask])
+            contact_modes[mask] = -1.
+        head = np.r_[target_p, target_q, anchor_points.reshape(6),
                      normals.reshape(6), force_reference.reshape(6),
-                     float(grasp), origin, self._previous_action, selected_contact_mask,
-                     float(contact_established)]
+                     float(grasp), origin, self._previous_action, contact_modes,
+                     float(contact_established), float(live_grasp is not None and live_grasp['force_allocation_feasible']),
+                     np.zeros(3) if live_grasp is None else np.asarray(
+                         live_grasp.get('desired_moments_local', np.zeros((2, 3)))).reshape(2, 3).sum(0)]
         self._context = np.r_[head, phi, jac.reshape(-1, order="F"), mp]
         if not np.isfinite(self._context).all():
             raise ValueError("Online MPC objective must be finite")
@@ -197,7 +238,7 @@ class BimanualOnlineMPC(MPCExplicit):
         # this cycle's patches, including on contact-pair or solver changes.
         controls = np.zeros((self.horizon, 6)) if self._warm_controls is None else self._warm_controls.copy()
         if self._warm_controls is None:
-            centers = state[:3] + (np.asarray(contact_points_local) - self.param_.online_contact_offset * normals) @ np.asarray(
+            centers = state[:3] + (anchor_points - self.param_.online_contact_offset * normals) @ np.asarray(
                 rotation_cs(cs.DM(state[3:7])), float).T
             controls[:] = np.clip((centers.reshape(6) - state[7:13]) * .2,
                                    self.param_.mpc_u_lb_, self.param_.mpc_u_ub_)
@@ -210,7 +251,7 @@ class BimanualOnlineMPC(MPCExplicit):
             # zero derivative. Seed the loaded branch of the same objective;
             # the optimizer can still release either pad if that costs less.
             controls = (controls.reshape(self.horizon, 2, 3) +
-                        np.maximum(.001 - pressure, 0)[:, :, None] * inward).reshape(self.horizon, 6)
+                        (np.maximum(.001 - pressure, 0)*(contact_modes >= 0))[..., None] * inward).reshape(self.horizon, 6)
             controls = np.clip(controls, self.param_.mpc_u_lb_, self.param_.mpc_u_ub_)
         warm_states = self._rollout(state, controls, phi, jac, mp)
         guess = dict(x0=np.column_stack((controls, warm_states)).reshape(-1),
@@ -225,15 +266,21 @@ class BimanualOnlineMPC(MPCExplicit):
             # control without moving toward the goal while a solver recovers.
             controls, fallback_control = self._fallback_controls(
                 state, phi, jac, mp, guess["u_traj"], external_wrench,
-                measured_normal_force, grasp)
-        norms = np.linalg.norm(controls @ self.param_.robot_stiff_.T, axis=1)
-        controls *= np.minimum(1., self.param_.contact_command_force_limit_ / np.maximum(norms, 1e-12))[:, None]
+                measured_normal_force, grasp,
+                force_reference_world=None if live_grasp is None or not live_grasp['force_allocation_feasible']
+                    else force_reference @ np.asarray(rotation_cs(cs.DM(state[3:7])), float).T)
+        controls = self._bounded_controls(controls)
+        nonlinear_step_scale = 1.
+        if solver_success:
+            controls, nonlinear_step_scale = self._select_nonlinear_controls(
+                state, controls, guess['u_traj'], phi, jac, mp)
         rollout = self._rollout(state, controls, phi, jac, mp)
         if not np.isfinite(rollout).all() or not np.isfinite(controls).all():
             raise FloatingPointError("Online MPC returned a non-finite action or rollout")
         self._previous_action = controls[0].copy()
         self._warm_controls = np.vstack((controls[1:], controls[-1:])) if (solver_success or grasp) else None
         first_force = np.asarray(self.model.contact_force_fn(state, controls[0], phi, jac, mp)).reshape(2, 3)
+        first_moment = np.asarray(self.model.contact_moment_fn(state, controls[0], phi, jac, mp)).reshape(2, 3)
         result.update(action=controls[0].copy(), u_traj=controls, rollout_q=rollout,
                       x_plus_opt=rollout[0, :7].copy(), execution_object_pose_world=rollout[0, :7].copy(),
                       normal_force=np.maximum(np.sum(first_force * physical_normals, axis=1), 0)[None],
@@ -245,6 +292,7 @@ class BimanualOnlineMPC(MPCExplicit):
         cost += float(self.final_cost_fn(rollout[-1], self._context))
         result.update(cost=cost, cost_opt=np.array([cost]))
         result["diagnostics"] = dict(contact_model=self.model.contact_model,
+            live_grasp=live_grasp,
             fallback_reason=result.get("fallback_reason"),
             acados_error=result.get("acados_error"),
             acados_attempt_errors=result.get("acados_attempt_errors", []),
@@ -255,10 +303,14 @@ class BimanualOnlineMPC(MPCExplicit):
             ipopt_initialization_time=result.get("ipopt_initialization_time", 0.),
             ipopt_solve_time=result.get("ipopt_solve_time", 0.),
             solver_success=solver_success,
+            nonlinear_step_scale=nonlinear_step_scale,
             fallback_control=fallback_control,
             grasp_established=grasp,
             selected_contact_established=bool(contact_established),
             phase=("manipulate" if contact_established and grasp else "grasp_recovery" if grasp else "approach"),
+            recovery_stage=None if live_grasp is None else live_grasp.get('recovery_stage'),
+            approach_centers_world=None if approach_centers_world is None else np.asarray(approach_centers_world).copy(),
+            approach_mask=None if approach_mask is None else np.asarray(approach_mask, bool).copy(),
             object_cost_now=objective_now, object_cost_next=objective_next,
             predicted_cost_reduction=objective_now - objective_next,
             predicted_horizontal_displacement=rollout[0, :2] - state[:2],
@@ -267,8 +319,29 @@ class BimanualOnlineMPC(MPCExplicit):
                 np.maximum(lower - rollout[:, :2], rollout[:, :2] - upper), 0).max()),
             selected_contact_mask=np.asarray(selected_contact_mask, bool),
             approach_origin=origin.copy(),
-            predicted_force_world=first_force, state_dim=25, action_dim=6)
+            predicted_force_world=first_force, predicted_moment_world=first_moment,
+            observed_preload_bias=self.model.normal_preload_bias.copy(), state_dim=25, action_dim=6)
         return result
+
+    def _select_nonlinear_controls(self, state, controls, warm, phi, jac, mp):
+        """Validate RTI steps against the actual transported contact model.
+
+        The QP linearization can cross a contact/cone branch. Executing that
+        iterate solely because acados returned success can lose a real grip.
+        """
+        warm = self._bounded_controls(warm)
+        best, best_scale, best_cost = warm, 0., np.inf
+        for scale in (0., 1., .5, .25, .1):
+            candidate = warm+scale*(controls-warm)
+            rollout = self._rollout(state, candidate, phi, jac, mp)
+            if not np.isfinite(rollout).all():
+                continue
+            states = np.vstack((state, rollout[:-1]))
+            cost = sum(float(self.path_cost_fn(x, u, self._context)) for x, u in zip(states, candidate))
+            cost += float(self.final_cost_fn(rollout[-1], self._context))
+            if np.isfinite(cost) and cost < best_cost:
+                best, best_scale, best_cost = candidate, scale, cost
+        return best, best_scale
 
     def _grasp_hold_force(self, jac, external_wrench, measured_normal_force):
         blocks = np.asarray(jac).reshape(6, 4, 12)[:2]
@@ -290,10 +363,12 @@ class BimanualOnlineMPC(MPCExplicit):
         norms = np.linalg.norm(controls @ self.param_.robot_stiff_.T, axis=1)
         return controls * np.minimum(1., self.param_.contact_command_force_limit_ / np.maximum(norms, 1e-12))[:, None]
 
-    def _fallback_controls(self, state, phi, jac, mp, warm, external, measured, grasp):
+    def _fallback_controls(self, state, phi, jac, mp, warm, external, measured, grasp,
+                           force_reference_world=None):
         if not grasp:
             return np.zeros((self.horizon, 6)), "zero_approach"
-        force = self._grasp_hold_force(jac, external, measured)
+        force = (self._grasp_hold_force(jac, external, measured) if force_reference_world is None
+                 else np.asarray(force_reference_world).reshape(2, 3))
         hold = ((force + self.param_.mpc_tip_damping_ * state[19:25].reshape(2, 3)) /
                 self.param_.online_task_stiffness).reshape(6)
         candidates = [("force_hold", np.tile(hold, (self.horizon, 1))),

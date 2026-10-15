@@ -1,0 +1,351 @@
+[
+  {
+    "run": "mpc_restored_physics",
+    "success": false,
+    "cycles": 800,
+    "stable_steps": 0,
+    "height_gain_mm": 5.840067129937065,
+    "xy_drift_mm": 6.592722366409218,
+    "orientation_error_deg": 10.158939238013922,
+    "initial_cost_components": {
+      "position": 9.62179516405995,
+      "orientation": 0.018836128623173104,
+      "velocity": 0.02122135985097235,
+      "pressure": 594.092080207259,
+      "command": 7.757462354626892
+    },
+    "planner_wall_time_ms": {
+      "median": 14.928204000170808,
+      "p95": 15.596938253293045,
+      "p99": 17.700065400131276,
+      "max": 28.087705999496393
+    },
+    "loop_wall_time_ms": {
+      "median": 48.2428439972864,
+      "p95": 52.33814290040755,
+      "p99": 115.55881427804707,
+      "max": 116.14903600275284
+    }
+  },
+  {
+    "run": "mpc_load_pressure_cost",
+    "success": false,
+    "cycles": 1000,
+    "stable_steps": 0,
+    "height_gain_mm": -1.3549995460190312,
+    "xy_drift_mm": 21.111358137930132,
+    "orientation_error_deg": 8.467858419087742,
+    "initial_cost_components": {
+      "position": 9.46173097126986,
+      "orientation": 0.0017237777898973293,
+      "velocity": 0.004968697760019451,
+      "pressure": 0.020696133320007696,
+      "contact_force": 0.00043476503342699955,
+      "tangent_force": 0.00020025740371409405,
+      "command": 4.424237616103461e-05
+    },
+    "planner_wall_time_ms": {
+      "median": 14.894675496179843,
+      "p95": 15.59031784599938,
+      "p99": 16.707408480069713,
+      "max": 35.200898004404735
+    },
+    "loop_wall_time_ms": {
+      "median": 46.05105499649653,
+      "p95": 51.9577515504352,
+      "p99": 74.34638963815813,
+      "max": 117.6882130021113
+    }
+  },
+  {
+    "run": "mpc_observed_preload",
+    "success": false,
+    "cycles": 1000,
+    "stable_steps": 0,
+    "height_gain_mm": 1.0664288253885434,
+    "xy_drift_mm": 2.0866765709711865,
+    "orientation_error_deg": 1.3365856338236242,
+    "initial_cost_components": {
+      "position": 8.680935095744292,
+      "orientation": 0.014675669438518408,
+      "velocity": 0.02371483204190286,
+      "pressure": 0.016794819424505135,
+      "contact_force": 0.0007718843326405505,
+      "tangent_force": 0.001212989962239707,
+      "command": 2.7061652552661836e-05
+    },
+    "planner_wall_time_ms": {
+      "median": 15.080275501532014,
+      "p95": 15.934690701033105,
+      "p99": 16.59769497666275,
+      "max": 17.761497001629323
+    },
+    "loop_wall_time_ms": {
+      "median": 45.81519249768462,
+      "p95": 51.169930903415654,
+      "p99": 114.78514265574631,
+      "max": 116.00841600011336
+    }
+  },
+  {
+    "run": "mpc_preload_moments",
+    "success": false,
+    "cycles": 1000,
+    "stable_steps": 0,
+    "height_gain_mm": 60.21358838533858,
+    "xy_drift_mm": 0.3042036293943479,
+    "orientation_error_deg": 9.276592326454765,
+    "initial_cost_components": {
+      "position": 8.195536637192957,
+      "orientation": 2.8898558125444234e-05,
+      "velocity": 0.002121752635921273,
+      "pressure": 0.015601118675799887,
+      "contact_force": 0.0008414218159636954,
+      "tangent_force": 0.0014380238301428408,
+      "command": 4.3565143110927406e-05
+    },
+    "planner_wall_time_ms": {
+      "median": 15.56060450093355,
+      "p95": 16.62575679984002,
+      "p99": 17.853590106460615,
+      "max": 20.905891004076693
+    },
+    "loop_wall_time_ms": {
+      "median": 45.942795997689245,
+      "p95": 51.46841964960913,
+      "p99": 116.43205932246929,
+      "max": 118.44931200175779
+    }
+  },
+  {
+    "run": "mpc_coupled_preload_moments",
+    "success": true,
+    "cycles": 192,
+    "stable_steps": 15,
+    "height_gain_mm": 60.60429220608121,
+    "xy_drift_mm": 0.674647682700956,
+    "orientation_error_deg": 1.42973312236292,
+    "initial_cost_components": {
+      "position": 8.179416637033398,
+      "orientation": 0.0004908513494744076,
+      "velocity": 0.003618145021081126,
+      "pressure": 0.0158173080717515,
+      "contact_force": 0.0008346845712712145,
+      "tangent_force": 0.0014258941988566807,
+      "command": 4.324572798271864e-05
+    },
+    "planner_wall_time_ms": {
+      "median": 16.397342002164805,
+      "p95": 16.76239334992715,
+      "p99": 21.379828294229817,
+      "max": 23.217689005832653
+    },
+    "loop_wall_time_ms": {
+      "median": 46.77167399859172,
+      "p95": 116.7466841507121,
+      "p99": 118.49898582302558,
+      "max": 118.86972800130025
+    }
+  },
+  {
+    "run": "mpc_preload_final_hold",
+    "success": true,
+    "cycles": 662,
+    "stable_steps": 350,
+    "height_gain_mm": 60.198890430633035,
+    "xy_drift_mm": 1.3795773987595112,
+    "orientation_error_deg": 3.20301697046142,
+    "initial_cost_components": {
+      "position": 8.179416637033398,
+      "orientation": 0.0004908513494744076,
+      "velocity": 0.003618145021081126,
+      "pressure": 0.0158173080717515,
+      "contact_force": 0.0008346845712712145,
+      "tangent_force": 0.0014258941988566807,
+      "command": 4.324572798271864e-05
+    },
+    "planner_wall_time_ms": {
+      "median": 16.63678450131556,
+      "p95": 17.670573748910098,
+      "p99": 18.944790500463565,
+      "max": 21.14565100055188
+    },
+    "loop_wall_time_ms": {
+      "median": 47.403266002220334,
+      "p95": 53.03448439626663,
+      "p99": 119.12436967853864,
+      "max": 119.82932300452376
+    }
+  },
+  {
+    "run": "mpc_final_full_wrench",
+    "success": true,
+    "cycles": 653,
+    "stable_steps": 350,
+    "height_gain_mm": 59.499362180325534,
+    "xy_drift_mm": 1.2711458894659247,
+    "orientation_error_deg": 3.4175506631833965,
+    "planner_wall_time_ms": {
+      "median": 16.84311099961633,
+      "p99": 21.175793722504768,
+      "max": 29.766710998956114
+    },
+    "loop_wall_time_ms": {
+      "median": 43.338809002307244,
+      "p99": 97.36644536082167,
+      "max": 99.21414199925493
+    }
+  },
+  {
+    "run": "mpc_final_full_wrench_repeat",
+    "success": true,
+    "cycles": 653,
+    "stable_steps": 350,
+    "height_gain_mm": 59.499362180325534,
+    "xy_drift_mm": 1.2711458894659247,
+    "orientation_error_deg": 3.4175506631833965,
+    "planner_wall_time_ms": {
+      "median": 17.141446005553007,
+      "p99": 19.339767764613498,
+      "max": 20.305653000832535
+    },
+    "loop_wall_time_ms": {
+      "median": 43.95754700090038,
+      "p99": 96.79042351810494,
+      "max": 100.58285400009481
+    }
+  },
+  {
+    "run": "mpc_final_confirmed",
+    "success": false,
+    "cycles": 1200,
+    "stable_steps": 90,
+    "height_gain_mm": 59.675328860045006,
+    "xy_drift_mm": 1.2973415891509281,
+    "orientation_error_deg": 4.7171714461214105,
+    "planner_wall_time_ms": {
+      "median": 16.78485750380787,
+      "p99": 17.602240096093738,
+      "max": 20.936693996191025
+    },
+    "loop_wall_time_ms": {
+      "median": 42.40169499826152,
+      "p99": 94.9078255436325,
+      "max": 96.93515000253683
+    }
+  },
+  {
+    "run": "mpc_fixed_wrists",
+    "success": true,
+    "cycles": 515,
+    "stable_steps": 350,
+    "height_gain_mm": 60.906218448487145,
+    "xy_drift_mm": 0.942977513370638,
+    "orientation_error_deg": 1.805539269896303,
+    "planner_wall_time_ms": {
+      "median": 17.099140997743234,
+      "p99": 18.224313982209424,
+      "max": 25.496579000900965
+    },
+    "loop_wall_time_ms": {
+      "median": 43.23378700064495,
+      "p99": 96.5635844451026,
+      "max": 98.97130400349852
+    }
+  },
+  {
+    "run": "mpc_fixed_wrists_long_hold",
+    "success": false,
+    "cycles": 1600,
+    "stable_steps": 17,
+    "height_gain_mm": 61.8350578614878,
+    "xy_drift_mm": 1.2996953765945904,
+    "orientation_error_deg": 5.397454313978641,
+    "planner_wall_time_ms": {
+      "median": 17.10044200081029,
+      "p99": 19.068701168507687,
+      "max": 29.4203470039065
+    },
+    "loop_wall_time_ms": {
+      "median": 43.19455700169783,
+      "p99": 86.18748035718454,
+      "max": 98.0577920054202
+    }
+  },
+  {
+    "run": "mpc_fixed_wrists_stiffness60",
+    "success": false,
+    "cycles": 1600,
+    "stable_steps": 43,
+    "height_gain_mm": 60.31123264823746,
+    "xy_drift_mm": 2.217973201480619,
+    "orientation_error_deg": 4.9453498132663904,
+    "planner_wall_time_ms": {
+      "median": 16.82683849867317,
+      "p99": 17.870604881682084,
+      "max": 31.77900299488101
+    },
+    "loop_wall_time_ms": {
+      "median": 42.41180999815697,
+      "p99": 96.05440526342136,
+      "max": 98.50477900181431
+    }
+  },
+  {
+    "run": "mpc_full_pose_nullspace",
+    "success": true,
+    "cycles": 1587,
+    "stable_steps": 1000,
+    "height_gain_mm": 59.846565341778344,
+    "xy_drift_mm": 1.191439526245273,
+    "orientation_error_deg": 3.2828162411101576,
+    "planner_wall_time_ms": {
+      "median": 17.070747999241576,
+      "p99": 18.60437121897121,
+      "max": 42.13250699831406
+    },
+    "loop_wall_time_ms": {
+      "median": 42.98159800237045,
+      "p99": 84.86458999817837,
+      "max": 99.3436249991646
+    }
+  },
+  {
+    "run": "mpc_pressure_floor_full_pose",
+    "success": false,
+    "cycles": 1600,
+    "stable_steps": 97,
+    "height_gain_mm": 59.40650581606805,
+    "xy_drift_mm": 1.1741931856100971,
+    "orientation_error_deg": 5.076163439473523,
+    "planner_wall_time_ms": {
+      "median": 17.641497499425896,
+      "p99": 20.512938521205797,
+      "max": 30.33067200158257
+    },
+    "loop_wall_time_ms": {
+      "median": 43.8418654994166,
+      "p99": 85.42570931567752,
+      "max": 99.86345499783056
+    }
+  },
+  {
+    "run": "mpc_full_pose_nullspace_repeat",
+    "success": true,
+    "cycles": 1587,
+    "stable_steps": 1000,
+    "height_gain_mm": 59.846565341778344,
+    "xy_drift_mm": 1.191439526245273,
+    "orientation_error_deg": 3.2828162411101576,
+    "planner_wall_time_ms": {
+      "median": 16.847814003995154,
+      "p99": 17.709513775771484,
+      "max": 23.97351700346917
+    },
+    "loop_wall_time_ms": {
+      "median": 43.336966999049764,
+      "p99": 85.87671574161502,
+      "max": 98.92952699738089
+    }
+  }
+]

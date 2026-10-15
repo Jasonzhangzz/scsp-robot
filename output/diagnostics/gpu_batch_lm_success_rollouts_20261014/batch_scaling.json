@@ -1,0 +1,37 @@
+[
+  {
+    "object": "elephant",
+    "candidates": 1,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 6.7233269532521565,
+    "gpu_graph_std_ms": 0.21732846014266666
+  },
+  {
+    "object": "elephant",
+    "candidates": 8,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 7.058966414133708,
+    "gpu_graph_std_ms": 0.23509423723811004
+  },
+  {
+    "object": "elephant",
+    "candidates": 16,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 7.057985051472982,
+    "gpu_graph_std_ms": 0.2172388036192716
+  },
+  {
+    "object": "elephant",
+    "candidates": 32,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 7.186652771631876,
+    "gpu_graph_std_ms": 0.26913413661946
+  },
+  {
+    "object": "elephant",
+    "candidates": 54,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 7.3316064675649,
+    "gpu_graph_std_ms": 0.290660895964035
+  }
+]

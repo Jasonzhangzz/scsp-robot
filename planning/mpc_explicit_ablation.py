@@ -689,6 +689,8 @@ class MPCExplicit:
                     )
                 )
                 tracking = (1 - verify) * lift + verify * place if phased else place
+                if self.param_.ablation_mode == 'a7':
+                    tracking = self.param_.contact_coef * center_term
                 if self.param_.ablation_mode in ('a1', 'a2', 'a3'):
                     tracking = self.param_.contact_coef * (q[7:10] - stage_cp).square().sum()
                     if self.param_.ablation_mode == 'a3':
@@ -1073,7 +1075,14 @@ def _build_mpc_planner_runtime(init, param=None):
     param.mpc_carry_velocity_ = bool(getattr(args, 'mpc_carry_velocity', True))
     param.mpc_tip_effective_mass_ = float(getattr(args, 'mpc_tip_effective_mass', 2.5))
     param.mpc_tip_damping_ = float(getattr(args, 'mpc_tip_damping', 40.))
-    mpc = MPCExplicit(param)
+    if getattr(param, 'ablation_mode', 'full') == 'a7':
+        from planning.franka_mppi_ablation import FrankaCenterMPPI
+        mpc = FrankaCenterMPPI(param, args)
+    else:
+        mpc = MPCExplicit(param)
+    if getattr(param, 'ablation_mode', 'full') in ('a4', 'a5'):
+        from planning.franka_cso_ablation import install_cso_ablation
+        install_cso_ablation(param, args)
     mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
     via_step = getattr(args, "via_max_step", None)
     via_step = mpc_step if via_step is None else max(1e-4, float(via_step))
@@ -1221,8 +1230,11 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         config[6:9] = r.T @ config[6:9]
         param.lambda_optimizer.set_object_cost_config(config)
 
-    ablation_direct = param.ablation_mode in ('a1', 'a2', 'a3')
-    ablation_no_rs = param.ablation_mode in ('a1', 'a2')
+    cso_ablation = getattr(param, 'cso_ablation_', None)
+    if cso_ablation is not None:
+        cso_ablation.prepare_observation(msg)
+    ablation_direct = param.ablation_mode in ('a1', 'a2', 'a3', 'a7')
+    ablation_no_rs = param.ablation_mode in ('a1', 'a2', 'a7')
     dwell = None if (ablation_no_rs or msg.get("osc_upright_guard_active", False)) else msg.get("dwell")
     if msg.get("osc_upright_guard_active", False):
         trackers["sol_guess"] = None

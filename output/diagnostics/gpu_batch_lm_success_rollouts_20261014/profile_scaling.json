@@ -1,0 +1,86 @@
+[
+  {
+    "object": "foam_brick",
+    "candidates": 46,
+    "iterations": 1,
+    "gpu_graph_mean_ms": 0.3378015995025635,
+    "gpu_graph_std_ms": 0.0006732231994767899
+  },
+  {
+    "object": "foam_brick",
+    "candidates": 46,
+    "iterations": 5,
+    "gpu_graph_mean_ms": 1.7354143917560578,
+    "gpu_graph_std_ms": 0.001539601191112011
+  },
+  {
+    "object": "foam_brick",
+    "candidates": 46,
+    "iterations": 10,
+    "gpu_graph_mean_ms": 3.579817569255829,
+    "gpu_graph_std_ms": 0.15024431693502513
+  },
+  {
+    "object": "foam_brick",
+    "candidates": 46,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 7.1371184349060055,
+    "gpu_graph_std_ms": 0.18870964178253108
+  },
+  {
+    "object": "elephant",
+    "candidates": 54,
+    "iterations": 1,
+    "gpu_graph_mean_ms": 0.3411903977394104,
+    "gpu_graph_std_ms": 0.0006995949921405054
+  },
+  {
+    "object": "elephant",
+    "candidates": 54,
+    "iterations": 5,
+    "gpu_graph_mean_ms": 1.7437199831008912,
+    "gpu_graph_std_ms": 0.0018224798810974679
+  },
+  {
+    "object": "elephant",
+    "candidates": 54,
+    "iterations": 10,
+    "gpu_graph_mean_ms": 3.6181440234184263,
+    "gpu_graph_std_ms": 0.10994385750219467
+  },
+  {
+    "object": "elephant",
+    "candidates": 54,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 7.308160042762756,
+    "gpu_graph_std_ms": 0.2508417350413121
+  },
+  {
+    "object": "stanford_bunny2",
+    "candidates": 51,
+    "iterations": 1,
+    "gpu_graph_mean_ms": 0.3615359991788864,
+    "gpu_graph_std_ms": 0.0007983337746017
+  },
+  {
+    "object": "stanford_bunny2",
+    "candidates": 51,
+    "iterations": 5,
+    "gpu_graph_mean_ms": 1.8470239818096161,
+    "gpu_graph_std_ms": 0.002329643757143189
+  },
+  {
+    "object": "stanford_bunny2",
+    "candidates": 51,
+    "iterations": 10,
+    "gpu_graph_mean_ms": 3.738574409484863,
+    "gpu_graph_std_ms": 0.08867448366276447
+  },
+  {
+    "object": "stanford_bunny2",
+    "candidates": 51,
+    "iterations": 20,
+    "gpu_graph_mean_ms": 7.560766410827637,
+    "gpu_graph_std_ms": 0.1975036141820745
+  }
+]

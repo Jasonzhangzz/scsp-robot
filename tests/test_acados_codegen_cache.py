@@ -44,7 +44,7 @@ def test_cold_build_limits_only_large_generated_files_and_reuses_cache(tmp_path,
     ocp, json_file, shared, calls = install_fake_solver(monkeypatch, tmp_path)
     build_cached_solver(ocp, json_file, shared)
     assert calls[0] == 'generate'
-    assert calls[1] == ['make', '-j2', 'ocp_shared_lib']
+    assert calls[1] == ['make', '-j1', 'ocp_shared_lib']
     assert calls[2] == dict(json_file=str(json_file), generate=False, build=False, verbose=False)
     makefile = (tmp_path / 'Makefile').read_text()
     assert 'large.o: CFLAGS += -O0' in makefile
@@ -63,6 +63,27 @@ def test_interrupted_build_without_library_is_rebuilt(tmp_path, monkeypatch):
     build_cached_solver(ocp, json_file, shared)
     assert calls[0] == 'generate'
     assert shared.is_file()
+
+
+def test_pruned_cache_keeps_runtime_library_and_loads_without_rebuilding(tmp_path, monkeypatch):
+    ocp, json_file, shared, calls = install_fake_solver(monkeypatch, tmp_path)
+    build_cached_solver(ocp, json_file, shared, prune_generated=True)
+    assert shared.is_file() and json_file.is_file()
+    assert (tmp_path/'build.log').is_file()
+    assert not list(tmp_path.rglob('*.c'))
+    assert not (tmp_path/'Makefile').exists()
+    calls.clear()
+    build_cached_solver(ocp, json_file, shared, prune_generated=True)
+    assert calls == [dict(json_file=str(json_file), generate=False, build=False, verbose=False)]
+
+
+def test_persistent_cache_directory_respects_overrides(tmp_path, monkeypatch):
+    from planning.acados_env import acados_cache_directory
+    monkeypatch.delenv('SCSP_ACADOS_CACHE_DIR', raising=False)
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path/'cache'))
+    assert acados_cache_directory('test') == tmp_path/'cache/scsp-robot/acados/test_codegen'
+    monkeypatch.setenv('SCSP_ACADOS_CACHE_DIR', str(tmp_path/'custom'))
+    assert acados_cache_directory('test') == tmp_path/'custom/test_codegen'
 
 
 def test_new_generate_api_uses_ocp_filename_and_cache(tmp_path, monkeypatch):
@@ -92,7 +113,7 @@ def test_hash_mismatch_rebuilds_through_bounded_compiler(tmp_path, monkeypatch):
     monkeypatch.setattr(solver, 'is_code_reuse_possible', staticmethod(lambda *a, **k: False), raising=False)
     build_cached_solver(ocp, json_file, shared)
     assert calls[0] == 'generate'
-    assert calls[1] == ['make', '-j2', 'ocp_shared_lib']
+    assert calls[1] == ['make', '-j1', 'ocp_shared_lib']
     assert calls[2]['check_reuse_possible'] is False
 
 
@@ -106,7 +127,7 @@ def test_interrupted_rebuild_cannot_load_an_older_shared_library(tmp_path, monke
     os.utime(shared, ns=(1_000_000_000, 1_000_000_000))
     build_cached_solver(ocp, json_file, shared)
     assert calls[0] == 'generate'
-    assert calls[1] == ['make', '-j2', 'ocp_shared_lib']
+    assert calls[1] == ['make', '-j1', 'ocp_shared_lib']
 
 
 def test_incompatible_casadi_graph_is_a_cache_miss(tmp_path, monkeypatch):
@@ -126,7 +147,7 @@ def test_incompatible_casadi_graph_is_a_cache_miss(tmp_path, monkeypatch):
     monkeypatch.setattr('planning.acados_env._canonical_ocp_signature', incompatible)
     build_cached_solver(ocp, json_file, shared)
     assert calls[0] == 'generate'
-    assert calls[1] == ['make', '-j2', 'ocp_shared_lib']
+    assert calls[1] == ['make', '-j1', 'ocp_shared_lib']
 
 
 def test_canonical_signature_checks_algebra_and_numerical_settings():

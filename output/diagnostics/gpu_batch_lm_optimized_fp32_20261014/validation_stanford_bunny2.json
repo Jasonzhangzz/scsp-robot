@@ -1,0 +1,17 @@
+{
+  "model": [
+    {
+      "candidates": 49,
+      "pose_max_abs": 1.032145265922324e-07,
+      "cost_max_abs": 2.380767494258862e-07,
+      "force_norm_max": 1.9911460876464844
+    }
+  ],
+  "jacobian": [
+    {
+      "candidates": 49,
+      "jac_max_abs": 9.636453761688313e-09,
+      "ref_max_abs": 0.17320508075688773
+    }
+  ]
+}

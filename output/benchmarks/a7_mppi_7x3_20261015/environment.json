@@ -1,0 +1,12 @@
+{
+  "python": "3.8.20",
+  "packages": {
+    "numpy": "1.24.4",
+    "casadi": "3.6.7",
+    "torch": "2.3.1+cu121",
+    "coacd": "1.0.5",
+    "trimesh": "4.4.9"
+  },
+  "physics": "Isaac Gym CPU PhysX",
+  "compute_threads": 1
+}

@@ -305,7 +305,7 @@ def test_two_stage_cost_does_not_shrink_cartesian_step(monkeypatch):
             "verify_cost": 1.25,
             "mpc_virtual_point": np.array([0.45, 0.0, 0.36]),
             "mpc_contact_point": np.array([0.46, 0.0, 0.36]),
-            "value_info": {"path_blocked": False},
+            "value_info": {"path_blocked": False, "force_approach_active": True},
             "p_arm_world": np.array([0.46, 0.0, 0.36]),
         }
 

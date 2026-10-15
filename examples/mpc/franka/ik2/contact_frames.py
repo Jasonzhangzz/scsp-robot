@@ -554,6 +554,50 @@ def table_jac_mat_env(obj_pos, obj_quat_wxyz, table_height, nv=9, mu=0.5, max_nc
     return jac
 
 
+def tool_axis_error(current, desired):
+    """World tilt error; rotation about the spherical tool's axis is free."""
+    current, desired = np.asarray(current), np.asarray(desired)
+    axis = np.cross(current[:, 2], desired[:, 2])
+    sine = np.linalg.norm(axis)
+    cosine = float(np.clip(np.dot(current[:, 2], desired[:, 2]), -1., 1.))
+    if sine > 1e-9:
+        return axis/sine*np.arctan2(sine, cosine)
+    return np.pi*current[:, 0] if cosine < 0. else np.zeros(3)
+
+
+def downward_tool_frame(reference):
+    """Remove placement tilt while retaining the tool's twist about its axis."""
+    from scipy.spatial.transform import Rotation
+    reference = np.asarray(reference, dtype=float).reshape(3, 3)
+    z, down = reference[:, 2], np.array([0., 0., -1.])
+    axis = np.cross(z, down)
+    sine, cosine = np.linalg.norm(axis), float(np.clip(np.dot(z, down), -1., 1.))
+    if sine > 1e-9:
+        swing = Rotation.from_rotvec(axis/sine*np.arctan2(sine, cosine)).as_matrix()
+    elif cosine < 0.:
+        swing = Rotation.from_rotvec(np.pi*reference[:, 0]).as_matrix()
+    else:
+        swing = np.eye(3)
+    return swing@reference
+
+
+def slew_tool_rotation(current, desired, dt, *, max_angle=np.deg2rad(25.), max_rate=1.):
+    """Limit a planned world-frame rotation offset in angle and slew rate."""
+    current = np.asarray(current, dtype=float).reshape(3)
+    target = np.asarray(desired, dtype=float).reshape(3)
+    if not np.isfinite(target).all():
+        target = np.zeros(3)
+    size = float(np.linalg.norm(target))
+    if size > max_angle:
+        target = target*(max_angle/size)
+    delta = target-current
+    length = float(np.linalg.norm(delta))
+    step = max(float(max_rate), 0.)*max(float(dt), 0.)
+    if length > step and length > 1e-12:
+        delta *= step/length
+    return current+delta
+
+
 # Official Franka ``move_to_start`` / cartesian example home:
 # {0, -π/4, 0, -3π/4, 0, π/2, π/4}.  Flange / fingertip Z is world -Z.
 FRANKA_QD_NULLSPACE = np.array(
@@ -566,25 +610,77 @@ def wrap_joint_error(q_d, q):
     return ((np.asarray(q_d, dtype=np.float64) - np.asarray(q, dtype=np.float64) + np.pi) % (2.0 * np.pi)) - np.pi
 
 
+def resolve_nullspace_stiffness(args):
+    """Use a weak joint-posture regularizer without suppressing wrist rolling.
+
+    Zero stiffness permits excessive posture drift; the old Isaac value of
+    10 suppressed natural contact rolling. Other backends retain their prior
+    default, and an explicit CLI value (including zero) always wins.
+    """
+    configured = getattr(args, 'nullspace_stiffness', None)
+    if configured is not None:
+        return float(configured)
+    if getattr(args, 'physics_backend', 'isaac') != 'isaac':
+        return 10.0
+    return 0.03 if getattr(args, 'obj', '') == 'stanford_bunny2' else 0.01
+
+
+def resolve_nullspace_damping_model(args):
+    """Keep the bunny's original damping law at its restored 0.03 stiffness.
+
+    The inertia-scaled law changes wrist rolling even at identical stiffness;
+    bunny paired rollouts regressed with it. Other objects retain their current
+    law, and explicit choices allow controlled comparisons.
+    """
+    configured = getattr(args, 'nullspace_damping_model', None)
+    if getattr(args, 'physics_backend', 'isaac') != 'isaac':
+        if configured == 'projected-inertia':
+            raise ValueError('projected-inertia posture damping requires Isaac')
+        return 'legacy'
+    if configured is not None:
+        return configured
+    return 'legacy' if getattr(args, 'obj', '') == 'stanford_bunny2' else 'projected-inertia'
+
+
 def franka_nullspace_projector(jacobian, rcond=1e-6):
-    """``I - J^T (J^T)^+`` from cartesian_impedance_example_controller."""
+    """Euclidean torque projector from cartesian_impedance_example_controller.
+
+    This is not a mass-weighted projector: J @ M^-1 @ N is generally nonzero.
+    It must not be assumed to isolate task-space acceleration.
+    """
     j = np.asarray(jacobian, dtype=np.float64)
     n = int(j.shape[1])
     return (np.eye(n, dtype=np.float64) - j.T @ np.linalg.pinv(j.T, rcond=rcond)).astype(np.float32)
 
 
-def franka_nullspace_posture_torque(jacobian, q, dq, q_d, stiffness):
+def franka_nullspace_posture_torque(jacobian, q, dq, q_d, stiffness, mass_matrix=None):
     """Penalize ``q - q_d`` in the Cartesian-task nullspace.
 
-    Matches franka_ros cartesian_impedance_example_controller::update:
+    Without mass_matrix this matches the legacy franka_ros controller.
+    With mass_matrix, use the inertia restricted to the posture nullspace
+    to scale damping instead of assuming unit joint inertia.
+
+    Legacy franka_ros cartesian_impedance_example_controller::update:
 
         τ_null = (I - Jᵀ (Jᵀ)⁺) (K (q_d - q) - 2 √K q̇)
 
-    Position-only J leaves orientation in that nullspace, so the home
-    configuration keeps the fingertip normal along world -Z without a
-    stiff orientation task.
+    Position-only J leaves tool orientation uncontrolled. A fixed joint
+    target does not hold the tool normal along world -Z; translation and
+    joint-posture torques can produce direction-dependent wrist motion.
     """
     k = float(stiffness)
-    damp = 2.0 * np.sqrt(max(k, 1e-6))
-    tau0 = k * wrap_joint_error(q_d, q) - damp * np.asarray(dq, dtype=np.float64).reshape(-1)
-    return (franka_nullspace_projector(jacobian) @ tau0).astype(np.float32)
+    velocity = np.asarray(dq, dtype=np.float64).reshape(-1)
+    projector = np.asarray(franka_nullspace_projector(jacobian), dtype=np.float64)
+    restoring = k * projector @ wrap_joint_error(q_d, q)
+    if mass_matrix is None:
+        # Preserve the legacy controller for backends without this option.
+        damping = 2.0 * np.sqrt(max(k, 1e-6)) * projector
+    else:
+        # D = 2 sqrt(K M_null). Project before taking the matrix square root:
+        # damping then acts only on posture freedoms and is positive semidefinite.
+        mass = np.asarray(mass_matrix, dtype=np.float64)
+        inertia = projector @ (.5*(mass+mass.T)) @ projector
+        values, vectors = np.linalg.eigh(.5*(inertia+inertia.T))
+        root = (vectors*np.sqrt(np.maximum(values,0.))) @ vectors.T
+        damping = 2.0*np.sqrt(max(k,0.))*projector@root@projector
+    return (restoring-damping@velocity).astype(np.float32)

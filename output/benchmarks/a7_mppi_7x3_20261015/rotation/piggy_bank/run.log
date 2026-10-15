@@ -1,0 +1,45 @@
+[ablation] mppi; isolated test_mpc_isaac runtime
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Loading extension module gymtorch...
+[mpc-startup] trial=0 building contact/MPC runtime
+[mpc-startup] trial=0 ready in 3.96s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 1.22s
+[ablation-progress] mode=mppi obj=piggy_bank seed=0 step=500/2500 pos_err=0.17530 quat_err=0.00286
+[ablation-progress] mode=mppi obj=piggy_bank seed=0 step=1000/2500 pos_err=0.22646 quat_err=0.02083
+[ablation-progress] mode=mppi obj=piggy_bank seed=0 step=1500/2500 pos_err=0.26307 quat_err=0.34293
+[ablation-progress] mode=mppi obj=piggy_bank seed=0 step=2000/2500 pos_err=0.30749 quat_err=0.53042
+[ablation-progress] mode=mppi obj=piggy_bank seed=0 step=2500/2500 pos_err=0.34086 quat_err=0.74494
+[mpc-startup] trial=1 building contact/MPC runtime
+[mpc-startup] trial=1 ready in 3.70s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 1.15s
+[ablation-progress] mode=mppi obj=piggy_bank seed=1 step=500/2500 pos_err=0.18288 quat_err=0.36343
+[ablation-progress] mode=mppi obj=piggy_bank seed=1 step=1000/2500 pos_err=0.18596 quat_err=0.65700
+[ablation-progress] mode=mppi obj=piggy_bank seed=1 step=1500/2500 pos_err=0.19236 quat_err=0.61191
+[ablation-progress] mode=mppi obj=piggy_bank seed=1 step=2000/2500 pos_err=0.20738 quat_err=0.51704
+[ablation-progress] mode=mppi obj=piggy_bank seed=1 step=2500/2500 pos_err=0.23282 quat_err=0.59544
+[mpc-startup] trial=2 building contact/MPC runtime
+[mpc-startup] trial=2 ready in 3.84s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=2 physics ready in 1.07s
+[ablation-progress] mode=mppi obj=piggy_bank seed=2 step=500/2500 pos_err=0.08396 quat_err=0.61971
+[ablation-progress] mode=mppi obj=piggy_bank seed=2 step=1000/2500 pos_err=0.10792 quat_err=0.70743
+[ablation-progress] mode=mppi obj=piggy_bank seed=2 step=1500/2500 pos_err=0.13623 quat_err=0.71197
+[ablation-progress] mode=mppi obj=piggy_bank seed=2 step=2000/2500 pos_err=0.07465 quat_err=0.41969
+[ablation-progress] mode=mppi obj=piggy_bank seed=2 step=2500/2500 pos_err=0.12399 quat_err=0.63070
+rollout_summary: {"physics_backend": "isaac", "solver_requested": "ipopt", "headless": true, "num_envs": 1, "async_planner": false, "trials": 3, "successes": 0, "success_rate": 0.0, "stable_flip_successes": 3, "stable_flip_rate": 1.0, "trial_start": 0, "wall_time_s": 235.6656150669878, "trials_per_second": 0.012729901216803528, "planner_solver_backends": ["mppi"], "lambda_solver_backends": ["ipopt"], "mpc_fallbacks": 0, "lambda_fallbacks": 0, "timing_statistics": {"trials": 3, "successes": 0, "success_rate": 0.0, "success_seeds": [], "stable_flip_successes": 3, "stable_flip_rate": 1.0, "stable_flip_seeds": [0, 1, 2], "first_stable_flip_s": {"n": 3, "mean": 4.6733335553047555, "std": 3.53860629667023}, "completion_sim_s": {"n": 0, "mean": null, "std": null}, "completion_wall_s": {"n": 0, "mean": null, "std": null}, "planning_cycle_ms": {"n": 7500, "mean": 13.113427986268652, "std": 2.462025036710272}, "planning_trial_mean_ms": {"n": 3, "mean": 13.113427986268652, "std": 0.37191675521440676}, "mpc_failures": 0, "lambda_failures": 0, "mpc_fallbacks": 0, "lambda_fallbacks": 0}}

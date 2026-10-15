@@ -1,0 +1,413 @@
+{
+  "rotation": {
+    "overall": {
+      "trials": 21,
+      "successes": 2,
+      "success_rate": 0.09523809523809523,
+      "execution_time_s": {
+        "n": 2,
+        "mean": 3.9100001857150346,
+        "std": 4.483057205656492
+      },
+      "planning_time_s": 0.012857938792420504,
+      "planning_cycles": 47891,
+      "final_pos_error_m": {
+        "n": 21,
+        "mean": 0.2914052380952381,
+        "std": 0.1515877842578038
+      },
+      "final_quat_error": {
+        "n": 21,
+        "mean": 0.3491290476190476,
+        "std": 0.41528851534691835
+      },
+      "mppi_solves": 47891,
+      "successful_cases": [
+        {
+          "object": "teapot",
+          "seed": 2
+        },
+        {
+          "object": "rubber_duck",
+          "seed": 0
+        }
+      ]
+    },
+    "objects": {
+      "foam_brick": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.012844836594340934,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.37385666666666667,
+          "std": 0.16065868925561838
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.34552666666666665,
+          "std": 0.5653846217694052
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "stanford_bunny2": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.01268709727486712,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.36114666666666667,
+          "std": 0.19412570781154495
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.3506066666666667,
+          "std": 0.5623514439683901
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "elephant": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.012779769509116886,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.42903,
+          "std": 0.023420160119008583
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.4384133333333334,
+          "std": 0.43071010509777147
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "piggy_bank": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.013113427986268652,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.23280333333333333,
+          "std": 0.1076956639486165
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.6536666666666666,
+          "std": 0.0848508251776807
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "teapot": {
+        "trials": 3,
+        "successes": 1,
+        "success_rate": 0.3333333333333333,
+        "execution_time_s": {
+          "n": 1,
+          "mean": 0.740000035148114,
+          "std": null
+        },
+        "planning_time_s": 0.012392687815335143,
+        "planning_cycles": 5037,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.24753666666666668,
+          "std": 0.20928843549831733
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.008573333333333334,
+          "std": 0.009033793961195557
+        },
+        "mppi_solves": 5037,
+        "successful_cases": [
+          {
+            "object": "teapot",
+            "seed": 2
+          }
+        ]
+      },
+      "mug": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.012906808695259193,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.24988,
+          "std": 0.10002893531373808
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.01753,
+          "std": 0.006890304782808959
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "rubber_duck": {
+        "trials": 3,
+        "successes": 1,
+        "success_rate": 0.3333333333333333,
+        "execution_time_s": {
+          "n": 1,
+          "mean": 7.080000336281955,
+          "std": null
+        },
+        "planning_time_s": 0.013236463902329354,
+        "planning_cycles": 5354,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.14558333333333334,
+          "std": 0.10915003084439936
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.6295866666666666,
+          "std": 0.5365843297500714
+        },
+        "mppi_solves": 5354,
+        "successful_cases": [
+          {
+            "object": "rubber_duck",
+            "seed": 0
+          }
+        ]
+      }
+    }
+  },
+  "flipping": {
+    "overall": {
+      "trials": 21,
+      "successes": 0,
+      "success_rate": 0.0,
+      "execution_time_s": {
+        "n": 0,
+        "mean": null,
+        "std": null
+      },
+      "planning_time_s": 0.012860207731056115,
+      "planning_cycles": 52500,
+      "final_pos_error_m": {
+        "n": 21,
+        "mean": 0.3470909523809524,
+        "std": 0.16224426608989181
+      },
+      "final_quat_error": {
+        "n": 21,
+        "mean": 0.7995861904761905,
+        "std": 0.25325141990670436
+      },
+      "mppi_solves": 52500,
+      "successful_cases": []
+    },
+    "objects": {
+      "foam_brick": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.013054204683347295,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.43187000000000003,
+          "std": 0.1351550069364802
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.9991466666666666,
+          "std": 0.0013137097599292204
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "stanford_bunny2": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.012951965967433837,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.37802,
+          "std": 0.14284683685682367
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.6777333333333333,
+          "std": 0.3040337129881049
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "elephant": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.012999693219086233,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.39009,
+          "std": 0.1600273510997417
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.7059766666666667,
+          "std": 0.1752724229116872
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "piggy_bank": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.013214124482678016,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.35133333333333333,
+          "std": 0.17217426820908321
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.85137,
+          "std": 0.18979017782804253
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "teapot": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.012824524388402158,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.41812,
+          "std": 0.09630747686446782
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.6775933333333333,
+          "std": 0.5562596790468758
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "mug": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.01236560319638229,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.23716,
+          "std": 0.3071799594700149
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.8697666666666667,
+          "std": 0.12393869506063605
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      },
+      "rubber_duck": {
+        "trials": 3,
+        "successes": 0,
+        "success_rate": 0.0,
+        "execution_time_s": {
+          "n": 0,
+          "mean": null,
+          "std": null
+        },
+        "planning_time_s": 0.012611338180062982,
+        "planning_cycles": 7500,
+        "final_pos_error_m": {
+          "n": 3,
+          "mean": 0.22304333333333334,
+          "std": 0.04335197842467323
+        },
+        "final_quat_error": {
+          "n": 3,
+          "mean": 0.8155166666666667,
+          "std": 0.16772301760144115
+        },
+        "mppi_solves": 7500,
+        "successful_cases": []
+      }
+    }
+  }
+}

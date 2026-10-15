@@ -1430,6 +1430,10 @@ def _plan_payload(env, contact, table_ground, dwell=None):
     }
     if hasattr(env, 'get_fingertip_velocity_world'):
         payload['fingertip_linear_velocity'] = env.get_fingertip_velocity_world()
+    if hasattr(env,'get_tool_kinematics_world'):
+        tool_quat, tool_omega = env.get_tool_kinematics_world()
+        payload['tool_quaternion_world'] = tool_quat
+        payload['tool_angular_velocity'] = tool_omega
     executed = getattr(env, '_last_mpc_action', None)
     if executed is not None:
         payload['executed_action'] = np.asarray(executed, dtype=np.float64).copy()
@@ -1488,7 +1492,7 @@ def _plan_from_obs(obs, dwell=None):
         "if_contact": bool(obs.get("if_contact", False)),
         "table_ground": float(obs["table_ground"]),
     }
-    for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active', 'actual_contact', 'fingertip_linear_velocity', 'executed_action'):
+    for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active', 'actual_contact', 'fingertip_linear_velocity', 'executed_action', 'tool_quaternion_world', 'tool_angular_velocity'):
         if key in obs:
             payload[key] = obs[key]
     for key in ("phi_vec", "jac_mat", "jac_mat_env", "env_phi"):

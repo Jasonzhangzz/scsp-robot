@@ -1,0 +1,49 @@
+[ablation] mppi; isolated test_mpc_isaac runtime
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[mpc-startup] trial=0 building contact/MPC runtime
+[mpc-startup] trial=0 ready in 3.18s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 1.27s
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=0 step=500/2500 pos_err=0.21136 quat_err=0.79696
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=0 step=1000/2500 pos_err=0.28958 quat_err=0.78388
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=0 step=1500/2500 pos_err=0.29665 quat_err=0.52508
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=0 step=2000/2500 pos_err=0.40595 quat_err=0.76205
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=0 step=2500/2500 pos_err=0.47680 quat_err=0.74279
+[mpc-startup] trial=1 building contact/MPC runtime
+[mpc-startup] trial=1 ready in 3.32s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 1.03s
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=1 step=500/2500 pos_err=0.13812 quat_err=0.67032
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=1 step=1000/2500 pos_err=0.16197 quat_err=0.59862
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=1 step=1500/2500 pos_err=0.22580 quat_err=0.33974
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=1 step=2000/2500 pos_err=0.34799 quat_err=0.30993
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=1 step=2500/2500 pos_err=0.44241 quat_err=0.34443
+[mpc-startup] trial=2 building contact/MPC runtime
+[mpc-startup] trial=2 ready in 3.14s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=2 physics ready in 1.24s
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=2 step=500/2500 pos_err=0.06503 quat_err=0.44275
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=2 step=1000/2500 pos_err=0.10039 quat_err=0.49658
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=2 step=1500/2500 pos_err=0.16685 quat_err=0.62331
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=2 step=2000/2500 pos_err=0.18135 quat_err=0.93134
+[ablation-progress] mode=mppi obj=stanford_bunny2 seed=2 step=2500/2500 pos_err=0.21464 quat_err=0.94455
+rollout_summary: {"physics_backend": "isaac", "solver_requested": "ipopt", "headless": true, "num_envs": 1, "async_planner": false, "trials": 3, "successes": 0, "success_rate": 0.0, "stable_flip_successes": 1, "stable_flip_rate": 0.3333333333333333, "trial_start": 0, "wall_time_s": 203.598897991993, "trials_per_second": 0.014734853820859001, "planner_solver_backends": ["mppi"], "lambda_solver_backends": ["ipopt"], "mpc_fallbacks": 0, "lambda_fallbacks": 0, "timing_statistics": {"trials": 3, "successes": 0, "success_rate": 0.0, "success_seeds": [], "stable_flip_successes": 1, "stable_flip_rate": 0.3333333333333333, "stable_flip_seeds": [1], "first_stable_flip_s": {"n": 1, "mean": 32.780001556966454, "std": null}, "completion_sim_s": {"n": 0, "mean": null, "std": null}, "completion_wall_s": {"n": 0, "mean": null, "std": null}, "planning_cycle_ms": {"n": 7500, "mean": 12.951965967433837, "std": 3.422109320561592}, "planning_trial_mean_ms": {"n": 3, "mean": 12.951965967433837, "std": 0.02826417738475082}, "mpc_failures": 0, "lambda_failures": 0, "mpc_fallbacks": 0, "lambda_fallbacks": 0}}

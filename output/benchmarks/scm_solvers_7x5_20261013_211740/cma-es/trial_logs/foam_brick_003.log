@@ -1,0 +1,11 @@
+direct_force solver=cma-es object=foam_brick seed=3 step=0 pos=0.039118 quat=0.992919 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=50 pos=0.046274 quat=0.711451 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=100 pos=0.042751 quat=0.402628 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=150 pos=0.037220 quat=0.356461 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=200 pos=0.030676 quat=0.408338 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=250 pos=0.030942 quat=0.405886 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=300 pos=0.031230 quat=0.404404 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=350 pos=0.031056 quat=0.404073 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=400 pos=0.015178 quat=0.044140 hold=0 success=False
+direct_force solver=cma-es object=foam_brick seed=3 step=418 pos=0.015487 quat=0.001080 hold=15 success=True
+TRIAL_RESULT {"solver": "cma-es", "object": "foam_brick", "seed": 3, "steps": 419, "success": true, "settled": true, "final_pos": 0.015486548106358673, "final_quat": 0.0010804277623146508, "solver_backends": ["cma-es"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-14T02:17:20+08:00", "completed_at": "2026-10-14T02:22:06+08:00", "execution_time_s": 283.3235107769724, "elapsed_wall_time_s": 283.3235107769724, "simulation_time_s": 8.37999999999875, "planning_time_ms": {"n": 419, "mean": 674.4231929443276, "std": 50.435472607361916, "median": 662.7704240381718, "p95": 770.0039056944661, "min": 510.9495719661936, "max": 848.4405259951018}, "planning_rounds": 419}

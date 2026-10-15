@@ -103,6 +103,8 @@ def test_physical_allegro_mpc_approaches_live_contact_goals(demo_module, tmp_pat
     demo = demo_module.AllegroTabletopTrigraspDemo(args)
     try:
         assert demo.model.body_mass[demo.object_body_id] == pytest.approx(args.obj_mass)
+        assert demo.model.opt.noslip_iterations == 3
+        assert demo.model.opt.tolerance == pytest.approx(1e-8)
         palm, rotation, _ = demo.forward_kinematics(demo.default_hand_q)
         toward_object = demo.initial_object_pos - palm
         toward_object /= np.linalg.norm(toward_object)
@@ -125,11 +127,27 @@ def test_physical_allegro_mpc_approaches_live_contact_goals(demo_module, tmp_pat
         pos, quat, rot = demo.get_object_pose()
         state = demo.get_mpc_state()
         phi, jac = demo.detect_mpc_contacts()
+        # Force sensitivities used by RTI must agree with the actual coupled
+        # SCM map on a loaded branch, rather than silently dropping tracking.
+        model = demo.mpc.model
+        model.reference = state[:model.pose_size].copy()
+        loaded_phi = phi.copy(); loaded_phi[:4] = -.002
+        zero = np.zeros(demo.model.nu)
+        mp = model.runtime_parameters(demo.mpc_param.model_params)
+        force, fx, fu = model.force_linearization_fn(state, zero, loaded_phi, jac, mp)
+        np.testing.assert_allclose(force, model.contact_force_fn(state, zero, loaded_phi, jac, mp))
+        rng = np.random.default_rng(13)
+        dx, du = rng.normal(size=state.size), rng.normal(size=zero.size)
+        eps = 1e-7
+        finite = (np.asarray(model.contact_force_fn(state+eps*dx, eps*du, loaded_phi, jac, mp))-
+                  np.asarray(model.contact_force_fn(state-eps*dx, -eps*du, loaded_phi, jac, mp)))/(2*eps)
+        np.testing.assert_allclose(finite.reshape(-1), np.asarray(fx@dx+fu@du).reshape(-1), rtol=2e-4, atol=2e-5)
         assert args.lambda_prediction_dt == demo.command_dt
-        assert args.lift_contact_fingers == n
+        assert args.lift_contact_fingers == 3
         assert demo.optimizer.require_force_closure
         assert demo.optimizer.lm.friction_cone == "coulomb"
-        # An ungrasped object's drift must not keep moving the IK target.
+        # The blending function receives an already transported attractor;
+        # it must not apply object translation a second time.
         from types import SimpleNamespace
         fixed_ik = SimpleNamespace(qpos=demo.default_hand_q.copy())
         opened = fixed_ik.qpos.copy(); opened[6:] -= .02
@@ -180,13 +198,13 @@ def test_physical_allegro_mpc_approaches_live_contact_goals(demo_module, tmp_pat
         gaps = np.asarray(model.contact_gap_fn(shifted, np.zeros_like(phi), probe_jac,
             model.runtime_parameters(demo.mpc_param.model_params))).reshape(-1)
         np.testing.assert_allclose(gaps[:4], .01, atol=1e-12)
-        # Move the IK palm target down 1 cm; the MPC cost does not need EE
-        # targets, Jacobians or sampled contact-point coordinates.
+        # Move the contact goals down 1 cm. IK only seeds the solve;
+        # live tip kinematics and object-frame anchors drive the objective.
         anchors = (tips - pos - [0., 0., .01]) @ rot
         goal = np.r_[pos, quat]
         ik_target = state[7:7+demo.model.nu].copy()
         ik_target[2] -= .01
-        result = demo.mpc.plan_ik_pose(state, phi, jac, goal=goal,
+        result = demo.mpc.plan_contacts(state, phi, jac, tips=tips, tip_jacobian=j, anchors=anchors, goal=goal,
             hand_posture=ik_target, loaded=False)
         assert np.isfinite(result["action"]).all()
         assert result["action"][2] < 0
@@ -206,46 +224,139 @@ def test_physical_allegro_mpc_approaches_live_contact_goals(demo_module, tmp_pat
         demo.execute_online_action(result["action"], ik_target,
             anchors, np.zeros_like(anchors), False)
         executed_tips, _ = demo.online_tip_kinematics()
-        assert np.all(np.linalg.norm(executed_tips-(tips-[0., 0., .01]), axis=1) < .0095)
+        # Check movement toward the target; the servo's finite inertia and
+        # contact response time need not achieve a fixed fraction in 25 ms.
+        assert np.all(np.linalg.norm(executed_tips-(tips-[0., 0., .01]), axis=1) < .0099)
         commanded = demo.online_servo_target.copy()
         np.testing.assert_allclose(commanded, state[-demo.model.nu:]+result["action"])
         demo.execute_online_action(np.zeros(demo.model.nu), ik_target, anchors, np.zeros_like(anchors), False)
         np.testing.assert_array_equal(demo.online_servo_target, commanded)
         # A solver can return success with an unhelpful stationary step.
-        # The online controller must still evaluate the IK correction by
+        # The online controller must still evaluate the pad correction by
         # its complete MPC objective, respecting the near-contact bounds.
         demo.mpc.planner_solver_ = "acados"
         monkeypatch.setattr(demo.mpc, "_plan_once_acados", lambda *a, **kw: dict(
             action=np.zeros(demo.model.nu), u_traj=np.zeros((args.mpc_horizon, demo.model.nu)),
             solve_status="ACADOS_SUCCESS", solver_backend="acados", sol_guess=None))
         near_phi = np.ones_like(phi); near_phi[:4] = .005
-        rescued = demo.mpc.plan_ik_pose(state, near_phi, np.zeros_like(jac), goal=goal,
+        rescued = demo.mpc.plan_contacts(state, near_phi, np.zeros_like(jac), tips=tips, tip_jacobian=j, anchors=anchors, goal=goal,
             hand_posture=ik_target, loaded=False)
-        assert rescued["selected_control"] == "ik_correction_by_mpc_cost"
+        assert rescued["selected_control"] == "contact_alignment_by_mpc_cost"
         assert rescued["action"][2] < 0
         assert np.all(np.abs(rescued["action"]) <= demo.mpc_param.contact_u_limit+1e-12)
+        # At contact, even an IK target pulling in the opposite direction
+        # cannot change either the rescue seed or the selected MPC command.
+        contact_phi = near_phi.copy(); contact_phi[:4] = 0.
+        conflicting_ik = ik_target.copy(); conflicting_ik[2] += .1
+        common = dict(tips=tips, tip_jacobian=j, anchors=anchors, goal=goal, loaded=False)
+        contact = demo.mpc.plan_contacts(state, contact_phi, np.zeros_like(jac),
+            hand_posture=ik_target, **common)
+        changed_ik = demo.mpc.plan_contacts(state, contact_phi, np.zeros_like(jac),
+            hand_posture=conflicting_ik, **common)
+        np.testing.assert_allclose(contact["action"], changed_ik["action"], atol=1e-12)
+        assert changed_ik["action"][2] < 0
         # An online RTI failure must not block while building an IPOPT NLP.
         demo.mpc.planner_solver_ = "acados"
         monkeypatch.setattr(demo.mpc, "_plan_once_acados", lambda *a, **kw: None)
         def forbidden_ipopt(*a, **kw):
             pytest.fail("online RTI failure entered blocking IPOPT fallback")
         monkeypatch.setattr(demo.mpc, "_plan_once_ipopt", forbidden_ipopt)
-        failed = demo.mpc.plan_ik_pose(state, phi, jac, goal=goal,
+        failed = demo.mpc.plan_contacts(state, phi, jac, tips=tips, tip_jacobian=j, anchors=anchors, goal=goal,
             hand_posture=ik_target, loaded=False)
         assert failed["solver_backend"] == "acados_failed"
-        assert failed["fallback_control"] == "ik_posture_correction"
+        assert failed["fallback_control"] == "contact_alignment_correction"
         assert np.isfinite(failed["action"]).all()
         assert np.all(np.abs(failed["action"]) <= demo.mpc_param.mpc_u_ub_)
+        # Failure telemetry describes the fallback actually executed.
+        expected = demo.mpc.model.prediction_fn(state, failed["action"], phi, jac,
+            demo.mpc.model.runtime_parameters(demo.mpc_param.model_params))
+        np.testing.assert_allclose(failed["rollout_q"][0], np.asarray(expected).reshape(-1))
         drifted = state.copy(); drifted[:2] += [.02, -.03]
-        demo.mpc.plan_ik_pose(drifted, phi, jac, goal=goal, hand_posture=ik_target,
+        demo.mpc.plan_contacts(drifted, phi, jac, tips=tips, tip_jacobian=j, anchors=anchors, goal=goal, hand_posture=ik_target,
             loaded=False, approach_origin=state[:3])
         # Unilateral contact must not expand the horizontal corridor every
         # cycle and thereby erase the accumulated displacement penalty.
         np.testing.assert_allclose(demo.mpc._horizontal_bounds,
             [state[:2]-demo.mpc_param.horizontal_tolerance,
              state[:2]+demo.mpc_param.horizontal_tolerance])
+        # Recovery must translate AND rotate all pad seeds with the object,
+        # while leaving the measured scene untouched.
+        source_pos, source_quat, source_rot = demo.get_object_pose()
+        moved_pos = source_pos+np.array([.05, -.02, 0.])
+        moved_rot = demo_module.Rotation.from_euler("z", .35).as_matrix()@source_rot
+        measured_before = demo.data.qpos.copy()
+        palm_before, rot_before, tips_before = demo.forward_kinematics(demo.default_hand_q)
+        transported = demo.transport_online_posture(demo.default_hand_q, source_pos, source_rot, moved_pos, moved_rot)
+        palm_after, rot_after, tips_after = demo.forward_kinematics(transported)
+        np.testing.assert_allclose(palm_after, moved_pos+moved_rot@source_rot.T@(palm_before-source_pos), atol=1e-10)
+        np.testing.assert_allclose(rot_after, moved_rot@source_rot.T@rot_before, atol=1e-10)
+        np.testing.assert_allclose(tips_after, moved_pos+(tips_before-source_pos)@source_rot@moved_rot.T, atol=1e-10)
+        np.testing.assert_array_equal(demo.data.qpos, measured_before)
+        # With the recovered corridor and a changed contact target, the real
+        # MPC cost must select a command toward the displaced object.
+        displaced = state.copy(); displaced[0] += .05
+        chase_ik = ik_target.copy(); chase_ik[0] += .05
+        chase = demo.mpc.plan_contacts(displaced, np.ones_like(phi), np.zeros_like(jac),
+            tips=tips, tip_jacobian=j, anchors=anchors, goal=goal,
+            hand_posture=chase_ik, loaded=False, approach_origin=displaced[:3])
+        assert chase["action"][0] > 0
+        projected_tips = tips+(j@chase["action"]).reshape(n, 3)
+        targets = displaced[:3]+anchors@rot.T
+        assert np.linalg.norm(projected_tips-targets) < np.linalg.norm(tips-targets)
     finally:
         demo.close()
+
+
+def test_noslip_refinement_preserves_startup_pose_and_is_restored(demo_module, tmp_path):
+    poses = []
+    for iterations in (0, 3, 10):
+        args = demo_module.build_argparser().parse_args([
+            "--headless", "--no-video", "--screenshot-interval", "0", "--mpc-solver", "ipopt",
+            "--mpc-horizon", "2", "--scene-output", str(tmp_path/f"noslip_{iterations}.xml"),
+            "--contact-noslip-iterations", str(iterations),
+            "--max-point-combination-eval", "16", "--lambda-lm-iters", "5"])
+        demo = demo_module.AllegroTabletopTrigraspDemo(args)
+        try:
+            poses.append(np.r_[demo.initial_object_pos, demo.initial_object_quat])
+            assert demo.model.opt.noslip_iterations == iterations
+        finally:
+            demo.close()
+    np.testing.assert_allclose(poses[0], poses[1], atol=1e-12, rtol=0.)
+    np.testing.assert_allclose(poses[0], poses[2], atol=1e-12, rtol=0.)
+
+
+def test_single_ik_returns_the_feasible_iterate_even_with_a_higher_score(demo_module, monkeypatch):
+    from types import SimpleNamespace
+    demo = object.__new__(demo_module.AllegroTabletopTrigraspDemo)
+    demo.args = demo_module.build_argparser().parse_args(['--ik-max-iters', '2'])
+    demo.args.online_ik_tip_tolerance = .004
+    demo.model = SimpleNamespace(nu=22, nv=22)
+    demo.hand_dof_adr = np.arange(22)
+    demo.hand_joint_limited = np.zeros(22, bool)
+    demo.hand_joint_ranges = np.tile([-10., 10.], (22, 1))
+    demo.hand_collision_geom_ids = set()
+    demo.palm_body_id, demo.tip_site_ids = 0, [0]
+    site = SimpleNamespace(xpos=np.zeros(3))
+    demo.solve_data = SimpleNamespace(contact=[], site=lambda _: site)
+    calls = 0
+    def kinematics(q):
+        nonlocal calls
+        calls += 1
+        site.xpos = np.array([.003 if calls == 4 else .005, 0., 0.])
+        rotation = demo_module.Rotation.from_euler('z', .2 if calls == 4 else 0.).as_matrix()
+        return np.zeros(3), rotation, site.xpos[None].copy()
+    demo.forward_kinematics = kinematics
+    monkeypatch.setattr(demo_module.mujoco, 'mj_jacBody', lambda *a: None)
+    def site_jac(model, data, jp, jr, site_id):
+        jp[:, :3] = np.eye(3)
+    monkeypatch.setattr(demo_module.mujoco, 'mj_jacSite', site_jac)
+    result = demo.solve_single_ik_candidate(np.zeros(22), np.zeros(3), np.eye(3), np.zeros((1, 3)))
+    # The accepted 3 mm solution has a worse palm score than the preceding
+    # 5 mm solution. Returning the old minimum caused false startup failures.
+    assert result[0] > .005*1.35
+    assert result[2] == pytest.approx(.003)
+    assert result[3] == pytest.approx(.003)
+    assert result[-1] == 0.
 
 
 def test_ik_and_mpc_account_for_blocked_neighbouring_fingers(demo_module, tmp_path, monkeypatch):
@@ -328,10 +439,11 @@ def test_pregrasp_keeps_every_pad_clear_of_the_object(demo_module, tmp_path, mon
 
 
 @pytest.mark.parametrize("n", [3, 4])
-def test_allegro_ik_cost_tracks_all_joints_and_preserves_object_pose_terms(demo_module, n):
+def test_allegro_contact_cost_frees_ik_joints_and_preserves_object_pose(demo_module, n):
     param = object.__new__(demo_module.AllegroOnlineMPCParams)
     param.num_contacts, param.n_cmd_, param.n_qpos_ = n, 22, 57
-    param.posture_weights = np.r_[np.full(3, 1000.), np.full(3, 500.), np.full(16, 5000.)]
+    param.posture_weights = np.r_[np.ones(3), np.full(3, .5), np.full(16, 5.)]
+    param.tip_weight = 5000.
     param.action_weights = np.full(22, .03)
     param.object_weight, param.quat_weight = 120., 500.
     param.lateral_weight, param.horizontal_recovery_weight = 300., 2e6
@@ -340,25 +452,313 @@ def test_allegro_ik_cost_tracks_all_joints_and_preserves_object_pose_terms(demo_
     pose = np.array([0., 0., .3, 1., 0., 0., 0.])
     ik = np.linspace(-.1, .1, 22)
     state = np.r_[pose, ik, np.zeros(28)]
-    context = np.r_[pose, ik, 0., [-.005, -.005], [.005, .005]]
+    anchors = np.c_[np.linspace(-.03, .03, n), np.zeros(n), np.zeros(n)]
+    tips = pose[:3] + anchors
+    j = np.zeros((3*n, 22)); j[:, :3] = np.tile(np.eye(3), (n, 1))
+    context = np.r_[pose, ik, 0., [-.005, -.005], [.005, .005], ik,
+        tips.reshape(-1), j.reshape(-1, order="F"), anchors.reshape(-1), 0.]
     action = np.zeros(22)
-    # The 34 parameters contain no Cartesian tip/anchor/Jacobian targets.
-    assert cost.size1_in(2) == 34
     assert not param.cost_uses_force_reference
     assert float(cost(state, action, context)) == pytest.approx(0., abs=1e-12)
-    for joint, weight in enumerate(param.posture_weights):
-        error = state.copy()
-        error[7+joint] += .01
-        assert float(cost(error, action, context)) == pytest.approx(weight*.01**2)
-        assert float(terminal(error, context)) == pytest.approx(2*weight*.01**2)
-    inside = state.copy(); inside[0] = .004
-    assert float(cost(inside, action, context)) == pytest.approx(300*.004**2)
-    outside = state.copy(); outside[0] = .009
-    assert float(cost(outside, action, context)) == pytest.approx(300*.009**2+2e6*.004**2)
-    raised = state.copy(); raised[2] += .02
+    # Changing the IK solution or moving a joint in the tip Jacobian's
+    # nullspace cannot penalize an established contact.
+    changed_ik = context.copy(); changed_ik[7:29] += .5
+    assert float(cost(state, action, changed_ik)) == pytest.approx(0., abs=1e-12)
+    nullspace = state.copy(); nullspace[13:] += .1
+    assert float(cost(nullspace, action, context)) == pytest.approx(0., abs=1e-12)
+    moved = state.copy(); moved[7] += .01
+    assert float(cost(moved, action, context)) == pytest.approx(n*5000*.01**2)
+    assert float(terminal(moved, context)) == pytest.approx(2*n*5000*.01**2)
+    # Weak attraction is explicitly enabled only away from contact;
+    # neither loaded grasps nor terminal cost track hand q.
+    approach = changed_ik.copy(); approach[-1] = 1.
+    assert float(cost(state, action, approach)) > 0
+    assert float(terminal(state, approach)) == pytest.approx(0., abs=1e-12)
+    approach[29] = 1.
+    assert float(cost(state, action, approach)) == pytest.approx(0., abs=1e-12)
+    # Hold tip alignment fixed while probing object tracking/corridor costs.
+    for distance in (.004, .009):
+        displaced = state.copy(); displaced[0] = displaced[7] = distance
+        expected = 300*distance**2 + 2e6*max(distance-.005, 0)**2
+        # hand_reference[0] is nonzero; move it by the same displacement.
+        displaced[7] = state[7]+distance
+        assert float(cost(displaced, action, context)) == pytest.approx(expected)
+    raised = state.copy(); raised[2] += .02; raised[9] += .02
     assert float(cost(raised, action, context)) == pytest.approx(120*.02**2)
     rotated = state.copy()
     rotated[3:7] = demo_module.Rotation.from_euler("z", .2).as_quat()[[3, 0, 1, 2]]
     assert float(cost(rotated, action, context)) > 0
     opposite = rotated.copy(); opposite[3:7] *= -1
     assert float(cost(opposite, action, context)) == pytest.approx(float(cost(rotated, action, context)))
+
+
+def test_live_force_solve_uses_measured_contacts_without_moving_planned_patches(demo_module):
+    from types import SimpleNamespace
+    demo = object.__new__(demo_module.AllegroTabletopTrigraspDemo)
+    points = np.array([[.04, 0., 0.], [-.04, .03, 0.], [-.04, -.03, 0.]])
+    normals = np.array([[-1., 0., 0.], [1., 0., 0.], [1., 0., 0.]])
+    demo.args = SimpleNamespace(lambda_prediction_dt=.025, object_friction=.7, lambda_force_limit=3.)
+    demo.active_finger_names = demo_module.FINGER_NAMES[:3]
+    demo.args.contact_force_threshold = .01
+    demo.get_fingertip_contact_summary = lambda: dict.fromkeys(demo.active_finger_names, 0.)
+    demo.object_dof_adr = 0
+    demo.data = SimpleNamespace(qvel=np.zeros(6))
+    demo.online_contact_points_local = points + [0., .002, 0.]
+    demo.online_contact_normals_local = normals.copy()
+    demo.online_contact_normals_local[0] = [-.99, .1, 0.]
+    demo.online_contact_normals_local[0] /= np.linalg.norm(demo.online_contact_normals_local[0])
+    demo.optimizer = SimpleNamespace(lm=BatchedLambdaLM(num_contacts=3,
+        friction_cone="coulomb", device="cpu", iterations=5, mu=.7, max_contact_force=3.))
+    pose = np.array([0., 0., .3, 1., 0., 0., 0.])
+    target = pose.copy(); target[2] += .001
+    inertia = np.diag([.2]*3+[.004]*3)
+    external = np.array([0., 0., -1.962, 0., 0., 0.])
+    phi = np.repeat([-.001, .005, .05], 4)
+    initial = dict(contact_indices=np.arange(3))
+    result = demo.update_online_contact_forces(points, normals, initial, target, pose, inertia, external, phi)
+    np.testing.assert_allclose(result["force_points_local"][:2], demo.online_contact_points_local[:2])
+    np.testing.assert_array_equal(result["force_points_local"][2], points[2])
+    np.testing.assert_allclose(result["force_normals_local"][0], demo.online_contact_normals_local[0])
+    np.testing.assert_array_equal(result["measured_force_contacts"], [True, True, False])
+    # The re-solved force vectors are in the measured contact friction cones.
+    normal_load = np.einsum("ij,ij->i", result["force_vectors_local"], result["force_normals_local"])
+    tangent = result["force_vectors_local"]-normal_load[:, None]*result["force_normals_local"]
+    assert np.all(normal_load >= -1e-6)
+    assert np.all(np.linalg.norm(tangent, axis=1) <= .7*normal_load+1e-6)
+    np.testing.assert_array_equal(points, [[.04, 0., 0.], [-.04, .03, 0.], [-.04, -.03, 0.]])
+    np.testing.assert_array_equal(result["contact_indices"], initial["contact_indices"])
+    # Moving a near-contact point must trigger another force solve even
+    # when the selected surface IDs remain frozen.
+    demo.online_contact_points_local[0, 2] += .004
+    updated = demo.update_online_contact_forces(points, normals, result, target, pose, inertia, external, phi)
+    np.testing.assert_allclose(updated["force_points_local"][0], demo.online_contact_points_local[0])
+    np.testing.assert_array_equal(updated["contact_indices"], initial["contact_indices"])
+    force = updated["force_vectors_local"]
+    wrench = np.r_[force.sum(0), np.cross(updated["force_points_local"], force).sum(0)]
+    expected_velocity = .025*np.linalg.solve(inertia, external+wrench)
+    np.testing.assert_allclose(updated["velocity_next"], expected_velocity, atol=2e-6)
+    np.testing.assert_allclose(updated["contact_torque_world"], wrench[3:], atol=2e-6)
+
+
+@pytest.mark.parametrize("force_weight", [0., 1.])
+def test_ik_attraction_shuts_off_at_predicted_contact(demo_module, force_weight):
+    from types import SimpleNamespace
+    nq, n = 22, 3
+    param = SimpleNamespace(n_cmd_=nq, num_contacts=n, n_qvel_=6+nq,
+        n_qpos_=7+nq+6+nq+nq, max_ncon_=7, h_=.025,
+        obj_inertia_=np.eye(6), obj_mass_=.2, gravity_=np.array([0., 0., -9.81, 0., 0., 0.]),
+        robot_damping_=np.ones(nq), robot_stiff_=np.eye(nq),
+        tip_weight=5000., posture_weights=np.ones(nq), action_weights=np.ones(nq),
+        lateral_weight=300., object_weight=120., quat_weight=500.,
+        horizontal_recovery_weight=2e6, terminal_weight=2.,
+        force_tracking_weight=force_weight, pressure_sync_weight=0.)
+    model = param.online_model = demo_module.AllegroOnlineContactModel(param)
+    from planning.allegro_mpc_costs import build_allegro_contact_costs
+    cost, terminal = build_allegro_contact_costs(param)
+    state = np.zeros(param.n_qpos_); state[3] = 1.
+    model.reference = state[:model.pose_size].copy()
+    phi = np.ones(4*param.max_ncon_); phi[:4*n] = .03
+    jac = np.zeros((phi.size, param.n_qvel_)); jac[:4, 6] = -1.
+    cp = np.r_[state[:7], np.zeros(nq), 0., [-1., -1.], [1., 1.],
+        np.zeros(nq), np.zeros(3*n), np.zeros(3*n*nq), np.zeros(3*n), 1.,
+        np.zeros(3*n), phi, jac.reshape(-1, order="F"), model.runtime_parameters(12.5)]
+    changed = cp.copy(); changed[7] = .5
+    assert float(cost(state, np.zeros(nq), changed)) > float(cost(state, np.zeros(nq), cp))
+    touching = state.copy(); touching[7] += .03
+    # Measured hand was clear, but a predicted pad is now touching. There
+    # must be no IK preference at this future stage or at the terminal node.
+    assert float(cost(touching, np.zeros(nq), changed)) == pytest.approx(float(cost(touching, np.zeros(nq), cp)))
+    assert float(terminal(touching, changed)) == pytest.approx(float(terminal(touching, cp)))
+    x, u, p = param.residual_fn.sx_in()
+    derivative = cs.Function("contact_objective_derivative", [x, u, p],
+        [cs.jacobian(param.residual_fn(x, u, p), x)])
+    assert np.isfinite(np.asarray(derivative(touching, np.zeros(nq), changed))).all()
+    # The compact derivative shares its scalar graph across columns, but
+    # must preserve the same Gauss-Newton matrix at and away from contact.
+    from planning.mpc_explicit import _compact_residual_gauss_newton
+    mx, mu, mp = cs.MX.sym('x', x.numel()), cs.MX.sym('u', u.numel()), cs.MX.sym('cp', p.numel())
+    compact = cs.Function('compact_cost_hessian', [mx, mu, mp],
+        [_compact_residual_gauss_newton(param.residual_fn, mx, mp, mu)])
+    j = cs.jacobian(param.residual_fn(x, u, p), cs.vertcat(u, x))
+    expanded = cs.Function('expanded_cost_hessian', [x, u, p], [2*j.T@j])
+    for measured in (state, touching):
+        np.testing.assert_allclose(compact(measured, np.zeros(nq), changed),
+            expanded(measured, np.zeros(nq), changed), rtol=1e-10, atol=1e-10)
+
+
+def test_physical_lift_gate_does_not_require_startup_ik_patch_alignment(demo_module):
+    from types import SimpleNamespace
+    demo = object.__new__(demo_module.AllegroTabletopTrigraspDemo)
+    demo.args = SimpleNamespace(lift_contact_fingers=4)
+    audit = dict(all_planned_contacts_reached=False,
+        actual_force_closure=dict(force_closure=True, load_feasible=True))
+    assert demo.online_lift_readiness(audit, 4) == (True, [])
+    assert demo.online_lift_readiness(audit, 3) == (False, ['contacts'])
+    audit['actual_force_closure']['load_feasible'] = False
+    assert demo.online_lift_readiness(audit, 4) == (False, ['load_support'])
+    audit['actual_force_closure']['force_closure'] = False
+    assert demo.online_lift_readiness(audit, 4) == (False, ['force_closure', 'load_support'])
+
+
+def test_online_scm_configuration_uses_shared_parameters(demo_module):
+    from types import SimpleNamespace
+    h, nq, n = .025, 22, 3
+    base = dict(h_=h, n_cmd_=nq, n_qpos_=79, n_qvel_=28, num_contacts=n,
+        max_ncon_=n, obj_inertia_=np.diag([.03]*3+[.0001]*3)/h**2,
+        obj_mass_=.03, gravity_=np.array([0., 0., -9.81, 0., 0., 0.]),
+        robot_stiff_=np.eye(nq)*200., robot_damping_=np.full(nq, 40.))
+    models = [demo_module.AllegroOnlineContactModel(SimpleNamespace(**base, soft_scm_response_time=tau,
+        soft_scm_damping_ratio=1., soft_scm_regularization=1e-7)) for tau in (.05, .01)]
+    state = np.zeros(79); state[3] = 1.
+    jac = np.zeros((4*n, 28)); jac[:4, :3] = [[1, 1, 0], [1, 0, 1], [1, -1, 0], [1, 0, -1]]
+    jac[:4, 6:9] = -jac[:4, :3]
+    gaps = np.ones(4*n); gaps[:4] = -.002
+    normals = []
+    for model, tau in zip(models, (.05, .01)):
+        assert model.soft_scm_response_time == tau
+        assert model.soft_scm_regularization == 1e-7
+        model.reference = state[:model.pose_size].copy()
+        force = np.asarray(model.contact_force_fn(state, np.zeros(nq), gaps, jac, model.runtime_parameters(12.5))).reshape(n,3)
+        normals.append(force[0, 0])
+    assert normals[1] > normals[0] > 0
+    args = demo_module.build_argparser().parse_args(['--force-response-time', '.01', '--soft-scm-regularization', '1e-7'])
+    assert args.soft_scm_response_time == .01
+    assert args.soft_scm_regularization == 1e-7
+
+
+def test_recovery_debounces_loss_retries_a_miss_and_rearms_after_grasp(demo_module):
+    tracker = demo_module.OnlineGraspRecovery(np.zeros(3), np.eye(3), .02, cooldown=.1, stall_timeout=.06)
+    def observe(**kw):
+        return tracker.observe(np.zeros(3), np.eye(3), contacts=kw.pop('contacts', 0),
+            was_loaded=kw.pop('was_loaded', False), loaded=kw.pop('loaded', False),
+            closing=kw.pop('closing', False))
+    # Hovering with no contacts is not a failed grasp attempt.
+    for _ in range(10):
+        assert observe() is None
+    assert observe(contacts=4, was_loaded=True) == 'lost_grasp'
+    assert tracker.recovering
+    # A loss during cooldown is remembered rather than permanently missed.
+    assert observe(was_loaded=True) is None
+    for _ in range(5):
+        reason = observe()
+        if reason:
+            break
+    assert reason == 'lost_grasp'
+    assert observe(contacts=4, loaded=True) is None
+    assert not tracker.recovering
+    for _ in range(6):
+        reason = observe(closing=True)
+        if reason:
+            break
+    assert reason == 'missed_contact'
+
+
+def test_preload_hysteresis_keeps_a_physically_load_bearing_grasp(demo_module):
+    from types import SimpleNamespace
+    from planning.grasp_verification import verify_grasp
+    demo = object.__new__(demo_module.AllegroTabletopTrigraspDemo)
+    demo.args = SimpleNamespace(lift_contact_fingers=3, contact_force_threshold=.01,
+        online_min_normal_force=.6)
+    points = [[.04, 0, 0], [-.04, .03, 0], [-.04, -.03, 0]]
+    normals = [[-1., 0, 0], [1., 0, 0], [1., 0, 0]]
+    loads = [.6, .3, .3]
+    certificate = verify_grasp(points, normals, .8, external_wrench=[0, 0, -.2943, 0, 0, 0],
+        normal_force_limits=loads)
+    assert certificate['force_closure'] and certificate['load_feasible']
+    audit = dict(actual_force_closure=certificate,
+        fingers=[dict(touching=True, normal_force=f) for f in loads])
+    assert not demo.online_lift_readiness(audit, 3)[0]
+    assert demo.online_lift_readiness(audit, 3, grasp_active=True)[0]
+    audit['actual_force_closure'] = dict(certificate, load_feasible=False)
+    assert not demo.online_lift_readiness(audit, 3, grasp_active=True)[0]
+
+
+def test_certified_local_repair_precedes_global_opening_but_has_a_deadline(demo_module):
+    tracker = demo_module.OnlineGraspRecovery(np.zeros(3), np.eye(3), .025)
+    common = dict(contacts=3, loaded=False, closing=True, repair_available=True)
+    assert tracker.observe(np.zeros(3), np.eye(3), was_loaded=True, **common) is None
+    assert not tracker.opening
+    for _ in range(25):
+        reason = tracker.observe(np.zeros(3), np.eye(3), was_loaded=False, **common)
+        if reason:
+            break
+    assert reason == 'lost_grasp' and tracker.opening
+    # A physical recovery during the local repair window clears the loss.
+    tracker = demo_module.OnlineGraspRecovery(np.zeros(3), np.eye(3), .025)
+    tracker.observe(np.zeros(3), np.eye(3), was_loaded=True, **common)
+    assert tracker.observe(np.zeros(3), np.eye(3), contacts=3, was_loaded=False,
+        loaded=True, closing=True) is None
+    assert not tracker.pending_loss and tracker.repair_time == 0.
+
+
+def test_recovery_retries_stalled_partial_contacts(demo_module):
+    tracker = demo_module.OnlineGraspRecovery(np.zeros(3), np.eye(3), .02, stall_timeout=.1)
+    reason = None
+    for _ in range(6):
+        reason = tracker.observe(np.zeros(3), np.eye(3), contacts=2,
+            was_loaded=False, loaded=False, closing=True)
+        if reason:
+            break
+    assert reason == 'unconfirmed_grasp'
+    assert tracker.opening
+    # Opening is deliberately contact-free; that must not restart the search.
+    for _ in range(100):
+        assert tracker.observe(np.zeros(3), np.eye(3), contacts=0,
+            was_loaded=False, loaded=False, closing=False) is None
+
+
+def test_recovery_replans_when_partial_contact_blocks_opening(demo_module):
+    tracker = demo_module.OnlineGraspRecovery(np.zeros(3), np.eye(3), .02,
+        cooldown=.1, opening_timeout=.2)
+    assert tracker.observe(np.zeros(3), np.eye(3), contacts=1,
+        was_loaded=True, loaded=False, closing=True) == 'lost_grasp'
+    reason = None
+    for _ in range(12):
+        reason = tracker.observe(np.zeros(3), np.eye(3), contacts=1,
+            was_loaded=False, loaded=False, closing=False)
+        if reason:
+            break
+    assert reason == 'blocked_pregrasp'
+    assert tracker.replan_count == 2
+
+
+@pytest.mark.parametrize('displacement,angle', [([.04, 0., 0.], 0.), ([0., 0., 0.], .4)])
+def test_recovery_relocates_the_approach_region_only_on_confirmed_event(demo_module, displacement, angle):
+    tracker = demo_module.OnlineGraspRecovery(np.zeros(3), np.eye(3), .02)
+    pos = np.asarray(displacement)
+    rot = demo_module.Rotation.from_euler('z', angle).as_matrix()
+    assert tracker.observe(pos, rot, contacts=0, was_loaded=False, loaded=False, closing=False) == 'object_moved'
+    np.testing.assert_array_equal(tracker.origin, pos)
+    assert tracker.observe(pos, rot, contacts=0, was_loaded=False, loaded=False, closing=False) is None
+
+
+@pytest.mark.parametrize('flags,enabled', [([], False), (['--video-output-path', '/tmp/explicit.mp4'], False),
+    (['--save'], True), (['--save', '--no-video'], False)])
+def test_video_requires_explicit_save(demo_module, flags, enabled):
+    demo = object.__new__(demo_module.AllegroTabletopTrigraspDemo)
+    demo.args = demo_module.build_argparser().parse_args(flags)
+    demo.mesh_path = Path('elephant.stl')
+    assert (demo._resolve_video_output_path() is not None) is enabled
+
+
+def test_contact_transport_prices_airborne_goal_without_tracking_ik(demo_module):
+    from types import SimpleNamespace
+    n, nq = 3, 22
+    param = SimpleNamespace(n_cmd_=nq, num_contacts=n, n_qpos_=79,
+        tip_weight=5000., contact_transport_weight=1000., posture_weights=np.ones(nq),
+        action_weights=np.ones(nq), lateral_weight=300., object_weight=120., quat_weight=500.,
+        horizontal_recovery_weight=2e6, terminal_weight=4.)
+    from planning.allegro_mpc_costs import build_allegro_contact_costs
+    cost, terminal = build_allegro_contact_costs(param)
+    state = np.zeros(79); state[3] = 1.
+    goal = state[:7].copy(); goal[2] = .2
+    j = np.zeros((3*n, nq)); j[:, :3] = np.tile(np.eye(3), (n, 1))
+    cp = np.r_[goal, np.ones(nq), 0., [-1., -1.], [1., 1.], np.zeros(nq),
+        np.zeros(3*n), j.reshape(-1, order='F'), np.zeros(3*n), 0.]
+    unloaded = float(cost(state, np.zeros(nq), cp))
+    cp[7+nq] = 1.
+    assert float(cost(state, np.zeros(nq), cp))-unloaded == pytest.approx(n*1000*.2**2)
+    changed_ik = cp.copy(); changed_ik[7:7+nq] += 2.
+    assert float(cost(state, np.zeros(nq), changed_ik)) == pytest.approx(float(cost(state, np.zeros(nq), cp)))
+    raised = state.copy(); raised[2] = raised[9] = .2
+    assert float(terminal(raised, cp)) == pytest.approx(0., abs=1e-12)

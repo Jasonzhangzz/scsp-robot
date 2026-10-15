@@ -32,6 +32,7 @@ def write_dexforge_planner_scene(
     forearm_radius=0.045,
     wrist_radius=0.035,
     mutual_arm_contacts=True,
+    pair_sliding_friction=None,
 ):
     """Copy the viewer scene and attach object / arm Gaussian query clouds."""
     viewer_xml = Path(viewer_xml)
@@ -45,6 +46,14 @@ def write_dexforge_planner_scene(
     _add_object_gs(root, object_gs.name)
     _write_arm_query_assets(xml_dir, tip_radius, forearm_radius, wrist_radius, viewer_xml)
     _add_arm_query_geoms(root)
+    if pair_sliding_friction is not None:
+        mu = float(pair_sliding_friction)
+        if not np.isfinite(mu) or mu < 0:
+            raise ValueError('pair_sliding_friction must be finite and nonnegative')
+        for geom in root.iter('geom'):
+            if geom.get('name') in {'obj_gs', 'left_tip_gs', 'right_tip_gs'}:
+                geom.set('friction', f'{mu:.8f} 0.005 0.0001')
+                geom.set('priority', '1')
     _apply_mutual_collision_groups(root)
     if not mutual_arm_contacts:
         _object_contact_groups(root)
@@ -61,6 +70,9 @@ def _configure_planner_option(root):
         option = ET.Element("option")
         root.insert(0, option)
     option.set("integrator", "Euler")
+    # Native FA differentiates four-ray pyramids only. These lie inside
+    # the execution scene's Coulomb disk; the execution XML is unchanged.
+    option.set("cone", "pyramidal")
     # Execution-only friction polishing is not part of ComFree or supported
     # by the Warp loader. Native FA retains its explicit ComFree row law.
     option.set("noslip_iterations", "0")

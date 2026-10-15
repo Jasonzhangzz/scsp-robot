@@ -1,0 +1,39 @@
+{
+  "cycles": 2500,
+  "stages": {
+    "flip": 769,
+    "pose": 1731
+  },
+  "near_contact_cycles": 2163,
+  "max_command_norm_m": 0.005000000247693713,
+  "predicted_position_improves_actual_worsens": 316,
+  "position_prediction_sign_disagreement": 419,
+  "sign_evaluable_pairs": 2026,
+  "executed_command_disagreement": 0,
+  "first_pose_stage": {
+    "step": 769,
+    "time_s": 15.39600073127076,
+    "tip_position": [
+      0.33772680163383484,
+      -0.0417175255715847,
+      0.3757254481315613
+    ],
+    "object_position": [
+      0.3262643814086914,
+      -0.09281838685274124,
+      0.38376256823539734
+    ],
+    "tilt_deg": 0.8975753149808238
+  },
+  "reproduces_formal_final_errors": true,
+  "final": {
+    "success": 0,
+    "stable_flip": true,
+    "first_stable_flip_time_s": 15.380000730510801,
+    "position_error_m": 0.41633,
+    "quaternion_error": 0.03528,
+    "solver_backend": "mppi",
+    "mppi_solves": 2500,
+    "mpc_failures": 0
+  }
+}

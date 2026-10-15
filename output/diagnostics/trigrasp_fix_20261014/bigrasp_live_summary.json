@@ -1,0 +1,24 @@
+{
+  "bigrasp_live_elephant_verified.json": {
+    "success": false,
+    "cycles": 1000,
+    "local_contact_updates": 18,
+    "global_contact_replans": 4,
+    "force_allocation_feasible_cycles": 837,
+    "current_task_wrench_available_cycles": 812,
+    "current_task_support_cycles": 812,
+    "full_force_closure_cycles": 0,
+    "bilateral_contact_cycles": 840
+  },
+  "bigrasp_live_mppi_validation.json": {
+    "success": false,
+    "cycles": 160,
+    "local_contact_updates": 47,
+    "global_contact_replans": 6,
+    "force_allocation_feasible_cycles": 34,
+    "current_task_wrench_available_cycles": 33,
+    "current_task_support_cycles": 49,
+    "full_force_closure_cycles": 0,
+    "bilateral_contact_cycles": 59
+  }
+}

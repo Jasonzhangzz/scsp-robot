@@ -39,6 +39,70 @@ def test_online_mpc_uses_short_horizon_without_changing_explicit_overrides():
     assert resolve_control_timing(parser.parse_args(["--mpc", "--planner-horizon", "20"])).planner_horizon == 20
 
 
+def test_side_patch_approach_moves_outside_then_down_before_squeezing():
+    demo = BimanualPandaGrasper.__new__(BimanualPandaGrasper)
+    demo.args = build_argparser().parse_args(['--mpc'])
+    demo.left_arm, demo.right_arm = 0, 1
+    demo.contact_points_local = np.array([[-.05, 0., 0.], [.05, 0., 0.]])
+    demo.normals_local = np.array([[1., 0., 0.], [-1., 0., 0.]])
+    original = demo.contact_points_local.copy()
+    demo.optimizer = SimpleNamespace(surface=SimpleNamespace(mesh=SimpleNamespace(
+        vertices=np.array([[-.05, -.03, -.025], [.05, .03, .025]]))))
+    demo._online_approach_phase = np.zeros(2, int)
+    tips = np.array([[-.01, 0., .5], [.01, 0., .5]])
+    demo.get_tip_pos = lambda arm: tips[arm].copy()
+    pos = np.array([0., 0., .3])
+    above, mask = demo._online_contact_approach_centers(pos, np.eye(3))
+    assert mask.all() and np.all(above[:, 2] > .335)
+    assert np.all(np.abs(above[:, 0]) > .06)
+    tips[:] = above
+    pre, mask = demo._online_contact_approach_centers(pos, np.eye(3))
+    assert mask.all()
+    np.testing.assert_allclose(pre[:, 2], .3)
+    tips[:] = pre
+    touch, mask = demo._online_contact_approach_centers(pos, np.eye(3))
+    assert not mask.any()
+    np.testing.assert_allclose(np.abs(touch[:, 0]), .057)
+    np.testing.assert_array_equal(demo.contact_points_local, original)
+
+
+def test_recovery_lifts_at_current_xy_and_waits_for_pair_before_traversing():
+    demo = BimanualPandaGrasper.__new__(BimanualPandaGrasper)
+    demo.args = build_argparser().parse_args(['--mpc'])
+    demo.left_arm, demo.right_arm = 0, 1
+    demo.contact_points_local = np.array([[-.05, 0., 0.], [.05, 0., 0.]])
+    demo.normals_local = np.array([[1., 0., 0.], [-1., 0., 0.]])
+    demo.optimizer = SimpleNamespace(surface=SimpleNamespace(mesh=SimpleNamespace(
+        vertices=np.array([[-.05, -.03, -.025], [.05, .03, .025]]))))
+    demo.planner = SimpleNamespace(reset=lambda: None)
+    demo.plan_params = SimpleNamespace(sol_guess_='old')
+    tips = np.array([[-.035, .01, .3], [.035, -.01, .3]])
+    demo.get_tip_pos = lambda arm: tips[arm].copy()
+    demo.get_tip_pose = lambda arm: (tips[arm].copy(), np.eye(3))
+    demo._online_pad_distances = lambda: np.full(2, -.001)
+    demo._online_approach_phase = np.full(2, 2)
+    pos, rotation = np.array([0., 0., .3]), np.eye(3)
+    demo._begin_contact_recovery(pos, rotation, np.ones(2, bool))
+    opened, mask = demo._online_contact_approach_centers(pos, rotation, grasp_established=True)
+    np.testing.assert_allclose(opened, tips-.008*demo.normals_local)
+    tips[:] = opened
+    centers, mask = demo._online_contact_approach_centers(pos, rotation, grasp_established=True)
+    np.testing.assert_array_equal(centers[:, :2], tips[:, :2])
+    assert np.all(centers[:, 2] > .345) and mask.all()
+    assert demo.plan_params.sol_guess_ is None
+    tips[:] = centers
+    assert demo._online_contact_approach_centers(pos, rotation)[1].all()
+    assert demo._online_recovery_stage == 'waiting'
+    # A new pair cannot skip the already requested vertical retreat.
+    demo._online_approach_points = demo.contact_points_local.copy()
+    demo._online_approach_normals = demo.normals_local.copy()
+    demo._online_approach_phase[:] = 0
+    demo._online_recovery_waiting = False
+    above, mask = demo._online_contact_approach_centers(pos, rotation)
+    assert demo._online_recovery_stage == 'approach' and mask.all()
+    assert np.all(np.abs(above[:, 0]) > .06)
+
+
 def test_fa_adam_cli_default_matches_dexforge_and_remains_overridable():
     from planning.dexforge_imports import ensure_dexforge
 
@@ -112,11 +176,25 @@ def test_online_observation_keeps_body_angular_velocity_and_both_pad_velocities(
     np.testing.assert_array_equal(state[19:25], [1., 2., 3., -1., -2., -3.])
 
 
+def test_live_grasp_latch_requires_measured_task_capacity_without_hiding_contacts():
+    grasper = BimanualPandaGrasper.__new__(BimanualPandaGrasper)
+    grasper.args = SimpleNamespace(min_normal_force=.1, obj_mass=.01,
+        online_contact_confirm_steps=1, online_grasp_release_steps=1)
+    grasper.extract_object_contacts = lambda: {'left': [dict(normal_force=1.)], 'right': [dict(normal_force=1.)]}
+    certificate = dict(force_closure_in_contact_span=True, task_load_feasible=False)
+    grasper._online_live_grasp = dict(actual_certificate=certificate)
+    mask, forces, established = grasper._online_grasp_observation()
+    assert mask.all() and np.all(forces == 1.) and not established
+    certificate['task_load_feasible'] = True
+    assert grasper._online_grasp_observation()[2]
+
+
 @pytest.mark.parametrize("mode", ["mpc_ee", "mppi_ee"])
-def test_online_contact_switching_is_frozen_by_default_and_joint_verify_is_explicit(mode):
+def test_online_modes_use_live_contacts_and_enable_nearby_replanning_by_default(mode):
     parser = build_argparser()
-    assert parser.parse_args([]).freeze_contact_pair
-    assert parser.parse_args(["--mpc"]).freeze_contact_pair
+    assert not parser.parse_args([]).freeze_contact_pair
+    assert not parser.parse_args(["--mpc"]).freeze_contact_pair
+    assert parser.parse_args(["--mpc", "--freeze-contact-pair"]).freeze_contact_pair
     assert not parser.parse_args(["--mpc", "--allow-contact-switch"]).freeze_contact_pair
     grasper, rotation = _grasper()
     grasper.planner_mode = mode
@@ -130,19 +208,18 @@ def test_online_contact_switching_is_frozen_by_default_and_joint_verify_is_expli
     grasper._online_measured_contact_mask = lambda points: np.array([False, False])
     calls = []
 
-    def solve(target, current, **kwargs):
-        calls.append(kwargs)
-        return (np.zeros((2, 3)), np.tile([1., 0., 0.], (2, 1)), current, 0., {"source": "fixed_pair"})
+    def solve(pos, quat, rot):
+        calls.append(grasper.args.freeze_contact_pair)
+        return (np.zeros((2, 3)), np.tile([1., 0., 0.], (2, 1)), np.r_[pos, quat], 0., {"source": "live"})
 
-    grasper.optimizer = SimpleNamespace(update_contacts=solve, last_grasp_result={})
-    grasper._build_contact_targets_from_local_contacts = lambda *args, **kwargs: {}
+    grasper.optimizer = SimpleNamespace(update_contacts=lambda *a, **kw: pytest.fail('Offline anchors must not replace real patches'))
+    grasper._update_live_grasp_contacts = solve
     pose = grasper.data.qpos[grasper.obj_qpos_adr:grasper.obj_qpos_adr + 7].copy()
     grasper._update_warp_lambda_contacts(pose[:3], pose[3:], rotation)
-    assert calls[-1]["freeze_contact_pair"] and calls[-1]["joint_verify"]
-    assert not calls[-1].get("lock_contact_pair", False)
+    assert calls[-1]
     grasper.args.freeze_contact_pair = False
     grasper._update_warp_lambda_contacts(pose[:3], pose[3:], rotation)
-    assert not calls[-1]["freeze_contact_pair"] and calls[-1]["joint_verify"]
+    assert not calls[-1]
 
 
 def test_online_wrist_alignment_does_not_accelerate_the_position_task():
@@ -170,6 +247,41 @@ def test_online_wrist_alignment_does_not_accelerate_the_position_task():
     mass = _full_mass(grasper.model, grasper.data)[np.ix_(arm.dof_adr, arm.dof_adr)]
     assert np.linalg.norm(torque) > 1e-4
     np.testing.assert_allclose(jac[:3] @ np.linalg.solve(mass, torque), 0., atol=1e-9)
+
+    # Spin about the pad axis used to be completely uncontrolled, although
+    # condim=6 and the predictor both rely on a stationary wrist.
+    current = grasper.get_tip_pose(arm)[1].copy()
+    reference = Rotation.from_rotvec(.2 * current[:, 2]).as_matrix() @ current
+    spin_torque = grasper._compute_arm_osc_torque(arm, np.zeros(3), np.zeros(3),
+        approach_direction=current[:, 2], orientation_reference=reference)
+    assert np.linalg.norm(spin_torque) > 1e-4
+    np.testing.assert_allclose(jac[:3] @ np.linalg.solve(mass, spin_torque), 0., atol=1e-9)
+    assert np.dot(current[:, 2], jac[3:] @ np.linalg.solve(mass, spin_torque)) > 0
+    arm.home_q += np.linspace(.1, .7, 7)
+    with_posture = grasper._compute_arm_osc_torque(arm, np.zeros(3), np.zeros(3),
+        approach_direction=current[:, 2], orientation_reference=reference)
+    np.testing.assert_allclose(jac @ np.linalg.solve(mass, with_posture-spin_torque), 0., atol=1e-9)
+
+
+def test_loaded_wrist_reference_is_fixed_then_relatched_after_contact_loss():
+    grasper = BimanualPandaGrasper.__new__(BimanualPandaGrasper)
+    grasper.args = SimpleNamespace(min_normal_force=.1, obj_mass=.01,
+        online_contact_confirm_steps=1, online_grasp_release_steps=1)
+    grasper.left_arm, grasper.right_arm = 0, 1
+    rotations = np.array([np.eye(3), np.eye(3)])
+    grasper.get_tip_pose = lambda arm: (np.zeros(3), rotations[arm])
+    contacts = {'left': [dict(normal_force=1.)], 'right': [dict(normal_force=1.)]}
+    grasper.extract_object_contacts = lambda: contacts
+    assert grasper._online_grasp_observation()[2]
+    rotations[:] = Rotation.from_euler('z', .2).as_matrix()
+    assert grasper._online_grasp_observation()[2]
+    np.testing.assert_allclose(grasper._online_grasp_wrist_rotations, [np.eye(3)] * 2)
+    contacts['right'] = []
+    assert not grasper._online_grasp_observation()[2]
+    assert grasper._online_grasp_wrist_rotations is None
+    contacts['right'] = [dict(normal_force=1.)]
+    assert grasper._online_grasp_observation()[2]
+    np.testing.assert_allclose(grasper._online_grasp_wrist_rotations, rotations)
 
 
 def _grasper():

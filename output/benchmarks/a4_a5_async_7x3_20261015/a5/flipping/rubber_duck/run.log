@@ -1,0 +1,135 @@
+[ablation] a5; isolated test_mpc_isaac runtime
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[isaac-rollout] 1 independent Isaac worlds, asynchronous planning
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[mpc-runtime] solver=acados requested=acados policy_dt=0.020000 sim_dt=0.002000 substeps=10 clearance=0.0120
+[mpc-runtime] python=3.8.20 numpy=1.24.4 scipy=1.10.1 mujoco=3.2.3 trimesh=4.4.9 casadi=3.6.7 torch=2.3.1+cu121 isaacgym=1.0rc4 acados=True
+[mpc-startup] trial=0 building contact/MPC runtime
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 0.68s
+[acados] reusing solver: mpc_soft_scm_v3_b19743e37c_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=0 ready in 2.62s (contact=cma-es mpc=acados)
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=0 step=500/2500 pos_err=0.12067 quat_err=0.65587
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=0 step=1000/2500 pos_err=0.12069 quat_err=0.65586
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=0 step=1500/2500 pos_err=0.12069 quat_err=0.65586
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=0 step=2000/2500 pos_err=0.12069 quat_err=0.65586
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=0 step=2500/2500 pos_err=0.12069 quat_err=0.65586
+trial_summary: {'trial': 0, 'seed': 0, 'numpy_seed': 100, 'object': 'rubber_duck', 'mode': 'mpc_planner', 'physics_backend': 'isaac', 'num_envs': 1, 'mjwarp_scene': None, 'headless': True, 'async_planner': True, 'headless_realtime': True, 'pose_executor_constraints': True, 'flip_executor_constraints': True, 'physics_policy_ticks': 73614, 'sim_end_time_s': 1472.2960699303076, 'observation_gap_mean': 29.4456, 'observation_gap_max': 50, 'physics_scene_sha256': None, 'mjwarp_nconmax': 512, 'mjwarp_njmax': 2048, 'joint_velocity_limiter': None, 'joint_velocity_projections': 0, 'joint_velocity_max_unlimited': 0.0, 'contact_dynamics_variant': 'legacy', 'shared_contact_dynamics': False, 'solver_requested': 'acados', 'solver_backend': 'approach', 'planner_solver_backend': 'acados', 'lambda_solver_backend': 'cma-es', 'mpc_solves': 106, 'lambda_solves': 0, 'mpc_init_error': '', 'lambda_init_error': '', 'mpc_fallbacks': 0, 'mpc_contact_resets': 112, 'mpc_floor_recovery_max_m': 0.0, 'lambda_fallbacks': 0, 'trial_wall_time_s': 1473.2005768639938, 'completion_wall_time_s': None, 'planning_wall_count': 2500, 'planning_wall_total_s': 1471.5075339578761, 'planning_wall_sum_squares_s2': 873.0566685332553, 'planning_wall_mean_ms': 588.6030135831505, 'planning_wall_std_ms': 52.63333469678946, 'iteration_wall_count': 2500, 'iteration_wall_total_s': 1473.1993748264358, 'iteration_wall_mean_s': 0.5892797499305743, 'iteration_wall_p95_s': 0.7009001831036583, 'iteration_wall_max_s': 0.9889309019927168, 'success': 0, 'steps': 2500, 'completion_steps': None, 'completion_time_s': None, 'terminal_reward': 0.0, 'metric_gamma': 0.9, 'metric_eta': 1.0, 'policy_interval_s': 0.02, 'aborted': False, 'reward_origin': 'trial_start', 'pose_applies': 91, 'physics_pressure_releases': 0, 'pressure_releases': 0, 'upright_action_rejections': 0, 'object_cost_stage': 'flip', 'object_cost_weights': [500.0, 0.0, 20.0], 'object_target_up_axis': [1.0, 0.0, 0.0], 'flip_position_radius_m': 0.0, 'pose_tilt_limit_deg': 10.0, 'pose_tilt_barrier_coef': 2000.0, 'object_tilt_deg': 103.45168556326944, 'object_linear_speed': 0.0007426786305469524, 'object_angular_speed': 0.027597362583007806, 'first_stable_flip_time_s': None, 'object_cost_switches': 0, 'object_cost_fallbacks': 0, 'stable_flip_success': False, 'lambda_failures': 0, 'mpc_failures': 0, 'final_pos_err': 0.12069, 'final_quat_err': 0.65586, 'min_pos_err': 0.06357, 'min_quat_err': 0.63855, 'choose_dt_mean': 0.58701, 'choose_dt_max': 0.98716, 'choose_dt_p95': 0.69839, 'plan_dt_mean': 0.00048, 'solve_dt_mean_s': 0.58749, 'solve_dt_mean_ms': 587.494, 'cso_guidance': 'cso', 'cpo_variant': 'full', 'ablation_variant': 'a5', 'ablation_mode': 'a5', 'a7_mppi': None, 'cso_backend': {'model': 'soft-scm', 'solver': 'cma-es', 'population_size': 24, 'generations': 12, 'solves': 112587, 'evaluations': 35127144, 'failures': 0, 'fallback_to_scm': 0}, 'ablation_collision_weight': None, 'target_type': 'ground-rotation', 'friction_reg_coef': 0.03, 'lambda_friction_cone': 'pyramid', 'fingertip_object_friction': 1.2, 'table_object_friction': 0.7, 'collision_geometry': 'decomposed', 'collision_part_count': 64, 'contact_sampling': 'surface', 'contact_sample_count': 70}
+[mpc-startup] trial=1 building contact/MPC runtime
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 0.56s
+[acados] reusing solver: mpc_soft_scm_v3_b19743e37c_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=1 ready in 2.61s (contact=cma-es mpc=acados)
+[isaac-rollout] completed=0/3, active worlds=1
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=1 step=500/2500 pos_err=0.12370 quat_err=0.53373
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=1 step=1000/2500 pos_err=0.16249 quat_err=0.71421
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=1 step=1500/2500 pos_err=0.22196 quat_err=0.76573
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=1 step=2000/2500 pos_err=0.22429 quat_err=0.61954
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=1 step=2500/2500 pos_err=0.22368 quat_err=0.71246
+trial_summary: {'trial': 1, 'seed': 1, 'numpy_seed': 101, 'object': 'rubber_duck', 'mode': 'mpc_planner', 'physics_backend': 'isaac', 'num_envs': 1, 'mjwarp_scene': None, 'headless': True, 'async_planner': True, 'headless_realtime': True, 'pose_executor_constraints': True, 'flip_executor_constraints': True, 'physics_policy_ticks': 71924, 'sim_end_time_s': 1438.4960683248937, 'observation_gap_mean': 28.7696, 'observation_gap_max': 36, 'physics_scene_sha256': None, 'mjwarp_nconmax': 512, 'mjwarp_njmax': 2048, 'joint_velocity_limiter': None, 'joint_velocity_projections': 0, 'joint_velocity_max_unlimited': 0.0, 'contact_dynamics_variant': 'legacy', 'shared_contact_dynamics': False, 'solver_requested': 'acados', 'solver_backend': 'approach', 'planner_solver_backend': 'acados', 'lambda_solver_backend': 'cma-es', 'mpc_solves': 768, 'lambda_solves': 0, 'mpc_init_error': '', 'lambda_init_error': '', 'mpc_fallbacks': 0, 'mpc_contact_resets': 472, 'mpc_floor_recovery_max_m': 0.0004421189434054007, 'lambda_fallbacks': 0, 'trial_wall_time_s': 1439.0899248110072, 'completion_wall_time_s': None, 'planning_wall_count': 2500, 'planning_wall_total_s': 1437.467162953617, 'planning_wall_sum_squares_s2': 830.3444200895555, 'planning_wall_mean_ms': 574.9868651814468, 'planning_wall_std_ms': 39.095834795466, 'iteration_wall_count': 2500, 'iteration_wall_total_s': 1439.088794916228, 'iteration_wall_mean_s': 0.5756355179664912, 'iteration_wall_p95_s': 0.6498045134976564, 'iteration_wall_max_s': 0.7200929800019367, 'success': 0, 'steps': 2500, 'completion_steps': None, 'completion_time_s': None, 'terminal_reward': 0.0, 'metric_gamma': 0.9, 'metric_eta': 1.0, 'policy_interval_s': 0.02, 'aborted': False, 'reward_origin': 'trial_start', 'pose_applies': 561, 'physics_pressure_releases': 0, 'pressure_releases': 0, 'upright_action_rejections': 0, 'object_cost_stage': 'flip', 'object_cost_weights': [500.0, 0.0, 20.0], 'object_target_up_axis': [1.0, 0.0, 0.0], 'flip_position_radius_m': 0.0, 'pose_tilt_limit_deg': 10.0, 'pose_tilt_barrier_coef': 2000.0, 'object_tilt_deg': 103.45171536509339, 'object_linear_speed': 0.0008021456869015593, 'object_angular_speed': 0.03002888139550816, 'first_stable_flip_time_s': None, 'object_cost_switches': 0, 'object_cost_fallbacks': 0, 'stable_flip_success': False, 'lambda_failures': 0, 'mpc_failures': 0, 'final_pos_err': 0.22368, 'final_quat_err': 0.71246, 'min_pos_err': 0.02585, 'min_quat_err': 0.48779, 'choose_dt_mean': 0.5706, 'choose_dt_max': 0.71447, 'choose_dt_p95': 0.64432, 'plan_dt_mean': 0.00318, 'solve_dt_mean_s': 0.57378, 'solve_dt_mean_ms': 573.778, 'cso_guidance': 'cso', 'cpo_variant': 'full', 'ablation_variant': 'a5', 'ablation_mode': 'a5', 'a7_mppi': None, 'cso_backend': {'model': 'soft-scm', 'solver': 'cma-es', 'population_size': 24, 'generations': 12, 'solves': 114285, 'evaluations': 35656920, 'failures': 0, 'fallback_to_scm': 0}, 'ablation_collision_weight': None, 'target_type': 'ground-rotation', 'friction_reg_coef': 0.03, 'lambda_friction_cone': 'pyramid', 'fingertip_object_friction': 1.2, 'table_object_friction': 0.7, 'collision_geometry': 'decomposed', 'collision_part_count': 64, 'contact_sampling': 'surface', 'contact_sample_count': 70}
+[mpc-startup] trial=2 building contact/MPC runtime
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=2 physics ready in 0.59s
+[acados] reusing solver: mpc_soft_scm_v3_b19743e37c_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=2 ready in 2.52s (contact=cma-es mpc=acados)
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=2 step=500/2500 pos_err=0.18510 quat_err=0.95925
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=2 step=1000/2500 pos_err=0.27175 quat_err=0.67139
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=rubber_duck seed=2 step=1500/2500 pos_err=0.26931 quat_err=0.65640
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1

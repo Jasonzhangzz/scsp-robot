@@ -1742,7 +1742,8 @@ def adapt_param_for_cartesian_solver(param, args, build_optimizer=True):
     if build_optimizer and getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
     if param.lambda_optimizer is not None:
-        param.lambda_optimizer.solver = concrete_backend
+        param.lambda_optimizer.solver = ('cma-es' if getattr(param, 'ablation_mode', 'full') == 'a5'
+                                         else concrete_backend)
     param.sol_guess_ = None
     return param
 
@@ -1786,7 +1787,7 @@ def _free_space_air_mode(if_contact, tip, press, path_blocked):
 
 
 def _configure_rollout_param(param, args):
-    if getattr(param, 'ablation_mode', 'full') in ('a1', 'a2', 'a3'):
+    if getattr(param, 'ablation_mode', 'full') in ('a1', 'a2', 'a3', 'a7'):
         param.cpo_direct_trajectory = True
     param.rollout_press_patch = True
     param.quadratic_contact_track = True
@@ -2311,7 +2312,15 @@ def _add_rollout_policy_args(parser):
     add_rollout_via_args(parser)
     # Allow tangential loading during a flip without removing regularization.
     parser.set_defaults(friction_reg_coef=DEFAULT_TANGENTIAL_FORCE_PENALTY)
-    parser.add_argument('--ablation-mode', choices=('full', 'a1', 'a2', 'a3'), default='full')
+    parser.add_argument('--ablation-mode', choices=('full', 'a1', 'a2', 'a3', 'a4', 'a5', 'a7'), default='full')
+    parser.add_argument('--a4-qp-maxiter', type=int, default=12)
+    parser.add_argument('--a5-population-size', type=int, default=24)
+    parser.add_argument('--a5-population-iterations', type=int, default=12)
+    parser.add_argument('--a7-mppi-samples', type=int, default=128)
+    parser.add_argument('--a7-mppi-horizon', type=int, default=10)
+    parser.add_argument('--a7-mppi-iterations', type=int, default=1)
+    parser.add_argument('--a7-mppi-temperature', type=float, default=.005)
+    parser.add_argument('--a7-mppi-noise', type=float, default=.003)
     parser.add_argument('--ablation-collision-weight', type=float, default=10000.0)
     parser.add_argument('--ablation-collision-radius', type=float, default=0.01)
     parser.add_argument('--ablation-collision-tolerance', type=float, default=0.0005)
@@ -2995,6 +3004,12 @@ def run_mpc_planner(bus, args):
             "cpo_variant": str(getattr(args, "cpo_variant", "full")),
             "ablation_variant": str(getattr(args, "ablation_variant", "") or ""),
             "ablation_mode": str(getattr(args, "ablation_mode", "full")),
+            "a7_mppi": (dict(samples=args.a7_mppi_samples, horizon=args.a7_mppi_horizon,
+                iterations=args.a7_mppi_iterations, temperature=args.a7_mppi_temperature,
+                noise=args.a7_mppi_noise, solves=getattr(mpc, 'mppi_solve_count', 0))
+                if args.ablation_mode == 'a7' else None),
+            "cso_backend": (getattr(plan_param, 'cso_ablation_', None).diagnostics()
+                if getattr(plan_param, 'cso_ablation_', None) is not None else None),
             "ablation_collision_weight": (float(args.ablation_collision_weight)
                 if args.ablation_mode == 'a3' else None),
             "target_type": str(getattr(args, "target_type", "")),
@@ -3014,6 +3029,9 @@ def run_mpc_planner(bus, args):
         if metric_path:
             with open(metric_path, 'a', encoding='utf-8') as metric_file:
                 metric_file.write(json.dumps(trial_summary, allow_nan=False) + '\n')
+        cso_backend = getattr(plan_param, 'cso_ablation_', None)
+        if cso_backend is not None and hasattr(cso_backend, 'close'):
+            cso_backend.close()
         success_rate += int(trial_success)
         if viewer_quit:
             break

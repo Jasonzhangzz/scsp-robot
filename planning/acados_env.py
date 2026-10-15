@@ -212,7 +212,35 @@ def _canonical_ocp_signature(payload):
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
-def build_cached_solver(ocp, json_file, shared_file):
+def acados_cache_directory(model_name):
+    """Persistent, overridable cache outside the disposable /tmp tree."""
+    root = os.environ.get('SCSP_ACADOS_CACHE_DIR')
+    if root is None:
+        base = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache'))
+        root = base / 'scsp-robot' / 'acados'
+    return Path(root).expanduser().resolve() / (model_name + '_codegen')
+
+
+def prune_acados_intermediates(directory):
+    """Remove generated build inputs, retaining libraries, JSON and logs."""
+    directory = Path(directory)
+    suffixes = {'.c', '.h', '.o', '.obj', '.a', '.s', '.pxd', '.pyx'}
+    names = {'Makefile', 'CMakeLists.txt', 'CMakeCache.txt', 'cmake_install.cmake'}
+    removed_bytes = 0
+    for path in directory.rglob('*'):
+        if path.is_file() and (path.suffix in suffixes or path.name in names):
+            removed_bytes += path.stat().st_size
+            path.unlink()
+    for path in sorted(directory.rglob('*'), key=lambda p: len(p.parts), reverse=True):
+        if path.is_dir() and not path.is_symlink():
+            try:
+                path.rmdir()
+            except OSError:
+                pass  # Retain nonempty runtime/diagnostic directories.
+    return removed_bytes
+
+
+def build_cached_solver(ocp, json_file, shared_file, *, prune_generated=False):
     """Serialize code generation shared by the simulator and planner workers.
 
     Current acados-template assigns a hash to an unnamed OCP. Use the model's
@@ -292,7 +320,7 @@ def build_cached_solver(ocp, json_file, shared_file):
                       (len(large_sources), directory / 'build.log'), flush=True, file=sys.__stdout__)
                 with (directory / 'build.log').open('w') as output:
                     result = subprocess.run(
-                        ['make', '-j2', 'ocp_shared_lib'], cwd=str(directory),
+                        ['make', '-j1', 'ocp_shared_lib'], cwd=str(directory),
                         stdout=output, stderr=subprocess.STDOUT)
                 if result.returncode:
                     raise RuntimeError('acados compilation failed; see %s' %
@@ -301,9 +329,17 @@ def build_cached_solver(ocp, json_file, shared_file):
                 AcadosOcpSolver.build(str(directory), verbose=False)
             print('[acados] solver ready in %.2fs' %
                   (time.perf_counter() - started), flush=True, file=sys.__stdout__)
+        if current:
+            print('[acados] reusing solver: %s' % ocp.model.name, flush=True, file=sys.__stdout__)
         load_options = dict(generate=False, build=False, verbose=False)
         if reuse_check is not None:
             load_options['check_reuse_possible'] = False
         if legacy_json_argument:
             load_options['json_file'] = str(json_file)
-        return AcadosOcpSolver(ocp, **load_options)
+        solver = AcadosOcpSolver(ocp, **load_options)
+        if prune_generated:
+            removed = prune_acados_intermediates(directory)
+            if removed:
+                print('[acados] removed %.1f MiB of build intermediates' %
+                      (removed / 1024**2), flush=True, file=sys.__stdout__)
+        return solver

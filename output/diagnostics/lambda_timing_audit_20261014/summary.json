@@ -1,0 +1,134 @@
+{
+  "ipopt": {
+    "cached_round_ms": 479.4263147341553,
+    "replay_full_round_ms": 407.5080292500009,
+    "lambda_choose_ms": 406.7499775000177,
+    "candidate_count": 51.25,
+    "candidate_mean_ms": 7.9547093609585025,
+    "candidate_total_ms": 403.50957366670553,
+    "n_states": 4,
+    "n_repetitions": 12,
+    "replay_vs_cache_ratio": 0.8499909511140757,
+    "repetition_std_by_state_ms": [
+      {
+        "object": "elephant",
+        "step": 50,
+        "std": 2.3148905004023197
+      },
+      {
+        "object": "elephant",
+        "step": 150,
+        "std": 0.7362756144707634
+      },
+      {
+        "object": "foam_brick",
+        "step": 256,
+        "std": 2.7818045195446692
+      },
+      {
+        "object": "foam_brick",
+        "step": 768,
+        "std": 0.2974342789988556
+      }
+    ]
+  },
+  "acados": {
+    "cached_round_ms": 22.56299326836597,
+    "replay_full_round_ms": 13.837909499955003,
+    "lambda_choose_ms": 13.134631166697849,
+    "candidate_count": 51.25,
+    "candidate_mean_ms": 0.24158452750846943,
+    "candidate_total_ms": 12.38539791660287,
+    "n_states": 4,
+    "n_repetitions": 12,
+    "replay_vs_cache_ratio": 0.6133011402949,
+    "repetition_std_by_state_ms": [
+      {
+        "object": "elephant",
+        "step": 42,
+        "std": 0.11996594775568799
+      },
+      {
+        "object": "elephant",
+        "step": 128,
+        "std": 0.09875568817894995
+      },
+      {
+        "object": "foam_brick",
+        "step": 121,
+        "std": 0.32307002451065875
+      },
+      {
+        "object": "foam_brick",
+        "step": 365,
+        "std": 0.02904967892919841
+      }
+    ]
+  },
+  "qp": {
+    "cached_round_ms": 124.91765976301394,
+    "replay_full_round_ms": 94.20159341667993,
+    "lambda_choose_ms": 93.36306816669548,
+    "candidate_count": 51.25,
+    "candidate_mean_ms": 1.807960271098759,
+    "candidate_total_ms": 92.60747449991413,
+    "n_states": 4,
+    "n_repetitions": 12,
+    "replay_vs_cache_ratio": 0.7541094957702006,
+    "repetition_std_by_state_ms": [
+      {
+        "object": "elephant",
+        "step": 22,
+        "std": 0.10627584069811898
+      },
+      {
+        "object": "elephant",
+        "step": 67,
+        "std": 0.12859947519721424
+      },
+      {
+        "object": "foam_brick",
+        "step": 55,
+        "std": 0.0720312285090278
+      },
+      {
+        "object": "foam_brick",
+        "step": 165,
+        "std": 0.10201751071197053
+      }
+    ]
+  },
+  "lcp": {
+    "cached_round_ms": 98.17655952065252,
+    "replay_full_round_ms": 87.51954891666476,
+    "lambda_choose_ms": 86.61630933329434,
+    "candidate_count": 51,
+    "candidate_mean_ms": 1.684108307291944,
+    "candidate_total_ms": 85.8846273333332,
+    "n_states": 4,
+    "n_repetitions": 12,
+    "replay_vs_cache_ratio": 0.8914505595223478,
+    "repetition_std_by_state_ms": [
+      {
+        "object": "elephant",
+        "step": 209,
+        "std": 0.08754204646181381
+      },
+      {
+        "object": "elephant",
+        "step": 628,
+        "std": 0.9222620000920673
+      },
+      {
+        "object": "foam_brick",
+        "step": 72,
+        "std": 0.05266616323498233
+      },
+      {
+        "object": "foam_brick",
+        "step": 217,
+        "std": 0.32453101554612573
+      }
+    ]
+  }
+}

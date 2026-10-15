@@ -127,12 +127,31 @@ def _load_acados():
     return AcadosModel, AcadosOcp, AcadosOcpSolver
 
 
+def _compact_residual_gauss_newton(residual_fn, x, cp, u=None):
+    """Share one analytic JVP instead of unrolling every Jacobian column."""
+    inputs = residual_fn.sx_in()
+    variables = inputs[0] if u is None else cs.vertcat(inputs[1], inputs[0])
+    direction = cs.SX.sym('residual_direction', variables.numel())
+    residual = residual_fn(*inputs)
+    jvp = cs.Function(residual_fn.name()+'_jvp', [*inputs, direction],
+        [cs.jtimes(residual, variables, direction)], {'cse': True})
+    arguments = [x, cp] if u is None else [x, u, cp]
+    basis = cs.DM.eye(variables.numel())
+    jacobian = cs.horzcat(*[jvp(*arguments, basis[:, i]) for i in range(variables.numel())])
+    return 2 * jacobian.T @ jacobian
+
+
 class CartesianExplicitIsaacModel(ExplicitModel):
     """Cartesian compatibility name; uses the configured contact predictor."""
 
 
 class MPCExplicit:
     """Single-horizon explicit MPC. Prefers acados; IPOPT is the fallback."""
+
+    @property
+    def force_command_dim(self):
+        """Translation only for a tool pose, both arms for Cartesian BigRasp."""
+        return int(np.asarray(self.param_.robot_stiff_).shape[1])
 
     def __init__(self, param, cost_kind=None, model=None):
         self.param_ = param
@@ -154,6 +173,7 @@ class MPCExplicit:
             and not getattr(param, 'online_scm_', False) and model is None
             and param.n_qpos_ == 10 and param.n_cmd_ == 3
             and getattr(param, 'mpc_carry_velocity_', True))
+        self.tool_pose_control = bool(self.velocity_state and getattr(param, 'mpc_tool_pose_', False))
         self.recoverable_floor = self.velocity_state
         if self.velocity_state:
             import copy
@@ -162,12 +182,25 @@ class MPCExplicit:
             param.n_qpos_ = 19
             param.mpc_q_lb_ = np.r_[param.mpc_q_lb_, np.full(9, -100.)]
             param.mpc_q_ub_ = np.r_[param.mpc_q_ub_, np.full(9, 100.)]
+            if self.tool_pose_control:
+                from models.spherical_tool_contact import SphericalToolContactModel
+                param.n_qpos_, param.n_cmd_ = 26, 6
+                param.mpc_q_lb_ = np.r_[param.mpc_q_lb_, -np.ones(4), np.full(3,-20.)]
+                param.mpc_q_ub_ = np.r_[param.mpc_q_ub_, np.ones(4), np.full(3,20.)]
+                angle = SphericalToolContactModel.tool_rotation_step/np.sqrt(3.)
+                param.mpc_u_lb_ = np.r_[np.full(3,float(param.mpc_u_lb_)), np.full(3,-angle)]
+                param.mpc_u_ub_ = np.r_[np.full(3,float(param.mpc_u_ub_)), np.full(3,angle)]
+
         self.mpc_model = getattr(param, "mpc_model", "explicit")
         if self.mpc_model != "explicit":
             raise ValueError(f"Invalid model type: {self.mpc_model}")
         if self.velocity_state and model is None:
             from models.cartesian_rigid_contact import CartesianRigidContactModel
-            self.model = CartesianRigidContactModel(param)
+            if self.tool_pose_control:
+                from models.spherical_tool_contact import SphericalToolContactModel
+                self.model = SphericalToolContactModel(param)
+            else:
+                self.model = CartesianRigidContactModel(param)
         elif model is not None:
             self.model = model
         elif uses_isaac_model(self.cost_kind):
@@ -249,7 +282,17 @@ class MPCExplicit:
 
     def _path_cost(self, state, command, params):
         size = self.path_cost_fn.size1_in(0) if hasattr(self.path_cost_fn, 'size1_in') else len(state)
-        return self.path_cost_fn(state[:size], command, params)
+        cost = self.path_cost_fn(state[:size], command[:3] if getattr(self,'tool_pose_control',False) else command, params)
+        if getattr(self,'tool_pose_control',False):
+            from models.spherical_tool_contact import integrate_world_rotation
+            from models.contact_geometry import rotation_cs
+            cap = -np.cos(self.model.tool_tilt_limit)
+            commanded = integrate_world_rotation(state[19:23],command[3:6],1.)
+            for q in (state[19:23],commanded):
+                excess = cs.fmax(rotation_cs(q)[2,2]-cap,0.)
+                cost += 1e4*excess**2
+            cost += .1*cs.sumsqr(command[3:6]) + .002*cs.sumsqr(state[23:26])
+        return cost
 
     def _terminal_cost(self, state, params):
         size = self.final_cost_fn.size1_in(0) if hasattr(self.final_cost_fn, 'size1_in') else len(state)
@@ -265,6 +308,10 @@ class MPCExplicit:
         if not self.velocity_state:
             return np.asarray(pose, dtype=float)
         observation = observation or {}
+        if getattr(self,'tool_pose_control',False):
+            return self.model.observation_state(pose, observation.get('object_linear_velocity'),
+                observation.get('object_angular_velocity'), fingertip_velocity,
+                observation.get('tool_quaternion_world'), observation.get('tool_angular_velocity'))
         return self.model.observation_state(pose, observation.get('object_linear_velocity'),
             observation.get('object_angular_velocity'), fingertip_velocity)
 
@@ -562,8 +609,8 @@ class MPCExplicit:
             mp = self.model.runtime_parameters(self.param_.model_params)
             u_guess = np.clip(u_guess, u_lb, u_ub)
             if self.contact_force_limit is not None:
-                norms = np.linalg.norm(u_guess @ np.asarray(self.param_.robot_stiff_).T, axis=1)
-                u_guess *= np.minimum(1., self.contact_force_limit/np.maximum(norms, 1e-12))[:, None]
+                norms = np.linalg.norm(u_guess[:, :self.force_command_dim] @ np.asarray(self.param_.robot_stiff_).T, axis=1)
+                u_guess[:, :self.force_command_dim] *= np.minimum(1., self.contact_force_limit/np.maximum(norms, 1e-12))[:, None]
             if getattr(self, 'first_action_bounds', None) is not None:
                 u_guess[0] = np.clip(u_guess[0], *self.first_action_bounds)
             x_guess[0] = curr_x
@@ -627,8 +674,8 @@ class MPCExplicit:
                 # A single RTI linearization of the force ball may overshoot.
                 # Project commands directly, as in the Torch backend; do not
                 # spend ten solves (or IPOPT) enforcing its numerical residual.
-                norms = np.linalg.norm(u_traj @ np.asarray(self.param_.robot_stiff_).T, axis=1)
-                u_traj *= np.minimum(1., self.contact_force_limit/np.maximum(norms, 1e-12))[:, None]
+                norms = np.linalg.norm(u_traj[:, :self.force_command_dim] @ np.asarray(self.param_.robot_stiff_).T, axis=1)
+                u_traj[:, :self.force_command_dim] *= np.minimum(1., self.contact_force_limit/np.maximum(norms, 1e-12))[:, None]
             x_traj = np.asarray([self.acados_solver_.get(k, "x") for k in range(n + 1)], dtype=np.float64)
             if self.update_contact_gaps:
                 # Publish the prediction of the executed command and warm-start
@@ -734,7 +781,9 @@ class MPCExplicit:
                 if self.contact_force_limit is not None:
                     stiff = torch.as_tensor(self.param_.robot_stiff_, device=dev, dtype=dtype)
                     cap = self.contact_force_limit
-                    u = u * torch.clamp(cap / torch.linalg.vector_norm(stiff @ u).clamp_min(1e-12), max=1.)
+                    force_dim = self.force_command_dim
+                    scale = torch.clamp(cap / torch.linalg.vector_norm(stiff @ u[:force_dim]).clamp_min(1e-12), max=1.)
+                    u = torch.cat((u[:force_dim]*scale, u[force_dim:]))
                 qnext_var = z[off:off + nq]
                 off += nq
                 stage_phi, stage_jac = phi, jac
@@ -806,8 +855,8 @@ class MPCExplicit:
             traj[0,:nu] = np.clip(traj[0,:nu],*self.first_action_bounds)
         traj[:, nu:] = np.clip(traj[:, nu:], np.asarray(self.param_.mpc_q_lb_), np.asarray(self.param_.mpc_q_ub_))
         if self.contact_force_limit is not None:
-            norms = np.linalg.norm(traj[:, :nu] @ np.asarray(self.param_.robot_stiff_).T, axis=1)
-            traj[:, :nu] *= np.minimum(1., self.contact_force_limit / np.maximum(norms, 1e-12))[:, None]
+            norms = np.linalg.norm(traj[:, :self.force_command_dim] @ np.asarray(self.param_.robot_stiff_).T, axis=1)
+            traj[:, :self.force_command_dim] *= np.minimum(1., self.contact_force_limit / np.maximum(norms, 1e-12))[:, None]
         if not np.isfinite(traj).all():
             raise FloatingPointError("non-finite Torch MPC trajectory")
         out = traj.reshape(-1)
@@ -876,8 +925,10 @@ class MPCExplicit:
             # Version the force configuration so the cache cannot reuse a
             # solver whose initial stage lacks the nonlinear force bound.
             model.name += '_force0_v2_' + str(int(self.contact_force_limit*1e6))
-            model.con_h_expr = cs.sumsqr(cs.DM(self.param_.robot_stiff_) @ u)
+            model.con_h_expr = cs.sumsqr(cs.DM(self.param_.robot_stiff_) @ u[:self.force_command_dim])
             model.con_h_expr_0 = model.con_h_expr
+        if getattr(self,'tool_pose_control',False):
+            model.name += '_tool_pose_v2_softlimit'
         model.x, model.u, model.p = x, u, p
         model.disc_dyn_expr = pred
         if self.stage_cost_on_next:
@@ -885,22 +936,33 @@ class MPCExplicit:
         else:
             model.cost_expr_ext_cost = self._path_cost(x, u, cp)
         model.cost_expr_ext_cost_e = self._terminal_cost(x, cp)
+        compact_cost = bool(getattr(self.param_, 'mpc_compact_cost_', False))
+        if compact_cost:
+            if self.stage_cost_on_next or not isinstance(x, cs.MX):
+                raise ValueError('Compact residual cost requires current-state cost and compact MX dynamics')
+            model.name += '_cost_jvp_v1'
         if self.update_contact_gaps:
             # RTI linearizes the contact dynamics. Keep the analytic objective
             # Hessian, but avoid second derivatives of the coupled unilateral
             # map: those grow enormously and are discontinuous at mode changes.
             model.cost_expr_ext_cost_0 = model.cost_expr_ext_cost
             if hasattr(self, 'residual_fn'):
-                residual = self.residual_fn(x, u, cp)
-                residual_jac = cs.jacobian(residual, cs.vertcat(u, x))
-                model.cost_expr_ext_cost_custom_hess = 2 * residual_jac.T @ residual_jac
+                if compact_cost:
+                    model.cost_expr_ext_cost_custom_hess = _compact_residual_gauss_newton(self.residual_fn, x, cp, u)
+                else:
+                    residual = self.residual_fn(x, u, cp)
+                    residual_jac = cs.jacobian(residual, cs.vertcat(u, x))
+                    model.cost_expr_ext_cost_custom_hess = 2 * residual_jac.T @ residual_jac
             else:
                 model.cost_expr_ext_cost_custom_hess = cs.hessian(
                     model.cost_expr_ext_cost, cs.vertcat(u, x))[0]
             model.cost_expr_ext_cost_custom_hess_0 = model.cost_expr_ext_cost_custom_hess
             if hasattr(self, 'terminal_residual_fn'):
-                terminal_jac = cs.jacobian(self.terminal_residual_fn(x, cp), x)
-                model.cost_expr_ext_cost_custom_hess_e = 2 * terminal_jac.T @ terminal_jac
+                if compact_cost:
+                    model.cost_expr_ext_cost_custom_hess_e = _compact_residual_gauss_newton(self.terminal_residual_fn, x, cp)
+                else:
+                    terminal_jac = cs.jacobian(self.terminal_residual_fn(x, cp), x)
+                    model.cost_expr_ext_cost_custom_hess_e = 2 * terminal_jac.T @ terminal_jac
             else:
                 model.cost_expr_ext_cost_custom_hess_e = cs.hessian(
                     model.cost_expr_ext_cost_e, x)[0]
@@ -959,13 +1021,14 @@ class MPCExplicit:
             ocp.solver_options.qp_solver_tol_ineq = 1e-8
         ocp.solver_options.print_level = 0
 
-        code_dir = os.path.join("/tmp", model.name + "_codegen")
+        from planning.acados_env import acados_cache_directory, build_cached_solver
+        code_dir = str(acados_cache_directory(model.name))
         os.makedirs(code_dir, exist_ok=True)
         _set_acados_code_export_directory(ocp, code_dir)
         json_file = os.path.join(code_dir, model.name + ".json")
         shared = os.path.join(code_dir, "libacados_ocp_solver_" + model.name + ".so")
-        from planning.acados_env import build_cached_solver
-        return build_cached_solver(ocp, json_file, shared)
+        return build_cached_solver(ocp, json_file, shared,
+            prune_generated=bool(getattr(self.param_, 'mpc_prune_codegen_', False)))
 
     def init_MPC(self):
         model_params = cs.SX.sym("model_param", self.model.model_parameter_dim)
@@ -1006,7 +1069,7 @@ class MPCExplicit:
             lower_g.extend([0.] * self.param_.n_qpos_)
             upper_g.extend([0.] * self.param_.n_qpos_)
             if self.contact_force_limit is not None:
-                g += [cs.sumsqr(cs.DM(self.param_.robot_stiff_) @ uk)]
+                g += [cs.sumsqr(cs.DM(self.param_.robot_stiff_) @ uk[:self.force_command_dim])]
                 lower_g.append(0.)
                 upper_g.append(self.contact_force_limit**2)
         j += self._terminal_cost(qk, cost_params)
@@ -1177,7 +1240,15 @@ def _build_mpc_planner_runtime(init, param=None):
     param.mpc_carry_velocity_ = bool(getattr(args, 'mpc_carry_velocity', True))
     param.mpc_tip_effective_mass_ = float(getattr(args, 'mpc_tip_effective_mass', 2.5))
     param.mpc_tip_damping_ = float(getattr(args, 'mpc_tip_damping', 40.))
+    param.mpc_tool_pose_ = getattr(args,'tool_orientation_control','free') == 'mpc'
+    if param.mpc_tool_pose_ and (getattr(args,'physics_backend','isaac') != 'isaac' or param.online_scm_):
+        raise ValueError('Tool-pose MPC currently requires Isaac with online SCM disabled')
     mpc = MPCExplicit(param)
+    if mpc.tool_pose_control:
+        import copy
+        position_param = copy.copy(param); position_param.mpc_tool_pose_ = False
+        mpc.position_mpc = MPCExplicit(position_param)
+        mpc.position_mpc.source_param_ = param
     mpc_step = max(1e-4, float(getattr(args, "mpc_step_limit", 0.005)))
     via_step = getattr(args, "via_max_step", None)
     via_step = mpc_step if via_step is None else max(1e-4, float(via_step))
@@ -1264,6 +1335,7 @@ def _call_rollout_contact_via(fn, *args, **kwargs):
 def handle_mpc_request(args, param, mpc, trackers, msg):
     import time
     request_started = time.perf_counter()
+    root_mpc = mpc
     from examples.mpc.fingertips.test.test_0902 import (
         compute_rollout_contact_via,
         _verify_is_chatter,
@@ -1386,6 +1458,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     param.lambda_actual_contact_ = (measured_contact if
         ((stages is not None and stages.enabled) or getattr(param, 'runtime_object_cost_', False))
         and reachable_contact else None)
+    if getattr(mpc,'tool_pose_control',False) and not (
+            stages is not None and stages.enabled and stages.stage == 'flip' and reachable_contact):
+        mpc = mpc.position_mpc
     # Finite-difference fingertip motion is in world coordinates. Object
     # angular velocity is transformed to body coordinates by the model.
     previous = trackers.get('motion_observation')
@@ -1426,7 +1501,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     max_lead = max(1e-4, float(getattr(args, "via_max_lead", getattr(args, "via_max_step", getattr(args, "mpc_step_limit", 0.005)))))
     value_info = policy.get("value_info") or {}
     contact_id = getattr(param.lambda_optimizer, 'last_executed_idx', None)
-    context = (contact_id, bool(reachable_contact),
+    context = (getattr(mpc,'tool_pose_control',False), contact_id, bool(reachable_contact),
                tuple(np.flatnonzero(np.linalg.norm(jac_mat.reshape(-1, 4, nv), axis=(1, 2)) > 1e-10)))
     previous_context = trackers.get('mpc_contact_context')
     if previous_context is not None and context != previous_context:
@@ -1517,6 +1592,13 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
             slew=float(getattr(param, 'isaac_action_slew_', .0025))/np.sqrt(3.), max_norm=radius)
         mpc.first_action_bounds = bounds
         trackers['mpc_executor_floor'] = floor_info
+    if getattr(mpc,'tool_pose_control',False):
+        angle = mpc.model.tool_rotation_step/np.sqrt(3.)
+        angular_bounds = (np.full(3,-angle),np.full(3,angle))
+        if mpc.first_action_bounds is not None:
+            mpc.first_action_bounds = tuple(np.r_[b,a] for b,a in zip(mpc.first_action_bounds,angular_bounds))
+        command_lower = np.r_[np.broadcast_to(command_lower,3),angular_bounds[0]]
+        command_upper = np.r_[np.broadcast_to(command_upper,3),angular_bounds[1]]
     t1 = time.perf_counter()
     if approach_action:
         # The geometric approach replaces MPC's command. Solving that discarded
@@ -1535,6 +1617,8 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
             frame = np.column_stack([inward, tangent, np.cross(inward, tangent)])
             force = np.asarray(policy['info']['control_input'], dtype=float).reshape(3)
             command = np.linalg.solve(param.robot_stiff_, r_obj_to_world @ frame @ force)
+            if getattr(mpc,'tool_pose_control',False):
+                command = np.r_[command,np.zeros(3)]
             state = np.asarray(planner_state, dtype=float)
             states, rows = [state], []
             for _ in range(param.mpc_horizon_):
@@ -1543,21 +1627,51 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
                 states.append(state); rows.append(np.r_[command, state])
             trackers['sol_guess'] = dict(x0=np.concatenate(rows),
                 u_traj=np.tile(command, (param.mpc_horizon_, 1)), x_traj=np.array(states))
-        sol = mpc.plan_once(
-            param.target_p_,
-            param.target_q_,
-            planner_state,
-            phi_vec,
-            jac_mat,
+        plan_kwargs = dict(
+            target_p=param.target_p_, target_q=param.target_q_, curr_x=planner_state,
+            phi_vec=phi_vec, jac_mat=jac_mat,
             verify_cost_param=(float(not value_info.get('path_blocked', False))
                 if getattr(param, 'runtime_object_cost_', False) and reachable_contact else verify_cost),
             virtual_point=policy["mpc_virtual_point"],
             contact_point=policy["mpc_contact_point"],
             sol_guess=trackers["sol_guess"],
             **(dict(u_lb=command_lower, u_ub=command_upper)
-               if trackers['mpc_executor_edge'] else {}),
+               if trackers['mpc_executor_edge'] or getattr(mpc,'tool_pose_control',False) else {}),
         )
-        action = np.asarray(sol['action'], dtype=float).reshape(3)
+        # Lambda supplies initial guesses only. Every executed contact action
+        # comes from optimization under the original objective and constraints.
+        reseed = (getattr(args, 'mpc_contact_multistart', False)
+            and getattr(args, 'physics_backend', 'isaac') == 'isaac'
+            and flip_stage and reachable_contact and getattr(mpc, 'velocity_state', False)
+            and not getattr(mpc,'tool_pose_control',False)
+            and (trackers['sol_guess'] is None or context != previous_context
+                 or trackers.get('mpc_contact_seed_age', 0) >= 25))
+        seeds = []
+        if reseed and param.lambda_actual_contact_ is not None:
+            from planning.franka_mpc_seeds import contact_loading_seeds, rollout_guess
+            actual = param.lambda_actual_contact_
+            outward = np.asarray(actual['normal_world'], dtype=float)
+            inward = -r_obj_to_world.T@outward
+            inward /= max(np.linalg.norm(inward), 1e-12)
+            ref = np.array([0., 0., 1.]) if abs(inward[2]) < .9 else np.array([0., 1., 0.])
+            tangent = np.cross(inward, ref); tangent /= np.linalg.norm(tangent)
+            frame = np.column_stack([inward, tangent, np.cross(inward, tangent)])
+            force = r_obj_to_world@frame@np.asarray(param.lambda_optimizer.last_executed_force).reshape(3)
+            commands = contact_loading_seeds(force, outward, param.robot_stiff_, param.mpc_horizon_)
+            seeds = [rollout_guess(mpc, planner_state, u, phi_vec, jac_mat) for u in commands]
+        if seeds:
+            from planning.franka_mpc_seeds import best_contact_plan
+            sol = best_contact_plan(mpc, plan_kwargs, seeds)
+            trackers['mpc_contact_seed_age'] = 0
+        else:
+            sol = mpc.plan_once(**plan_kwargs)
+            trackers['mpc_contact_seed_age'] = trackers.get('mpc_contact_seed_age', 0)+1
+        policy['mpc_contact_seed_costs'] = sol.get('contact_seed_costs')
+        policy['mpc_contact_seed_selected'] = sol.get('contact_seed_selected', 0)
+        full_action = np.asarray(sol['action'], dtype=float).reshape(-1)
+        action = full_action[:3]
+        if getattr(mpc,'tool_pose_control',False):
+            policy['tool_rotation_action'] = full_action[3:6].copy()
     plan_dt = time.perf_counter() - t1
     trackers["sol_guess"] = sol["sol_guess"]
     if execution_mode != 'contact' or msg.get('osc_upright_guard_active', False):
@@ -1569,7 +1683,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     if getattr(param, 'runtime_object_cost_', False):
         # Confidence must assess the action MPC actually sent, rather than
         # Lambda's separately optimized wrench at a hypothetical mesh sample.
-        predicted = np.asarray(mpc.stage_prediction_fn(planner_state, action, phi_vec, jac_mat,
+        predicted_command = (np.r_[action,policy.get('tool_rotation_action',np.zeros(3))]
+                             if getattr(mpc,'tool_pose_control',False) else action)
+        predicted = np.asarray(mpc.stage_prediction_fn(planner_state, predicted_command, phi_vec, jac_mat,
             mpc.model.runtime_parameters(param.model_params), planner_state)).reshape(-1)
         policy['execution_object_pose_world'] = predicted[:7]
         if stages is not None and stages.enabled:
@@ -1626,6 +1742,11 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         policy['object_feedback_scale'] = max(.05, float(getattr(stages, 'ori_weight', 20.))*.025) if stages.enabled else None
     elif getattr(param, 'object_cost_config_', None) is not None:
         policy['object_cost_config'] = np.asarray(param.object_cost_config_).copy()
+    mpc_instances = [root_mpc]
+    if getattr(root_mpc, "position_mpc", None) is not None:
+        mpc_instances.append(root_mpc.position_mpc)
+    def mpc_count(name):
+        return sum(int(getattr(instance, name, 0)) for instance in mpc_instances)
     return {
         "object_cost_diagnostics": dict({} if stages is None else stages.diagnostics(),
             pressure_releases=0, upright_action_rejections=0),
@@ -1647,7 +1768,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "mpc_skipped": bool(approach_action),
         "mpc_executor_floor": dict(trackers['mpc_executor_floor']),
         "mpc_executor_edge": bool(trackers['mpc_executor_edge']),
-        "mpc_fallbacks": int(getattr(mpc, "acados_fallback_count", 0)),
+        "mpc_fallbacks": mpc_count("acados_fallback_count"),
         "mpc_contact_resets": int(trackers.get('mpc_contact_resets', 0)),
         "mpc_slew_rebased": bool(trackers.get('mpc_slew_rebased', False)),
         "mpc_floor_recovery_m": max(0., float(param.mpc_q_lb_[9]) - float(np.min(sol['rollout_q'][:, 9])))
@@ -1658,9 +1779,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "mppi_dt": float(plan_dt),
         "solver_backend": str(sol.get("solver_backend", getattr(mpc, "planner_solver_", "ipopt"))),
         "lambda_failures": int(getattr(param.lambda_optimizer, "acados_failure_count", 0)),
-        "mpc_failures": int(getattr(mpc, "acados_failure_count", 0)),
+        "mpc_failures": mpc_count("acados_failure_count"),
         "lambda_solves": int(getattr(param.lambda_optimizer, "acados_solve_count", 0)),
-        "mpc_solves": int(getattr(mpc, "acados_solve_count", 0)),
+        "mpc_solves": mpc_count("acados_solve_count"),
         "mpc_init_error": str(getattr(mpc, "_acados_init_error", "") or ""),
     }
 

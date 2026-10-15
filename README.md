@@ -66,6 +66,108 @@ python examples/mpc/franka/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-dev
 
 acados is located in-process (`planning/acados_env.py`): `$ACADOS_SOURCE_DIR` if already set, then the local installation `/home/lab423/push_ws/acados`, `../thirdparty/acados`, and `./thirdparty/acados`.
 
+Generated MPC solvers are cached in `~/.cache/scsp-robot/acados` (or under
+`$XDG_CACHE_HOME`). Set `SCSP_ACADOS_CACHE_DIR` to override that directory.
+A changed cost, dynamics or horizon triggers a new build; subsequent starts
+with the same configuration load the existing library. Compilation uses one
+compiler process to bound peak memory.
+
+The online Allegro `trigrasp.py` planner shares analytic directional derivative
+code across cost Jacobian columns. After loading a compiled solver it removes
+generated C/header/object files, retaining the shared library, JSON model and
+build log so later starts can still reuse the cache.
+
+Its force tracking residual uses a measured-state linearization refreshed each
+control cycle; the dynamics and force diagnostics retain the nonlinear SCM map.
+The pad wrench residual is normalized by object weight; necessary tangential
+forces and internal preload need not match an arbitrary per-finger force split.
+The live allocator imposes the requested wrench as an equality, requests a
+balanced preload within its physical force budget, and compensates non-pad hand
+contacts. Measured pressure separately certifies the force available now; it
+does not freeze the future pressure reference at an already weakening value.
+`--online-min-normal-force` defaults to 0.6 N. Table support
+is excluded from the hand's load budget. The object goal stays at the requested lift height during
+approach and contact recovery. Physical contact count, force closure and bounded
+load support enable contact transport toward that goal; startup IK patch errors
+are diagnostic only. `target_z` and `lift_gate` in the runtime log show the active
+goal and any unmet lift checks. Three sufficiently preloaded physical contacts
+can enable lifting if their own bounded certificate passes; use
+`--lift-contact-fingers 4` to require all four.
+
+Each MPC cycle also queries the nearest object surface for missing fingers.
+Locally reachable replacements must form force closure and support the load
+together with the existing physical contacts. Unselected or distant planned
+fingers do not contribute to this certificate. Logs show `[local-contact]`,
+and `--online-local-contact-distance` sets the search distance (default 2 cm).
+A prospective contact becomes a pad target first; it cannot supply a measured
+lifting force before contact. Existing pad regions stay fixed in object
+coordinates against slip, with indentation regulated by measured pressure.
+After loss, a certified local repair gets up to 0.5 simulated seconds before
+global recovery opens the pads.
+
+Video recording is off by default. Pass `--save` to `trigrasp.py` to record
+an MP4; `--video-output-path` and `--video-output-dir` select its location.
+On grasp loss, object displacement/rotation or an unconfirmed contact attempt,
+the online controller searches live contact patches, checks a bounded coupled
+IK seed, resets the old MPC trajectory/servo pressure, and uses MPC to open the
+pads before approaching again. The recovery region follows the measured object;
+the airborne object goal is retained. Logs show `[regrasp]`, `regrasp_open` and
+`regrasp`; `--regrasp-*` options configure displacement, cooldown and timeout.
+
+BigRasp's online Lambda uses the MuJoCo fingertip/object pair friction by
+default, including material priorities. Its Lambda, grouped SCM and online
+MuJoCo scene use circular Coulomb friction (MuJoCo `cone="elliptic"`).
+Like `ik2/test_mpc_isaac.py`, it uses a small tangential-force penalty
+of `0.03` and total-force penalty of `0.01`. These are configurable with
+`--lambda-friction-reg-coef` and `--lambda-force-reg-coef`;
+`--optimizer-arm-friction` is an explicit experimental override.
+
+BigRasp's `--mpc` and `--mppi` use Lambda to seed the initial approach. Each
+subsequent cycle retains measured loaded patches and searches reachable
+nearby replacements for missing contacts (default search radius 2 cm).
+`--freeze-contact-pair` disables prospective replacements while still updating
+actual geometry and forces. Confirmed loss/drift can request a new global
+approach guess while retaining loaded arms. The measured state is never reset.
+Live force allocation uses the actual lever arms, mass and external wrench,
+with bounded circular friction and a positive pressure reserve. Current
+measured pressure certifies available load independently of future force targets.
+Online MPC prices the resulting force and torque instead of individual
+tangential force tracking; its object pose cost remains active. RTI actions
+are checked against the nonlinear contact rollout before execution.
+Diagnostics under `live_grasp` distinguish full six-dimensional force closure
+from positive closure in the available contact span and bounded task support.
+Two pure point contacts have wrench rank five: unavailable axial torque is
+reported explicitly as `uncontrolled_task_wrench`, never presented as full
+force closure. Additional real manifold patches can certify rank six.
+The native FA backend accepts four-ray pyramids only, so its generated planner
+XML uses an inscribed pyramid with the measured fingertip/object friction.
+The execution scene keeps elliptic friction. This adapter also avoids the
+old Gaussian-query material overriding the real pair coefficient with 1.0.
+
+Allegro SCM response parameters are exposed as `--soft-scm-response-time`
+(`--force-response-time`), `--soft-scm-damping-ratio` and
+`--soft-scm-regularization`. Response time defaults to the scene's MuJoCo solref
+time scale; damping and regularization use the shared SCM defaults. The online
+scene uses elliptic friction and `--contact-impratio 10`, hardening tangential
+contact without changing the friction coefficient. The online scene adds three
+friction-only NoSlip sweeps to suppress MuJoCo's regularized
+steady creep even inside the Coulomb cone. `--contact-noslip-iterations 0`
+disables this refinement for contact-model comparisons. The main Newton solver
+keeps tolerance 1e-8. These settings do not increase the friction coefficient.
+NoSlip is enabled after startup settling so that this execution refinement
+does not change the initial object pose used by Lambda and IK. Online IK
+retains the 2 mm mean / 3 mm maximum tip-error limits and 0.1 mm self-contact
+penetration limit. Its candidate selection prefers a feasible iterate over
+a lower-score infeasible iterate; failure logs show the exact blocking limits
+and whether the startup search budget expired.
+Measured force-closed
+contacts enable a force-limited response that couples object inertia and the
+finite hand servo, with unilateral forces removed after predicted separation.
+This does not
+replace its joint-servo dynamics with Franka's Cartesian contact predictor.
+`planning/grasp_diagnostics.py` separates measured pad/other-hand/support
+wrenches and checks bounded upward wrench capacity independently of the MPC.
+
 See `THIRD_PARTY.md` for what was vendored vs left as an install. Allegro hand assets now live in `thirdparty/spider/`. Isaac Gym, acados, and cuRobo stay as external installs.
 
 ### BigRasp DexForge CA/FA
@@ -276,7 +378,10 @@ Execution-side tabletop support uses four body-local convex mesh pieces
 massless collision geoms and collide only with the finite pedestal; arms and
 floor still contact the original object mesh. This prevents the single convex
 mesh manifold from repeatedly switching between elephant feet. CA/FA execution
-also enables ten MuJoCo NoSlip iterations to suppress soft-friction drift.
+also enables three MuJoCo NoSlip iterations with `impratio=10` to suppress
+soft-friction drift. `--contact-noslip-iterations` and `--contact-impratio`
+override these execution settings for comparisons. They apply to all contacts
+and do not change the material friction coefficients.
 The Warp planner explicitly clears this execution-only option, which its loader
 does not support, and retains the ComFree law. This is a support geometry
 approximation, not a full convex decomposition of the original nonconvex mesh.

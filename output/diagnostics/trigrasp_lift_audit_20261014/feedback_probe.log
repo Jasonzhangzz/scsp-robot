@@ -1,0 +1,17 @@
+[startup] building MuJoCo scene with palm facing the object
+[startup] preprocessing contact surface
+Warp 1.16.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.16.0
+[startup] surface preprocessing: 0.793s
+[startup] constructing MPC (acados compiles on cache miss)
+[acados] reusing solver: mpc_soft_scm_allegro_v3_e9f808b0f0_param_staged2_c1242d5b6a_current_h4_c12_x79_u22_profile_e8ddba0a_jvp_v1_cost_jvp_v1
+[startup] MPC initialization: 2.191s
+[feedback] pyramidal 1.0 -0.0025307232706373584 0.01782298017676065 3
+[feedback] pyramidal 2.0 0.0007879884989422936 0.0010536738743752716 1
+[feedback] elliptic 1.0 0.13522610140402336 0.13522610140402336 4
+[feedback] elliptic 2.0 0.10766021682558402 0.10846785755087307 3

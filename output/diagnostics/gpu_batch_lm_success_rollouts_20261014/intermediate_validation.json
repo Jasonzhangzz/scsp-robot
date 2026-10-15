@@ -1,0 +1,83 @@
+[
+  {
+    "object": "foam_brick",
+    "step": 85,
+    "stage": "flip",
+    "candidates": 48,
+    "pose_max_abs": 3.469446951953614e-18,
+    "cost_max_abs": 3.6637359812630166e-15,
+    "force_norm_max": 0.912988009352699
+  },
+  {
+    "object": "foam_brick",
+    "step": 257,
+    "stage": "pose",
+    "candidates": 46,
+    "pose_max_abs": 8.673617379884035e-18,
+    "cost_max_abs": 3.4516833835596117e-13,
+    "force_norm_max": 2.5787783166571083
+  },
+  {
+    "object": "foam_brick",
+    "step": 325,
+    "stage": "pose",
+    "candidates": 46,
+    "pose_max_abs": 1.0408340855860843e-17,
+    "cost_max_abs": 5.211386877590485e-13,
+    "force_norm_max": 2.6872152847701862
+  },
+  {
+    "object": "elephant",
+    "step": 50,
+    "stage": "flip",
+    "candidates": 54,
+    "pose_max_abs": 1.0408340855860843e-17,
+    "cost_max_abs": 2.220446049250313e-15,
+    "force_norm_max": 0.7551713026841065
+  },
+  {
+    "object": "elephant",
+    "step": 150,
+    "stage": "pose",
+    "candidates": 54,
+    "pose_max_abs": 3.469446951953614e-18,
+    "cost_max_abs": 3.1002977962657496e-14,
+    "force_norm_max": 0.5178471892079813
+  },
+  {
+    "object": "elephant",
+    "step": 190,
+    "stage": "pose",
+    "candidates": 54,
+    "pose_max_abs": 4.336808689942018e-18,
+    "cost_max_abs": 1.867950238931826e-14,
+    "force_norm_max": 0.510314309517736
+  },
+  {
+    "object": "stanford_bunny2",
+    "step": 49,
+    "stage": "flip",
+    "candidates": 51,
+    "pose_max_abs": 6.071532165918825e-18,
+    "cost_max_abs": 3.1394158106490266e-15,
+    "force_norm_max": 0.08980949903088209
+  },
+  {
+    "object": "stanford_bunny2",
+    "step": 147,
+    "stage": "pose",
+    "candidates": 51,
+    "pose_max_abs": 4.336808689942018e-18,
+    "cost_max_abs": 1.4904744105592727e-14,
+    "force_norm_max": 0.5202589688451433
+  },
+  {
+    "object": "stanford_bunny2",
+    "step": 187,
+    "stage": "pose",
+    "candidates": 51,
+    "pose_max_abs": 7.806255641895632e-18,
+    "cost_max_abs": 2.5646151868841116e-14,
+    "force_norm_max": 0.25685861103297
+  }
+]

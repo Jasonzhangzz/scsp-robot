@@ -1,0 +1,8 @@
+{
+  "reason": "CoACD was absent in the simulation environment; initial starts failed before producing any trial",
+  "objects": [
+    "mug",
+    "rubber_duck"
+  ],
+  "remedy": "Installed coacd 1.0.5; rerun identical commands without changing seeds, model or controller settings"
+}

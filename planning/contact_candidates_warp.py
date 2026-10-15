@@ -16,6 +16,43 @@ import numpy as np
 _KERNELS = None
 
 
+def centered_convex_contacts(mesh, center, up=(0., 0., 1.)):
+    """Intersect the physical convex collider with paired lines through COM.
+
+    Independent random samples almost never put the gravity line in the
+    rank-five wrench span of two point contacts. Paired cross-sections do.
+    Half-space intersections require no optional ray-tracing dependency.
+    """
+    center = np.asarray(center, float).reshape(3)
+    up = np.asarray(up, float).reshape(3)
+    up = up / np.linalg.norm(up)
+    first = np.eye(3)[np.argmin(np.abs(up))]
+    first -= up * (first @ up)
+    first /= np.linalg.norm(first)
+    second = np.cross(up, first)
+    normals = np.asarray(mesh.face_normals)
+    bounds = np.einsum('ij,ij->i', normals, mesh.triangles_center)
+    height = np.ptp(np.asarray(mesh.vertices) @ up)
+    points, faces = [], []
+    for level in (.05, .1, 0., .15, .25, .3, -.15, -.3):
+        origin = center + level * height * up
+        for angle in np.linspace(0., np.pi, 12, endpoint=False):
+            direction = np.cos(angle)*first + np.sin(angle)*second
+            slopes = normals @ direction
+            gaps = bounds - normals @ origin
+            if np.any((np.abs(slopes) < 1e-10) & (gaps < -1e-8)):
+                continue
+            positive, negative = np.flatnonzero(slopes > 1e-10), np.flatnonzero(slopes < -1e-10)
+            hi = positive[np.argmin(gaps[positive]/slopes[positive])]
+            lo = negative[np.argmax(gaps[negative]/slopes[negative])]
+            lower, upper = gaps[lo]/slopes[lo], gaps[hi]/slopes[hi]
+            if upper-lower < .03:
+                continue
+            points.extend((origin+lower*direction, origin+upper*direction))
+            faces.extend((lo, hi))
+    return np.asarray(points, float).reshape(-1, 3), np.asarray(faces, int)
+
+
 def _kernels():
     global _KERNELS
     if _KERNELS is not None:
@@ -225,7 +262,8 @@ class SurfaceContactCandidates:
                  seed=0, patch_radius=0.01, max_point_curvature=0.25,
                  max_mean_curvature=0.12, min_patch_area_ratio=0.30,
                  dense_sample_num=8192, device="cuda:0", body_sides=False,
-                 body_core_fraction=0.5, body_side_normal_cos=0.85):
+                 body_core_fraction=0.5, body_side_normal_cos=0.85,
+                 paired_center_local=None, paired_up_local=(0., 0., 1.)):
         import trimesh
 
         if sample_num < 2 or dense_sample_num < 32:
@@ -261,6 +299,15 @@ class SurfaceContactCandidates:
         self.dense_normals_local = (-mesh.face_normals[dense_faces]).astype(np.float32)
         candidate_count = max((16 if body_sides else 8) * int(sample_num), 512)
         candidates, candidate_faces = _area_samples(mesh, candidate_count, rng)
+        paired_count = 0
+        if paired_center_local is not None:
+            if not mesh.is_convex:
+                raise ValueError('COM cross-sections require the physical convex collision mesh')
+            paired_points, paired_faces = centered_convex_contacts(mesh, paired_center_local, paired_up_local)
+            paired_count = len(paired_points)
+            candidates = np.vstack((paired_points, candidates))
+            candidate_faces = np.r_[paired_faces, candidate_faces]
+            candidate_count = len(candidates)
         maximum, mean, support = _patch_statistics(
             mesh, candidates, candidate_faces, dense_points, dense_faces, self.patch_radius)
         support_threshold = float(min_patch_area_ratio) * np.pi * self.patch_radius ** 2
@@ -300,6 +347,15 @@ class SurfaceContactCandidates:
         # Area strata were shuffled before filtering; truncation retains an
         # unbiased area distribution among admissible patches, not PCA tips.
         chosen = usable[:int(sample_num)]
+        if paired_count:
+            # Retain area-distributed alternatives for recovery after object
+            # rotation; a dense COM grid must not consume the entire pool.
+            balanced = usable[usable < paired_count][:max(2, int(sample_num)//2)]
+            random = usable[usable >= paired_count][:max(0, int(sample_num)-len(balanced))]
+            chosen = np.r_[balanced, random]
+            if len(chosen) < min(len(usable), int(sample_num)):
+                remainder = usable[~np.isin(usable, chosen)]
+                chosen = np.r_[chosen, remainder[:int(sample_num)-len(chosen)]]
         self.points_local = candidates[chosen].astype(np.float32)
         self.normals_local = (-mesh.face_normals[candidate_faces[chosen]]).astype(np.float32)
         self.curvature_max = maximum[chosen].astype(np.float32)

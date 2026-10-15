@@ -1,0 +1,181 @@
+{
+  "mpc_predictive_selection": {
+    "planner_wall_time_ms": {
+      "median": 15.877042500505922,
+      "p95": 23.543674399115844,
+      "p99": 29.475407789723214,
+      "max": 62.70130099437665
+    },
+    "loop_wall_time_ms": {
+      "median": 41.599404998123646,
+      "p95": 85.85632485519454,
+      "p99": 176.81710949327672,
+      "max": 4277.8624019993
+    },
+    "success": false,
+    "recovery_stages": [],
+    "accepted": [
+      {
+        "step": 699,
+        "search_seconds": null
+      }
+    ],
+    "failed": [
+      {
+        "step": 300,
+        "loop_ms": 4277.8624019993,
+        "reason": "No collision-free load-capable Lambda pair: 1636 load candidates, 32 robot checks; [{'row': 136, 'reason': 'non-pad object clearance stage 0'}, {'row': 269, 'reason': 'non-pad object clearance stage 0'}, {'row': 398, 'reason': 'non-pad object clearance stage 0'}]"
+      },
+      {
+        "step": 725,
+        "loop_ms": 39.60594000091078,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 751,
+        "loop_ms": 41.62667899799999,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 777,
+        "loop_ms": 40.509669997845776,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 803,
+        "loop_ms": 39.65020199393621,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 829,
+        "loop_ms": 40.22048500337405,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 855,
+        "loop_ms": 39.65299999981653,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 881,
+        "loop_ms": 39.91621799650602,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 907,
+        "loop_ms": 39.89440300210845,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 933,
+        "loop_ms": 40.73465200053761,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 959,
+        "loop_ms": 39.70812699844828,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      },
+      {
+        "step": 985,
+        "loop_ms": 39.614346002053935,
+        "reason": "No collision-free load-capable Lambda pair: 0 load candidates, 0 robot checks; []"
+      }
+    ]
+  },
+  "mpc_async_recovery_verified": {
+    "planner_wall_time_ms": {
+      "median": 15.279059996828437,
+      "p95": 25.59863490096177,
+      "p99": 29.088474941891036,
+      "max": 62.40216299920576
+    },
+    "loop_wall_time_ms": {
+      "median": 42.635932499251794,
+      "p95": 63.90638749981008,
+      "p99": 113.89919646579074,
+      "max": 116.28868600382702
+    },
+    "success": false,
+    "recovery_stages": [
+      {
+        "step": 299,
+        "stage": "release"
+      }
+    ],
+    "accepted": [
+      {
+        "step": 586,
+        "search_seconds": 2.402035674000217
+      }
+    ],
+    "failed": [
+      {
+        "step": 344,
+        "loop_ms": 32.987446000333875,
+        "reason": "No reachable predicted-cost Lambda pair: 1636 candidates, 128 robot checks; [{'row': 16, 'reason': 'arm collision stage 0'}, {'row': 84, 'reason': 'arm collision stage 0'}, {'row': 151, 'reason': 'arm collision stage 0'}]"
+      },
+      {
+        "step": 400,
+        "loop_ms": 47.708383994176984,
+        "reason": "No reachable predicted-cost Lambda pair: 1636 candidates, 128 robot checks; [{'row': 66, 'reason': 'arm collision stage 5'}, {'row': 201, 'reason': 'arm collision stage 5'}, {'row': 332, 'reason': 'arm collision stage 5'}]"
+      },
+      {
+        "step": 457,
+        "loop_ms": 32.85293200315209,
+        "reason": "No reachable predicted-cost Lambda pair: 1676 candidates, 128 robot checks; [{'row': 762, 'reason': 'non-pad object clearance stage 0'}, {'row': 819, 'reason': 'non-pad object clearance stage 0'}, {'row': 647, 'reason': 'non-pad object clearance stage 0'}]"
+      },
+      {
+        "step": 527,
+        "loop_ms": 34.2095000014524,
+        "reason": "Discarded stale object/goal snapshot"
+      }
+    ]
+  },
+  "mpc_async_recovery_separation": {
+    "planner_wall_time_ms": {
+      "median": 15.33634999577771,
+      "p95": 25.656846497804505,
+      "p99": 35.47648094849137,
+      "max": 57.02239200036274
+    },
+    "loop_wall_time_ms": {
+      "median": 45.24624099940411,
+      "p95": 62.98388839932158,
+      "p99": 114.94700101146007,
+      "max": 127.50365999818314
+    },
+    "success": false,
+    "recovery_stages": [
+      {
+        "step": 299,
+        "stage": "release"
+      },
+      {
+        "step": 300,
+        "stage": "retreat"
+      },
+      {
+        "step": 387,
+        "stage": "waiting"
+      },
+      {
+        "step": 394,
+        "stage": "approach"
+      }
+    ],
+    "accepted": [
+      {
+        "step": 394,
+        "search_seconds": 2.0708037389995297
+      }
+    ],
+    "failed": [
+      {
+        "step": 344,
+        "loop_ms": 46.75668200070504,
+        "reason": "No reachable predicted-cost Lambda pair: 1636 candidates, 128 robot checks; [{'row': 16, 'reason': 'arm collision stage 0'}, {'row': 84, 'reason': 'arm collision stage 0'}, {'row': 151, 'reason': 'arm collision stage 0'}]"
+      }
+    ]
+  }
+}

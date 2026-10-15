@@ -91,10 +91,16 @@ from examples.mpc.fingertips.test.test_0902 import (
 from planning.screenshot import create_isaacgym_svg_screenshot_recorder
 from examples.mpc.franka.ik2.contact_frames import (
     FRANKA_QD_NULLSPACE,
+    resolve_nullspace_stiffness,
+    resolve_nullspace_damping_model,
     clip_mpc_action as _clip_mpc_action,
     clip_via_target as _clip_via_target,
     diagnose_contact_pose_source as _diagnose_contact_pose_source,
     franka_nullspace_posture_torque as _franka_nullspace_posture_torque,
+    franka_nullspace_projector as _franka_nullspace_projector,
+    slew_tool_rotation as _slew_tool_rotation,
+    downward_tool_frame as _downward_tool_frame,
+    tool_axis_error as _tool_axis_error,
     isaac_task_force as _isaac_task_force,
     mpc_ball_trajectory as _mpc_ball_trajectory,
     near_press_force_mode as _near_press_force_mode,
@@ -113,8 +119,8 @@ from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule, joint_hold_t
 from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
 from planning.contact_limits import DEFAULT_CONTACT_FORCE_LIMIT, contact_force_limit, contact_command_force_limit, CARTESIAN_TASK_STIFFNESS, CARTESIAN_TASK_DAMPING
 from examples.mpc.franka.ik2.scene_friction import (
-    DEFAULT_TANGENTIAL_FORCE_PENALTY, ROLLOUT_TABLE_FRICTION,
-    ROLLOUT_OBJECT_FRICTION, ROLLOUT_FINGERTIP_FRICTION, configure_scene_friction,
+    DEFAULT_TANGENTIAL_FORCE_PENALTY, ROLLOUT_FINGERTIP_FRICTION,
+    configure_scene_friction,
 )
 from models.soft_scm_contact import (
     SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
@@ -138,11 +144,13 @@ DYWA_SIM_DT = 0.002
 DYWA_SIM_SUBSTEPS = 1
 POLICY_INTERVAL = 0.02
 DYWA_PHYSX_SOLVER_TYPE = 1
-DYWA_PHYSX_POSITION_ITERATIONS = 8
-DYWA_PHYSX_VELOCITY_ITERATIONS = 1
-DYWA_PHYSX_CONTACT_OFFSET = 0.001
+# PhysX has no MuJoCo impratio: give the contact/friction solve more
+# iterations and a wider activation distance to tolerate small surface gaps.
+DYWA_PHYSX_POSITION_ITERATIONS = 16
+DYWA_PHYSX_VELOCITY_ITERATIONS = 4
+DYWA_PHYSX_CONTACT_OFFSET = 0.002
 DYWA_PHYSX_REST_OFFSET = 0.0
-DYWA_PHYSX_FRICTION_OFFSET_THRESHOLD = 0.001
+DYWA_PHYSX_FRICTION_OFFSET_THRESHOLD = 0.002
 DYWA_PHYSX_FRICTION_CORRELATION_DISTANCE = 0.0005
 DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY = 0.25
 DYWA_TABLE_FRICTION_RANGE = (0.3, 0.8)
@@ -153,6 +161,7 @@ DEFAULT_CARTESIAN_STIFFNESS = np.array([2000.0, 2000.0, 2000.0, 50.0, 50.0, 50.0
 # Official Isaac OSC uses 0.  PhysX joint viscosity on top of task-space
 # damping made the tip crawl.  Contact force is set in task space, not here.
 DEFAULT_EFFORT_JOINT_DAMPING = 0.0
+DEFAULT_OSC_ORIENTATION_STIFFNESS = 10.0
 # Fingertips --rollout PD: ctrl = -100 dpos - 2 dvel on an ~0.01 kg sphere.
 # Isaac / Franka cannot use that law: the task mass is ~2.5 kg and PhysX
 # contact is softer than MuJoCo, so the same 5 mm / 20 ms carrot slams.
@@ -327,11 +336,8 @@ def _apply_dywa_physics_to_param(param):
     param.physx_friction_offset_threshold_ = DYWA_PHYSX_FRICTION_OFFSET_THRESHOLD
     param.physx_friction_correlation_distance_ = DYWA_PHYSX_FRICTION_CORRELATION_DISTANCE
     param.physx_max_depenetration_velocity_ = DYWA_PHYSX_MAX_DEPENETRATION_VELOCITY
-    # Same Coulomb values as env_fingertips_*.xml.  DyWA randomization
-    # (table 0.3--0.8, object 0.2--1.0) made some trials unflippable.
-    param.table_friction_ = ROLLOUT_TABLE_FRICTION
-    param.object_friction_ = ROLLOUT_OBJECT_FRICTION
-    param.fingertip_friction_ = ROLLOUT_FINGERTIP_FRICTION
+    # Materials are resolved before CSO construction. Preserve that same
+    # configuration here so physics, contact Jacobians and ranking agree.
     configure_scene_friction(param)
     rollout_mass = float(getattr(param, "lambda_obj_mass_", 0.01))
     param.sim_obj_mass_ = rollout_mass
@@ -397,6 +403,21 @@ def _franka_jacobian_pos_np(q, eps=1e-4):
         dq[i] = eps
         jac[:, i] = (_franka_fk_T_np(q + dq)[:3, 3] - _franka_fk_T_np(q - dq)[:3, 3]) / (2.0 * eps)
     return jac
+
+
+def _franka_pose_jacobian_np(q):
+    """World-frame geometric Jacobian at the fingertip sphere centre."""
+    transform = np.eye(4)
+    axes, origins = [], []
+    for (a, alpha, d), angle in zip(_FRANKA_DH, np.asarray(q).reshape(7)):
+        transform = transform @ _mdh_np(a, alpha, d, angle)
+        axes.append(transform[:3, 2].copy())
+        origins.append(transform[:3, 3].copy())
+    offset = _ATTACH_POS + _ATTACH_R @ _TIP_POS
+    point = transform[:3, 3] + transform[:3, :3] @ offset
+    angular = np.asarray(axes).T
+    linear = np.cross(np.asarray(axes), point-np.asarray(origins)).T
+    return np.vstack([linear, angular])
 
 
 class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
@@ -722,14 +743,18 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self.dof_upper_ = np.array(dof_props["upper"][:7], dtype=np.float32)
 
         pos_stiffness = float(getattr(self.param_, "osc_pos_stiffness_", 12000.0))
-        ori_stiffness = float(getattr(self.param_, "osc_ori_stiffness_", 0.0))
+        ori_stiffness = float(getattr(self.param_, "osc_ori_stiffness_", DEFAULT_OSC_ORIENTATION_STIFFNESS))
         self.osc_task_kp = np.array(
             [pos_stiffness, pos_stiffness, pos_stiffness, ori_stiffness, ori_stiffness, ori_stiffness],
             dtype=np.float32,
         )
         # Slightly under-damped so a 5 mm increment can finish inside 20 ms.
         self.osc_task_kd = (1.4 * np.sqrt(self.osc_task_kp)).astype(np.float32)
-        self.nullspace_stiffness = float(getattr(self.param_, "nullspace_stiffness_", 10.0))
+        self.nullspace_stiffness = float(getattr(self.param_, "nullspace_stiffness_", 0.01))
+        print('[osc-posture] stiffness=%g damping=%s tool_orientation=%s' % (
+            self.nullspace_stiffness,
+            'projected-inertia' if getattr(self.param_, 'nullspace_inertia_damping_', False) else 'legacy',
+            getattr(self.param_, 'tool_orientation_control_', 'free')), flush=True)
         self.home_q = np.array(self.param_.init_robot_qpos_, dtype=np.float32)
         self.q_d_nullspace = FRANKA_QD_NULLSPACE.copy()
         self.low_height = float(self.param_.table_height + 0.02)
@@ -973,6 +998,13 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
             q = self.get_current_joint_position()
         return _franka_jacobian_pos_np(q).astype(np.float32)
 
+    def get_tool_kinematics_world(self):
+        _, rotation = self.get_end_effector_pos()
+        q = self.get_current_joint_position()
+        omega = _franka_pose_jacobian_np(q)[3:] @ self.get_current_joint_velocity()
+        quat = Rotation.from_matrix(rotation).as_quat()[[3,0,1,2]]
+        return quat, omega
+
     def _get_arm_mass_matrix(self):
         mm = self._mm
         if mm.ndim == 3:
@@ -1006,6 +1038,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         if cached is not None:
             return cached
         in_contact, best_n, _sep = self.fingertip_object_contact()
+        self._fingertip_contact_gap = float(_sep)
         self._contact_info_cache = (in_contact, best_n)
         return in_contact, best_n
 
@@ -1079,7 +1112,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
 
         q = self.get_current_joint_position()
         qd = np.clip(np.nan_to_num(self.get_current_joint_velocity(), nan=0.0), -8.0, 8.0)
-        p_curr, _ = self.get_end_effector_pos()
+        p_curr, r_curr = self.get_end_effector_pos()
         jac_p = self._get_position_jacobian(q)
         vel = np.clip(jac_p @ qd, -2.0, 2.0)
         err = np.asarray(self.position_d - p_curr, dtype=np.float32).reshape(3)
@@ -1187,11 +1220,76 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._last_osc_near_press = bool(near_press)
         tau_task = jac_p.T @ force
 
-        # Position-only J: orientation lives in the nullspace and is held
-        # at the post-placement configuration (fingertip normal along -Z
-        # if placement started from the Franka home wrist).
+        # A joint-posture target alone does not hold Cartesian orientation:
+        # translating towards/away from the base produces different wrist
+        # pitch and unintended rolling at the sphere/object contact.
+        # Experimental attitude tracking follows the explicit rotation request.
+        # Position-only placement leaves a base-biased wrist tilt. The existing
+        # Euclidean torque projector does not dynamically decouple XYZ and
+        # wrist motion; the pose MPC model must account for that coupling.
+        posture_jac = jac_p
+        gains = getattr(self, 'osc_task_kp', np.zeros(6))
+        orientation_kp = np.asarray(gains, dtype=float)[3:]
+        # Apply attitude tracking only to a planned preparation/curl.
+        # Contact MPC and pose adjustment retain the free wrist afterward.
+        if (getattr(self, '_object_cost_stage', None) == 'pose'
+                or not np.any(np.asarray(getattr(self, '_tool_rotation_world', np.zeros(3))))):
+            orientation_kp = np.zeros(3)
+        tau_orientation = np.zeros(7)
+        curl = getattr(self,'_osc_contact_curl',None)
+        curl_velocity = np.zeros(3) if curl is None else curl.velocity_reference
+        if np.linalg.norm(curl_velocity)>1e-8:
+            orientation_kp = np.full(3,10.)
+        optimized_rotation = getattr(self,'_tool_rotation_target',None)
+        optimized_action = getattr(self,'_tool_rotation_action',None)
+        if optimized_rotation is not None and getattr(self,'_object_cost_stage',None) == 'flip':
+            orientation_kp = np.full(3,10.)
+        if np.any(orientation_kp > 0.):
+            pose_jac = _franka_pose_jacobian_np(q)
+            angular_jac = pose_jac[3:]
+            self._flip_tool_rotation = _slew_tool_rotation(
+                getattr(self, '_flip_tool_rotation', np.zeros(3)),
+                getattr(self, '_tool_rotation_world', np.zeros(3)) if not releasing else np.zeros(3),
+                getattr(self, 'sim_dt_', DYWA_SIM_DT),
+                max_angle=np.deg2rad(65.) if getattr(self.param_,'tool_orientation_control_','free') == 'osc' else np.deg2rad(25.))
+            rotation_target = (Rotation.from_rotvec(self._flip_tool_rotation).as_matrix()
+                               @ (np.asarray(self.orientation_d) if getattr(self.param_,'tool_orientation_control_','free') == 'osc'
+                                  else _downward_tool_frame(self.orientation_d)))
+            rotation_error = _tool_axis_error(r_curr, rotation_target)
+            tool_axis = np.asarray(r_curr)[:, 2]
+            tilt_jac = (np.eye(3)-np.outer(tool_axis, tool_axis)) @ angular_jac
+            angular_velocity = tilt_jac @ qd
+            # This is a moment-level servo (no inertia multiplication).
+            # Unit-inertia damping would overdamp the light wrist and let
+            # translation outrun the curl. Use its nominal 0.02 kg m^2 inertia.
+            angular_damping = 2.*np.sqrt(.02*orientation_kp)
+            if optimized_rotation is not None:
+                angular_velocity = angular_jac@qd
+                tilt_jac = angular_jac
+                rotation_error = (optimized_action if getattr(self,'_mpc_action',None) is not None else
+                    Rotation.from_matrix(optimized_rotation@np.asarray(r_curr).T).as_rotvec())
+            moment = orientation_kp*rotation_error - angular_damping*angular_velocity
+            if np.linalg.norm(curl_velocity)>1e-8:
+                # Assist missing upward rolling without braking the natural
+                # useful wrist motion that already succeeds in some directions.
+                speed = np.linalg.norm(curl_velocity)
+                axis = curl_velocity/speed
+                measured = float(axis@(angular_jac@qd))
+                moment = angular_damping[0]*max(0.,speed-measured)*axis
+                z = np.asarray(r_curr)[:,2]
+                if z[2] > -np.cos(np.deg2rad(35.)) and np.cross(axis,z)[2]>0:
+                    moment = np.zeros(3)
+                tilt_jac = np.outer(axis,axis)@angular_jac if np.linalg.norm(moment)>1e-8 else np.zeros_like(angular_jac)
+            self._last_tool_moment = moment.copy()
+            moment_norm = float(np.linalg.norm(moment))
+            if moment_norm > 2.:
+                moment *= 2./moment_norm
+            tau_orientation = _franka_nullspace_projector(jac_p) @ (angular_jac.T @ moment)
+            posture_jac = np.vstack([jac_p, tilt_jac])
         tau_nullspace = _franka_nullspace_posture_torque(
-            jac_p, q, qd, self.q_d_nullspace, self.nullspace_stiffness
+            posture_jac, q, qd, self.q_d_nullspace, self.nullspace_stiffness,
+            **({'mass_matrix': self._get_arm_mass_matrix()}
+               if getattr(self.param_, 'nullspace_inertia_damping_', False) else {})
         )
 
         if self.activate_tool_compensation:
@@ -1199,7 +1297,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         else:
             tau_tool = np.zeros(7, dtype=np.float32)
 
-        tau_d = np.nan_to_num(tau_task + tau_nullspace + tau_tool, nan=0.0, posinf=0.0, neginf=0.0)
+        tau_d = np.nan_to_num(tau_task + tau_orientation + tau_nullspace + tau_tool, nan=0.0, posinf=0.0, neginf=0.0)
         return np.clip(tau_d, -self.torque_limits, self.torque_limits)
 
     def compute_cartesian_impedance_control(self):
@@ -1298,6 +1396,12 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._path_blocked = False
         self._release_pressure = False
         self._preserve_upright = False
+        self._object_cost_stage = None
+        self._flip_tool_rotation = np.zeros(3)
+        self._tool_rotation_world = np.zeros(3)
+        self._tool_rotation_action = None
+        self._tool_rotation_target = None
+        self._osc_contact_curl = None
         self._mpc_t = 0.0
         self._mpc_T = POLICY_INTERVAL
         if hasattr(self, "_policy_schedule"):
@@ -1382,7 +1486,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._hold_i = 0
 
     def _start_via_action(self, via_pos, action=None, policy_dt=None,
-                          press=None, path_blocked=None, release_pressure=False, preserve_upright=False):
+                          press=None, path_blocked=None, release_pressure=False, preserve_upright=False,
+                          object_cost_stage=None, tool_rotation_world=None, approach_phase=None, tool_rotation_action=None, tool_force_world=None, tool_normal_world=None):
         """Start one admitted MPC action at a policy boundary."""
         p_curr, _ = self.get_end_effector_pos()
         p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
@@ -1441,6 +1546,32 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._path_blocked = bool(path_blocked)
         self._release_pressure = bool(release_pressure)
         self._preserve_upright = bool(preserve_upright)
+        self._object_cost_stage = object_cost_stage
+        self._tool_rotation_world = (np.zeros(3) if tool_rotation_world is None else
+                                     np.asarray(tool_rotation_world, dtype=float).reshape(3))
+        self._tool_rotation_action = None
+        self._tool_rotation_target = None
+        if tool_rotation_action is not None:
+            angular = np.asarray(tool_rotation_action,dtype=float).reshape(3)
+            if not np.isfinite(angular).all():
+                angular = np.zeros(3)
+            angular *= min(1., .04/max(np.linalg.norm(angular),1e-12))
+            _, rotation = self.get_end_effector_pos()
+            self._tool_rotation_action = angular
+            self._tool_rotation_target = Rotation.from_rotvec(angular).as_matrix()@rotation
+        if getattr(self.param_,'tool_orientation_control_','free') == 'osc':
+            from planning.franka_contact_motion import OSCContactCurl
+            if getattr(self,'_osc_contact_curl',None) is None:
+                self._osc_contact_curl = OSCContactCurl()
+            self._tool_rotation_world = self._osc_contact_curl.update(
+                np.zeros(3) if tool_force_world is None else tool_force_world,
+                np.zeros(3) if tool_normal_world is None else tool_normal_world,
+                self._mpc_action,touching=in_contact,
+                gap=getattr(self,'_fingertip_contact_gap',float('inf')),
+                active=object_cost_stage == 'flip',dt=horizon,
+                base_tool_axis=np.asarray(self.R_d_hold)[:,2],
+                actual_tool_axis=np.asarray(self.get_end_effector_pos()[1])[:,2],
+                tool_angular_velocity=_franka_pose_jacobian_np(self.get_current_joint_position())[3:]@self.get_current_joint_velocity())
         self.p_d, self._mpc_v_ref = _mpc_ball_trajectory(
             self._mpc_p0, self._mpc_action, 0.0, self._mpc_T
         )
@@ -1449,7 +1580,8 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
     def set_via_action(self, via_pos, action=None, policy_dt=None,
                        press=None, path_blocked=None, seq=None,
                        submitted_at=None, planner_dt=None, solver_backend=None,
-                       release_pressure=False, preserve_upright=False):
+                       release_pressure=False, preserve_upright=False, object_cost_stage=None,
+                       tool_rotation_world=None, approach_phase=None, tool_rotation_action=None, tool_force_world=None, tool_normal_world=None):
         """Queue an action; never restart an in-progress policy interval."""
         p_curr, _ = self.get_end_effector_pos()
         p_curr = np.asarray(p_curr, dtype=np.float64).reshape(3)
@@ -1474,6 +1606,12 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 "path_blocked": path_blocked,
                 "release_pressure": bool(release_pressure),
                 "preserve_upright": bool(preserve_upright),
+                "object_cost_stage": object_cost_stage,
+                "tool_rotation_world": tool_rotation_world,
+                "approach_phase": approach_phase,
+                "tool_rotation_action": tool_rotation_action,
+                "tool_force_world": tool_force_world,
+                "tool_normal_world": tool_normal_world,
                 # The executor owns the cadence.  A planner's declared
                 # interval is metadata and must not stretch the physical
                 # trajectory.
@@ -1517,6 +1655,12 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 path_blocked=meta.get("path_blocked"),
                 release_pressure=meta.get("release_pressure", False),
                 preserve_upright=meta.get("preserve_upright", False),
+                object_cost_stage=meta.get("object_cost_stage"),
+                tool_rotation_world=meta.get("tool_rotation_world"),
+                approach_phase=meta.get("approach_phase"),
+                tool_rotation_action=meta.get("tool_rotation_action"),
+                tool_force_world=meta.get("tool_force_world"),
+                tool_normal_world=meta.get("tool_normal_world"),
             )
             self._advance_mpc_action_target()
         elif self._mpc_action is not None:
@@ -1787,6 +1931,8 @@ def _free_space_air_mode(if_contact, tip, press, path_blocked):
 
 
 def _configure_rollout_param(param, args):
+    param.tool_orientation_control_ = getattr(args,'tool_orientation_control','free')
+    param.nullspace_inertia_damping_ = resolve_nullspace_damping_model(args) == 'projected-inertia'
     param.rollout_press_patch = True
     param.quadratic_contact_track = True
     param.attract_coef = max(float(param.attract_coef), 20.0)
@@ -2342,6 +2488,8 @@ def _add_rollout_policy_args(parser):
     parser.add_argument('--mpc-carry-velocity', dest='mpc_carry_velocity', action='store_true')
     parser.add_argument('--no-mpc-carry-velocity', dest='mpc_carry_velocity', action='store_false')
     parser.set_defaults(mpc_carry_velocity=True)
+    parser.add_argument('--mpc-horizon', type=int, default=None,
+                        help='MPC prediction steps (20 ms each, default 5); longer horizons increase planning time.')
     parser.add_argument('--mpc-tip-effective-mass', type=float, default=2.5)
     parser.add_argument('--mpc-tip-damping', type=float, default=40.)
     parser.add_argument('--flip-enter-angle-deg', type=float, default=10.)
@@ -2406,8 +2554,19 @@ def _add_rollout_policy_args(parser):
     parser.add_argument("--show-ghost-object", type=_parse_bool_arg, default=False)
     parser.add_argument("--cartesian-joint-stiffness", type=float, default=100.0)
     parser.add_argument("--osc-pos-stiffness", type=float, default=12000.0)
-    parser.add_argument("--osc-ori-stiffness", type=float, default=0.0)
-    parser.add_argument("--nullspace-stiffness", type=float, default=10.0)
+    parser.add_argument("--tool-orientation-control", choices=('free','mpc','osc'), default='free',
+                        help='Tool rotation control: original free wrist, joint pose MPC experiment, or OSC curl.')
+    parser.add_argument("--mpc-contact-multistart", type=_parse_bool_arg, default=False,
+                        help='Optimize additional force-derived contact-loading initial guesses during Isaac flipping.')
+    parser.add_argument("--force-aligned-approach", type=_parse_bool_arg, default=False,
+                        help=argparse.SUPPRESS)
+    parser.add_argument("--osc-ori-stiffness", type=float, default=DEFAULT_OSC_ORIENTATION_STIFFNESS,
+                        help='Secondary tool-attitude stiffness during flipping (Nm/rad); 0 restores free wrist rotation.')
+    parser.add_argument("--nullspace-stiffness", type=float, default=None,
+                        help='Joint-posture stiffness (Isaac bunny: 0.03, other Isaac: 0.01, MJWarp: 10); '
+                             '0 disables posture regularization; large values can suppress wrist rolling.')
+    parser.add_argument("--nullspace-damping-model", choices=('legacy', 'projected-inertia'), default=None,
+                        help='Posture damping law (Isaac bunny and MJWarp: legacy; other Isaac: projected-inertia).')
     parser.add_argument("--svg-screenshot-dir", type=str, default="")
     parser.add_argument("--svg-screenshot-interval", type=float, default=0.2)
     parser.add_argument("--svg-screenshot-width", type=int, default=1280)
@@ -2748,6 +2907,13 @@ def run_mpc_planner(bus, args):
                         physical_contact=bool(np.isfinite(contact_distance) and contact_distance <= 0.),
                         contact_distance=float(contact_distance) if np.isfinite(contact_distance) else None,
                         via=exec_via.tolist(), p_arm=np.asarray(policy['p_arm_world']).tolist(),
+                        approach_phase=(policy.get('value_info') or {}).get('via_phase'),
+                        force_approach_active=bool((policy.get('value_info') or {}).get('force_approach_active', False)),
+                        mpc_contact_seed_costs=policy.get('mpc_contact_seed_costs'),
+                        mpc_contact_seed_selected=policy.get('mpc_contact_seed_selected'),
+                        tool_rotation_world=np.asarray(policy.get('tool_rotation_world', np.zeros(3))).tolist(),
+                        tool_rotation_action=(None if policy.get('tool_rotation_action') is None else
+                                              np.asarray(policy['tool_rotation_action']).tolist()),
                         best_contact=np.asarray(policy['best_contact_world']).tolist(),
                         contact_predictions=policy.get('contact_prediction_diagnostics'),
                         reported_executed_action=(None if obs.get('executed_action') is None else
@@ -2835,6 +3001,12 @@ def run_mpc_planner(bus, args):
                 "press": policy["p_arm_world"],
                 "release_pressure": bool(policy.get("release_pressure", False)),
                 "preserve_upright": bool(policy.get("preserve_upright", False)),
+                "object_cost_stage": policy.get("object_cost_stage"),
+                "tool_rotation_world": policy.get("tool_rotation_world"),
+                "approach_phase": (policy.get("value_info") or {}).get("via_phase"),
+                "tool_rotation_action": policy.get("tool_rotation_action"),
+                "tool_force_world": policy.get("tool_contact_force_world"),
+                "tool_normal_world": policy.get("tool_contact_normal_world"),
                 "path_blocked": bool(policy.get("execution_path_blocked",
                     (policy.get("value_info") or {}).get("path_blocked", False))),
                 "markers": {
@@ -2897,6 +3069,10 @@ def run_mpc_planner(bus, args):
             "object": str(args.obj),
             "mode": "mpc_planner",
             "physics_backend": str(getattr(args, 'physics_backend', 'isaac')),
+            "tool_orientation_control": str(getattr(args, 'tool_orientation_control', 'free')),
+            "nullspace_stiffness": resolve_nullspace_stiffness(args),
+            "mpc_horizon": int(plan_param.mpc_horizon_),
+            "nullspace_damping_model": ('projected-inertia' if plan_param.nullspace_inertia_damping_ else 'legacy'),
             "num_envs": int(getattr(args, 'num_envs', 1)),
             "mjwarp_scene": (getattr(args, 'mjwarp_scene', 'legacy')
                              if getattr(args, 'physics_backend', 'isaac') == 'mjwarp' else None),

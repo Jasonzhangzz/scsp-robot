@@ -1,0 +1,24 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{graphicx,booktabs,multirow}
+\begin{document}
+\begin{table}[t]
+\centering
+\caption{CSO contact guidance: seven objects, 5 paired trials per object and configuration. Times are mean $\pm$ population std; execution time is success-only wall time, and planning time covers all rounds.}
+\label{tab:cso_contact_guidance}
+\tiny
+\setlength{\tabcolsep}{1pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}l*{6}{c}@{}}
+\toprule
+\multirow{2}{*}{Metric} & \multicolumn{2}{c}{Contact Model} & \multicolumn{3}{c}{Solvers} & \multirow{2}{*}{\shortstack{\textbf{Ours}\\\textbf{(SCM+SQP)}}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-6}
+ & MuJoCo QP & LCP & NLP (IPOPT) & CMA-ES & CEM & \\
+\midrule
+Success Rate & 40.0\% & 20.0\% & 42.9\% & 42.9\% & 42.9\% & 45.7\% \\
+Execution Time (s) & $138.75\,\pm\,165.29$ & $46.51\,\pm\,26.84$ & $532.48\,\pm\,505.12$ & $521.84\,\pm\,394.56$ & $312.30\,\pm\,237.63$ & $19.14\,\pm\,20.43$ \\
+Planning Time (ms) & $123.45\,\pm\,39.15$ & $117.03\,\pm\,29.94$ & $500.12\,\pm\,203.16$ & $734.27\,\pm\,174.99$ & $442.67\,\pm\,102.99$ & $29.52\,\pm\,10.94$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+\end{document}

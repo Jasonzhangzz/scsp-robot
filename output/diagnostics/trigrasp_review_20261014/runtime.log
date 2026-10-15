@@ -1,0 +1,38 @@
+[startup] building MuJoCo scene with palm facing the object
+[startup] preprocessing contact surface
+Warp 1.16.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.16.0
+[startup] surface preprocessing: 0.764s
+[startup] constructing MPC (acados compiles on cache miss)
+[acados] reusing solver: mpc_soft_scm_allegro_v3_e9f808b0f0_param_staged2_c1242d5b6a_current_h4_c12_x79_u22_profile_e8ddba0a_jvp_v1_cost_jvp_v1
+[startup] MPC initialization: 2.080s
+[startup] selecting contact anchors with shared Lambda LM
+Module planning.lambda_batched_lm 12ecb9f load on device 'cpu' took 0.71 ms  (cached)
+[startup] contact selection: 0.547s
+[startup] hand IK: at most 16 sets, 3.0s budget
+[startup] hand IK: 0.224s
+[startup] planned force closure: True; rank=6; bounded gravity support=True
+[startup] pregrasp IK: 0.010s; minimum pad clearance=12.4 mm
+Online Allegro MPC: n_EE=4 state=79 action=22 objective=pad_contact_and_object_pose solver=acados dt=0.025s
+Initial IK mean/max tip error: 0.0013/0.0016 m
+Initial IK max hand self-penetration: 0.000 mm
+Object goal: [0.5801431670110428, -0.00015001912510215253, 0.5994996336651792]; lift=0.200 m; confirmed physical force closure and load support enable contact transport
+[startup] solving the first MPC command
+[startup] first MPC solve: 0.044s
+step=0000 phase=approach contacts=0/4 tip_error=0.2057 height=0.0001 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=+149.2mm/0.00N index=+153.9mm/0.00N middle=+129.1mm/0.00N ring=+164.0mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0050 phase=approach contacts=3/4 tip_error=0.0116 height=-0.0035 target_z=0.5995 lift_gate=contacts,load_support thumb=-4.0mm/0.26N index=-0.4mm/0.02N middle=+3.7mm/0.00N ring=-3.4mm/0.19N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0100 phase=approach contacts=3/4 tip_error=0.0143 height=-0.0001 target_z=0.5995 lift_gate=contacts thumb=-4.7mm/0.30N index=-1.1mm/0.06N middle=+1.2mm/0.00N ring=-2.6mm/0.17N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0150 phase=approach contacts=2/4 tip_error=0.0148 height=-0.0012 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=-1.3mm/0.08N index=+1.8mm/0.00N middle=+2.5mm/0.00N ring=-0.3mm/0.02N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0200 phase=approach contacts=2/4 tip_error=0.0096 height=-0.0033 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=-1.8mm/0.11N index=+1.0mm/0.00N middle=+1.8mm/0.00N ring=-0.5mm/0.03N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0250 phase=approach contacts=3/4 tip_error=0.0108 height=-0.0056 target_z=0.5995 lift_gate=contacts thumb=-2.7mm/0.19N index=+1.4mm/0.00N middle=-2.7mm/0.15N ring=-0.5mm/0.07N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0300 phase=approach contacts=4/4 tip_error=0.0110 height=-0.0030 target_z=0.5995 lift_gate=ready thumb=-2.0mm/0.16N index=-2.5mm/0.21N middle=-1.2mm/0.10N ring=-0.2mm/0.06N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0350 phase=lift contacts=4/4 tip_error=0.0055 height=-0.0016 target_z=0.5995 lift_gate=ready thumb=-4.6mm/0.35N index=-1.6mm/0.11N middle=-2.9mm/0.27N ring=-1.2mm/0.09N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0400 phase=approach contacts=3/4 tip_error=0.0109 height=-0.0064 target_z=0.5995 lift_gate=contacts,load_support thumb=-5.5mm/0.34N index=+0.8mm/0.00N middle=-0.0mm/0.02N ring=-0.8mm/0.06N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0450 phase=approach contacts=3/4 tip_error=0.0095 height=0.0031 target_z=0.5995 lift_gate=contacts thumb=-7.3mm/0.50N index=+0.5mm/0.00N middle=-5.8mm/0.33N ring=-0.5mm/0.08N status=ACADOS_SUCCESS (sqp_iter=1)
+step=0500 phase=approach contacts=2/4 tip_error=0.0133 height=-0.0005 target_z=0.5995 lift_gate=contacts,force_closure,load_support thumb=-5.5mm/0.33N index=+0.4mm/0.00N middle=-3.7mm/0.23N ring=+2.0mm/0.00N status=ACADOS_SUCCESS (sqp_iter=1)
+grasp_success: False; best_contacts: 4; best_height_gain: 0.0134 m

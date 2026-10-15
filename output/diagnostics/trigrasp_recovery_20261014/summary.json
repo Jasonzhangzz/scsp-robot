@@ -1,0 +1,69 @@
+{
+  "perturbation": {
+    "after_command": 180,
+    "object_translation_m": [
+      0.06,
+      0.0,
+      0.0
+    ],
+    "object_velocity_reset": false,
+    "hand_teleport": false
+  },
+  "steps": 500,
+  "replan_count": 7,
+  "replan_events": [
+    {
+      "step": 81,
+      "reason": "object_moved",
+      "new_patches": true
+    },
+    {
+      "step": 133,
+      "reason": "lost_grasp",
+      "new_patches": true
+    },
+    {
+      "step": 180,
+      "reason": "object_moved",
+      "new_patches": true
+    },
+    {
+      "step": 338,
+      "reason": "unconfirmed_grasp",
+      "new_patches": true
+    },
+    {
+      "step": 379,
+      "reason": "lost_grasp",
+      "new_patches": true
+    },
+    {
+      "step": 419,
+      "reason": "object_moved",
+      "new_patches": true
+    },
+    {
+      "step": 459,
+      "reason": "object_moved",
+      "new_patches": true
+    }
+  ],
+  "post_displacement_max_contact_count": 4,
+  "post_displacement_confirmed_grasp_commands": 12,
+  "first_reacquired_lift_step": 367,
+  "post_displacement_initial_tip_error_m": 0.06445835687814186,
+  "post_displacement_min_tip_error_m": 0.005370838044583022,
+  "object_target_z_constant": true,
+  "full_lift_success": false,
+  "max_height_gain_m": 0.009119839021181853,
+  "video_saved": false,
+  "startup_timings": {
+    "scene_seconds": 0.04361884700028895,
+    "surface_preprocessing_seconds": 0.8091021489999548,
+    "mpc_initialization_seconds": 2.0555447679998906,
+    "contact_selection_seconds": 0.5440173979995961,
+    "hand_ik_seconds": 0.22944138499951805,
+    "pregrasp_ik_seconds": 0.010446007999235007,
+    "first_mpc_seconds": 0.04335946099945431
+  }
+}

@@ -29,14 +29,18 @@ from planning.scm_contact_models import contact_jacobian
 _vendor_parent = str(Path(__file__).resolve().parents[1]/'examples/mpc/franka/scm')
 if _vendor_parent not in sys.path:
     sys.path.append(_vendor_parent)
-from examples.mpc.franka.scm.vendor.quantecon_lcp import lcp_lemke
-from examples.mpc.franka.scm.vendor.quantecon_lcp.linprog_simplex import PivOptions
+def _load_lemke():
+    # Native MuJoCo QP does not require the independent Numba/LCP backend.
+    from examples.mpc.franka.scm.vendor.quantecon_lcp import lcp_lemke
+    from examples.mpc.franka.scm.vendor.quantecon_lcp.linprog_simplex import PivOptions
+    return lcp_lemke, PivOptions
 
 
 def solve_physical_lcp(free, jac, inverse, gaps, h, regularization=1e-8):
     """Scaled Lemke solve, certified against the original unscaled system."""
     if not len(jac):
         return np.asarray(free).copy(), 0.
+    lcp_lemke, PivOptions = _load_lemke()
     matrix = jac @ inverse @ jac.T + regularization*np.eye(len(jac))
     matrix = (matrix+matrix.T)/2
     offset = jac @ free + gaps/h
@@ -71,6 +75,7 @@ class PointContactBaseline:
         if mode == 'lcp':
             # Compile the vendored Numba Lemke implementation during setup,
             # consistently excluding code compilation from execution time.
+            lcp_lemke, PivOptions = _load_lemke()
             lcp_lemke(np.eye(4),-np.ones(4),piv_options=PivOptions(tol_piv=1e-12,tol_ratio_diff=1e-15))
         # Optimize a first-order local pose response, then score the feasible
         # command with the actual contact model. Native QP/LCP active-set

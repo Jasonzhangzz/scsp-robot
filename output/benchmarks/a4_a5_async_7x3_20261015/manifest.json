@@ -1,0 +1,101 @@
+{
+  "started_utc": "2026-10-15T09:51:16.920957+00:00",
+  "objects": [
+    "foam_brick",
+    "stanford_bunny2",
+    "elephant",
+    "piggy_bank",
+    "teapot",
+    "mug",
+    "rubber_duck"
+  ],
+  "source_root": "/home/zz/scsp-robot/output/benchmarks/a4_a5_async_sources_20261015/scsp-robot",
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "tasks": [
+    "rotation",
+    "flipping"
+  ],
+  "variants": [
+    "a4",
+    "a5"
+  ],
+  "expected_trials": 84,
+  "max_rollout_length": 2500,
+  "selection": "Seed IDs 0,1,2 per object and task, fixed before observing outcomes",
+  "source_sha256": {
+    "examples/mpc/franka/ik2/evaluate_cso_ablations.py": "2cfe3089e1d07d4db3e7855b5e6f4f3055956dd7517de275c6918d6e5c86aeac",
+    "examples/mpc/franka/ik2/params_ablation.py": "698ecc98b70c9978e787eb8d4b491df5e99b6615e638aad0932e294ad4a3bce1",
+    "examples/mpc/franka/ik2/contact_policy_ablation.py": "3ee6b78bc62c168b10e464843a0802b64f59ea0f3254420664b46eeb2b9fae9c",
+    "examples/mpc/franka/ik2/run_ablation.py": "6dfaf860373ece3105fa1463c15b6b9d8e5c0ad8fb5395d2978ee60681506069",
+    "examples/mpc/franka/ik2/test_mpc_isaac_ablation.py": "2ed3b6499253bdea62d70382e16798d9b3902a2944132c7b595ad34136da7987",
+    "examples/mpc/franka/ik2/test_mppi_isaac.py": "b1a47291f0462af18f63ad87ba2c9dad3ca52637fe9d5952c1b571bbe82fa4a9",
+    "examples/mpc/franka/ik2/run_isaac_ablation.py": "5079c21d91a21e04fdf6ad87326d75a50bc0d8aec2f4e2aa5b421cd9a811ffa1",
+    "examples/mpc/franka/ik2/headless_rollout_ablation.py": "9bee234b2d4bd8c2a5435fd11967913d04d80fb1abe029ba617e5c58e80bf22e",
+    "examples/mpc/franka/ik2/scene_friction.py": "1de73ce000f7cd9bf6b5b71083bb7b18b1f94376718eb483861d3debfe280aea",
+    "examples/mpc/franka/ik2/contact_frames.py": "ee77fc7771d05f175b39eb0de16386c2f364f77dd57adc9b9897ae4c27418fbf",
+    "planning/franka_cso_ablation.py": "5b6e421b2aacf077bb0b499d24b25653aa32e2acfd34b7c9f8195878b8b2025b",
+    "planning/point_contact_baselines.py": "1f2d119a46d603a3ecb3aef7bfd1af3691f71e137ff2c951cecf72575fecc8ff",
+    "planning/contact_force_sampling.py": "d8ff9d2602d706754b5a70edd178a1a0ec5855856549efdafe3f84a291dc574a",
+    "planning/mlqp_point.py": "7bcd3816b413273e8ab219ca038ecf70aabf89e3829a9c472467238f28557bf9",
+    "planning/mpc_explicit_ablation.py": "3a6b8778aa9b486656d8cb231109924a26fbd7f866b0928da11a798494703af5",
+    "planning/object_pose_cost.py": "140dd6026ab46015fc3ee365c3f29cde0850979c8fcec698340324584469cfff",
+    "models/soft_scm_contact.py": "ef2ceda814f4c584f003f4b0bd68e240da35093a649e6e535cd76c06039ae286",
+    "models/cartesian_rigid_contact.py": "c7035d0b48a26f63407f0f97ed07ff55b3f2325e6290603cba1ee7ba0aaeb13b",
+    "models/contact_geometry.py": "22377d160618e8e3d8b168242357511479365f6533623d00f86a23a6910cfcc3"
+  },
+  "worker_cpus": [
+    [
+      0,
+      2
+    ],
+    [
+      4,
+      6
+    ],
+    [
+      8,
+      10
+    ],
+    [
+      12,
+      14
+    ],
+    [
+      16,
+      17
+    ],
+    [
+      18,
+      19
+    ],
+    [
+      20,
+      21
+    ],
+    [
+      22,
+      23
+    ]
+  ],
+  "jobs": 8,
+  "physics": "Isaac Gym CPU PhysX",
+  "scheduling": "Asynchronous planner with realtime 20 ms physics policy intervals; each worker uses two exclusive physical cores",
+  "definitions": {
+    "execution": "Mean simulated seconds on successful trials",
+    "planning": "All planning callback seconds divided by all control cycles",
+    "error": "Mean final error over all trials, including failures"
+  },
+  "packages": {
+    "numpy": "1.24.4",
+    "casadi": "3.6.7",
+    "mujoco": "3.2.3",
+    "cma": "4.5.0",
+    "coacd": "1.0.5",
+    "torch": "2.3.1+cu121"
+  },
+  "status": "running"
+}

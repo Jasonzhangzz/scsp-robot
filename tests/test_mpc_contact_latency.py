@@ -87,7 +87,7 @@ def test_only_solve_when_mpc_action_will_be_executed(monkeypatch, contact, flags
     assert result['policy']['value_info']['contact_active']
     assert (param.lambda_actual_contact_ is not None) == (staged and gap is not None and not gap > .005)
     if not skip:
-        np.testing.assert_array_equal(mpc.plan_once.call_args[0][3], msg['phi_vec'])
+        np.testing.assert_array_equal(mpc.plan_once.call_args[1]['phi_vec'], msg['phi_vec'])
         assert mpc.plan_once.call_args[1]['verify_cost_param'] == .7
     assert result['mpc_skipped'] == skip
     assert mpc.plan_once.call_count == (0 if skip else 1)

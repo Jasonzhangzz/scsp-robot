@@ -1,0 +1,34 @@
+# Install only what a given entry point needs.
+# Machine-local compiled stacks (Isaac Gym, acados, cuRobo) are not pip packages.
+
+numpy
+scipy
+casadi
+trimesh
+# Concave mug/duck collision parts and triangle-surface proximity queries.
+coacd
+rtree
+tqdm
+matplotlib
+jax
+torch
+mujoco
+PyYAML
+open3d
+
+# Optional, used by some entries
+cma>=4,<5  # SCM CMA-ES force optimizer
+evotorch>=0.6,<0.7  # SCM CEM force optimizer
+Pillow
+imageio
+scikit-learn
+deprecated
+warp-lang
+mujoco-warp
+brax
+scienceplots
+art
+emoji
+flask
+roboticstoolbox-python
+acados_template

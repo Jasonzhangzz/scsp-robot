@@ -1,0 +1,5 @@
+direct_force solver=cma-es object=stanford_bunny2 seed=0 step=0 pos=0.055796 quat=0.594336 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=0 step=50 pos=0.026349 quat=0.968098 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=0 step=100 pos=0.052637 quat=0.329680 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=0 step=149 pos=0.015925 quat=0.000002 hold=10 success=True
+TRIAL_RESULT {"solver": "cma-es", "object": "stanford_bunny2", "seed": 0, "steps": 150, "success": true, "settled": true, "final_pos": 0.0159249591605136, "final_quat": 1.946418712983622e-06, "solver_backends": ["cma-es"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-14T07:35:41+08:00", "completed_at": "2026-10-14T07:37:22+08:00", "execution_time_s": 98.97604242700618, "elapsed_wall_time_s": 98.97604242700618, "simulation_time_s": 3.000000000000169, "planning_time_ms": {"n": 150, "mean": 658.0890379729681, "std": 31.406760674525778, "median": 644.6656420012005, "p95": 722.1166126866591, "min": 601.0200140299276, "max": 778.6271570366807}, "planning_rounds": 150}

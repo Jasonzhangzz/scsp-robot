@@ -1,0 +1,127 @@
+{
+  "columns": [
+    {
+      "label": "MuJoCo QP",
+      "source": "output/diagnostics/cso_contact_guidance_7x5_20261013/summary.json",
+      "trials": 35,
+      "successes": 14,
+      "rate": 40.0,
+      "execution": {
+        "n": 14,
+        "mean": 138.7540353354291,
+        "std": 165.29246825738576,
+        "median": 63.626279578515096,
+        "p95": 488.42871653852046,
+        "min": 11.028282272978686,
+        "max": 562.6688928410294
+      },
+      "planning": {
+        "n": 120790,
+        "mean": 123.45312786451844,
+        "std": 39.15019894565642,
+        "median": 112.33640598948114,
+        "p95": 200.4278759966836,
+        "min": 58.359326038043946,
+        "max": 702.7053670026362
+      }
+    },
+    {
+      "label": "LCP",
+      "source": "output/diagnostics/cso_contact_guidance_7x5_20261013/summary.json",
+      "trials": 35,
+      "successes": 7,
+      "rate": 20.0,
+      "execution": {
+        "n": 7,
+        "mean": 46.5117693075694,
+        "std": 26.838669721837924,
+        "median": 37.13673640199704,
+        "p95": 89.1447103627026,
+        "min": 10.634549243026413,
+        "max": 94.8012084820075
+      },
+      "planning": {
+        "n": 80322,
+        "mean": 117.03367691080716,
+        "std": 29.936998551797952,
+        "median": 110.11453252285719,
+        "p95": 178.29269648646004,
+        "min": 5.081859009806067,
+        "max": 642.1223020297475
+      }
+    },
+    {
+      "label": "NLP (IPOPT)",
+      "source": "output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt/summary.json",
+      "trials": 35,
+      "successes": 15,
+      "rate": 42.857142857142854,
+      "execution": {
+        "n": 15,
+        "mean": 532.4771854142658,
+        "std": 505.12031424300807
+      },
+      "planning": {
+        "n": 111737,
+        "mean": 500.1225566450938,
+        "std": 203.16373966093596
+      }
+    },
+    {
+      "label": "CMA-ES",
+      "source": "output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es/summary.json",
+      "trials": 35,
+      "successes": 15,
+      "rate": 42.857142857142854,
+      "execution": {
+        "n": 15,
+        "mean": 521.8355188745967,
+        "std": 394.5550892351415
+      },
+      "planning": {
+        "n": 109601,
+        "mean": 734.2672029086798,
+        "std": 174.99441234368388
+      }
+    },
+    {
+      "label": "CEM",
+      "source": "output/benchmarks/scm_solvers_7x5_20261013_211740/cem/summary.json",
+      "trials": 35,
+      "successes": 15,
+      "rate": 42.857142857142854,
+      "execution": {
+        "n": 15,
+        "mean": 312.3049327682665,
+        "std": 237.6306358457024
+      },
+      "planning": {
+        "n": 109939,
+        "mean": 442.6663035947286,
+        "std": 102.99168549758154
+      }
+    },
+    {
+      "label": "Ours (SCM+SQP)",
+      "source": "output/benchmarks/scm_solvers_7x5_20261013_211740/acados/summary.json",
+      "trials": 35,
+      "successes": 16,
+      "rate": 45.714285714285715,
+      "execution": {
+        "n": 16,
+        "mean": 19.14216956825112,
+        "std": 20.43298942705478
+      },
+      "planning": {
+        "n": 105155,
+        "mean": 29.520361328856424,
+        "std": 10.943201640160071
+      }
+    }
+  ],
+  "planning_aggregation": "All rounds weighted by n; pooled population variance includes within-trial and between-trial variance.",
+  "execution_aggregation": "Successful trials only; population standard deviation (ddof=0).",
+  "paired_initial_states_verified": 35,
+  "latex_numeric_cells_verified": 18,
+  "unrelated_tex_unchanged": true
+}

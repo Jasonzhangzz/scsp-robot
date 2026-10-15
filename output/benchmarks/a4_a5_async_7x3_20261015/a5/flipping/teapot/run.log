@@ -1,0 +1,161 @@
+[ablation] a5; isolated test_mpc_isaac runtime
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[isaac-rollout] 1 independent Isaac worlds, asynchronous planning
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[mpc-runtime] solver=acados requested=acados policy_dt=0.020000 sim_dt=0.002000 substeps=10 clearance=0.0120
+[mpc-runtime] python=3.8.20 numpy=1.24.4 scipy=1.10.1 mujoco=3.2.3 trimesh=4.4.9 casadi=3.6.7 torch=2.3.1+cu121 isaacgym=1.0rc4 acados=True
+[mpc-startup] trial=0 building contact/MPC runtime
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 0.94s
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=0 ready in 2.93s (contact=cma-es mpc=acados)
+[isaac-rollout] completed=0/3, active worlds=1
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=0 step=500/2500 pos_err=0.37327 quat_err=0.94687
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=0 step=1000/2500 pos_err=0.42617 quat_err=0.98542
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=0 step=1500/2500 pos_err=0.42617 quat_err=0.98542
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=0 step=2000/2500 pos_err=0.42617 quat_err=0.98542
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=0 step=2500/2500 pos_err=0.42617 quat_err=0.98542
+trial_summary: {'trial': 0, 'seed': 0, 'numpy_seed': 100, 'object': 'teapot', 'mode': 'mpc_planner', 'physics_backend': 'isaac', 'num_envs': 1, 'mjwarp_scene': None, 'headless': True, 'async_planner': True, 'headless_realtime': True, 'pose_executor_constraints': True, 'flip_executor_constraints': True, 'physics_policy_ticks': 178910, 'sim_end_time_s': 3578.21616995614, 'observation_gap_mean': 71.564, 'observation_gap_max': 83, 'physics_scene_sha256': None, 'mjwarp_nconmax': 512, 'mjwarp_njmax': 2048, 'joint_velocity_limiter': None, 'joint_velocity_projections': 0, 'joint_velocity_max_unlimited': 0.0, 'contact_dynamics_variant': 'legacy', 'shared_contact_dynamics': False, 'solver_requested': 'acados', 'solver_backend': 'approach', 'planner_solver_backend': 'acados', 'lambda_solver_backend': 'cma-es', 'mpc_solves': 254, 'lambda_solves': 0, 'mpc_init_error': '', 'lambda_init_error': '', 'mpc_fallbacks': 0, 'mpc_contact_resets': 405, 'mpc_floor_recovery_max_m': 1.7652945684454302e-05, 'lambda_fallbacks': 0, 'trial_wall_time_s': 3897.7837596140016, 'completion_wall_time_s': None, 'planning_wall_count': 2500, 'planning_wall_total_s': 3894.742626586376, 'planning_wall_sum_squares_s2': 6098.7490587236325, 'planning_wall_mean_ms': 1557.8970506345504, 'planning_wall_std_ms': 111.63058572223429, 'iteration_wall_count': 2500, 'iteration_wall_total_s': 3897.7818934778043, 'iteration_wall_mean_s': 1.5591127573911217, 'iteration_wall_p95_s': 1.7608663476406945, 'iteration_wall_max_s': 1.9774953550077043, 'success': 0, 'steps': 2500, 'completion_steps': None, 'completion_time_s': None, 'terminal_reward': 0.0, 'metric_gamma': 0.9, 'metric_eta': 1.0, 'policy_interval_s': 0.02, 'aborted': False, 'reward_origin': 'trial_start', 'pose_applies': 183, 'physics_pressure_releases': 0, 'pressure_releases': 0, 'upright_action_rejections': 0, 'object_cost_stage': 'flip', 'object_cost_weights': [500.0, 0.0, 20.0], 'object_target_up_axis': [1.0, 0.0, 0.0], 'flip_position_radius_m': 0.0, 'pose_tilt_limit_deg': 10.0, 'pose_tilt_barrier_coef': 2000.0, 'object_tilt_deg': 150.36001810730104, 'object_linear_speed': 0.0007646272911047688, 'object_angular_speed': 0.021632542008025023, 'first_stable_flip_time_s': None, 'object_cost_switches': 0, 'object_cost_fallbacks': 0, 'stable_flip_success': False, 'lambda_failures': 0, 'mpc_failures': 0, 'final_pos_err': 0.42617, 'final_quat_err': 0.98542, 'min_pos_err': 0.08691, 'min_quat_err': 0.7464, 'choose_dt_mean': 1.5525, 'choose_dt_max': 1.83812, 'choose_dt_p95': 1.75054, 'plan_dt_mean': 0.00326, 'solve_dt_mean_s': 1.55576, 'solve_dt_mean_ms': 1555.761, 'cso_guidance': 'cso', 'cpo_variant': 'full', 'ablation_variant': 'a5', 'ablation_mode': 'a5', 'a7_mppi': None, 'cso_backend': {'model': 'soft-scm', 'solver': 'cma-es', 'population_size': 24, 'generations': 12, 'solves': 137301, 'evaluations': 42837912, 'failures': 0, 'fallback_to_scm': 0}, 'ablation_collision_weight': None, 'target_type': 'ground-rotation', 'friction_reg_coef': 0.03, 'lambda_friction_cone': 'pyramid', 'fingertip_object_friction': 1.2, 'table_object_friction': 0.7, 'collision_geometry': 'hull', 'collision_part_count': 0, 'contact_sampling': 'vertices', 'contact_sample_count': 70}
+[mpc-startup] trial=1 building contact/MPC runtime
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 0.71s
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=1 ready in 2.74s (contact=cma-es mpc=acados)
+[isaac-rollout] completed=0/3, active worlds=1
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=1 step=500/2500 pos_err=0.34662 quat_err=0.99951
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=1 step=1000/2500 pos_err=0.43344 quat_err=0.93518
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[ablation-progress] mode=a5 obj=teapot seed=1 step=1500/2500 pos_err=0.43344 quat_err=0.93518
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1
+[isaac-rollout] completed=0/3, active worlds=1

@@ -1,0 +1,38 @@
+[
+  {
+    "case": "旧算法/旧仿真",
+    "path": "head_comparison/head_original.json",
+    "success": true,
+    "height_gain_mm": 64.33412019786667,
+    "xy_mm": 2.590884891170229,
+    "both_contact_steps": 638,
+    "cycles": 799
+  },
+  {
+    "case": "旧算法/只改condim3",
+    "path": "head_condim3_only/head_condim3_only.json",
+    "success": false,
+    "height_gain_mm": -1.388896367737702,
+    "xy_mm": 42.96215361161469,
+    "both_contact_steps": 443,
+    "cycles": 800
+  },
+  {
+    "case": "旧算法/新仿真",
+    "path": "head_new_physics/head_new_physics.json",
+    "success": false,
+    "height_gain_mm": 84.53179325418603,
+    "xy_mm": 27.36037440929965,
+    "both_contact_steps": 611,
+    "cycles": 800
+  },
+  {
+    "case": "当前算法/恢复旧仿真",
+    "path": "mpc_restored_physics.json",
+    "success": false,
+    "height_gain_mm": 5.840067129937065,
+    "xy_mm": 6.592722366409218,
+    "both_contact_steps": 712,
+    "cycles": 800
+  }
+]

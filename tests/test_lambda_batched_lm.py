@@ -100,6 +100,33 @@ def test_force_projection_and_lm_respect_friction_pyramid_and_euclidean_caps():
     assert np.min(lifted["control_input"][:, 0]) > .1
 
 
+def test_native_pyramid_projection_and_explicit_frames_match_vector_dynamics():
+    from planning.contact_friction import native_tangents
+    points,normals=_pairs(2);basis=native_tangents(normals)
+    # Transport a rotated native frame through prediction, output and selection.
+    rotated=(basis[:,:,0]+basis[:,:,1])/np.sqrt(2.)
+    basis=np.stack((rotated,np.cross(normals,rotated)),axis=2)
+    solver=BatchedLambdaLM(device='cpu',num_contacts=2,iterations=5,mu=.7,
+        max_contact_force=1.2,friction_cone='pyramidal')
+    inputs=_inputs();inputs['tau_o']=np.zeros(6)
+    result=solver.solve(points,normals,initial_forces=np.full((2,2,3),10.),
+        tangent_directions=basis,**inputs)
+    forces=result['batch'].forces.numpy().reshape(2,2,3)
+    assert np.all(forces[:,:,0]>=0)
+    assert np.all(np.abs(forces[:,:,1:]).sum(axis=2)<=.7*forces[:,:,0]+1e-6)
+    assert np.all(np.linalg.norm(forces,axis=2)<=1.2+1e-6)
+    selected=result['selected_index'];local=result['control_input']
+    vectors=normals[selected]*local[:,:1]+np.einsum('nij,ni->nj',basis[selected],local[:,1:])
+    np.testing.assert_allclose(result['force_vectors_local'],vectors,atol=1e-6)
+    expected_pose,expected_velocity=_predict(inputs['current_x'],points[selected],vectors,
+        inputs['object_inertia'],inputs['prediction_dt'],inputs.get('v_obj',np.zeros(6)),
+        inputs.get('tau_o',np.zeros(6)))
+    np.testing.assert_allclose(result['x_plus_opt'],expected_pose,atol=1e-6)
+    np.testing.assert_allclose(result['velocity_next'],expected_velocity,atol=1e-6)
+    with pytest.raises(ValueError,match='orthonormal'):
+        solver.solve(points,normals,tangent_directions=np.ones_like(basis),**inputs)
+
+
 def test_prediction_uses_full_coupled_inertia_and_body_angular_quaternion_update():
     points, normals = _pairs(1)
     points[0, 0, 1:] = [.02, .015]

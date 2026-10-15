@@ -218,6 +218,30 @@ def test_real_facade_empty_live_cones_keep_offline_fallback_and_reset(policy):
     assert fallback[4]["near_quality_pairs"] == 0
     np.testing.assert_array_equal(fallback[4]["contact_indices"], first[4]["contact_indices"])
     assert policy.offline_solve_count == 1
+
+
+def test_background_search_fork_has_independent_mutable_buffers(policy):
+    from concurrent.futures import ThreadPoolExecutor
+    current = np.array([0., 0., .5, 1., 0., 0., 0.])
+    target = current+[0., 0., .03, 0., 0., 0., 0.]
+    inertia = np.diag([.1, .1, .1, .003, .003, .003])
+    tips = current[:3]+np.array([[-.3, 0., 0.], [.3, 0., 0.]])
+    original = policy.initialize_offline(target, current, tips_world=tips, object_inertia=inertia)
+    ids = policy._active_ids.numpy().copy()
+    fork = policy.fork_for_search()
+    assert fork.surface.points_device is policy.surface.points_device
+    assert fork._active_ids.ptr != policy._active_ids.ptr
+    assert fork.surface._buffers is not policy.surface._buffers
+    assert fork.lm.buffers is None and fork.lm is not policy.lm
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        job = executor.submit(fork.initialize_offline, target, current,
+                              tips_world=tips, object_inertia=inertia)
+        live = policy.update_contacts(target, current, tips_world=tips, object_inertia=inertia)
+        found = job.result()
+    np.testing.assert_array_equal(policy._offline_ids.numpy(), ids)
+    np.testing.assert_array_equal(policy._active_ids.numpy(), live[4]['contact_indices'])
+    np.testing.assert_array_equal(original[0], found[0])
+    assert np.isfinite(live[3]) and fork.offline_solve_count == 1
     policy.reset()
     assert policy.last_grasp_result is None
     assert policy.offline_solve_count == policy.online_solve_count == 0
@@ -226,6 +250,33 @@ def test_real_facade_empty_live_cones_keep_offline_fallback_and_reset(policy):
     restarted = policy.update_contacts(target, current, tips_world=tips, object_inertia=inertia, prediction_dt=.06)
     assert restarted[4]["source"] == "offline_global"
     assert policy.offline_solve_count == 1 and policy.online_solve_count == 0
+
+
+def test_robot_shortlist_skips_rejected_pair_and_gathers_matching_forces(policy):
+    current = np.array([0., 0., .5, 1., 0., 0., 0.])
+    target = current.copy()
+    target[2] += .03
+    attempts = []
+    def rank(points, normals, tips, curvature, reductions):
+        return np.arange(len(points), dtype=float), np.zeros(len(points))
+    def validate(points, normals):
+        attempts.append(points.copy())
+        return dict(valid=len(attempts) > 1, reason='wrist collision')
+    result = policy.initialize_offline(target, current,
+        tips_world=[[-.3, 0., .5], [.3, 0., .5]],
+        object_inertia=np.diag([.1]*3+[.003]*3), prediction_dt=.06,
+        candidate_ranker=rank, candidate_validator=validate)
+    np.testing.assert_allclose(result[0], attempts[1])
+    np.testing.assert_array_equal(result[0], policy.sample_point[result[4]['contact_indices']])
+    assert result[4]['contact_selection']['candidate_checks'] == 2
+    assert result[4]['contact_selection']['rejected_candidates'][0]['reason'] == 'wrist collision'
+    assert policy.last_grasp_result['contact_selection'] == result[4]['contact_selection']
+    before = policy._active_ids.numpy().copy()
+    with pytest.raises(FloatingPointError, match='2 robot checks'):
+        policy.initialize_offline(target, current, tips_world=[[-.3, 0., .5], [.3, 0., .5]],
+            object_inertia=np.diag([.1]*3+[.003]*3), candidate_ranker=rank,
+            candidate_validator=lambda p, n: dict(valid=False, reason='collision'), max_candidate_checks=2)
+    np.testing.assert_array_equal(policy._active_ids.numpy(), before)
 
 
 @pytest.mark.parametrize("reverse_assignment", [False, True])

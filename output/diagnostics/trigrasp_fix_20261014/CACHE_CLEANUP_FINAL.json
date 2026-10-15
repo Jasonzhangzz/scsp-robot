@@ -1,0 +1,7 @@
+{
+  "removed_bytes": 0,
+  "removed_mib": 0.0,
+  "pruned_caches": 0,
+  "skipped_locked": 0,
+  "retained": "shared libraries, configuration JSON, build logs and locks"
+}

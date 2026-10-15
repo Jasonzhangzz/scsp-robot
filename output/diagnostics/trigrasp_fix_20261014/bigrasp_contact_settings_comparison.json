@@ -1,0 +1,96 @@
+{
+  "scope": "Elephant seed 0: MPC 1000 cycles; FA/MPPI horizon 8, samples 64, 160-cycle budget. One completed run per setting; failed FA/MPPI retries documented separately.",
+  "initialization": "NoSlip=3 during startup, requested setting enabled before control",
+  "maximum_initial_qpos_difference": 0.0,
+  "material_friction": "Only fingertip/object pair changed from 5 to 8; table/object stayed 5",
+  "cases": {
+    "mpc_ns3_mu5": {
+      "success": false,
+      "settings": {
+        "impratio": 10.0,
+        "noslip_iterations": 3,
+        "fingertip_object_friction": 5.0,
+        "table_object_friction": 5.0
+      },
+      "cycles": 1000,
+      "bilateral_loaded_cycles": 937,
+      "maximum_height_gain_mm": 6.277458334740638,
+      "final_height_gain_mm": 2.2374865092807394,
+      "final_horizontal_drift_mm": 48.526201219755094,
+      "final_position_error_mm": 75.44070631685314,
+      "local_contact_updates": 9,
+      "force_allocation_feasible_cycles": 935,
+      "current_wrench_available_cycles": 933,
+      "global_replans": 0
+    },
+    "mpc_ns10_mu5": {
+      "success": false,
+      "settings": {
+        "impratio": 10.0,
+        "noslip_iterations": 10,
+        "fingertip_object_friction": 5.0,
+        "table_object_friction": 5.0
+      },
+      "cycles": 1000,
+      "bilateral_loaded_cycles": 837,
+      "maximum_height_gain_mm": 5.704947154772433,
+      "final_height_gain_mm": 0.0492432543980903,
+      "final_horizontal_drift_mm": 31.8461245414599,
+      "final_position_error_mm": 67.88423147300489,
+      "local_contact_updates": 18,
+      "force_allocation_feasible_cycles": 837,
+      "current_wrench_available_cycles": 812,
+      "global_replans": 4
+    },
+    "mpc_ns3_mu8": {
+      "success": false,
+      "settings": {
+        "impratio": 10.0,
+        "noslip_iterations": 3,
+        "fingertip_object_friction": 8.0,
+        "table_object_friction": 5.0
+      },
+      "cycles": 1000,
+      "bilateral_loaded_cycles": 887,
+      "maximum_height_gain_mm": 17.63589040697283,
+      "final_height_gain_mm": -0.33414441205076306,
+      "final_horizontal_drift_mm": 36.768261707438754,
+      "final_position_error_mm": 70.65489403375328,
+      "local_contact_updates": 15,
+      "force_allocation_feasible_cycles": 881,
+      "current_wrench_available_cycles": 875,
+      "global_replans": 4
+    },
+    "mppi_ns3_mu5": {
+      "success": false,
+      "settings": {
+        "impratio": 10.0,
+        "noslip_iterations": 3,
+        "fingertip_object_friction": 5.0,
+        "table_object_friction": 5.0
+      },
+      "runtime_error": "all multistart candidates are non-finite",
+      "simulation_seconds": 4.259999999999954,
+      "final_height_gain_mm": -325.04657805504365
+    },
+    "mppi_ns10_mu5": {
+      "success": false,
+      "settings": {
+        "impratio": 10.0,
+        "noslip_iterations": 10,
+        "fingertip_object_friction": 5.0,
+        "table_object_friction": 5.0
+      },
+      "cycles": 160,
+      "bilateral_loaded_cycles": 15,
+      "maximum_height_gain_mm": 12.042187984917241,
+      "final_height_gain_mm": 0.038126367014168494,
+      "final_horizontal_drift_mm": 23.044551587500557,
+      "final_position_error_mm": 64.23766533309828,
+      "local_contact_updates": 70,
+      "force_allocation_feasible_cycles": 9,
+      "current_wrench_available_cycles": 8,
+      "global_replans": 6
+    }
+  }
+}

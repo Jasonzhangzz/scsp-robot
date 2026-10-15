@@ -1767,6 +1767,42 @@ def compute_rollout_contact_via(
         getattr(param, 'object_aabb_lo', (-0.06, -0.04, -0.04)),
         getattr(param, 'object_aabb_hi', (0.06, 0.04, 0.06)),
         getattr(param, 'object_circumradius', None))
+    tool_context = (hasattr(approach_via, 'set_force_context') or
+                    getattr(args,'tool_orientation_control','free') == 'osc')
+    force_world, outward = np.zeros(3), np.zeros(3)
+    if tool_context:
+        force_world, outward = np.zeros(3), p_arm_track_world-p_arm_surface_world
+        # Use the force belonging to the executed patch. A ranked winner
+        # can differ from a retained execution target before contact as well.
+        best_target = np.linalg.norm(p_arm_surface_world-best_contact_world) < 1e-6
+        force_idx = best_idx if best_target else p_arm_idx
+        force_local = cached_force if best_target else info.get('control_input')
+        if force_idx is not None and force_local is not None:
+            idx = int(force_idx)
+            if not best_target and actual_contact is not None:
+                # Measured solves use their own normal/tangent basis, which
+                # need not equal the nearest mesh sample's cached frame.
+                inward = -np.asarray(p_arm_normal_out, dtype=float)
+                inward /= max(np.linalg.norm(inward), 1e-9)
+                ref = np.array([0., 0., 1.]) if abs(inward[2]) < .9 else np.array([0., 1., 0.])
+                t1 = np.cross(inward, ref); t1 /= np.linalg.norm(t1)
+                frame = np.column_stack([inward, t1, np.cross(inward, t1)])
+            else:
+                frame = np.column_stack([param.lambda_optimizer.normal[idx],
+                    param.lambda_optimizer.t1[idx], param.lambda_optimizer.t2[idx]])
+            force_world = r_obj_to_world @ frame @ np.asarray(force_local).reshape(3)
+        if actual_contact is not None:
+            outward = np.asarray(actual_contact['normal_world'],dtype=float)
+            inward = -r_obj_to_world.T@outward
+            inward /= max(np.linalg.norm(inward),1e-9)
+            ref = np.array([0.,0.,1.]) if abs(inward[2])<.9 else np.array([0.,1.,0.])
+            t1 = np.cross(inward,ref); t1 /= np.linalg.norm(t1)
+            frame = np.column_stack([inward,t1,np.cross(inward,t1)])
+            force_world = r_obj_to_world@frame@np.asarray(param.lambda_optimizer.last_executed_force)
+        if hasattr(approach_via,'set_force_context'):
+            approach_via.set_force_context(force_world, outward,
+                active=object_cost_stage == 'flip',
+                touching=bool(actual_contact is not None and actual_contact.get('dist', 0.) <= 0.))
     use_via, via_pos, via_phase = approach_via.update(
         curr_q[7:10], curr_q[:3], p_arm_surface_world, p_arm_track_world,
         top_z, keepout, bool(value_info.get('arrived_at_best', False)), exec_press)
@@ -1779,7 +1815,8 @@ def compute_rollout_contact_via(
     verify_cost = _travel_verify_cost(verify_cost, path_blocked)
     holding = (not path_blocked and not floor_slide and
                bool(value_info.get('accept_p_arm', False)))
-    value_info['via_phase'] = 'hold' if holding else via_phase
+    value_info['force_approach_active'] = bool(getattr(approach_via, 'force_approach_active', False))
+    value_info['via_phase'] = 'hold' if holding and not value_info['force_approach_active'] else via_phase
     value_info['opposite_sides'] = bool(opposite)
     value_info['path_blocked'] = bool(path_blocked)
     value_info['press_z'] = float(exec_press[2])
@@ -1805,6 +1842,9 @@ def compute_rollout_contact_via(
         'cached_cost': cached_cost,
         'cached_x_plus': cached_x_plus,
         'cached_force': cached_force,
+        'tool_rotation_world': np.asarray(getattr(approach_via, 'tool_rotation_world', np.zeros(3))).copy(),
+        'tool_contact_force_world': force_world.copy(),
+        'tool_contact_normal_world': outward.copy(),
         'choose_dt': choose_dt,
         'escape_on': bool(escape_on),
         'arrived_hold': bool(arrived_hold),

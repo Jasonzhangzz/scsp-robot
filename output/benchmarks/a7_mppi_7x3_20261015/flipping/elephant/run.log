@@ -1,0 +1,49 @@
+[ablation] mppi; isolated test_mpc_isaac runtime
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[mpc-startup] trial=0 building contact/MPC runtime
+[mpc-startup] trial=0 ready in 3.45s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 0.99s
+[ablation-progress] mode=mppi obj=elephant seed=0 step=500/2500 pos_err=0.23185 quat_err=0.62712
+[ablation-progress] mode=mppi obj=elephant seed=0 step=1000/2500 pos_err=0.32908 quat_err=0.62555
+[ablation-progress] mode=mppi obj=elephant seed=0 step=1500/2500 pos_err=0.52058 quat_err=0.81105
+[ablation-progress] mode=mppi obj=elephant seed=0 step=2000/2500 pos_err=0.52058 quat_err=0.81106
+[ablation-progress] mode=mppi obj=elephant seed=0 step=2500/2500 pos_err=0.52058 quat_err=0.81105
+[mpc-startup] trial=1 building contact/MPC runtime
+[mpc-startup] trial=1 ready in 3.36s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 0.86s
+[ablation-progress] mode=mppi obj=elephant seed=1 step=500/2500 pos_err=0.17188 quat_err=0.91133
+[ablation-progress] mode=mppi obj=elephant seed=1 step=1000/2500 pos_err=0.25049 quat_err=0.83409
+[ablation-progress] mode=mppi obj=elephant seed=1 step=1500/2500 pos_err=0.15558 quat_err=0.10836
+[ablation-progress] mode=mppi obj=elephant seed=1 step=2000/2500 pos_err=0.18706 quat_err=0.08052
+[ablation-progress] mode=mppi obj=elephant seed=1 step=2500/2500 pos_err=0.21154 quat_err=0.50364
+[mpc-startup] trial=2 building contact/MPC runtime
+[mpc-startup] trial=2 ready in 3.54s (contact=ipopt mpc=mppi)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=2 physics ready in 0.86s
+[ablation-progress] mode=mppi obj=elephant seed=2 step=500/2500 pos_err=0.08953 quat_err=0.99987
+[ablation-progress] mode=mppi obj=elephant seed=2 step=1000/2500 pos_err=0.21153 quat_err=0.66430
+[ablation-progress] mode=mppi obj=elephant seed=2 step=1500/2500 pos_err=0.28460 quat_err=0.48990
+[ablation-progress] mode=mppi obj=elephant seed=2 step=2000/2500 pos_err=0.37782 quat_err=0.43961
+[ablation-progress] mode=mppi obj=elephant seed=2 step=2500/2500 pos_err=0.43814 quat_err=0.80340
+rollout_summary: {"physics_backend": "isaac", "solver_requested": "ipopt", "headless": true, "num_envs": 1, "async_planner": false, "trials": 3, "successes": 0, "success_rate": 0.0, "stable_flip_successes": 1, "stable_flip_rate": 0.3333333333333333, "trial_start": 0, "wall_time_s": 211.09443164299591, "trials_per_second": 0.01421164914986302, "planner_solver_backends": ["mppi"], "lambda_solver_backends": ["ipopt"], "mpc_fallbacks": 0, "lambda_fallbacks": 0, "timing_statistics": {"trials": 3, "successes": 0, "success_rate": 0.0, "success_seeds": [], "stable_flip_successes": 1, "stable_flip_rate": 0.3333333333333333, "stable_flip_seeds": [1], "first_stable_flip_s": {"n": 1, "mean": 20.620000979397446, "std": null}, "completion_sim_s": {"n": 0, "mean": null, "std": null}, "completion_wall_s": {"n": 0, "mean": null, "std": null}, "planning_cycle_ms": {"n": 7500, "mean": 12.999693219086232, "std": 2.9437995091709213}, "planning_trial_mean_ms": {"n": 3, "mean": 12.999693219086232, "std": 0.1863573797657806}, "mpc_failures": 0, "lambda_failures": 0, "mpc_fallbacks": 0, "lambda_fallbacks": 0}}

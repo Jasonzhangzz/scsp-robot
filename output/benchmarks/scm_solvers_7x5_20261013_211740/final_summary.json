@@ -1,0 +1,82 @@
+{
+  "status": "finished",
+  "completed": 140,
+  "successes": 61,
+  "failures": {
+    "Goal/settling criteria not reached within the step limit": 79
+  },
+  "methods": {
+    "acados": {
+      "completed": 35,
+      "successes": 16,
+      "failed": 19,
+      "completed_at": "2026-10-13T21:51:03+08:00",
+      "summary_csv": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/acados/summary.csv"
+    },
+    "ipopt": {
+      "completed": 35,
+      "successes": 15,
+      "failed": 20,
+      "completed_at": "2026-10-14T05:10:38+08:00",
+      "summary_csv": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/ipopt/summary.csv"
+    },
+    "cma-es": {
+      "completed": 35,
+      "successes": 15,
+      "failed": 20,
+      "completed_at": "2026-10-14T08:33:20+08:00",
+      "summary_csv": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cma-es/summary.csv"
+    },
+    "cem": {
+      "completed": 35,
+      "successes": 15,
+      "failed": 20,
+      "completed_at": "2026-10-14T04:08:52+08:00",
+      "summary_csv": "/home/zz/scsp-robot/output/benchmarks/scm_solvers_7x5_20261013_211740/cem/summary.csv"
+    }
+  },
+  "successes_per_object_out_of_5": {
+    "foam_brick": {
+      "acados": 5,
+      "ipopt": 5,
+      "cma-es": 5,
+      "cem": 5
+    },
+    "elephant": {
+      "acados": 5,
+      "ipopt": 5,
+      "cma-es": 5,
+      "cem": 5
+    },
+    "mug": {
+      "acados": 0,
+      "ipopt": 0,
+      "cma-es": 0,
+      "cem": 0
+    },
+    "rubber_duck": {
+      "acados": 1,
+      "ipopt": 0,
+      "cma-es": 0,
+      "cem": 0
+    },
+    "piggy_bank": {
+      "acados": 0,
+      "ipopt": 0,
+      "cma-es": 0,
+      "cem": 0
+    },
+    "stanford_bunny2": {
+      "acados": 5,
+      "ipopt": 5,
+      "cma-es": 5,
+      "cem": 5
+    },
+    "teapot": {
+      "acados": 0,
+      "ipopt": 0,
+      "cma-es": 0,
+      "cem": 0
+    }
+  }
+}

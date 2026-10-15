@@ -1,0 +1,170 @@
+[
+  {
+    "object": "foam_brick",
+    "seed": 0,
+    "solver": "batch-lm-cpu-exact-scm",
+    "success": true,
+    "settled": true,
+    "steps": 474,
+    "error": null,
+    "iterations": 20,
+    "source_success_trial": "output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_foam_brick_000.json",
+    "reference": {
+      "solver": "acados",
+      "object": "foam_brick",
+      "seed": 0,
+      "steps": 488,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.016051977238886333,
+      "final_quat": 0.0007814875524717602,
+      "solver_backends": [
+        "acados"
+      ],
+      "fallback_rounds": 0,
+      "unstable_rounds": 0,
+      "error": null,
+      "started_at": "2026-10-13T21:43:42+08:00",
+      "completed_at": "2026-10-13T21:43:57+08:00",
+      "execution_time_s": 10.693459064001217,
+      "elapsed_wall_time_s": 10.693459064001217,
+      "simulation_time_s": 9.760000000000437,
+      "planning_time_ms": {
+        "n": 488,
+        "mean": 19.482608906639413,
+        "std": 10.87368556316915,
+        "median": 16.25270801014267,
+        "p95": 30.50518225354608,
+        "min": 14.743795967660844,
+        "max": 165.68689804989845
+      },
+      "planning_rounds": 488
+    },
+    "residual_cost_checks": 474,
+    "execution_time_s": 24.117190876999757,
+    "elapsed_wall_time_s": 24.117190876999757,
+    "simulation_time_s": 9.480000000000095,
+    "planning_time_ms": {
+      "n": 474,
+      "mean": 49.24047155907422,
+      "std": 1.41257283756414,
+      "median": 48.89220299992303,
+      "p95": 51.29293410016089,
+      "min": 45.12518000001364,
+      "max": 65.21705600016503
+    },
+    "planning_rounds": 474
+  },
+  {
+    "object": "elephant",
+    "seed": 0,
+    "solver": "batch-lm-cpu-exact-scm",
+    "success": true,
+    "settled": true,
+    "steps": 202,
+    "error": null,
+    "iterations": 20,
+    "source_success_trial": "output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_elephant_000.json",
+    "reference": {
+      "solver": "acados",
+      "object": "elephant",
+      "seed": 0,
+      "steps": 172,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.015941028626524727,
+      "final_quat": 2.3896221884922575e-05,
+      "solver_backends": [
+        "acados"
+      ],
+      "fallback_rounds": 0,
+      "unstable_rounds": 0,
+      "error": null,
+      "started_at": "2026-10-13T21:43:57+08:00",
+      "completed_at": "2026-10-13T21:44:08+08:00",
+      "execution_time_s": 6.096003589977045,
+      "elapsed_wall_time_s": 6.096003589977045,
+      "simulation_time_s": 3.440000000000316,
+      "planning_time_ms": {
+        "n": 172,
+        "mean": 31.280490030334224,
+        "std": 5.946124131524561,
+        "median": 29.009863501414657,
+        "p95": 37.50310245377477,
+        "min": 26.21889900183305,
+        "max": 95.47623200342059
+      },
+      "planning_rounds": 172
+    },
+    "residual_cost_checks": 202,
+    "execution_time_s": 11.311799558000075,
+    "elapsed_wall_time_s": 11.311799558000075,
+    "simulation_time_s": 4.0400000000004805,
+    "planning_time_ms": {
+      "n": 202,
+      "mean": 54.23951855941551,
+      "std": 2.074823046828816,
+      "median": 53.987299500022345,
+      "p95": 55.08233174987254,
+      "min": 49.582865000047605,
+      "max": 74.08678299998428
+    },
+    "planning_rounds": 202
+  },
+  {
+    "object": "stanford_bunny2",
+    "seed": 0,
+    "solver": "batch-lm-cpu-exact-scm",
+    "success": true,
+    "settled": true,
+    "steps": 198,
+    "error": null,
+    "iterations": 20,
+    "source_success_trial": "output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_stanford_bunny2_000.json",
+    "reference": {
+      "solver": "acados",
+      "object": "stanford_bunny2",
+      "seed": 0,
+      "steps": 327,
+      "success": true,
+      "settled": true,
+      "final_pos": 0.015934704175468196,
+      "final_quat": 0.0004735986762213207,
+      "solver_backends": [
+        "acados"
+      ],
+      "fallback_rounds": 0,
+      "unstable_rounds": 0,
+      "error": null,
+      "started_at": "2026-10-13T21:48:20+08:00",
+      "completed_at": "2026-10-13T21:48:34+08:00",
+      "execution_time_s": 9.226276291999966,
+      "elapsed_wall_time_s": 9.226276291999966,
+      "simulation_time_s": 6.539999999999095,
+      "planning_time_ms": {
+        "n": 327,
+        "mean": 24.825899492036438,
+        "std": 9.704653227231521,
+        "median": 20.237954042386264,
+        "p95": 38.848209264688194,
+        "min": 14.82673903228715,
+        "max": 70.10933599667624
+      },
+      "planning_rounds": 327
+    },
+    "residual_cost_checks": 198,
+    "execution_time_s": 10.72909656999991,
+    "elapsed_wall_time_s": 10.72909656999991,
+    "simulation_time_s": 3.96000000000049,
+    "planning_time_ms": {
+      "n": 198,
+      "mean": 52.425222015143746,
+      "std": 1.6238552777353261,
+      "median": 52.00544250010353,
+      "p95": 55.99673950000579,
+      "min": 49.32756199968935,
+      "max": 58.87678199997026
+    },
+    "planning_rounds": 198
+  }
+]

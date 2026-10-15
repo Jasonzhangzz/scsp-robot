@@ -1,0 +1,222 @@
+"""Finite-time diagonal SCM contact response, in impulse units.
+
+p = max(-D^-1 (a J v_free + b phi/h), 0),
+D = diag(J M^-1 J.T) + r I, v_next = v_free + M^-1 J.T p.
+The coefficients follow an implicitly discretized, decoupled spring-damper
+row with response time tau and damping ratio zeta. Grouped contacts use
+bounded block Gauss-Seidel sweeps so fingertip pressure and support reactions
+are coupled. Geometry stays frozen within each prediction.
+Grouped contacts use a full closing-speed bias for positive gaps, so
+unreachable contact cannot transmit speculative support forces.
+"""
+import numpy as np
+
+
+# Conservative starting values for the 20--50 ms planning steps. The 8 ms,
+# zeta=.25 calibration from the 2 ms simulator benchmark is not an MPC fit.
+SOFT_SCM_RESPONSE_TIME = 0.05
+SOFT_SCM_DAMPING_RATIO = 1.0
+SOFT_SCM_REGULARIZATION = 1e-8
+
+
+def normalize_contact_model(name):
+    name = str(name).strip().lower().replace('_', '-')
+    if name == 'scm-soft':
+        name = 'soft-scm'
+    if name not in ('soft-scm', 'comfree'):
+        raise ValueError("contact_model must be 'soft-scm' or 'comfree'")
+    return name
+
+
+def soft_scm_coefficients(h, response_time=SOFT_SCM_RESPONSE_TIME,
+                          damping_ratio=SOFT_SCM_DAMPING_RATIO,
+                          regularization=SOFT_SCM_REGULARIZATION):
+    values = np.asarray([h, response_time, damping_ratio, regularization], dtype=float)
+    if not np.isfinite(values).all() or np.any(values <= 0):
+        raise ValueError('soft-SCM timestep, response time, damping ratio and regularization must be positive and finite')
+    x = float(h) / float(response_time)
+    denominator = 1.0 + 2.0 * damping_ratio * x + x*x
+    return ((2.0 * damping_ratio * x + x*x) / denominator,
+            x*x / denominator)
+
+
+def inverse_diagonal_numpy(jacobian, inverse_mass, regularization):
+    diagonal = np.sum((jacobian @ inverse_mass) * jacobian, axis=1)
+    return np.where(np.any(jacobian != 0, axis=1), 1.0 / (diagonal + regularization), 0.0)
+
+
+def inverse_diagonal_cs(jacobian, inverse_mass, regularization):
+    import casadi as cs
+    diagonal = cs.sum2((jacobian @ inverse_mass) * jacobian)
+    return cs.if_else(cs.sum2(jacobian * jacobian) > 0,
+                      1.0 / (diagonal + regularization), 0.0)
+
+
+def inverse_diagonal_torch(jacobian, inverse_mass, regularization):
+    import torch
+    diagonal = torch.sum((jacobian @ inverse_mass) * jacobian, dim=-1)
+    return torch.where(torch.any(jacobian != 0, dim=-1),
+                       1.0 / (diagonal + regularization), 0.0)
+
+
+# Fixed sweeps keep the contact map differentiable for NLP/RTI backends.
+# Subtract each block's old impulse before updating it: applying the isolated
+# contact response repeatedly would incorrectly stiffen a single contact.
+GROUPED_CONTACT_SWEEPS = 8
+GROUPED_CONTACT_VERSION = 3
+
+
+def grouped_contact_velocity_cs(smooth, jacobian, phi, inverse, h, a, b, regularization,
+                                return_impulses=False, normal_bias=None, tangent_impedance=None,
+                                moment_rows=None, moment_friction=None, return_moments=False, friction=None,
+                                friction_cone='coulomb'):
+    """Coupled unilateral normals and Coulomb disks, one per pyramid block.
+
+    An explicit friction coefficient supports robot-only contacts whose object
+    translation columns are zero. Existing callers retain row-based inference.
+    """
+    import casadi as cs
+    if friction_cone not in ('coulomb','pyramidal'):
+        raise ValueError('friction_cone must be coulomb or pyramidal')
+    coefficients=None
+    if friction is not None:
+        count=int(jacobian.size1())//4
+        if isinstance(friction,(cs.SX,cs.MX,cs.DM)):
+            if friction.numel()!=count:raise ValueError('One friction coefficient is required per contact')
+            coefficients=friction
+        else:
+            coefficients=np.broadcast_to(np.asarray(friction,float),(count,))
+            if not np.isfinite(coefficients).all() or np.any(coefficients<0):
+                raise ValueError('explicit friction must be finite and nonnegative')
+    blocks = []
+    for start in range(0, int(jacobian.size1()), 4):
+        j = jacobian[start:start+4, :]
+        n = cs.sum1(j)/4
+        t = cs.vertcat((j[0, :]-j[2, :])/2, (j[1, :]-j[3, :])/2)
+        mu = cs.sqrt(cs.sumsqr(t[0, :3]) + 1e-20) if coefficients is None else coefficients[start//4]
+        t = t/cs.fmax(mu, 1e-10)
+        mn, mt = inverse@n.T, inverse@t.T
+        dn = (n@mn + regularization)/a
+        # Normal compliance and sliding impedance are different physical
+        # parameters. MuJoCo's impratio stiffens tangent rows independently.
+        at = a if tangent_impedance is None else tangent_impedance
+        dt = (cs.sum2((t@inverse)*t) + regularization)/at
+        gap = cs.sum1(phi[start:start+4])/4
+        # A positive gap must close within this prediction step before the
+        # contact can transmit force. Using b/a (<1) there let a separated
+        # finger provide speculative support several steps before impact.
+        bias = cs.if_else(gap > 0, gap, b/a*gap)/h
+        if normal_bias is not None:
+            # Observed elastic preload belongs only to a made contact. It
+            # cannot support a separated finger in a future rollout stage.
+            bias += cs.if_else(gap <= 1e-6, normal_bias[start//4], 0)
+        blocks.append((n, t, mu, mn, mt, dn, dt, bias))
+    velocity = smooth
+    impulses = [(0, cs.DM.zeros(2)) for _ in blocks]
+    moment_impulses = [[cs.DM(0) for _ in range(3)] for _ in blocks]
+    for _ in range(GROUPED_CONTACT_SWEEPS):
+        for i, (n,t,mu,mn,mt,dn,dt,bias) in enumerate(blocks):
+            old_n, old_t = impulses[i]
+            free = velocity - mn*old_n - mt@old_t
+            normal = cs.fmax(-(n@free + bias)/dn, 0)
+            supported = free + mn*normal
+            tangent = -(t@supported)/dt
+            cap = mu*normal
+            if friction_cone=='pyramidal':
+                tangent *= cs.fmin(1.,cap/(cs.sum1(cs.fabs(tangent))+1e-12))
+            else:
+                tangent *= cap/cs.sqrt(cap*cap + cs.sumsqr(tangent) + 1e-12)
+            velocity = supported + mt@tangent
+            impulses[i] = (normal, tangent)
+            if moment_rows is not None and moment_rows[i] is not None:
+                coefficients = moment_friction[i]
+                for component, coefficient in enumerate(coefficients):
+                    if coefficient <= 0:
+                        continue
+                    row = moment_rows[i][component, :]
+                    mass_direction = inverse@row.T
+                    old = moment_impulses[i][component]
+                    free_moment = velocity-mass_direction*old
+                    trial = -(row@free_moment)/(row@mass_direction+regularization)
+                    # Pyramidal friction shares normal load between sliding,
+                    # torsion and rolling, rather than three independent caps.
+                    remaining = normal-cs.sum1(cs.fabs(tangent))/cs.fmax(mu, 1e-10)
+                    for other, other_coefficient in enumerate(coefficients):
+                        if other != component and other_coefficient > 0:
+                            remaining -= cs.fabs(moment_impulses[i][other])/other_coefficient
+                    cap = coefficient*cs.fmax(remaining, 0)
+                    updated = cs.fmin(cs.fmax(trial, -cap), cap)
+                    velocity = free_moment+mass_direction*updated
+                    moment_impulses[i][component] = updated
+    if return_moments:
+        return velocity, impulses, moment_impulses
+    return (velocity, impulses) if return_impulses else velocity
+
+
+def grouped_contact_velocity_numpy(smooth, jacobian, phi, inverse, h, a, b, regularization, *, friction_cone='coulomb'):
+    if friction_cone not in ('coulomb','pyramidal'):raise ValueError('Invalid friction cone')
+    blocks = []
+    for start in range(0, jacobian.shape[0], 4):
+        j = jacobian[start:start+4]
+        n = j.mean(axis=0)
+        t = np.stack([(j[0]-j[2])/2, (j[1]-j[3])/2])
+        mu = np.linalg.norm(t[0, :3])
+        t /= max(mu, 1e-10)
+        mn, mt = inverse@n, t@inverse.T
+        dn = (n@mn + regularization)/a
+        dt = (np.sum((t@inverse)*t, axis=1) + regularization)/a
+        gap = np.mean(phi[start:start+4])
+        bias = (gap if gap > 0 else b/a*gap)/h
+        blocks.append((n,t,mu,mn,mt,dn,dt,bias))
+    velocity = np.array(smooth, dtype=float, copy=True)
+    impulses = [(np.zeros(velocity.shape[:-1]), np.zeros(velocity.shape[:-1]+(2,))) for _ in blocks]
+    for _ in range(GROUPED_CONTACT_SWEEPS):
+        for i, (n,t,mu,mn,mt,dn,dt,bias) in enumerate(blocks):
+            old_n, old_t = impulses[i]
+            free = velocity - old_n[...,None]*mn - old_t@mt
+            normal = np.maximum(-(free@n + bias)/dn, 0.)
+            supported = free + normal[...,None]*mn
+            tangent = -(supported@t.T)/dt
+            cap = mu*normal[...,None]
+            if friction_cone=='pyramidal':
+                tangent *= np.minimum(1.,cap/(np.sum(np.abs(tangent),axis=-1,keepdims=True)+1e-12))
+            else:
+                tangent *= cap/np.sqrt(cap*cap + np.sum(tangent*tangent, axis=-1, keepdims=True) + 1e-12)
+            velocity = supported + tangent@mt
+            impulses[i] = (normal, tangent)
+    return velocity
+
+
+def grouped_contact_velocity_torch(smooth, jacobian, phi, inverse, h, a, b, regularization, *, friction_cone='coulomb'):
+    import torch
+    if friction_cone not in ('coulomb','pyramidal'):raise ValueError('Invalid friction cone')
+    blocks = []
+    for start in range(0, jacobian.shape[0], 4):
+        j = jacobian[start:start+4]
+        n = j.mean(dim=0)
+        t = torch.stack([(j[0]-j[2])/2, (j[1]-j[3])/2])
+        mu = torch.linalg.vector_norm(t[0, :3])
+        t = t/mu.clamp_min(1e-10)
+        mn, mt = inverse@n, t@inverse.T
+        dn = (n@mn + regularization)/a
+        dt = (torch.sum((t@inverse)*t, dim=1) + regularization)/a
+        gap = phi[start:start+4].mean()
+        bias = torch.where(gap > 0, gap, b/a*gap)/h
+        blocks.append((n,t,mu,mn,mt,dn,dt,bias))
+    velocity = smooth
+    impulses = [(smooth.new_zeros(smooth.shape[:-1]), smooth.new_zeros(smooth.shape[:-1]+(2,))) for _ in blocks]
+    for _ in range(GROUPED_CONTACT_SWEEPS):
+        for i, (n,t,mu,mn,mt,dn,dt,bias) in enumerate(blocks):
+            old_n, old_t = impulses[i]
+            free = velocity - old_n[...,None]*mn - old_t@mt
+            normal = torch.clamp(-(free@n + bias)/dn, min=0)
+            supported = free + normal[...,None]*mn
+            tangent = -(supported@t.T)/dt
+            cap = mu*normal[...,None]
+            if friction_cone=='pyramidal':
+                tangent = tangent*torch.clamp(cap/(torch.sum(torch.abs(tangent),dim=-1,keepdim=True)+1e-12),max=1.)
+            else:
+                tangent = tangent*cap/torch.sqrt(cap*cap + torch.sum(tangent*tangent, dim=-1, keepdim=True) + 1e-12)
+            velocity = supported + tangent@mt
+            impulses[i] = (normal, tangent)
+    return velocity

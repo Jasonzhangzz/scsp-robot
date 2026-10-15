@@ -3,6 +3,7 @@
 Lambda's model, candidate evaluation and solvers remain the baseline ones.
 A1 ignores its predictions; A2 uses its finite cost argmin each cycle.
 A3 keeps baseline target selection and omits the lift/place via construction.
+MPPI uses the observed object center without surface selection or RS.
 """
 import time
 import numpy as np
@@ -97,6 +98,11 @@ def compute_ablation_contact_policy(param, args, curr_q, r_obj_to_world, gravity
         jac_mat_env, fingertip_radius, value_tracker, model_cost_conf, approach_via,
         arrived_hold, arrived_dest_idx, floor_ground=0.012, floor_z=0.0,
         support_point=None, support_normal=None):
+    if param.ablation_mode == 'a7':
+        center = np.asarray(curr_q[:3], dtype=float)
+        # This reference is only executor metadata. The cost uses x[:3] so
+        # attraction follows the moving object throughout the MPC horizon.
+        return _direct_policy(center, center, center, center, None)
     if param.ablation_mode in ('a1', 'a2'):
         return _nearest_or_best_policy(param, args, curr_q, r_obj_to_world, gravity,
             jac_mat_env, fingertip_radius, floor_z, support_point, support_normal)

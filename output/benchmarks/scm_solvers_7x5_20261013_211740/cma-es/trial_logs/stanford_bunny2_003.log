@@ -1,0 +1,8 @@
+direct_force solver=cma-es object=stanford_bunny2 seed=3 step=0 pos=0.038270 quat=0.996129 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=3 step=50 pos=0.035267 quat=0.700237 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=3 step=100 pos=0.027124 quat=0.282134 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=3 step=150 pos=0.029487 quat=0.047354 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=3 step=200 pos=0.025584 quat=0.225838 hold=0 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=3 step=250 pos=0.011491 quat=0.003686 hold=3 success=False
+direct_force solver=cma-es object=stanford_bunny2 seed=3 step=257 pos=0.011267 quat=0.003532 hold=10 success=True
+TRIAL_RESULT {"solver": "cma-es", "object": "stanford_bunny2", "seed": 3, "steps": 258, "success": true, "settled": true, "final_pos": 0.01126742819663987, "final_quat": 0.0035321991549356335, "solver_backends": ["cma-es"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-14T03:31:11+08:00", "completed_at": "2026-10-14T03:34:16+08:00", "execution_time_s": 182.43260101100896, "elapsed_wall_time_s": 182.43260101100896, "simulation_time_s": 5.15999999999986, "planning_time_ms": {"n": 258, "mean": 705.2328032175216, "std": 62.95349328931556, "median": 687.3704500030726, "p95": 818.5095838998676, "min": 585.371520020999, "max": 920.8635629620403}, "planning_rounds": 258}

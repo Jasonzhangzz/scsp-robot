@@ -6,6 +6,7 @@ policies use the same Warp dynamics, force projection and LM iterations.
 """
 
 from types import SimpleNamespace
+import copy
 import time
 
 import numpy as np
@@ -339,7 +340,7 @@ class LambdaContactBatchedLM:
                  support_surface_point=None, support_surface_normal=None,
                  support_surface_clearance=0.0, body_sides=False,
                  body_core_fraction=0.5, body_side_normal_cos=0.85, comfree_damping=0.001,
-                 friction_cone="box", **unused):
+                 friction_cone="box", paired_center_local=None, paired_up_local=(0., 0., 1.), **unused):
         from models.comfree_gs_torch import GaussianCloud
         from planning.contact_candidates_warp import SurfaceContactCandidates
         from planning.lambda_batched_lm import BatchedLambdaLM
@@ -358,7 +359,8 @@ class LambdaContactBatchedLM:
         self.surface = SurfaceContactCandidates(mesh_path, scale_factors, sample_num=sample_num,
             seed=seed, patch_radius=tip_radius, max_point_curvature=max_point_curvature,
             max_mean_curvature=max_mean_curvature, device=device, body_sides=body_sides,
-            body_core_fraction=body_core_fraction, body_side_normal_cos=body_side_normal_cos)
+            body_core_fraction=body_core_fraction, body_side_normal_cos=body_side_normal_cos,
+            paired_center_local=paired_center_local, paired_up_local=paired_up_local)
         self.sample_point, self.normal = self.surface.points_local, self.surface.normals_local
         self.sample_num, self.point_idx = self.surface.sample_num, np.arange(self.surface.sample_num)
         self.point_curvature = self.surface.curvature_max
@@ -410,6 +412,21 @@ class LambdaContactBatchedLM:
         self._offline_ids.fill_(-1)
         self._active_ids.fill_(-1)
         self.offline_solve_count = self.online_solve_count = 0
+
+    def fork_for_search(self):
+        """Share immutable candidates/kernels, isolate all search work buffers."""
+        other = copy.copy(self)
+        other.surface = copy.copy(self.surface)
+        other.surface._buffers = {}
+        other.lm = copy.copy(self.lm)
+        other.lm.reset()
+        wp = self.k.wp
+        for name, value in vars(self).items():
+            if name.startswith('_') and isinstance(value, wp.array):
+                setattr(other, name, wp.clone(value))
+        other.reset()
+        other._online = None
+        return other
 
     def set_timing_print_enabled(self, enabled):
         self.enable_timing_prints = bool(enabled)
@@ -508,7 +525,8 @@ class LambdaContactBatchedLM:
         return points, normals, values[24:31].copy(), float(values[37]), info
 
     def initialize_offline(self, x_d, current_x, *, tips_world, object_inertia,
-                           v_obj=None, tau_o=None, prediction_dt=None):
+                           v_obj=None, tau_o=None, prediction_dt=None,
+                           candidate_ranker=None, candidate_validator=None, max_candidate_checks=32):
         started = time.perf_counter()
         dt = self.h if prediction_dt is None else float(prediction_dt)
         pose, target, tips, constraints = self._inputs(x_d, current_x, tips_world)
@@ -521,8 +539,77 @@ class LambdaContactBatchedLM:
             self.surface.object_radius, self._current, self._target, self._tips,
             self.pos_coef, self.ori_coef, self.quality_fraction, self.curvature_penalty_weight,
             self._choice], device=self.device)
+        selection = None
+        if candidate_ranker is not None:
+            # A bounded host shortlist is used only when robot feasibility is
+            # supplied. Other clients retain the entirely device-side policy.
+            ids = batch.ids.numpy()
+            # CPU numpy() aliases Warp storage; assignment ranking must not
+            # mutate the batch later gathered with its original IDs/forces.
+            points = batch.points.numpy().reshape(-1, 2, 3).copy()
+            normals = batch.normals.numpy().reshape(-1, 2, 3).copy()
+            local_tips = self._tips.numpy()
+            direct = np.linalg.norm(points-local_tips[None], axis=2).sum(axis=1)
+            crossed = np.linalg.norm(points[:, ::-1]-local_tips[None], axis=2).sum(axis=1)
+            flipped = crossed < direct
+            points[flipped], normals[flipped] = points[flipped, ::-1], normals[flipped, ::-1]
+            scores, diagnostics = candidate_ranker(points, normals, local_tips,
+                self.surface.curvature_mean[ids], result.reductions.numpy())
+            admissible = (result.valid.numpy() != 0) & np.isfinite(scores)
+            ranked = np.flatnonzero(admissible)
+            ranked = ranked[np.argsort(scores[ranked], kind='stable')]
+            selected = -1
+            rejected = []
+            for row in ranked[:max_candidate_checks]:
+                check = {} if candidate_validator is None else candidate_validator(points[row], normals[row])
+                if check is not None and check.get('valid', True):
+                    selected = int(row)
+                    selection = dict(check, candidate_checks=len(rejected)+1,
+                        rejected_candidates=rejected, prediction_cost=float(scores[row]))
+                    if isinstance(diagnostics, dict):
+                        selection.update(diagnostics[int(row)])
+                    else:
+                        selection['unsupported_load_ratio'] = float(diagnostics[row])
+                    break
+                rejected.append(dict(row=int(row), reason=(check or {}).get('reason', 'robot infeasible')))
+            self._choice.assign(np.array([selected, int(flipped[selected]) if selected >= 0 else 0], np.int32))
+            if selected < 0:
+                raise FloatingPointError(f'No reachable predicted-cost Lambda pair: '
+                    f'{len(ranked)} candidates, {len(rejected)} robot checks; {rejected[:3]}')
         self.offline_solve_count += 1
-        return self._result(batch, result, dt, started, True)
+        output = self._result(batch, result, dt, started, True)
+        if selection is not None:
+            output[4]['contact_selection'] = selection
+            self.last_grasp_result['contact_selection'] = selection
+            if 'static_equilibrium' in selection:
+                self.last_grasp_result['static_equilibrium'] = selection['static_equilibrium']
+            if 'x_plus' in selection:
+                # The contact-aware predictor's forces and state replace the
+                # instantaneous applied-force warm start for online clients.
+                vectors = np.asarray(selection['force_vectors_local']).copy()
+                normals = output[1]
+                coefficients = np.zeros((2, 3))
+                for side, normal in enumerate(normals):
+                    helper = np.array([1., 0., 0.]) if abs(normal[0]) <= .9 else np.array([0., 1., 0.])
+                    tangent = np.cross(normal, helper)
+                    tangent /= np.linalg.norm(tangent)
+                    coefficients[side] = [normal@vectors[side], tangent@vectors[side], np.cross(normal, tangent)@vectors[side]]
+                info = output[4]
+                info['applied_force_warm_start_pose_cost'] = info['pose_cost']
+                info['applied_force_warm_start_cost_reduction'] = info['cost_reduction']
+                info.update(selection_backend='coupled_soft_scm', force_vectors_local=vectors,
+                    contact_forces_local=coefficients, control_input=coefficients,
+                    x_plus_opt=selection['x_plus'].copy(), resulting_pose=selection['x_plus'].copy(),
+                    velocity_next=selection['velocity_next'].copy(), contact_model='coupled_soft_scm',
+                    pose_cost=selection['next_position_cost']+selection['next_orientation_cost'],
+                    cost_reduction=selection['pose_cost_now']-selection['next_position_cost']-selection['next_orientation_cost'],
+                    cost=float(selection['cost']))
+                if 'moment_vectors_local' in selection:
+                    info['moment_vectors_local'] = np.asarray(selection['moment_vectors_local']).copy()
+                self.last_grasp_result.update(info, witness_contact_forces_local=coefficients.copy(),
+                    witness_force_vectors_local=vectors.copy(), total_cost=float(selection['cost']))
+                output = (output[0], output[1], selection['x_plus'].copy(), float(selection['cost']), info)
+        return output
 
     def update_contacts(self, x_d, current_x, *, tips_world, object_inertia,
                         v_obj=None, tau_o=None, prediction_dt=None, lock_contact_pair=False,

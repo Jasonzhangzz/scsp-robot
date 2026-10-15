@@ -7,7 +7,7 @@ import itertools
 import sys
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import casadi as cs
@@ -96,6 +96,76 @@ class IkSolveResult:
     assigned_targets_world: np.ndarray
     solved_tip_positions_world: np.ndarray
     max_self_penetration: float = 0.
+
+
+@dataclass
+class OnlineGraspRecovery:
+    """Debounced loss/drift detection, using simulated rather than wall time."""
+    origin: np.ndarray
+    rotation: np.ndarray
+    dt: float
+    position_threshold: float = .025
+    rotation_threshold: float = .3
+    cooldown: float = 1.
+    stall_timeout: float = 1.
+    elapsed: float = 0.
+    last_replan: float = -np.inf
+    unconfirmed_time: float = 0.
+    touched: bool = False
+    pending_loss: bool = False
+    recovering: bool = False
+    opening: bool = False
+    replan_count: int = 0
+    opening_time: float = 0.
+    opening_timeout: float = 3.
+    repair_time: float = 0.
+
+    def __post_init__(self):
+        self.origin = np.asarray(self.origin, float).reshape(3).copy()
+        self.rotation = np.asarray(self.rotation, float).reshape(3, 3).copy()
+        for name in ('dt', 'position_threshold', 'rotation_threshold', 'stall_timeout', 'opening_timeout'):
+            if not np.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                raise ValueError('Recovery '+name+' must be finite and positive')
+        if not np.isfinite(self.cooldown) or self.cooldown < 0:
+            raise ValueError('Recovery cooldown must be finite and nonnegative')
+
+    def observe(self, pos, rot, *, contacts, was_loaded, loaded, closing, repair_available=False):
+        self.elapsed += self.dt
+        self.opening_time = self.opening_time+self.dt if self.opening else 0.
+        self.touched |= contacts > 0
+        self.pending_loss |= was_loaded and not loaded
+        self.unconfirmed_time = self.unconfirmed_time+self.dt if (self.touched or closing) and not self.opening else 0.
+        if loaded:
+            self.pending_loss = self.recovering = self.opening = False
+            self.unconfirmed_time = 0.
+            self.opening_time = 0.
+            self.repair_time = 0.
+            return None
+        drift = np.linalg.norm(pos-self.origin) >= self.position_threshold
+        rotation_drift = np.linalg.norm(Rotation.from_matrix(rot@self.rotation.T).as_rotvec()) >= self.rotation_threshold
+        reason = None
+        if self.pending_loss:
+            # Give a certified nearby replacement a short chance to make
+            # physical contact before opening and discarding the held pads.
+            self.repair_time = self.repair_time+self.dt if repair_available and contacts >= 2 else 0.
+            if self.repair_time == 0. or self.repair_time >= .5:
+                reason = "lost_grasp"
+        elif drift or rotation_drift:
+            reason = "object_moved"
+        elif self.opening_time >= self.opening_timeout:
+            reason = "blocked_pregrasp"
+        elif self.unconfirmed_time >= self.stall_timeout:
+            reason = "missed_contact" if contacts == 0 else "unconfirmed_grasp"
+        if reason is None or self.elapsed-self.last_replan < self.cooldown:
+            return None
+        self.origin, self.rotation = np.asarray(pos).copy(), np.asarray(rot).copy()
+        self.last_replan, self.unconfirmed_time = self.elapsed, 0.
+        self.pending_loss, self.touched, self.recovering = False, False, True
+        self.opening = True
+        self.opening_time = 0.
+        self.repair_time = 0.
+        self.replan_count += 1
+        return reason
 
 
 @dataclass
@@ -422,6 +492,9 @@ def build_trigrasp_scene_xml(
     tip_center_sites=False,
     point_pads=False,
     tip_radius=.012,
+    contact_cone="pyramidal",
+    contact_impratio=1.,
+    contact_noslip_iterations=0,
 ):
     robot_root = ET.parse(SPIDER_ALLEGRO_XML).getroot()
     robot_body = robot_root.find("./worldbody/body[@name='right_palm']")
@@ -453,6 +526,11 @@ def build_trigrasp_scene_xml(
             "timestep": f"{float(mujoco_timestep):.8f}",
             "iterations": "40",
             "ls_iterations": "80",
+            "cone": contact_cone,
+            "impratio": str(float(contact_impratio)),
+            "solver": "Newton",
+            "noslip_iterations": str(int(contact_noslip_iterations)),
+            "tolerance": "1e-8",
         },
     )
     ET.SubElement(root, "statistic", {"center": format_vec(object_pos), "extent": "0.55"})
@@ -680,6 +758,8 @@ def build_trigrasp_scene_xml(
 
 class AllegroExplicitMPCParams:
     def __init__(self, demo):
+        self.demo = demo
+        self.tip_weight_ = float(demo.args.online_tip_weight)
         self.object_names_ = ["obj"]
         self.h_ = float(demo.command_dt)
         self.frame_skip_ = int(demo.args.mj_steps_per_command)
@@ -752,12 +832,30 @@ class AllegroExplicitMPCParams:
         self.sol_guess_ = None
 
     def build_cost_param_vector(self, target_object_pos, target_object_quat, target_base_pos, target_finger_q):
+        demo = self.demo
+        tips, full_jacobian = demo.online_tip_kinematics()
+        # Legacy staged dynamics keep the palm orientation outside MPC.
+        joint_columns = np.r_[np.arange(3), np.arange(6, demo.model.nu)]
+        tip_jacobian = full_jacobian[:, joint_columns]
+        state = demo.get_mpc_state()
+        anchors = demo.cached_target_points_local.copy()
+        # Follow the pregrasp approach translation; at squeeze/lift these
+        # offsets vanish and the objective is pad-to-object alignment.
+        rotation = quat_wxyz_to_mat(target_object_quat)
+        palm_target = np.asarray(target_object_pos) + rotation @ demo.cached_palm_target_local_pos
+        anchors += (np.asarray(target_base_pos)-palm_target) @ rotation
+        pad_gap = min(float(mujoco.mj_geomDistance(demo.model, demo.data,
+            mujoco.mj_name2id(demo.model, mujoco.mjtObj.mjOBJ_GEOM, TIP_COLLISION_GEOM_NAMES[name]),
+            demo.object_geom_id, 1., None)) for name in demo.active_finger_names)
+        attraction = float(np.clip((pad_gap-.002)/.018, 0., 1.)**2)
         return np.concatenate(
             [
                 np.asarray(target_object_pos, dtype=np.float64).reshape(3),
                 np.asarray(target_object_quat, dtype=np.float64).reshape(4),
                 np.asarray(target_base_pos, dtype=np.float64).reshape(BASE_TRANSLATION_DOF_COUNT),
                 np.asarray(target_finger_q, dtype=np.float64).reshape(self.n_robot_qpos_ - BASE_TRANSLATION_DOF_COUNT),
+                state[7:], tips.reshape(-1), tip_jacobian.reshape(-1, order="F"),
+                anchors.reshape(-1), np.array([attraction]),
             ],
             axis=0,
         )
@@ -774,7 +872,16 @@ class AllegroExplicitMPCParams:
         target_object_quat = cs.SX.sym("target_object_quat", 4)
         target_base_pos = cs.SX.sym("target_base_pos", BASE_TRANSLATION_DOF_COUNT)
         target_finger_q = cs.SX.sym("target_finger_q", self.n_robot_qpos_ - BASE_TRANSLATION_DOF_COUNT)
-        cost_param = cs.vvcat([target_object_pos, target_object_quat, target_base_pos, target_finger_q])
+        hand_reference = cs.SX.sym("hand_reference", self.n_robot_qpos_)
+        tips = cs.SX.sym("measured_tips", 12)
+        tip_jacobian = cs.SX.sym("tip_jacobian", 12, self.n_robot_qpos_)
+        anchors = cs.SX.sym("pad_targets_local", 3, 4)
+        attraction = cs.SX.sym("ik_attraction")
+        cost_param = cs.vvcat([target_object_pos, target_object_quat, target_base_pos, target_finger_q,
+            hand_reference, tips, cs.vec(tip_jacobian), cs.vec(anchors), attraction])
+        predicted_tips = tips + tip_jacobian @ (x[7:]-hand_reference)
+        target_tips = cs.repmat(obj_pose[:3], 1, 4) + rotation_cs(obj_pose[3:7]) @ anchors
+        tip_cost = cs.sumsqr(predicted_tips-cs.vec(target_tips))
 
         position_cost = cs.sumsqr(obj_pose[:3] - target_object_pos)
         quaternion_cost = 1.0 - cs.dot(obj_pose[3:7], target_object_quat) ** 2
@@ -783,15 +890,15 @@ class AllegroExplicitMPCParams:
         control_cost = cs.sumsqr(u)
 
         path_cost = (
-            self.base_track_weight_ * base_track_cost
-            + self.finger_track_weight_ * finger_track_cost
+            self.tip_weight_ * tip_cost
+            + attraction * (self.base_track_weight_ * base_track_cost
+                + self.finger_track_weight_ * finger_track_cost)
             + self.object_pos_weight_ * position_cost
             + self.object_quat_weight_ * quaternion_cost
             + self.u_weight_ * control_cost
         )
         final_cost = self.terminal_weight_ * (
-            self.base_track_weight_ * base_track_cost
-            + self.finger_track_weight_ * finger_track_cost
+            self.tip_weight_ * tip_cost
             + self.object_pos_weight_ * position_cost
             + self.object_quat_weight_ * quaternion_cost
         )
@@ -832,7 +939,7 @@ class AllegroExplicitMPC(MPCExplicit):
 
 
 class AllegroOnlineMPCParams:
-    """Allegro joint IK tracking and object-pose MPC, separate from bigrasp costs."""
+    """Live pad alignment, contact force and object-pose MPC."""
 
     def __init__(self, demo):
         args = demo.args
@@ -866,6 +973,8 @@ class AllegroOnlineMPCParams:
         self.runtime_object_cost_ = True
         self.mpc_carry_velocity_ = False
         self.mpc_compact_dynamics_ = True
+        self.mpc_compact_cost_ = True
+        self.mpc_prune_codegen_ = True
         self.model_params = float(args.contact_stiffness)
         self.mpc_model = "explicit"
         self.planner_solver_ = args.mpc_solver
@@ -895,6 +1004,14 @@ class AllegroOnlineMPCParams:
         self.mpc_q_ub_ = np.r_[self.mpc_q_ub_, demo.hand_joint_ranges[:, 1]]
         import hashlib
         self.cost_tag = hashlib.sha1(np.r_[self.mpc_u_lb_, self.mpc_u_ub_, self.mpc_q_lb_, self.mpc_q_ub_].tobytes()).hexdigest()[:8]
+        self.tip_weight = float(args.online_tip_weight)
+        self.contact_transport_weight = float(args.online_contact_transport_weight)
+        self.contact_transport_distance = float(args.online_contact_transport_distance
+            if args.online_contact_transport_distance is not None
+            else args.online_lift_speed*self.h_*self.mpc_horizon_)
+        self.lift_speed = float(args.online_lift_speed)
+        self.self_collision_weight = float(args.online_self_collision_weight)
+        self.self_collision_clearance = float(args.online_self_collision_clearance)
         self.base_position_weight = float(args.online_base_position_weight)
         self.posture_weight = float(args.online_posture_weight)
         self.posture_weights = np.full(self.n_cmd_, self.posture_weight)
@@ -906,6 +1023,22 @@ class AllegroOnlineMPCParams:
         self.horizontal_recovery_weight = float(args.online_horizontal_recovery_weight)
         self.horizontal_tolerance = float(args.online_max_horizontal_error)
         self.force_tracking_weight = float(args.online_force_tracking_weight)
+        self.force_cost_as_wrench = True
+        self.linearize_force_cost = True
+        self.force_feedback = bool(args.online_force_feedback)
+        self.pressure_control = bool(args.online_pressure_control and args.online_execution == 'position')
+        self.normal_admittance = float(args.online_normal_admittance)
+        self.minimum_normal_force = float(args.online_min_normal_force)
+        self.maximum_normal_force = float(args.lambda_force_limit)/np.sqrt(
+            1+(args.object_friction*args.online_friction_margin)**2)
+        # Compare forces in load units. Dividing by pad stiffness converted
+        # Newtons to metres and effectively removed force tracking from MPC.
+        self.force_residual_scale = 1. / max(self.obj_mass_*9.81, 1e-6)
+        # Shared SCM damping/regularization; the response time is derived
+        # from this scene's MuJoCo solref unless explicitly overridden.
+        self.soft_scm_response_time = float(args.soft_scm_response_time)
+        self.soft_scm_damping_ratio = float(args.soft_scm_damping_ratio)
+        self.soft_scm_regularization = float(args.soft_scm_regularization)
         self.pressure_sync_weight = float(args.online_pressure_sync_weight)
         self.terminal_weight = float(args.mpc_terminal_weight)
         self.action_weight = float(args.mpc_u_weight)
@@ -915,8 +1048,8 @@ class AllegroOnlineMPCParams:
         self.sol_guess_ = None
 
     def init_cost_fns(self):
-        from planning.allegro_mpc_costs import build_allegro_ik_costs
-        return build_allegro_ik_costs(self)
+        from planning.allegro_mpc_costs import build_allegro_contact_costs
+        return build_allegro_contact_costs(self)
 
 
 class AllegroOnlineContactModel(ExplicitModel):
@@ -928,10 +1061,26 @@ class AllegroOnlineContactModel(ExplicitModel):
         self.contact_model = "soft-scm-allegro"
         self.transports_contacts = True
         self.pose_size = 7 + param.n_cmd_
-        self.model_parameter_dim = 1 + self.pose_size + 36 + param.n_cmd_ + 6
+        self.physical_parameter_dim = 1 + self.pose_size + 36 + param.n_cmd_ + 6
+        self.command_parameter_dim = self.physical_parameter_dim + param.n_cmd_**2 + 2*param.n_cmd_
+        n = param.num_contacts
+        self.model_parameter_dim = self.command_parameter_dim + 115+40*n+3*n*param.n_cmd_
+        self.command_projection = np.eye(param.n_cmd_)
+        self.pressure_bias = np.zeros(param.n_cmd_)
+        self.command_limits = np.asarray(getattr(param, 'mpc_u_ub_', np.full(param.n_cmd_, 100.))).copy()
         self.reference = np.zeros(self.pose_size)
         self.reference[3] = 1.
         self.object_inverse = np.linalg.inv(param.obj_inertia_ * param.h_**2)
+        self.object_mass = param.obj_inertia_ * param.h_**2
+        self.grasp_velocity_map = np.zeros((6, 3*n))
+        self.grasp_robot_jac = np.zeros((3*n, param.n_cmd_))
+        self.grasp_inverse = np.eye(6)
+        self.grasp_mobility = np.zeros((6, 6))
+        self.grasp_internal = np.zeros((6, 3*n))
+        self.grasp_reference_force = np.zeros(3*n)
+        self.grasp_normal_limits = np.zeros(n)
+        self.grasp_other_wrench = np.zeros(6)
+        self.grasp_active = False
         self.external_wrench = param.obj_mass_ * param.gravity_
         h = param.h_
         # Lambda supplies ideal point forces; SCM supplies contact impulses.
@@ -973,14 +1122,34 @@ class AllegroOnlineContactModel(ExplicitModel):
         displacement = cs.vertcat(x[:3]-reference[:3], angular,
             x[7:self.pose_size]-reference[7:])
         v = x[self.pose_size:self.pose_size+param.n_qvel_]
-        next_servo_target = x[-param.n_cmd_:] + u
+        cursor = self.physical_parameter_dim
+        projection = cs.reshape(mp[cursor:cursor+param.n_cmd_**2], param.n_cmd_, param.n_cmd_)
+        cursor += param.n_cmd_**2
+        bias, limits = mp[cursor:cursor+param.n_cmd_], mp[cursor+param.n_cmd_:cursor+2*param.n_cmd_]
+        priority = cs.fmin(limits, cs.fmax(-limits, projection[:, :6]@u[:6]+bias))
+        tangent_command = projection[:, 6:]@u[6:]
+        available = cs.if_else(tangent_command >= 0, limits-priority, limits+priority)
+        ratios = cs.if_else(cs.fabs(tangent_command) > 1e-10,
+            available/cs.sqrt(tangent_command*tangent_command+1e-20), 1.)
+        scale = cs.fmin(1., cs.mmin(ratios))
+        command = priority+scale*tangent_command
+        next_servo_target = x[-param.n_cmd_:] + command
+        if hasattr(param, 'mpc_q_lb_'):
+            next_servo_target = cs.fmin(cs.DM(param.mpc_q_ub_[-param.n_cmd_:]),
+                cs.fmax(cs.DM(param.mpc_q_lb_[-param.n_cmd_:]), next_servo_target))
         # Backward Euler for the same position spring/damper executed in
         # MuJoCo. Carry hand momentum; instantaneous u/h was unsafe on the
         # SPIDER joints, whose 1 kg*m^2 armature slows fingertip closing.
         servo_error = next_servo_target-x[7:self.pose_size]
         hand_free = v[6:] + hand_inverse * (h * cs.DM(param.robot_stiff_) @ servo_error - cs.DM(self.robot_response) * v[6:])
         free = cs.vertcat(v[:6] + h * object_inverse @ external, hand_free)
-        a, b = soft_scm_coefficients(h, .05, 1., 1e-8)
+        from models.soft_scm_contact import (
+            SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION)
+        self.soft_scm_response_time = float(getattr(param, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME))
+        self.soft_scm_damping_ratio = float(getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO))
+        self.soft_scm_regularization = float(getattr(param, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION))
+        a, b = soft_scm_coefficients(h, self.soft_scm_response_time,
+            self.soft_scm_damping_ratio, self.soft_scm_regularization)
         # A friction-pyramid row includes tangential velocity. Only its
         # shared normal row changes the separation distance; sliding along
         # a pad must not open two of the four friction constraints.
@@ -989,7 +1158,7 @@ class AllegroOnlineContactModel(ExplicitModel):
             for start in range(0, 4*param.max_ncon_, 4)])
         self.contact_gap_fn = cs.Function("allegro_contact_gaps", [x, phi, jac, mp], [transported_gaps])
         velocity, impulses = grouped_contact_velocity_cs(free, jac, transported_gaps,
-            inverse, h, a, b, 1e-8, return_impulses=True)
+            inverse, h, a, b, self.soft_scm_regularization, return_impulses=True)
         forces = []
         for i in range(param.num_contacts):
             block = jac[4*i:4*i+4,:3]
@@ -998,7 +1167,41 @@ class AllegroOnlineContactModel(ExplicitModel):
             tangents = cs.horzcat((block[0,:]-block[2,:]).T, (block[1,:]-block[3,:]).T)/(2*cs.fmax(mu,1e-10))
             fn, ft = impulses[i]
             forces.append((normal*fn + tangents@ft)/h)
-        self.contact_force_fn = cs.Function("allegro_pad_forces", [x,u,phi,jac,mp], [cs.vertcat(*forces)], {"cse":True})
+        raw_forces = cs.vertcat(*forces)
+        cursor = self.command_parameter_dim
+        def matrix(rows, columns):
+            nonlocal cursor
+            result = cs.reshape(mp[cursor:cursor+rows*columns], rows, columns)
+            cursor += rows*columns
+            return result
+        velocity_map, robot_jac = matrix(6, 3*n), matrix(3*n, param.n_cmd_)
+        object_mass, grasp_inverse, grasp_mobility = matrix(6, 6), matrix(6, 6), matrix(6, 6)
+        internal_map = matrix(6, 3*n)
+        reference_force, normal_limits, other_wrench = matrix(3*n, 1), matrix(n, 1), matrix(6, 1)
+        grasp_active = mp[cursor]
+        from models.allegro_grasp_response import force_limited_grasp_cs
+        current_ref_velocity = cs.vertcat(v[:3], rotation_cs(qr).T@rotation_cs(q)@v[3:6])
+        supported_velocity, supported_forces = force_limited_grasp_cs(velocity, raw_forces,
+            current_ref_velocity, hand_inverse, object_inverse, external, jac, transported_gaps,
+            h=h, friction=float(getattr(param, 'mu_object_', 0.)), velocity_map=velocity_map,
+            robot_jac=robot_jac, object_mass=object_mass, grasp_inverse=grasp_inverse,
+            grasp_mobility=grasp_mobility, internal_map=internal_map,
+            reference_force=reference_force, normal_limits=normal_limits, other_wrench=other_wrench)
+        supported_velocity = cs.vertcat(supported_velocity[:3],
+            rotation_cs(q).T@rotation_cs(qr)@supported_velocity[3:6], supported_velocity[6:])
+        velocity = cs.if_else(grasp_active > .5, supported_velocity, velocity)
+        pad_force = cs.if_else(grasp_active > .5, supported_forces, raw_forces)
+        self.contact_force_fn = cs.Function("allegro_pad_forces", [x,u,phi,jac,mp], [pad_force], {"cse":True})
+        if getattr(param, 'linearize_force_cost', False):
+            seed = cs.SX.sym('force_seed', pad_force.numel())
+            vjp = cs.Function('allegro_force_vjp', [x,u,phi,jac,mp,seed],
+                [cs.jtimes(pad_force, cs.vertcat(x,u), seed, True)], {'cse':True})
+            mx = [cs.MX.sym(name, *value.shape) for name, value in
+                  zip(('fx','fu','fphi','fj','fmp'), (x,u,phi,jac,mp))]
+            basis = cs.DM.eye(pad_force.numel())
+            derivative = cs.vertcat(*[vjp(*mx, basis[:, i]).T for i in range(pad_force.numel())])
+            self.force_linearization_fn = cs.Function('allegro_force_linearization', mx,
+                [self.contact_force_fn(*mx), derivative[:, :param.n_qpos_], derivative[:, param.n_qpos_:]])
         omega = velocity[3:6]
         next_q = q + .5*h*cs.vertcat(-cs.dot(q[1:], omega), q[0]*omega + cs.cross(q[1:], omega))
         next_q /= cs.sqrt(cs.sumsqr(next_q) + 1e-20)
@@ -1010,7 +1213,23 @@ class AllegroOnlineContactModel(ExplicitModel):
 
     def runtime_parameters(self, sigma):
         return np.r_[float(sigma), self.reference, self.object_inverse.reshape(-1, order="F"),
-            self.robot_inverse, self.external_wrench]
+            self.robot_inverse, self.external_wrench, self.command_projection.reshape(-1, order='F'),
+            self.pressure_bias, self.command_limits,
+            self.grasp_velocity_map.reshape(-1, order='F'), self.grasp_robot_jac.reshape(-1, order='F'),
+            self.object_mass.reshape(-1, order='F'), self.grasp_inverse.reshape(-1, order='F'),
+            self.grasp_mobility.reshape(-1, order='F'), self.grasp_internal.reshape(-1, order='F'),
+            self.grasp_reference_force, self.grasp_normal_limits, self.grasp_other_wrench,
+            float(self.grasp_active)]
+
+    def effective_command(self, action):
+        action = np.asarray(action)
+        priority = np.clip(self.command_projection[:, :6]@action[:6]+self.pressure_bias,
+            -self.command_limits, self.command_limits)
+        tangent = self.command_projection[:, 6:]@action[6:]
+        available = np.where(tangent >= 0, self.command_limits-priority, self.command_limits+priority)
+        ratios = np.where(np.abs(tangent) > 1e-10, available/np.sqrt(tangent*tangent+1e-20), 1.)
+        scale = min(1., float(np.min(ratios)))
+        return priority+scale*tangent
 
 
 class AllegroOnlineMPC(MPCExplicit):
@@ -1022,16 +1241,21 @@ class AllegroOnlineMPC(MPCExplicit):
         self.terminal_residual_fn = param.terminal_residual_fn
         super().__init__(param, cost_kind="param", model=physics)
         self.stage_cost_on_next = False
+        self.pressure_floor = None
+        self.pressure_reference = None
 
-    def plan_ik_pose(self, state, phi, jac, *, goal, hand_posture, loaded, approach_origin=None,
+    def plan_contacts(self, state, phi, jac, *, tips, tip_jacobian, anchors,
+                      goal, hand_posture, loaded, approach_origin=None,
                       object_inertia=None, external_wrench=None, hand_mass_diagonal=None,
-                      desired_force_local=None, sol_guess=None):
+                      desired_force_local=None, measured_force_world=None, pressure_control_allowed=True,
+                      other_hand_wrench_world=None, grasp_established=None, sol_guess=None):
         state = np.asarray(state, float).reshape(self.param_.n_qpos_)
         self.model.reference = state[:self.model.pose_size].copy()
         if hand_mass_diagonal is not None:
             self.model.robot_inverse = 1. / (np.asarray(hand_mass_diagonal, float).reshape(self.param_.n_cmd_) + self.model.robot_response)
         if object_inertia is not None:
-            self.model.object_inverse = np.linalg.inv(np.asarray(object_inertia, float).reshape(6, 6))
+            self.model.object_mass = np.asarray(object_inertia, float).reshape(6, 6).copy()
+            self.model.object_inverse = np.linalg.inv(self.model.object_mass)
         if external_wrench is not None:
             self.model.external_wrench = np.asarray(external_wrench, float).reshape(6).copy()
             self.model.external_wrench[3:] = quat_wxyz_to_mat(state[3:7]).T @ self.model.external_wrench[3:]
@@ -1046,18 +1270,137 @@ class AllegroOnlineMPC(MPCExplicit):
             # and let an early thumb contact push the index patch away.
             lower, upper = origin[:2] - tolerance, origin[:2] + tolerance
         self._horizontal_bounds = np.stack((lower, upper))
-        cp = np.r_[goal, hand_posture, float(loaded), lower, upper]
-        if self.param_.cost_uses_force_reference:
+        tips = np.asarray(tips, float).reshape(self.param_.num_contacts, 3)
+        tip_jacobian = np.asarray(tip_jacobian, float).reshape(3*self.param_.num_contacts, self.param_.n_cmd_)
+        anchors = np.asarray(anchors, float).reshape(self.param_.num_contacts, 3)
+        gaps = np.asarray(phi).reshape(-1, 4)[:self.param_.num_contacts].mean(axis=1)
+        near_contact = np.min(gaps) <= .02
+        self.model.command_limits = (self.param_.contact_u_limit if near_contact else self.param_.mpc_u_ub_).copy()
+        self.model.command_projection = np.eye(self.param_.n_cmd_)
+        self.model.pressure_bias = np.zeros(self.param_.n_cmd_)
+        self.pressure_reference = None
+        self.model.grasp_active = bool((loaded if grasp_established is None else grasp_established)
+            and pressure_control_allowed and measured_force_world is not None)
+        if (self.param_.pressure_control and pressure_control_allowed and measured_force_world is not None
+                and (loaded or (np.count_nonzero(gaps <= 0) >= 2
+                    and np.max(gaps) <= .02))):
+            from planning.grasp_force_allocation import normal_pressure_command
+            normals = np.asarray(jac).reshape(-1, 4, self.param_.n_qvel_)[:self.param_.num_contacts, :, :3].mean(axis=1)
+            measured = np.einsum('ij,ij->i', normals, np.asarray(measured_force_world))
+            if self.pressure_floor is None:
+                self.pressure_floor = np.full(self.param_.num_contacts, self.param_.minimum_normal_force)
+            desired = self.pressure_floor.copy()
+            if desired_force_local is not None:
+                desired = np.maximum(desired, np.einsum('ij,ij->i', normals,
+                    np.asarray(desired_force_local)@quat_wxyz_to_mat(state[3:7]).T))
+            desired = np.clip(desired, self.param_.minimum_normal_force, self.param_.maximum_normal_force)
+            self.pressure_reference = desired.copy()
+            self.model.command_projection, self.model.pressure_bias = normal_pressure_command(
+                tip_jacobian, normals, measured, desired, self.param_.normal_admittance,
+                float(self.param_.contact_u_limit[:3].min()), grasp_established=self.model.grasp_active)
+        elif not pressure_control_allowed:
+            self.pressure_floor = None
+            self.pressure_reference = None
+        if self.model.grasp_active:
+            from models.allegro_grasp_response import grasp_operators
+            grasp_jac = np.asarray(jac).copy()
+            normal_rows = grasp_jac.reshape(-1, 4, self.param_.n_qvel_)[:self.param_.num_contacts, :, :3].mean(axis=1)
+            active = (gaps <= 0) & (np.einsum('ij,ij->i', normal_rows, np.asarray(measured_force_world)) > .01)
+            for i in np.flatnonzero(~active):
+                grasp_jac[4*i:4*i+4] = 0.
+            (self.model.grasp_velocity_map, self.model.grasp_robot_jac,
+             self.model.grasp_inverse, self.model.grasp_mobility,
+             self.model.grasp_internal) = grasp_operators(grasp_jac, self.model.robot_inverse,
+                 self.model.object_mass, self.param_.num_contacts)
+            self.model.grasp_reference_force = np.asarray(measured_force_world).reshape(-1).copy()
+            normals = np.asarray(jac).reshape(-1, 4, self.param_.n_qvel_)[:self.param_.num_contacts, :, :3].mean(axis=1)
+            self.model.grasp_normal_limits = np.maximum(np.einsum('ij,ij->i', normals,
+                np.asarray(measured_force_world)), 0.)
+            self.model.grasp_reference_force.reshape(-1, 3)[~active] = 0.
+            other = np.zeros(6) if other_hand_wrench_world is None else np.asarray(other_hand_wrench_world)
+            self.model.grasp_other_wrench = np.r_[other[:3], quat_wxyz_to_mat(state[3:7]).T@other[3:]]
+        # Fade the IK attractor over the last 2 cm and remove it before
+        # any pad touches, freeing all coupled DOFs to establish contact.
+        gap = float(np.min(np.asarray(phi)[:4*self.param_.num_contacts]))
+        attraction = float(np.clip((gap-.002)/.018, 0., 1.)**2)
+        cp = np.r_[goal, hand_posture, float(loaded), lower, upper,
+            state[7:7+self.param_.n_cmd_], tips.reshape(-1),
+            tip_jacobian.reshape(-1, order="F"), anchors.reshape(-1), attraction]
+        if self.param_.cost_uses_contact_geometry:
             cp = np.r_[cp, np.zeros(3*self.param_.num_contacts) if desired_force_local is None
                 else np.asarray(desired_force_local).reshape(-1), phi,
                 np.asarray(jac).reshape(-1, order="F"), self.model.runtime_parameters(self.param_.model_params)]
+        if self.param_.cost_linearizes_force:
+            force_action = np.zeros(self.param_.n_cmd_)
+            if sol_guess is not None:
+                controls = np.asarray(sol_guess['x0']).reshape(self.param_.mpc_horizon_, -1)[:, :self.param_.n_cmd_]
+                force_action = controls[min(1, len(controls)-1)].copy()
+                force_action = np.clip(force_action, -self.param_.contact_u_limit, self.param_.contact_u_limit)
+            force_value, force_jx, force_ju = self.model.force_linearization_fn(state, force_action, phi, jac,
+                self.model.runtime_parameters(self.param_.model_params))
+            feedback_data = None
+            if self.param_.cost_force_feedback_offset is not None:
+                raw_baseline = np.asarray(self.model.contact_force_fn(state, np.zeros(self.param_.n_cmd_),
+                    phi, jac, self.model.runtime_parameters(self.param_.model_params))).reshape(-1, 3)
+                measured_force = raw_baseline if measured_force_world is None else np.asarray(measured_force_world).reshape(-1, 3)
+                normals = np.asarray(jac).reshape(-1, 4, self.param_.n_qvel_)[:self.param_.num_contacts, :, :3].mean(axis=1)
+                raw_normal = np.sum(raw_baseline*normals, axis=1)
+                actual_normal = np.sum(measured_force*normals, axis=1)
+                gain = np.ones(self.param_.num_contacts) if measured_force_world is None else np.clip(
+                    actual_normal/np.maximum(raw_normal, .01), .2, 50.)
+                row_gain = np.repeat(gain, 3)
+                force_value = measured_force.reshape(-1)+row_gain*(np.asarray(force_value).reshape(-1)-raw_baseline.reshape(-1))
+                force_jx = row_gain[:, None]*np.asarray(force_jx)
+                force_ju = row_gain[:, None]*np.asarray(force_ju)
+                feedback_data = np.r_[gain, raw_baseline.reshape(-1), measured_force.reshape(-1)]
+            cp = np.r_[cp, state, force_action, np.asarray(force_value).reshape(-1),
+                np.asarray(force_jx).reshape(-1, order='F'), np.asarray(force_ju).reshape(-1, order='F')]
+            if feedback_data is not None:
+                cp = np.r_[cp, feedback_data]
         n, nu = self.param_.mpc_horizon_, self.param_.n_cmd_
         near_contact = np.min(np.asarray(phi)[:4*self.param_.num_contacts]) <= .02
         u_ub = self.param_.contact_u_limit if near_contact else self.param_.mpc_u_ub_
         u_lb = -u_ub
+        mp = self.model.runtime_parameters(self.param_.model_params)
+
+        def rollout_score(commands):
+            from planning.allegro_mpc_costs import contact_cost_parameters_at_state
+            current, trajectory, cost = state.copy(), [], 0.
+            for command in commands:
+                exact_cp = contact_cost_parameters_at_state(cp, current, command,
+                    self.model, phi, jac, mp, self.param_.cost_force_linearization_offset,
+                    self.param_.cost_force_feedback_offset)
+                cost += float(self.path_cost_fn(current, command, exact_cp))
+                current = np.asarray(self.model.prediction_fn(current, command, phi, jac, mp)).reshape(-1)
+                trajectory.append(current.copy())
+                if not np.isfinite(current).all():
+                    return np.inf, trajectory
+            cost += float(self.final_cost_fn(current, cp))
+            return cost, trajectory
+
+        # Use IK for distant approach initialization only. Near contact,
+        # seed and rescue the solve from the measured pad residual, so a
+        # changed contact target can move joints away from the startup IK.
+        alignment_controls, current = [], state.copy()
+        for _ in range(n):
+            predicted_tips = tips + (tip_jacobian @ (current[7:7+nu]-state[7:7+nu])).reshape(-1, 3)
+            target_tips = current[:3] + anchors @ quat_wxyz_to_mat(current[3:7]).T
+            error = (target_tips-predicted_tips).reshape(-1)
+            delta_q = tip_jacobian.T @ np.linalg.solve(
+                tip_jacobian @ tip_jacobian.T + 1e-5*np.eye(error.size), error)
+            gaps = np.asarray(self.model.contact_gap_fn(current, phi, jac, mp)).reshape(-1)
+            gate = 0. if loaded else min(attraction,
+                float(np.clip((np.min(gaps[:4*self.param_.num_contacts])-.002)/.018, 0., 1.)**2))
+            target_q = current[7:7+nu] + delta_q
+            target_q = gate*np.asarray(hand_posture) + (1-gate)*target_q
+            command = np.clip(.25*(target_q-current[-nu:]), u_lb, u_ub)
+            command = np.clip(command, self.param_.mpc_q_lb_[-nu:]-current[-nu:],
+                self.param_.mpc_q_ub_[-nu:]-current[-nu:])
+            alignment_controls.append(command)
+            current = np.asarray(self.model.prediction_fn(current, command, phi, jac, mp)).reshape(-1)
+        alignment_controls = np.asarray(alignment_controls)
         if sol_guess is None:
-            increment = np.asarray(hand_posture)-state[-nu:]
-            controls = np.tile(np.clip(.25 * increment, u_lb, u_ub), (n, 1))
+            controls = alignment_controls
         else:
             controls = np.asarray(sol_guess["x0"]).reshape(n, nu+self.param_.n_qpos_)[:, :nu]
             controls = np.vstack((controls[1:], controls[-1:]))
@@ -1074,34 +1417,22 @@ class AllegroOnlineMPC(MPCExplicit):
         success = result.get("solver_backend") == "acados" or result["solve_status"] in {
             "Solve_Succeeded", "Solved_To_Acceptable_Level"}
         if not success or not np.isfinite(result["action"]).all():
-            # A fresh IK posture correction is independent of a failed NLP
-            # iterate. Accept it only if the same model predicts lower cost.
-            correction = np.asarray(hand_posture)-state[-nu:]
-            command = np.clip(.25 * correction, u_lb, u_ub)
-            command = np.clip(command, self.param_.mpc_q_lb_[-nu:] - state[-nu:], self.param_.mpc_q_ub_[-nu:] - state[-nu:])
-            zero = np.zeros(nu)
-            def score(action):
-                next_state = self.model.prediction_fn(state, action, phi, jac,
-                    self.model.runtime_parameters(self.param_.model_params))
-                return float(self.path_cost_fn(next_state, action, cp))
-            result["action"] = command if np.isfinite(score(command)) and score(command) < score(zero) else zero
-            result["fallback_control"] = "ik_posture_correction"
+            # Compare complete horizons, including force/object costs, rather
+            # than executing an unverified correction on solver failure.
+            value, trajectory = rollout_score(alignment_controls)
+            zero = np.zeros_like(alignment_controls)
+            baseline, zero_trajectory = rollout_score(zero)
+            selected = alignment_controls if np.isfinite(value) and value < baseline else zero
+            if selected is zero:
+                trajectory = zero_trajectory
+            result.update(action=selected[0].copy(), u_traj=selected,
+                rollout_q=np.asarray(trajectory))
+            result["fallback_control"] = "contact_alignment_correction"
             result["sol_guess"] = None
         elif result.get("solver_backend") == "acados":
             # One RTI QP can overshoot a contact-mode boundary. Evaluate
             # bounded backtracking candidates using the actual nonlinear
             # horizon, retaining the measured state and contact geometry.
-            mp = self.model.runtime_parameters(self.param_.model_params)
-            def rollout_score(commands):
-                current, trajectory, cost = state.copy(), [], 0.
-                for command in commands:
-                    cost += float(self.path_cost_fn(current, command, cp))
-                    current = np.asarray(self.model.prediction_fn(current, command, phi, jac, mp)).reshape(-1)
-                    trajectory.append(current.copy())
-                    if not np.isfinite(current).all():
-                        return np.inf, trajectory
-                cost += float(self.final_cost_fn(current, cp))
-                return cost, trajectory
             proposed = np.asarray(result["u_traj"]).reshape(n, nu)
             best_controls = np.zeros_like(proposed)
             best_cost, best_trajectory = rollout_score(best_controls)
@@ -1111,33 +1442,34 @@ class AllegroOnlineMPC(MPCExplicit):
                 value, trajectory = rollout_score(candidate)
                 if np.isfinite(value) and value < best_cost:
                     best_cost, best_trajectory, best_controls, best_alpha = value, trajectory, candidate, alpha
-            # A successful RTI status does not imply a useful step near a
-            # contact-mode change. Also evaluate a bounded IK correction
-            # against the same contact dynamics and complete MPC objective.
-            correction_controls, servo = [], state[-nu:].copy()
-            for _ in range(n):
-                command = np.clip(.25*(np.asarray(hand_posture)-servo),
-                    u_lb, u_ub)
-                command = np.clip(command, self.param_.mpc_q_lb_[-nu:]-servo,
-                    self.param_.mpc_q_ub_[-nu:]-servo)
-                correction_controls.append(command)
-                servo += command
-            correction_controls = np.asarray(correction_controls)
-            value, trajectory = rollout_score(correction_controls)
+            value, trajectory = rollout_score(alignment_controls)
             if np.isfinite(value) and value < best_cost:
-                best_cost, best_trajectory, best_controls = value, trajectory, correction_controls
+                best_cost, best_trajectory, best_controls = value, trajectory, alignment_controls
                 best_alpha = None
-                result["selected_control"] = "ik_correction_by_mpc_cost"
+                result["selected_control"] = "contact_alignment_by_mpc_cost"
+            if self.model.grasp_active:
+                # Seed a motion of the existing grasp as a rigid body. The
+                # normal-pressure map retains preload; prospective
+                # pads are not assumed to transmit forces in the rollout.
+                lift_command = np.zeros(nu)
+                delta = np.asarray(goal)[:3]-state[:3]
+                lift_command[:3] = delta*min(1., self.param_.h_*self.param_.lift_speed/
+                    max(np.linalg.norm(delta), 1e-10))
+                lift_command = np.clip(lift_command, u_lb, u_ub)
+                for scale in (1., .5, .25):
+                    candidate = np.tile(scale*lift_command, (n, 1))
+                    value, trajectory = rollout_score(candidate)
+                    if np.isfinite(value) and value < best_cost:
+                        best_cost, best_trajectory, best_controls = value, trajectory, candidate
+                        best_alpha = None
+                        result['selected_control'] = 'grasp_transport_by_mpc_cost'
             result.update(action=best_controls[0].copy(), u_traj=best_controls,
                 rollout_q=np.asarray(best_trajectory), nonlinear_step_scale=best_alpha)
             result["sol_guess"] = dict(x0=np.column_stack((best_controls, best_trajectory)).reshape(-1),
                 u_traj=best_controls, x_traj=np.vstack((state, best_trajectory)))
+        result['applied_action'] = self.model.effective_command(result['action'])
         return result
 
-    def plan_contacts(self, state, phi, jac, *, tips=None, tip_jacobian=None,
-                      anchors=None, reach_pose=None, object_velocity=None, **kwargs):
-        """Compatibility entry point; contact targets do not enter the cost."""
-        return self.plan_ik_pose(state, phi, jac, **kwargs)
 
 
 class MujocoWarpGraspRolloutController:
@@ -1467,11 +1799,17 @@ class MujocoWarpGraspRolloutController:
             tip_cost = torch.mean(torch.linalg.norm(tip_pos - target_tip_world, dim=2), dim=1)
 
         closure_cost, active_count, force_by_finger = self._force_closure_surrogate_cost(obj_pos)
+        # Joint attraction helps distant approach samples only. Once any
+        # pad carries force the rollout is ranked by contact/object costs.
+        attraction = (active_count == 0).float()
+        if target_tip_world is not None:
+            nearest_tip_error = torch.linalg.norm(tip_pos-target_tip_world, dim=2).amin(dim=1)
+            attraction *= torch.clamp((nearest_tip_error-.002)/.018, 0., 1.).square()
         total_cost = (
             float(self.args.mjwp_object_cost_weight) * obj_pos_cost
             + float(self.args.mjwp_object_quat_cost_weight) * obj_quat_cost
-            + float(self.args.mjwp_base_cost_weight) * base_cost
-            + float(self.args.mjwp_finger_cost_weight) * finger_cost
+            + attraction * (float(self.args.mjwp_base_cost_weight) * base_cost
+                + float(self.args.mjwp_finger_cost_weight) * finger_cost)
             + float(self.args.mjwp_tip_cost_weight) * tip_cost
             + float(force_cost_weight) * closure_cost
         )
@@ -1604,7 +1942,7 @@ class AllegroTabletopTrigraspDemo:
             raise ValueError("The legacy staged controller requires four fingertips.")
         self.active_finger_names = FINGER_NAMES[:int(args.num_grasp_contacts)]
         if args.lift_contact_fingers is None:
-            args.lift_contact_fingers = len(self.active_finger_names) if args.controller == "online" else 3
+            args.lift_contact_fingers = 3
         if int(args.lift_contact_fingers) > len(self.active_finger_names):
             raise ValueError("--lift-contact-fingers exceeds the number of active fingers.")
         if int(args.lift_contact_fingers) < 1 or int(args.lift_contact_fingers) > len(FINGER_NAMES):
@@ -1615,14 +1953,31 @@ class AllegroTabletopTrigraspDemo:
         if args.mpc_max_contacts is None:
             args.mpc_max_contacts = 12 if args.controller == "online" else 24
         if args.controller == "online":
+            if args.contact_noslip_iterations < 0:
+                raise ValueError("--contact-noslip-iterations must be nonnegative")
             positive = ("mpc_horizon", "mpc_max_contacts", "mpc_ipopt_max_iter", "lambda_lm_iters",
                 "max_point_combination_eval", "ik_contact_candidates", "ik_startup_time_budget", "online_tip_radius", "online_pad_stiffness",
                 "online_lift_speed", "online_horizontal_recovery_weight", "online_max_horizontal_error",
                 "online_contact_base_speed", "online_contact_rotation_speed", "online_contact_joint_speed", "online_pregrasp_clearance",
-                "mpc_rotation_step_limit", "mpc_base_step_limit", "mpc_velocity_limit", "goal_tolerance")
+                "mpc_rotation_step_limit", "mpc_base_step_limit", "mpc_velocity_limit", "goal_tolerance",
+                "contact_impratio", "online_normal_admittance", "online_local_contact_distance", "lambda_force_limit")
             for name in positive:
                 if not np.isfinite(getattr(args, name)) or getattr(args, name) <= 0:
                     raise ValueError(f"--{name.replace('_', '-')} must be finite and positive")
+            for name in ("online_tip_weight", "online_contact_transport_weight", "online_self_collision_weight",
+                         "online_self_collision_clearance", "online_force_tracking_weight", "online_pressure_sync_weight",
+                         "online_posture_weight", "online_base_position_weight", "online_palm_orientation_weight",
+                         "online_min_normal_force"):
+                if not np.isfinite(getattr(args, name)) or getattr(args, name) < 0:
+                    raise ValueError(f"--{name.replace('_', '-')} must be finite and nonnegative")
+            if not np.isfinite(args.online_friction_margin) or not 0 < args.online_friction_margin <= 1:
+                raise ValueError("--online-friction-margin must be in (0, 1]")
+            normal_budget = args.lambda_force_limit/np.sqrt(1+(args.object_friction*args.online_friction_margin)**2)
+            if args.online_min_normal_force > normal_budget:
+                raise ValueError("--online-min-normal-force exceeds the Lambda normal-force budget")
+            if args.online_contact_transport_distance is not None and (
+                    not np.isfinite(args.online_contact_transport_distance) or args.online_contact_transport_distance <= 0):
+                raise ValueError("--online-contact-transport-distance must be finite and positive")
             if args.max_steps is not None and args.max_steps < 1:
                 raise ValueError("--max-steps must be positive")
             if not 0 <= args.squeeze_depth < args.online_tip_radius:
@@ -1694,10 +2049,18 @@ class AllegroTabletopTrigraspDemo:
             tip_center_sites=(args.controller == "online"),
             point_pads=(args.controller == "online" and args.online_point_pads),
             tip_radius=args.online_tip_radius,
+            contact_cone="elliptic" if args.controller == "online" else "pyramidal",
+            contact_impratio=args.contact_impratio if args.controller == "online" else 1.,
+            contact_noslip_iterations=args.contact_noslip_iterations if args.controller == "online" else 0,
         )
 
         self.model = mujoco.MjModel.from_xml_path(str(self.scene_path))
         self.model.opt.timestep = float(args.mujoco_dt)
+        execution_noslip_iterations = int(self.model.opt.noslip_iterations)
+        # Keep the startup resting pose/IK inputs independent of the online
+        # friction refinement. NoSlip is needed for the subsequent grasp,
+        # not for selecting a different initial pedestal equilibrium.
+        self.model.opt.noslip_iterations = 0
         if bool(args.show):
             self.model.opt.gravity[:] = 0.0
         self.data = mujoco.MjData(self.model)
@@ -1788,6 +2151,11 @@ class AllegroTabletopTrigraspDemo:
         self.maybe_launch_viewer()
 
         self.command_dt = max(int(args.mj_steps_per_command), 1) * float(self.model.opt.timestep)
+        if args.soft_scm_response_time is None:
+            # Match the simulator's contact time scale; the shared .05 s
+            # quasi-dynamic default is not the MuJoCo .02 s material setting.
+            args.soft_scm_response_time = max(2*float(self.model.opt.timestep),
+                float(self.model.geom_solref[self.object_geom_id, 0]))
         if args.lambda_prediction_dt is None:
             args.lambda_prediction_dt = self.command_dt
         if not np.isfinite(args.lambda_prediction_dt) or args.lambda_prediction_dt <= 0:
@@ -1859,6 +2227,7 @@ class AllegroTabletopTrigraspDemo:
                 except Exception as exc:
                     print(f"Warning: MJWP sampling rollout is disabled: {exc}")
         self.reset(self.initial_object_pos, self.initial_object_quat, self.default_hand_q)
+        self.model.opt.noslip_iterations = execution_noslip_iterations
 
     def close(self):
         if self.video_recorder is not None:
@@ -1934,7 +2303,7 @@ class AllegroTabletopTrigraspDemo:
         )
 
     def _resolve_video_output_path(self):
-        if bool(getattr(self.args, "no_video", False)):
+        if not bool(getattr(self.args, "save", False)) or bool(getattr(self.args, "no_video", False)):
             return None
         if getattr(self.args, "video_output_path", None) is not None:
             return Path(self.args.video_output_path).expanduser()
@@ -2040,6 +2409,11 @@ class AllegroTabletopTrigraspDemo:
         self.reset(self.initial_object_pos, self.initial_object_quat, hand_qpos)
 
     def reset(self, object_pos, object_quat, hand_qpos):
+        self.online_local_points = np.full((len(self.active_finger_names), 3), np.nan)
+        self.online_local_normals = np.full_like(self.online_local_points, np.nan)
+        self.online_sticking_anchors = np.full_like(self.online_local_points, np.nan)
+        if hasattr(self, 'mpc'):
+            self.mpc.pressure_floor = None
         self.data.qpos[:] = self.model.qpos0
         self.data.qvel[:] = 0.0
         self.data.ctrl[:] = 0.0
@@ -2221,6 +2595,8 @@ class AllegroTabletopTrigraspDemo:
         pos, _, rotation = self.get_object_pose()
         rows = 4*self.mpc_param.max_ncon_
         phi, jac = np.ones(rows), np.zeros((rows, self.mpc_param.n_qvel_))
+        self.online_contact_points_local = np.full((len(self.active_finger_names), 3), np.nan)
+        self.online_contact_normals_local = np.full_like(self.online_contact_points_local, np.nan)
         for index, name in enumerate(self.active_finger_names):
             geom = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, TIP_COLLISION_GEOM_NAMES[name])
             fromto = np.zeros(6)
@@ -2239,6 +2615,8 @@ class AllegroTabletopTrigraspDemo:
                     normal *= -1
             if np.linalg.norm(normal) < .5:
                 continue
+            self.online_contact_points_local[index] = (point-pos) @ rotation
+            self.online_contact_normals_local[index] = normal @ rotation
             block, _ = support_jacobians(pos, rotation, point, self.mpc_param.n_qvel_,
                 self.mpc_param.mu_object_, normal)
             jp = np.zeros((3, self.model.nv))
@@ -2284,17 +2662,38 @@ class AllegroTabletopTrigraspDemo:
             if other not in extra or contact.dist < extra[other][0]:
                 extra[other] = (float(contact.dist), np.asarray(contact.pos).copy(), normal, body)
         slot = start+4
+        candidates = {key: (float(c.dist), np.asarray(c.pos).copy(), np.asarray(c.frame[:3]).copy(),
+            int(c.geom1), int(c.geom2)) for key, c in self_contacts.items()}
+        # Add separated inter-finger patches before impact, so the optimizer
+        # does not use joint nullspace freedom to collide neighbouring links.
+        finger_geoms = []
+        for geom in self.hand_collision_geom_ids:
+            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ''
+            finger = next((f for f in FINGER_NAMES if f'_{f}_' in name), None)
+            if finger is not None:
+                finger_geoms.append((geom, finger))
+        margin = max(self.args.online_self_collision_clearance*2, .003)
+        for (first_geom, first_finger), (second_geom, second_finger) in itertools.combinations(finger_geoms, 2):
+            if first_finger == second_finger or tuple(sorted((first_geom, second_geom))) in candidates:
+                continue
+            segment = np.zeros(6)
+            gap = float(mujoco.mj_geomDistance(self.model, self.data, first_geom, second_geom, margin, segment))
+            if gap >= margin:
+                continue
+            normal = normalize(segment[3:]-segment[:3])
+            if np.linalg.norm(normal) > .5:
+                candidates[tuple(sorted((first_geom, second_geom)))] = (
+                    gap, .5*(segment[:3]+segment[3:]), normal, first_geom, second_geom)
         # Robot-only normal constraints transmit no force to the object.
         # Omitting these let MPC predict that blocked fingers could move.
-        for contact in sorted(self_contacts.values(), key=lambda c:c.dist):
+        for gap, point, normal, first_geom, second_geom in sorted(candidates.values(), key=lambda c:c[0]):
             if slot >= self.mpc_param.max_ncon_:
                 break
             first, second = np.zeros((3, self.model.nv)), np.zeros((3, self.model.nv))
-            point = np.asarray(contact.pos)
-            mujoco.mj_jac(self.model, self.data, first, None, point, int(self.model.geom_bodyid[contact.geom1]))
-            mujoco.mj_jac(self.model, self.data, second, None, point, int(self.model.geom_bodyid[contact.geom2]))
-            normal_row = np.asarray(contact.frame[:3])@(second-first)[:, self.hand_dof_adr]
-            phi[4*slot:4*slot+4] = float(contact.dist)
+            mujoco.mj_jac(self.model, self.data, first, None, point, int(self.model.geom_bodyid[first_geom]))
+            mujoco.mj_jac(self.model, self.data, second, None, point, int(self.model.geom_bodyid[second_geom]))
+            normal_row = normal@(second-first)[:, self.hand_dof_adr]
+            phi[4*slot:4*slot+4] = gap
             jac[4*slot:4*slot+4, 6:] = normal_row
             slot += 1
         for gap, point, normal, body in sorted(extra.values(), key=lambda c:c[0]):
@@ -2481,6 +2880,7 @@ class AllegroTabletopTrigraspDemo:
         q_nominal = q.copy()
         best_payload = None
         best_score = np.inf
+        best_feasible = False
         identity = np.eye(self.hand_dof_adr.size, dtype=np.float64)
         regularization_weights = np.concatenate(
             [
@@ -2594,10 +2994,18 @@ class AllegroTabletopTrigraspDemo:
                     (int(c.geom2) if c.geom1==self.object_geom_id else int(c.geom1)) not in pads and
                     int(self.model.geom_bodyid[int(c.geom2) if c.geom1==self.object_geom_id else int(c.geom1)]) not in (0, mujoco.mj_name2id(self.model,mujoco.mjtObj.mjOBJ_BODY,"pedestal")))
                 score += 2*depth
-            if score < best_score:
-                if best_score - score > 1e-5:
+            tip_tolerance = self.args.online_ik_tip_tolerance if self.args.controller == "online" else float(self.args.ik_tip_tol)
+            max_tip_tolerance = tip_tolerance*1.5
+            feasible = (mean_tip_error <= tip_tolerance and max_tip_error <= max_tip_tolerance
+                and alignment >= .75 and max_self_penetration <= 1e-4)
+            # A lower palm/posture score must not displace a seed that
+            # already passes the reachability and collision requirements.
+            if (best_payload is None or (feasible and not best_feasible)
+                    or (feasible == best_feasible and score < best_score)):
+                if feasible != best_feasible or best_score - score > 1e-5:
                     last_improvement = iteration
                 best_score = score
+                best_feasible = feasible
                 best_payload = (
                     q.copy(),
                     mean_tip_error,
@@ -2607,9 +3015,7 @@ class AllegroTabletopTrigraspDemo:
                     tip_positions.copy(),
                     max_self_penetration,
                 )
-            tip_tolerance = self.args.online_ik_tip_tolerance if self.args.controller == "online" else float(self.args.ik_tip_tol)
-            max_tip_tolerance = tip_tolerance*1.5
-            if mean_tip_error <= tip_tolerance and max_tip_error <= max_tip_tolerance and alignment >= .75 and max_self_penetration <= 1e-4:
+            if feasible:
                 break
             if self.args.controller == "online" and iteration - last_improvement >= 15:
                 break
@@ -2977,6 +3383,169 @@ class AllegroTabletopTrigraspDemo:
             jacobians.append(jp[:, self.hand_dof_adr])
         return np.asarray(tips), np.vstack(jacobians)
 
+    def refine_online_contact_patches(self, points, normals, phi, tips, tip_jac, external):
+        """Adopt reachable nearby patches while preserving existing contacts.
+
+        Certificates on prospective patches are predictive only. The lift
+        audit and contact model continue to use measured physical contacts.
+        """
+        n = len(points)
+        if not hasattr(self, 'online_local_points') or self.online_local_points.shape != (n, 3):
+            self.online_local_points = np.full((n, 3), np.nan)
+            self.online_local_normals = np.full((n, 3), np.nan)
+        selected, directions = np.asarray(points).copy(), np.asarray(normals).copy()
+        saved = np.isfinite(self.online_local_points).all(axis=1)
+        selected[saved], directions[saved] = self.online_local_points[saved], self.online_local_normals[saved]
+        gaps = np.asarray(phi).reshape(-1, 4)[:n, 0]
+        summary = self.get_fingertip_contact_summary()
+        touching = (gaps <= 0) & np.array([summary[name] > self.args.contact_force_threshold
+                                         for name in self.active_finger_names])
+        valid = np.isfinite(self.online_contact_points_local).all(axis=1)
+        selected[touching & valid] = self.online_contact_points_local[touching & valid]
+        directions[touching & valid] = self.online_contact_normals_local[touching & valid]
+        candidates = (~touching) & valid & (gaps <= self.args.online_local_contact_distance)
+        reachable = np.zeros(n, bool)
+        pos, quat, rotation = self.get_object_pose()
+        hand = self.get_hand_qpos()
+        depth = min(self.args.squeeze_depth, .0005)
+        baseline_self = max((max(-float(c.dist), 0.) for c in self.data.contact
+            if c.geom1 in self.hand_collision_geom_ids and c.geom2 in self.hand_collision_geom_ids), default=0.)
+        for i in np.flatnonzero(candidates):
+            target = pos+rotation@(self.online_contact_points_local[i]
+                -(self.args.online_tip_radius-depth)*self.online_contact_normals_local[i])
+            trial = hand.copy()
+            for attempt in range(3):
+                _, _, trial_tips = self.forward_kinematics(trial)
+                if np.linalg.norm(trial_tips[i]-target) < .0005:
+                    break
+                if attempt == 0:
+                    finger_jac = tip_jac[3*i:3*i+3, 6:]
+                else:
+                    jp = np.zeros((3, self.model.nv))
+                    mujoco.mj_jacSite(self.model, self.solve_data, jp, None, int(self.active_tip_site_ids[i]))
+                    finger_jac = jp[:, self.hand_dof_adr[6:]]
+                delta = finger_jac.T@np.linalg.solve(finger_jac@finger_jac.T+1e-6*np.eye(3), target-trial_tips[i])
+                trial[6:] = np.clip(trial[6:]+np.clip(delta, -.15, .15),
+                    self.hand_joint_ranges[6:, 0], self.hand_joint_ranges[6:, 1])
+            _, _, trial_tips = self.forward_kinematics(trial)
+            if np.linalg.norm(trial_tips[i]-target) > .002:
+                continue
+            self.set_object_pose(pos, quat, data=self.solve_data)
+            geom = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM,
+                TIP_COLLISION_GEOM_NAMES[self.active_finger_names[i]])
+            # The local IK is only a reachability witness/initial guess.
+            # It is never written into the real hand or used as a cost.
+            if mujoco.mj_geomDistance(self.model, self.solve_data, geom, self.object_geom_id, .03, None) > 1e-5:
+                continue
+            self_depth = max((max(-float(c.dist), 0.) for c in self.solve_data.contact
+                if c.geom1 in self.hand_collision_geom_ids and c.geom2 in self.hand_collision_geom_ids), default=0.)
+            if self_depth > max(baseline_self, 1e-4)+1e-5:
+                continue
+            reachable[i] = True
+        events = []
+        self.online_local_repair_feasible = False
+        if reachable.any():
+            from planning.grasp_diagnostics import object_contact_wrenches
+            from planning.local_contact_replanning import choose_local_contact_updates
+            wrenches, _ = object_contact_wrenches(self.model, self.data, self.object_body_id,
+                self.fingertip_geom_id_to_name, self.hand_collision_geom_ids)
+            total_external = external+wrenches['other_hand']
+            local_external = np.r_[rotation.T@total_external[:3], rotation.T@total_external[3:]]
+            caps = np.array([summary[name] if touching[i] else max(self.args.online_min_normal_force, .6)
+                             for i, name in enumerate(self.active_finger_names)])
+            selected, directions, indices, certificate = choose_local_contact_updates(
+                selected, directions, self.online_contact_points_local, self.online_contact_normals_local,
+                touching & valid, reachable, caps, self.args.object_friction, local_external)
+            self.online_local_repair_feasible = len(indices) > 0
+            for i in indices:
+                changed = (not saved[i] or np.linalg.norm(selected[i]-self.online_local_points[i]) > .001)
+                self.online_local_points[i], self.online_local_normals[i] = selected[i], directions[i]
+                if changed:
+                    events.append(dict(finger=self.active_finger_names[i], gap=float(gaps[i]),
+                        point_local=selected[i].tolist(), predictive_force_closure=certificate))
+        return selected, directions, events
+
+    def update_online_contact_forces(self, points, inward, info, goal, pose, mass, external, phi):
+        """Re-solve forces at measured/nearest pad contacts, in finger order.
+
+        Far pads keep their planned patches as a contact initial guess. The
+        same closest points and normals drive the MPC contact Jacobians.
+        A certificate on this mixed set is predictive; only the measured
+        touching-contact audit can authorize lifting.
+        """
+        force_points, force_normals = points.copy(), inward.copy()
+        gaps = np.asarray(phi).reshape(-1, 4)[:len(points), 0]
+        measured = (gaps <= .02) & np.isfinite(self.online_contact_points_local).all(axis=1)
+        force_points[measured] = self.online_contact_points_local[measured]
+        force_normals[measured] = self.online_contact_normals_local[measured]
+        if measured.any():
+            result = self.optimizer.lm.solve(force_points[None], force_normals[None],
+                current_x=pose, x_d=goal, object_inertia=mass, tau_o=external,
+                v_obj=self.data.qvel[self.object_dof_adr:self.object_dof_adr+6],
+                prediction_dt=self.args.lambda_prediction_dt)
+            # Keep contact assignment metadata from the patch policy, while
+            # reporting forces and predictions from the live geometry solve.
+            info = dict(info, **{key: result[key] for key in (
+                "force_vectors_local", "control_input", "x_plus_opt", "velocity_next",
+                "contact_force_world", "contact_torque_world", "cost", "pose_cost",
+                "pose_reduction", "baseline_reduction", "solver_failed", "solver_converged")},
+                live_force_solve_time=result["solve_time"])
+        certificate = verify_grasp(force_points, force_normals, self.args.object_friction,
+            external_wrench=np.r_[quat_wxyz_to_mat(pose[3:7]).T@external[:3],
+                                 quat_wxyz_to_mat(pose[3:7]).T@external[3:]],
+            force_limit=self.args.lambda_force_limit)
+        allocation = None
+        other_hand_wrench = np.zeros(6)
+        summary = self.get_fingertip_contact_summary()
+        active = (gaps <= 0) & measured & np.array([summary[name] > self.args.contact_force_threshold
+                                                  for name in self.active_finger_names])
+        if np.count_nonzero(active) >= 3:
+            from planning.grasp_force_allocation import allocate_contact_wrench
+            from planning.grasp_diagnostics import object_contact_wrenches
+            wrenches, _ = object_contact_wrenches(self.model, self.data, self.object_body_id,
+                self.fingertip_geom_id_to_name, self.hand_collision_geom_ids)
+            other_hand_wrench = wrenches['other_hand']
+            rotation = quat_wxyz_to_mat(pose[3:7])
+            velocity = self.data.qvel[self.object_dof_adr:self.object_dof_adr+6].copy()
+            target_linear = (np.asarray(goal)[:3]-pose[:3])/self.args.lambda_prediction_dt
+            target_linear *= min(1., self.args.online_lift_speed/max(np.linalg.norm(target_linear), 1e-10))
+            target_angular = Rotation.from_matrix(quat_wxyz_to_mat(goal[3:7])@rotation.T).as_rotvec()/.25
+            target_angular *= min(1., self.args.online_contact_rotation_speed/max(np.linalg.norm(target_angular), 1e-10))
+            frame = np.eye(6); frame[3:, 3:] = rotation
+            acceleration = (np.r_[target_linear, target_angular]-frame@velocity)/.1
+            # Distal/proximal contacts also load the object. Allocate the
+            # remaining wrench to the controlled pads. Table support is not
+            # subtracted: the pads must replace it to lift the object.
+            wrench_world = frame@mass@frame.T@acceleration-external-other_hand_wrench
+            wrench_local = np.r_[rotation.T@wrench_world[:3], rotation.T@wrench_world[3:]]
+            caps = np.array([summary[name] for name in self.active_finger_names])[active]
+            # Current pressure limits certify the forces available NOW; they
+            # must not also freeze the requested future preload. Optimize a
+            # balanced load-supporting allocation and let the servo build it.
+            allocation = allocate_contact_wrench(force_points[active], force_normals[active], wrench_local,
+                self.args.object_friction, minimum_normal=self.args.online_min_normal_force,
+                force_limit=self.args.lambda_force_limit, friction_margin=self.args.online_friction_margin)
+            available = verify_grasp(force_points[active], force_normals[active], self.args.object_friction,
+                external_wrench=-wrench_local, normal_force_limits=caps)
+            if allocation['feasible']:
+                info['force_vectors_local'] = np.zeros_like(info['force_vectors_local'])
+                info['force_vectors_local'][active] = allocation['forces']
+                predicted, next_velocity = self.mpc.model.applied_force_prediction_fn(pose, velocity,
+                    force_points.T, np.asarray(info['force_vectors_local']).T, np.linalg.inv(mass),
+                    np.r_[external[:3]+other_hand_wrench[:3],
+                        rotation.T@(external[3:]+other_hand_wrench[3:])])
+                info.update(x_plus_opt=np.asarray(predicted).reshape(-1),
+                    velocity_next=np.asarray(next_velocity).reshape(-1),
+                    contact_force_world=rotation@allocation['forces'].sum(0),
+                    contact_torque_world=rotation@np.cross(force_points[active], allocation['forces']).sum(0))
+        return dict(info, force_points_local=force_points, force_normals_local=force_normals,
+            measured_force_contacts=measured, live_force_closure_certificate=certificate,
+            force_allocation_feasible=None if allocation is None else allocation['feasible'],
+            allocated_wrench_available=None if allocation is None else available['load_feasible'],
+            other_hand_wrench_world=other_hand_wrench,
+            allocated_wrench_local=None if allocation is None or not allocation['feasible']
+                else allocation['requested_wrench'])
+
     def execute_online_joint_target(self, desired):
         """Execute an absolute IK/servo target with the same bias convention."""
         self.online_servo_target = np.clip(np.asarray(desired, float),
@@ -2999,11 +3568,77 @@ class AllegroTabletopTrigraspDemo:
             reference[:3] += np.asarray(reach_pos)-self.initial_object_pos
         return reference
 
+    def transport_online_posture(self, posture, source_pos, source_rot, pos, rot):
+        """Move the approach attractor with the observed object, without IK."""
+        palm, palm_rot, _ = self.forward_kinematics(posture)
+        target_palm = pos + rot @ source_rot.T @ (palm-source_pos)
+        target_rot = rot @ source_rot.T @ palm_rot
+        result = np.asarray(posture).copy()
+        result[3:6] = self.base_orientation_euler_from_target_palm_rot(target_rot, result[3:6])
+        moved_palm, _, _ = self.forward_kinematics(result)
+        result[:3] += target_palm-moved_palm
+        return np.clip(result, self.hand_joint_ranges[:, 0], self.hand_joint_ranges[:, 1])
+
+    def replan_online_grasp(self, ik, open_posture, points, inward, source_pos, source_rot,
+                            goal, pos, quat, rot, tips, mass, external):
+        """Search live patches once on loss; retain only a reachable assignment.
+
+        IK supplies a bounded initial guess, never a replacement for the
+        contact MPC. A rejected patch search keeps the previous assignment
+        transported to the current object pose.
+        """
+        old_ids = self.optimizer.active_ids.copy()
+        self.ik_reference_qpos[self.object_qpos_adr:self.object_qpos_adr+7] = np.r_[pos, quat]
+        grasp_q = self.transport_online_posture(ik.qpos, source_pos, source_rot, pos, rot)
+        opened_q = self.transport_online_posture(open_posture, source_pos, source_rot, pos, rot)
+        palm, palm_rot, tip_positions = self.forward_kinematics(grasp_q)
+        moved_ik = replace(ik, qpos=grasp_q, target_palm_pos_world=palm,
+            target_palm_rot_world=palm_rot, solved_tip_positions_world=tip_positions,
+            assigned_targets_world=pos+(points-(self.args.online_tip_radius-self.args.squeeze_depth)*inward)@rot.T)
+        dynamics = dict(tips_world=tips, object_inertia=mass, tau_o=external,
+            v_obj=self.data.qvel[self.object_dof_adr:self.object_dof_adr+6],
+            prediction_dt=self.args.lambda_prediction_dt)
+        accepted = False
+        try:
+            candidate_points, candidate_normals, _, _, _ = self.optimizer.update_contacts(
+                goal, np.r_[pos, quat], freeze_contact_pair=False, lock_contact_pair=False, **dynamics)
+            targets = pos+(candidate_points-max(self.args.online_tip_radius-self.args.squeeze_depth, .001)*candidate_normals)@rot.T
+            # Preserve fingertip order: an Allegro thumb cannot be exchanged
+            # with an arbitrary finger as in an independent-pad controller.
+            self._ik_startup_deadline = time.perf_counter()+self.args.regrasp_ik_time_budget
+            payload = self.solve_single_ik_candidate(grasp_q, palm, palm_rot, targets, candidate_normals@rot.T)
+            _, q, mean_error, max_error, _, _, solved_tips, self_depth = payload
+            if (mean_error <= self.args.online_ik_tip_tolerance
+                    and max_error <= 1.5*self.args.online_ik_tip_tolerance and self_depth <= 1e-4):
+                candidate_ik = replace(moved_ik, qpos=q, mean_tip_error=mean_error,
+                    max_tip_error=max_error, assigned_targets_world=targets,
+                    solved_tip_positions_world=solved_tips, max_self_penetration=self_depth)
+                opened_q, _ = self.solve_online_pregrasp(candidate_ik, candidate_points, candidate_normals, pos, rot)
+                moved_ik, points, inward = candidate_ik, candidate_points, candidate_normals
+                accepted = True
+        except (RuntimeError, FloatingPointError) as exc:
+            print(f"[regrasp] keep transported patches: {exc}", flush=True)
+        finally:
+            self._ik_startup_deadline = np.inf
+        selected_ids = self.optimizer.active_ids.copy() if accepted else old_ids
+        _, _, _, _, info = self.optimizer.update_fixed_contacts(selected_ids, goal, np.r_[pos, quat], **dynamics)
+        # Remove the stale squeeze/lift target and old trajectory. Actual
+        # object/hand positions and velocities remain the measured state.
+        self.online_servo_target = self.get_hand_qpos().copy()
+        self.mpc_param.sol_guess_ = None
+        self.mpc.pressure_floor = None
+        self.online_local_points = np.full((len(points), 3), np.nan)
+        self.online_local_normals = np.full((len(points), 3), np.nan)
+        self.online_sticking_anchors = np.full((len(points), 3), np.nan)
+        self.cached_palm_target_local_pos = rot.T @ (moved_ik.target_palm_pos_world-pos)
+        self.cached_palm_target_local_rot = rot.T @ moved_ik.target_palm_rot_world
+        return moved_ik, opened_q, points, inward, info, accepted
+
     def solve_online_pregrasp(self, ik, points, inward, pos, rotation):
         """Open all pads outside the frozen patches before descending."""
         clearance = self.args.online_pregrasp_clearance
         targets = pos + (points-(self.args.online_tip_radius+clearance)*inward)@rotation.T
-        self._ik_startup_deadline = time.perf_counter()+1.
+        self._ik_startup_deadline = min(getattr(self, "_ik_startup_deadline", np.inf), time.perf_counter()+1.)
         try:
             result = self.solve_single_ik_candidate(ik.qpos, ik.target_palm_pos_world,
                 ik.target_palm_rot_world, targets, inward@rotation.T)
@@ -3021,7 +3656,7 @@ class AllegroTabletopTrigraspDemo:
                 "Adjust --online-pregrasp-clearance; a colliding approach posture will not be executed.")
         return qpos, float(min(gaps))
 
-    def audit_online_grasp(self, points, inward, *, offset, external_wrench=None):
+    def audit_online_grasp(self, points, inward, *, offset, external_wrench=None, grasp_active=False):
         """Verify measured pad contacts, their planned patches and force closure."""
         pos, _, rotation = self.get_object_pose()
         tips, _ = self.online_tip_kinematics()
@@ -3053,11 +3688,24 @@ class AllegroTabletopTrigraspDemo:
                     actual_normals.append(normal @ rotation)
                     normal_loads.append(summary[name])
             entries.append(entry)
-        certificate = verify_grasp(np.asarray(actual_points).reshape(-1, 3),
-            np.asarray(actual_normals).reshape(-1, 3), self.args.object_friction,
-            external_wrench=None if external_wrench is None else
-            np.r_[rotation.T@external_wrench[:3], rotation.T@external_wrench[3:]],
+        if external_wrench is not None:
+            from planning.grasp_diagnostics import object_contact_wrenches
+            measured_wrenches, _ = object_contact_wrenches(self.model, self.data, self.object_body_id,
+                self.fingertip_geom_id_to_name, self.hand_collision_geom_ids)
+            external_wrench = np.asarray(external_wrench)+measured_wrenches['other_hand']
+        actual_points = np.asarray(actual_points).reshape(-1, 3)
+        actual_normals = np.asarray(actual_normals).reshape(-1, 3)
+        local_external = None if external_wrench is None else np.r_[
+            rotation.T@external_wrench[:3], rotation.T@external_wrench[3:]]
+        certificate = verify_grasp(actual_points,
+            actual_normals, self.args.object_friction, external_wrench=local_external,
             normal_force_limits=normal_loads)
+        minimum = max(self.args.contact_force_threshold,
+            (.375 if grasp_active else .75)*self.args.online_min_normal_force)
+        supporting = np.asarray(normal_loads) >= minimum
+        support_certificate = verify_grasp(actual_points[supporting], actual_normals[supporting],
+            self.args.object_friction, external_wrench=local_external,
+            normal_force_limits=np.asarray(normal_loads)[supporting])
         planned_reached = all(e["touching"] and e["tip_error"] <= self.args.online_handoff_tip_tolerance
             and e["patch_error"] <= self.args.online_handoff_patch_tolerance for e in entries)
         self_collision = []
@@ -3069,12 +3717,26 @@ class AllegroTabletopTrigraspDemo:
                     geom2=mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom2)),
                     gap=float(contact.dist), normal_force=float(abs(force[0]))))
         return dict(fingers=entries, self_collisions=self_collision, actual_force_closure=certificate,
+            supporting_force_closure=support_certificate, supporting_contact_count=int(supporting.sum()),
             all_planned_contacts_reached=bool(planned_reached),
             contact_count=sum(e["touching"] for e in entries))
 
+    def online_lift_readiness(self, audit, contact_count, *, grasp_active=False):
+        """Authorize lift from physical load, independently of startup IK patches."""
+        certificate = audit.get('supporting_force_closure', audit['actual_force_closure'])
+        checks = dict(contacts=contact_count >= self.args.lift_contact_fingers,
+            force_closure=bool(certificate['force_closure']),
+            load_support=bool(certificate['load_feasible']))
+        if audit.get('fingers'):
+            minimum = max(getattr(self.args, 'contact_force_threshold', .01),
+                (.375 if grasp_active else .75)*getattr(self.args, 'online_min_normal_force', .2))
+            checks['normal_preload'] = sum(e['touching'] and e['normal_force'] >= minimum
+                for e in audit['fingers']) >= self.args.lift_contact_fingers
+        return all(checks.values()), [name for name, passed in checks.items() if not passed]
+
     def execute_online_action(self, action, hand_posture, points, inward, loaded, desired_force_local=None):
         if self.args.online_execution == "position":
-            self.execute_online_joint_target(self.online_servo_target + action)
+            self.execute_online_joint_target(self.online_servo_target + self.mpc.model.effective_command(action))
             return
         # Same capped Cartesian spring/damper as bigrasp, applied through
         # one stacked Jacobian because the Allegro tips share a palm.
@@ -3114,7 +3776,9 @@ class AllegroTabletopTrigraspDemo:
             inverse_jt = np.linalg.solve(hand_mass, j.T)
             projector = np.eye(self.model.nu) - j.T @ np.linalg.pinv(j @ inverse_jt, rcond=1e-8) @ inverse_jt.T
             q, dq = self.data.qpos[self.hand_qpos_adr], self.data.qvel[self.hand_dof_adr]
-            posture = args.online_nullspace_stiffness * (hand_posture-q)
+            attraction = 0. if loaded or touching.any() else float(
+                np.clip((np.min(gaps)-.002)/.018, 0., 1.)**2)
+            posture = attraction * args.online_nullspace_stiffness * (hand_posture-q)
             posture -= 2*np.sqrt(args.online_nullspace_stiffness) * dq
             torque = j.T @ np.asarray(forces).reshape(-1) + projector @ posture + (self.data.qfrc_bias[self.hand_dof_adr] - self.data.qfrc_passive[self.hand_dof_adr]
                 - self.data.qfrc_applied[self.hand_dof_adr])
@@ -3164,6 +3828,7 @@ class AllegroTabletopTrigraspDemo:
         self._ik_startup_deadline = started + args.ik_startup_time_budget
         print(f"[startup] hand IK: at most {len(rows)} sets, {args.ik_startup_time_budget:.1f}s budget", flush=True)
         best = None
+        checked_sets = 0
         for row in rows:
             if best is not None and time.perf_counter() >= self._ik_startup_deadline:
                 break
@@ -3172,10 +3837,12 @@ class AllegroTabletopTrigraspDemo:
             targets = pos + (candidate_points - offset * candidate_inward) @ rot.T
             side_signs = None if side_axis is None else np.sign(candidate_inward @ side_axis)
             candidate_ik = self.solve_grasp_ik(targets, contact_side_signs=side_signs, contact_normals_world=candidate_inward @ rot.T)
+            checked_sets += 1
             if best is None or (candidate_ik.success and not best[1].success) or (candidate_ik.success == best[1].success and candidate_ik.score < best[0]):
                 best = (candidate_ik.score, candidate_ik, candidate_ids[row].copy())
             if candidate_ik.success:
                 break
+        budget_exhausted = time.perf_counter() >= self._ik_startup_deadline
         self._ik_startup_deadline = np.inf
         startup_times["hand_ik_seconds"] = time.perf_counter() - started
         print(f"[startup] hand IK: {startup_times['hand_ik_seconds']:.3f}s", flush=True)
@@ -3183,12 +3850,23 @@ class AllegroTabletopTrigraspDemo:
             raise RuntimeError("Lambda did not provide a contact set with one thumb opposing the finger bank")
         _, ik, selected_ids = best
         if not ik.success:
-            raise RuntimeError(f"No reachable hand IK found within the search budget: "
-                f"mean/max tip error={ik.mean_tip_error:.4f}/{ik.max_tip_error:.4f} m; "
-                f"self penetration={ik.max_self_penetration:.4f} m. "
-                "Increase --ik-startup-time-budget or --ik-contact-candidates; an unreachable IK will not be executed.")
-        # Keep the approach IK fixed in world coordinates. Contact dynamics
-        # still use measured object pose, tips and contacts every cycle.
+            tolerance = args.online_ik_tip_tolerance
+            blockers = []
+            if ik.mean_tip_error > tolerance:
+                blockers.append('mean_tip_error')
+            if ik.max_tip_error > 1.5*tolerance:
+                blockers.append('max_tip_error')
+            if ik.max_self_penetration > 1e-4:
+                blockers.append('self_collision')
+            raise RuntimeError(f"No accepted approach IK seed: "
+                f"mean/max tip error={ik.mean_tip_error*1000:.3f}/{ik.max_tip_error*1000:.3f} mm "
+                f"(limits {tolerance*1000:.3f}/{1.5*tolerance*1000:.3f} mm); "
+                f"self penetration={ik.max_self_penetration*1000:.3f} mm (limit 0.100 mm); "
+                f"blocked_by={','.join(blockers) or 'invalid_result'}; "
+                f"checked_sets={checked_sets}/{len(rows)}; budget_exhausted={budget_exhausted}. "
+                "Try more IK time/candidates if the budget was exhausted; colliding seeds are rejected.")
+        # IK seeds the pregrasp and initial contact assignment. The MPC
+        # aligns measured pads to object-frame targets every cycle.
         ids = selected_ids[list(ik.permutation)]
         points = self.optimizer.sample_point[ids]
         inward = self.optimizer.normal[ids]
@@ -3200,6 +3878,7 @@ class AllegroTabletopTrigraspDemo:
               f"rank={planned_certificate['wrench_rank']}; bounded gravity support={planned_certificate['load_feasible']}", flush=True)
         started = time.perf_counter()
         open_posture, clearance = self.solve_online_pregrasp(ik, points, inward, pos, rot)
+        initial_ik, initial_open_posture = ik, open_posture.copy()
         startup_times["pregrasp_ik_seconds"] = time.perf_counter()-started
         print(f"[startup] pregrasp IK: {startup_times['pregrasp_ik_seconds']:.3f}s; "
             f"minimum pad clearance={clearance*1000:.1f} mm", flush=True)
@@ -3213,10 +3892,12 @@ class AllegroTabletopTrigraspDemo:
         self._ensure_screenshot_recorder()
         self._ensure_video_recorder()
         print(f"Online Allegro MPC: n_EE={len(ids)} state={self.mpc_param.n_qpos_} "
-              f"action={self.mpc_param.n_cmd_} objective=IK_joint_pose "
+              f"action={self.mpc_param.n_cmd_} objective=pad_contact_and_object_pose "
               f"solver={self.mpc.planner_solver_} dt={self.command_dt:.3f}s")
         print(f"Initial IK mean/max tip error: {ik.mean_tip_error:.4f}/{ik.max_tip_error:.4f} m")
         print(f"Initial IK max hand self-penetration: {ik.max_self_penetration*1000:.3f} mm")
+        print(f"Object goal: {goal[:3].tolist()}; lift={args.lift_height:.3f} m; "
+              "confirmed physical force closure and load support enable contact transport", flush=True)
         stable, hold, released, closing_started, release_streak = 0, 0, False, False, 0
         best_height, best_contacts, status = 0., 0, "N/A"
         reach_pos = self.initial_object_pos.copy()
@@ -3226,6 +3907,11 @@ class AllegroTabletopTrigraspDemo:
         ik_reference = initial.copy()
         handoff_step = None
         ik_near_streak = 0
+        approach_origin, approach_rot = pos.copy(), rot.copy()
+        recovery = OnlineGraspRecovery(approach_origin.copy(), approach_rot.copy(), self.command_dt,
+            args.regrasp_position_threshold, args.regrasp_rotation_threshold,
+            args.regrasp_cooldown, args.regrasp_stall_timeout,
+            opening_timeout=args.regrasp_clearance_timeout)
         mass, external = self.lambda_object_dynamics(rot)
         initial_tips, _ = self.online_tip_kinematics()
         self.optimizer.update_fixed_contacts(ids, goal, np.r_[pos, quat], tips_world=initial_tips,
@@ -3243,25 +3929,48 @@ class AllegroTabletopTrigraspDemo:
             threshold = args.contact_force_threshold if args.lift_contact_force_threshold is None else args.lift_contact_force_threshold
             count = sum(summary[name] > threshold for name in self.active_finger_names)
             best_contacts = max(best_contacts, count)
-            audit = self.audit_online_grasp(points, inward, offset=offset, external_wrench=external)
-            safe_grasp = (count >= args.lift_contact_fingers and audit["actual_force_closure"]["force_closure"]
-                          and audit["actual_force_closure"]["load_feasible"]
-                          and audit["all_planned_contacts_reached"])
+            local_updates = []
+            self.online_local_repair_feasible = False
+            if not recovery.opening and ik_phase is None:
+                phi, jac = self.detect_mpc_contacts()
+                points, inward, local_updates = self.refine_online_contact_patches(
+                    points, inward, phi, tips, tip_jac, external)
+            audit = self.audit_online_grasp(points, inward, offset=offset, external_wrench=external,
+                grasp_active=released)
+            safe_grasp, lift_blockers = self.online_lift_readiness(audit, count, grasp_active=released)
+            if recovery.opening:
+                safe_grasp = False
+                lift_blockers.append('regrasp_clearance')
+            was_loaded = released
             stable = stable + 1 if safe_grasp else 0
             if stable >= args.lift_contact_stable_steps:
                 released = True
             release_streak = release_streak + 1 if not safe_grasp else 0
             if release_streak >= args.grasp_release_stable_steps:
                 released = False
+            replan_reason = recovery.observe(pos, rot, contacts=count,
+                was_loaded=was_loaded, loaded=released, closing=closing_started,
+                repair_available=self.online_local_repair_feasible)
+            patches_replanned = False
+            if replan_reason is not None:
+                local_updates = []
+                ik, open_posture, points, inward, info, patches_replanned = self.replan_online_grasp(
+                    ik, open_posture, points, inward, approach_origin, approach_rot,
+                    goal, pos, quat, rot, tips, mass, external)
+                ids = info["contact_indices"].copy()
+                approach_origin, approach_rot = pos.copy(), rot.copy()
+                stable = hold = release_streak = 0
+                released = closing_started = False
+                lift_offset[:] = 0.
+                ik_phase = None  # All subsequent commands come from contact MPC.
+                audit = self.audit_online_grasp(points, inward, offset=offset, external_wrench=external)
+                print(f"[regrasp] step={step} reason={replan_reason} attempt={recovery.replan_count} "
+                      f"object={pos.tolist()} new_patches={patches_replanned}", flush=True)
             # Execute the one-time coupled IK before asking local MPC to
             # stabilize contact. Absolute servo references advance at bounded
             # speed, avoiding the persistent lag of q_measured + tiny u.
             if ik_phase is not None:
-                q_target = open_posture.copy() if ik_phase == "ik_approach" else ik.qpos.copy()
-                base_near = np.linalg.norm(self.get_base_qpos()[:3]-q_target[:3]) <= .008
-                if ik_phase == "ik_approach" and base_near:
-                    ik_phase = "ik_close"
-                    q_target = ik.qpos.copy()
+                q_target = open_posture.copy()
                 limits = np.r_[np.full(3, args.online_ik_base_speed), np.full(3, args.online_ik_joint_speed),
                                np.full(self.model.nu-6, args.online_ik_joint_speed)]*self.command_dt
                 ik_reference += np.clip(q_target-ik_reference, -limits, limits)
@@ -3269,8 +3978,9 @@ class AllegroTabletopTrigraspDemo:
                 near_ik = (np.linalg.norm(measured_q[:3]-q_target[:3]) <= .015
                            and np.max(np.abs(measured_q[6:]-q_target[6:])) <= args.online_ik_handoff_joint_tolerance)
                 ik_near_streak = ik_near_streak+1 if near_ik else 0
-                if ik_phase == "ik_close" and ik_near_streak >= args.lift_contact_stable_steps:
-                    print(f"[handoff] IK -> MPC at step {step}: near planned tips; MPC establishes contact before lift", flush=True)
+                min_pad_gap = min(e["geometric_gap"] for e in audit["fingers"])
+                if ik_near_streak >= args.lift_contact_stable_steps or min_pad_gap <= .02:
+                    print(f"[handoff] pregrasp IK -> contact MPC at step {step}", flush=True)
                     handoff_step, ik_phase = step, None
                     self.mpc_param.sol_guess_ = None
                 else:
@@ -3291,7 +4001,7 @@ class AllegroTabletopTrigraspDemo:
                               f"max_tip_error={max(e['tip_error'] for e in audit['fingers']):.4f} "
                               f"actual_force_closure={audit['actual_force_closure']['force_closure']}", flush=True)
                     continue
-            loaded = released and safe_grasp
+            loaded = released
             if loaded:
                 # Advance an independent lift trajectory. Following
                 # object_measured + one tiny step stalled when pad pressure
@@ -3315,30 +4025,83 @@ class AllegroTabletopTrigraspDemo:
             # tangential object motion remains the contact-aware MPC's job.
             # Freeze the IK pad-centre offset as well as the surface IDs.
             # Changing indentation after IK changed the planned geometry.
-            anchors = points - offset * inward
+            if recovery.opening:
+                open_anchors = points-(args.online_tip_radius+args.online_pregrasp_clearance)*inward
+                open_targets = pos+open_anchors@rot.T
+                if (min(e['geometric_gap'] for e in audit['fingers']) >= .003
+                        and np.max(np.linalg.norm(tips-open_targets, axis=1)) <= .01):
+                    recovery.opening = False
+                    recovery.touched = False
+                    print(f"[regrasp] step={step} pads clear; resume contact MPC", flush=True)
+            anchors = points - (args.online_tip_radius+args.online_pregrasp_clearance if recovery.opening else offset) * inward
             self.cached_contact_points_local = points.copy()
             self.cached_target_points_local = anchors.copy()
             measured_hand = self.get_hand_qpos()
-            near_pregrasp = (np.linalg.norm(measured_hand[:3]-open_posture[:3]) <= .005
-                and np.max(np.abs(measured_hand[3:]-open_posture[3:])) <= args.online_ik_handoff_joint_tolerance)
-            closing_started = closing_started or near_pregrasp
+            live_open_posture = self.transport_online_posture(open_posture, approach_origin, approach_rot, pos, rot)
+            live_grasp_q = self.transport_online_posture(ik.qpos, approach_origin, approach_rot, pos, rot)
+            near_pregrasp = (np.linalg.norm(measured_hand[:3]-live_open_posture[:3]) <= .005
+                and np.max(np.abs(measured_hand[3:]-live_open_posture[3:])) <= args.online_ik_handoff_joint_tolerance)
+            closing_started = not recovery.opening and (closing_started or near_pregrasp)
             closing = float(closing_started or released)
-            hand_posture = self.online_ik_posture_reference(ik, closing=closing, loaded=loaded,
-                reach_pos=reach_pos, open_posture=open_posture, lift_offset=lift_offset)
+            hand_posture = self.online_ik_posture_reference(replace(ik, qpos=live_grasp_q), closing=closing, loaded=loaded,
+                reach_pos=reach_pos, open_posture=live_open_posture,
+                lift_offset=lift_offset if loaded else np.zeros(3))
             state = self.get_mpc_state()
             phi, jac = self.detect_mpc_contacts()
+            if not recovery.opening:
+                anchors = points-offset*inward
+                local = np.isfinite(self.online_local_points).all(axis=1)
+                anchors[local] = points[local]-(args.online_tip_radius-min(args.squeeze_depth, .0005))*inward[local]
+                # Existing physical pads retain their current contact region;
+                # only the normal pressure controller changes indentation.
+                actual = np.array([summary[name] > args.contact_force_threshold
+                                   for name in self.active_finger_names])
+                self.online_sticking_anchors[~actual] = np.nan
+                new_contact = actual & ~np.isfinite(self.online_sticking_anchors).all(axis=1)
+                self.online_sticking_anchors[new_contact] = (tips[new_contact]-pos)@rot
+                anchors[actual] = self.online_sticking_anchors[actual]
+                self.cached_contact_points_local, self.cached_target_points_local = points.copy(), anchors.copy()
+                for update in local_updates:
+                    print(f"[local-contact] step={step} finger={update['finger']} "
+                          f"gap={update['gap']*1000:.2f}mm; nearby force-closed patch adopted", flush=True)
+            info = self.update_online_contact_forces(points, inward, info, lambda_goal,
+                np.r_[pos, quat], mass, external, phi)
+            if recovery.opening:
+                # Clear partial contacts before chasing the object. Otherwise
+                # one touching pad suppresses IK attraction while the other
+                # pads remain far away and the hand just pushes/slides.
+                info['force_vectors_local'] = np.zeros_like(info['force_vectors_local'])
             first_mpc = "first_mpc_seconds" not in startup_times
             if first_mpc:
                 started = time.perf_counter()
                 print("[startup] solving the first MPC command", flush=True)
             mpc_goal = goal.copy()
-            if not loaded:
-                mpc_goal[2] = pos[2]
-            result = self.mpc.plan_ik_pose(state, phi, jac, goal=mpc_goal, hand_posture=hand_posture,
-                loaded=loaded,
-                approach_origin=self.initial_object_pos,
+            measured_force = None
+            if args.online_force_feedback or args.online_pressure_control:
+                from planning.grasp_diagnostics import object_contact_wrenches
+                _, contacts = object_contact_wrenches(self.model, self.data, self.object_body_id,
+                    self.fingertip_geom_id_to_name, self.hand_collision_geom_ids)
+                measured_force = np.zeros((len(self.active_finger_names), 3))
+                for contact in contacts:
+                    if contact['group'] != 'pads':
+                        continue
+                    name = self.fingertip_geom_id_to_name[contact['geom']]
+                    if name in self.active_finger_names:
+                        measured_force[self.active_finger_names.index(name)] += contact['force']
+            result = self.mpc.plan_contacts(state, phi, jac, tips=tips, tip_jacobian=tip_jac,
+                anchors=anchors, goal=mpc_goal, hand_posture=hand_posture, loaded=loaded,
+                approach_origin=approach_origin,
                 object_inertia=mass, external_wrench=external, hand_mass_diagonal=self.hand_mass_diagonal,
-                desired_force_local=info["force_vectors_local"], sol_guess=self.mpc_param.sol_guess_)
+                desired_force_local=info["force_vectors_local"], measured_force_world=measured_force,
+                pressure_control_allowed=not recovery.opening,
+                other_hand_wrench_world=info['other_hand_wrench_world'],
+                # A preload target is not a contact-mode switch. As in
+                # bigrasp, keep made-contact physics while the measured grasp
+                # remains load-bearing; every pad still has its actual force
+                # cap and separates unilaterally in the prediction.
+                grasp_established=(audit['actual_force_closure']['force_closure']
+                    and bool(audit['actual_force_closure']['load_feasible']) and count >= 3),
+                sol_guess=self.mpc_param.sol_guess_)
             if first_mpc:
                 startup_times["first_mpc_seconds"] = time.perf_counter() - started
                 print(f"[startup] first MPC solve: {startup_times['first_mpc_seconds']:.3f}s", flush=True)
@@ -3348,28 +4111,47 @@ class AllegroTabletopTrigraspDemo:
                 phi, jac, self.mpc.model.runtime_parameters(self.mpc_param.model_params))).reshape(-1, 3)
             ideal_pose_error = None
             if abs(args.lambda_prediction_dt-self.command_dt) < 1e-12:
+                ideal_other = info['other_hand_wrench_world'] if info['force_allocation_feasible'] else np.zeros(6)
                 ideal_pose, _ = self.mpc.model.applied_force_prediction_fn(state[:7],
-                    state[self.mpc.model.pose_size:self.mpc.model.pose_size+6], points.T,
+                    state[self.mpc.model.pose_size:self.mpc.model.pose_size+6], info["force_points_local"].T,
                     np.asarray(info["force_vectors_local"]).T, self.mpc.model.object_inverse,
-                    self.mpc.model.external_wrench)
+                    self.mpc.model.external_wrench+np.r_[ideal_other[:3], rot.T@ideal_other[3:]])
                 ideal_pose_error = float(np.linalg.norm(np.asarray(ideal_pose).reshape(-1)[:3]-np.asarray(info["x_plus_opt"])[:3]))
-            self.execute_online_action(result["action"], hand_posture, points, inward, loaded, info["force_vectors_local"])
+            self.execute_online_action(result["action"], hand_posture, info['force_points_local'],
+                info['force_normals_local'], loaded, info["force_vectors_local"])
             self.refresh_markers()
             self.sync_viewer()
             new_pos, _, _ = self.get_object_pose()
             best_height = max(best_height, float(new_pos[2] - self.initial_object_pos[2]))
             tip_error = float(np.mean(np.linalg.norm(tips - (pos + anchors @ rot.T), axis=1)))
-            phase = "hold" if loaded and np.linalg.norm(new_pos-goal[:3]) <= args.goal_tolerance else ("lift" if loaded else "approach")
+            phase = "hold" if loaded and np.linalg.norm(new_pos-goal[:3]) <= args.goal_tolerance else ("lift" if loaded else "regrasp_open" if recovery.opening else "regrasp" if recovery.recovering else "approach")
             hold = hold + 1 if phase == "hold" else 0
             records.append(dict(step=step, phase=phase, contacts=count, tip_error=tip_error,
-                object_pos=new_pos.tolist(), status=status, action=result["action"].tolist(),
+                object_pos=new_pos.tolist(), status=status, action=result["applied_action"].tolist(),
                 base_q=self.get_base_qpos().tolist(), predicted_object_pos=np.asarray(result["rollout_q"])[0,:3].tolist(),
                 contact_forces=summary, closing=closing, loaded=loaded))
             records[-1].update(contact_indices=ids.tolist(), contact_audit=audit,
+                object_target_pose=goal.tolist(), mpc_object_target_pose=mpc_goal.tolist(),
+                lift_ready=safe_grasp, lift_blockers=lift_blockers, lift_confirm_streak=stable,
                 hand_ik_target=hand_posture.tolist(), hand_q=self.get_hand_qpos().tolist(),
                 finger_ik_error=float(np.linalg.norm(self.get_hand_qpos()[6:]-hand_posture[6:])),
                 base_ik_position_error=float(np.linalg.norm(self.get_hand_qpos()[:3]-hand_posture[:3])),
                 lambda_forces_local=np.asarray(info["force_vectors_local"]).tolist(),
+                force_points_local=info["force_points_local"].tolist(),
+                force_normals_local=info["force_normals_local"].tolist(),
+                measured_force_contacts=info["measured_force_contacts"].tolist(),
+                local_contact_updates=local_updates,
+                pad_targets_local=anchors.tolist(),
+                object_quat=self.get_object_pose()[1].tolist(),
+                mpc_raw_action=result['action'].tolist(),
+                live_force_closure_certificate=info["live_force_closure_certificate"],
+                force_allocation_feasible=info['force_allocation_feasible'],
+                allocated_wrench_available=info['allocated_wrench_available'],
+                pressure_reference=None if self.mpc.pressure_reference is None
+                    else self.mpc.pressure_reference.tolist(),
+                other_hand_wrench_world=info['other_hand_wrench_world'].tolist(),
+                allocated_wrench_local=None if info['allocated_wrench_local'] is None
+                    else info['allocated_wrench_local'].tolist(),
                 lambda_predicted_pose=np.asarray(info["x_plus_opt"]).tolist(),
                 ideal_force_object_prediction_error=ideal_pose_error,
                 mpc_contact_forces_world=predicted_pad_forces.tolist(),
@@ -3377,29 +4159,36 @@ class AllegroTabletopTrigraspDemo:
                 servo_target=self.online_servo_target.tolist(),
                 selected_control=result.get("selected_control", result.get("fallback_control", "mpc")),
                 nonlinear_step_scale=result.get("nonlinear_step_scale"))
+            records[-1].update(replan_reason=replan_reason, replan_count=recovery.replan_count,
+                patches_replanned=patches_replanned, approach_origin=approach_origin.tolist())
             if step % max(args.log_every, 1) == 0:
                 pad_status = " ".join(f"{e['finger']}={e['geometric_gap']*1000:+.1f}mm/{e['normal_force']:.2f}N"
                     for e in audit["fingers"])
                 print(f"step={step:04d} phase={phase} contacts={count}/{len(ids)} "
                       f"tip_error={tip_error:.4f} height={new_pos[2]-self.initial_object_pos[2]:.4f} "
+                      f"target_z={mpc_goal[2]:.4f} lift_gate={','.join(lift_blockers) or 'ready'} "
                       f"{pad_status} status={status}")
             if hold >= max(args.hold_steps, 1):
                 break
         final_pos, final_quat, _ = self.get_object_pose()
         success = hold >= max(args.hold_steps, 1)
         report = dict(success=success, controller="online", num_contacts=len(ids),
-            mpc_objective="ik_joint_pose",
+            local_contact_replanning=True,
+            nearby_contact_update_count=sum(len(row.get('local_contact_updates', [])) for row in records),
+            mpc_objective="pad_contact_and_object_pose",
             startup_timings=startup_times,
             planned_grasp_certificate=planned_certificate, ik_handoff_step=handoff_step,
             contact_set_frozen=bool(args.freeze_contact_set),
+            replan_count=recovery.replan_count,
             prediction_intervals=dict(lambda_dt=args.lambda_prediction_dt, mpc_dt=self.command_dt),
             final_object_pos=final_pos.tolist(), final_object_quat=final_quat.tolist(),
+            object_target_pose=goal.tolist(),
             best_height_gain=best_height, best_contact_finger_count=best_contacts,
-            last_mpc_status=status, initial_ik_mean_tip_error=ik.mean_tip_error,
-            initial_ik_max_tip_error=ik.max_tip_error, contact_indices=ids.tolist(),
-            initial_ik_max_self_penetration=ik.max_self_penetration,
-            initial_ik_hand_q=ik.qpos.tolist(),
-            pregrasp_hand_q=open_posture.tolist(), pregrasp_minimum_pad_clearance=clearance,
+            last_mpc_status=status, initial_ik_mean_tip_error=initial_ik.mean_tip_error,
+            initial_ik_max_tip_error=initial_ik.max_tip_error, contact_indices=ids.tolist(),
+            initial_ik_max_self_penetration=initial_ik.max_self_penetration,
+            initial_ik_hand_q=initial_ik.qpos.tolist(),
+            pregrasp_hand_q=initial_open_posture.tolist(), pregrasp_minimum_pad_clearance=clearance,
             contact_points_local=points.tolist(), steps=records)
         if args.diagnostics_output is not None:
             import json
@@ -3733,11 +4522,17 @@ def build_argparser():
     parser.add_argument("--online-force-limit", type=float, default=12.)
     parser.add_argument("--online-unilateral-force-limit", type=float, default=.05)
     parser.add_argument("--online-approach-speed", type=float, default=.25)
-    parser.add_argument("--online-nullspace-stiffness", type=float, default=5.)
+    parser.add_argument("--online-nullspace-stiffness", type=float, default=5., help="OSC IK nullspace attraction during distant approach only.")
     parser.add_argument("--mpc-solver", choices=("acados", "ipopt"), default="acados")
     parser.add_argument("--lambda-device", default="cpu", help="Warp LM device: cpu or cuda:0.")
     parser.add_argument("--lambda-contact-region", choices=("body-sides", "all"), default="body-sides", help="Use the shared Lambda body-flank filter for an opposing Allegro grasp, or all surface patches.")
-    parser.add_argument("--freeze-contact-set", nargs="?", const=True, default=True, type=parse_bool_arg, help="Keep the initial n-contact anchors; a loaded grasp is always locked.")
+    parser.add_argument("--freeze-contact-set", nargs="?", const=True, default=True, type=parse_bool_arg, help="Keep Lambda sample assignments within an attempt; certified nearby replacements and measured contacts can update MPC regions.")
+    parser.add_argument("--regrasp-position-threshold", type=float, default=.025, help="Replan an ungrasped object after this displacement (m).")
+    parser.add_argument("--regrasp-rotation-threshold", type=float, default=.3, help="Replan an ungrasped object after this rotation (rad).")
+    parser.add_argument("--regrasp-cooldown", type=float, default=1., help="Minimum simulated seconds between recovery patch searches.")
+    parser.add_argument("--regrasp-stall-timeout", type=float, default=2., help="Retry a contact attempt after this many simulated seconds without a confirmed grasp, including stalled partial contacts.")
+    parser.add_argument("--regrasp-clearance-timeout", type=float, default=3., help="Search again if the MPC cannot reach clear pregrasp pads within this many simulated seconds.")
+    parser.add_argument("--regrasp-ik-time-budget", type=float, default=.25, help="Time budget for the single coupled IK recovery seed (s).")
     parser.add_argument("--lambda-prediction-dt", type=float, default=None, help="Lambda prediction interval; defaults to the same command_dt used by MPC.")
     parser.add_argument("--lambda-lm-iters", type=int, default=20)
     parser.add_argument("--lambda-force-limit", type=float, default=10.)
@@ -3745,21 +4540,45 @@ def build_argparser():
     parser.add_argument("--online-tip-radius", type=float, default=.012, help="Allegro collision pad radius.")
     parser.add_argument("--squeeze-depth", type=float, default=.005)
     parser.add_argument("--online-pad-stiffness", type=float, default=600.)
-    parser.add_argument("--online-tip-weight", type=float, default=5000., help="Legacy option; unused by the IK pose objective.")
-    parser.add_argument("--online-force-tracking-weight", type=float, default=0.)
+    parser.add_argument("--contact-impratio", type=float, default=10.,
+        help="Tangential-to-normal contact impedance ratio for the online elliptic scene; changes softness, not the Coulomb coefficient.")
+    parser.add_argument("--contact-noslip-iterations", type=int, default=3,
+        help="MuJoCo friction-only NoSlip sweeps for the online scene (default 3); 0 retains regularized tangential creep. Does not change friction coefficients.")
+    from models.soft_scm_contact import (
+        SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION)
+    parser.add_argument("--soft-scm-response-time", "--force-response-time", type=float, default=None,
+        help="Contact response time (s); defaults to the MuJoCo object's solref time scale.")
+    parser.add_argument("--soft-scm-damping-ratio", type=float, default=SOFT_SCM_DAMPING_RATIO)
+    parser.add_argument("--soft-scm-regularization", type=float, default=SOFT_SCM_REGULARIZATION)
+    parser.add_argument("--online-tip-weight", type=float, default=5000., help="MPC weight on pad centres aligning with moving object contact targets.")
+    parser.add_argument("--online-contact-transport-weight", type=float, default=1000., help="After confirmed force closure, carry pad contact regions to the object's goal pose; no joint IK tracking.")
+    parser.add_argument("--online-contact-transport-distance", type=float, default=None,
+        help="Maximum pad transport reference advance (m); defaults to lift speed times prediction horizon. The object pose goal stays unchanged.")
+    parser.add_argument("--online-self-collision-weight", type=float, default=1e7, help="Penalty on predicted inter-finger overlap and clearance violations.")
+    parser.add_argument("--online-self-collision-clearance", type=float, default=.001, help="Desired separation between neighbouring finger links (m).")
+    parser.add_argument("--online-force-tracking-weight", type=float, default=10., help="Weight on the resulting pad wrench error normalized by object weight.")
+    parser.add_argument("--online-force-feedback", action=argparse.BooleanOptionalAction, default=False,
+        help="Refresh the force-tracking output bias and preload gain from measured pad forces each cycle; the softSCM motion model is retained.")
+    parser.add_argument("--online-pressure-control", action=argparse.BooleanOptionalAction, default=True,
+        help="Track pad normal preload while MPC controls tangential motion; prediction and execution share the same joint command map.")
+    parser.add_argument("--online-normal-admittance", type=float, default=.0003, help="Measured normal-force feedback gain (m/N).")
+    parser.add_argument("--online-local-contact-distance", type=float, default=.02,
+        help="Each MPC cycle may adopt a reachable nearest pad patch inside this distance if it forms force closure with the current contacts (m).")
+    parser.add_argument("--online-min-normal-force", type=float, default=.6, help="Compressive preload per contacting pad in the live wrench allocator (N).")
+    parser.add_argument("--online-friction-margin", type=float, default=.8, help="Fraction of the physical Coulomb cone used for live wrench allocation.")
     parser.add_argument("--online-pressure-sync-weight", type=float, default=0.)
-    parser.add_argument("--online-base-position-weight", type=float, default=1000.)
-    parser.add_argument("--online-posture-weight", type=float, default=5000., help="MPC weight on finger joint error to the planned IK pose.")
+    parser.add_argument("--online-base-position-weight", type=float, default=1.)
+    parser.add_argument("--online-posture-weight", type=float, default=5., help="Weak IK approach attraction; fades to zero before pad contact.")
     parser.add_argument("--online-joint-action-weight", type=float, default=50.)
     parser.add_argument("--online-rotation-action-weight", type=float, default=50.)
     parser.add_argument("--online-contact-base-speed", type=float, default=.04, help="Palm translation speed bound within 2 cm of fingertip contact (m/s).")
     parser.add_argument("--online-contact-rotation-speed", type=float, default=.2, help="Palm hinge speed bound near fingertip contact (rad/s).")
     parser.add_argument("--online-contact-joint-speed", type=float, default=.5, help="Finger joint speed bound near fingertip contact (rad/s).")
-    parser.add_argument("--online-palm-orientation-weight", type=float, default=500., help="MPC weight on palm hinge error to the IK pose.")
+    parser.add_argument("--online-palm-orientation-weight", type=float, default=.5, help="Weak palm orientation attraction during approach only.")
     parser.add_argument("--online-object-lateral-weight", type=float, default=300.)
     parser.add_argument("--online-horizontal-recovery-weight", type=float, default=2e6, help="bigrasp soft corridor penalty on additional horizontal object displacement.")
     parser.add_argument("--online-max-horizontal-error", type=float, default=.005, help="Allowed approach displacement along x/y in metres.")
-    parser.add_argument("--online-synchronization-weight", type=float, default=1500., help="Legacy option; unused by the IK pose objective.")
+    parser.add_argument("--online-synchronization-weight", type=float, default=1500., help="Legacy option; use --online-pressure-sync-weight for contact force synchronization.")
     parser.add_argument("--online-lift-speed", type=float, default=.05)
     parser.add_argument("--mpc-rotation-step-limit", type=float, default=.03)
     parser.add_argument("--max-steps", type=int, default=None, help="Online command-step limit; defaults to the legacy stage budgets plus contact wait.")
@@ -3855,13 +4674,14 @@ def build_argparser():
         default=10.0,
         help="Weight on the static-equilibrium residual norm added to mlqp_point_v2 grasp ranking.",
     )
-    parser.add_argument("--lift-contact-fingers", type=int, default=None, help="Required physical fingertip contacts. Defaults to all planned fingers online, or three for legacy staged control.")
-    parser.add_argument("--online-guidance", choices=("mpc", "ik-mpc"), default="mpc", help="MPC tracks the planned IK pose throughout; ik-mpc optionally executes an initial IK servo approach.")
+    parser.add_argument("--lift-contact-fingers", type=int, default=None, help="Required physical fingertip contacts (default: three); force closure and bounded load support are also required.")
+    parser.add_argument("--online-guidance", choices=("mpc", "ik-mpc"), default="mpc", help="Contact MPC throughout, or an initial collision-free pregrasp IK servo approach.")
     parser.add_argument("--online-ik-base-speed", type=float, default=.15)
     parser.add_argument("--online-ik-joint-speed", type=float, default=.8)
     parser.add_argument("--online-ik-palm-position-weight", type=float, default=.05)
     parser.add_argument("--online-ik-posture-regularization", type=float, default=.005)
-    parser.add_argument("--online-ik-tip-tolerance", type=float, default=.002)
+    parser.add_argument("--online-ik-tip-tolerance", type=float, default=.002,
+        help="Mean position tolerance for the approach IK seed (m); maximum is 1.5 times this. Live MPC refines contact.")
     parser.add_argument("--online-ik-handoff-joint-tolerance", type=float, default=.12)
     parser.add_argument("--online-preshape-margin", type=float, default=.1)
     parser.add_argument("--online-pregrasp-clearance", type=float, default=.015, help="Outward pad clearance used by the one-time pregrasp IK (m).")
@@ -3878,8 +4698,8 @@ def build_argparser():
     parser.add_argument("--mpc-velocity-limit", type=float, default=3.5, help="Finger velocity bound used to derive each command-step finger action limit.")
     parser.add_argument("--mpc-base-step-limit", type=float, default=0.01, help="Maximum xyz increment per command applied to the Allegro base.")
     parser.add_argument("--mpc-max-contacts", type=int, default=None, help="Maximum number of object contacts included in the explicit MPC linearization.")
-    parser.add_argument("--mpc-base-track-weight", type=float, default=4000.0, help="Running-state tracking weight on the base xyz reference.")
-    parser.add_argument("--mpc-q-weight", type=float, default=30.0, help="Running-state tracking weight on the 16 finger joints.")
+    parser.add_argument("--mpc-base-track-weight", type=float, default=4000.0, help="Legacy staged base approach attraction; disabled near pad contact.")
+    parser.add_argument("--mpc-q-weight", type=float, default=30.0, help="Legacy staged finger approach attraction; disabled near pad contact.")
     parser.add_argument("--mpc-object-pos-weight", type=float, default=120.0, help="Running-state tracking weight on the object position target.")
     parser.add_argument("--mpc-object-quat-weight", type=float, default=5.0, help="Running-state tracking weight on the object quaternion target.")
     parser.add_argument("--mpc-terminal-weight", type=float, default=4.0, help="Multiplier applied to the terminal tracking costs.")
@@ -3911,7 +4731,7 @@ def build_argparser():
     parser.add_argument("--mjwp-force-cost-weight", type=float, default=12.0, help="Weight on the online force-closure surrogate during squeeze/lift stages.")
     parser.add_argument("--mjwp-tip-cost-weight", type=float, default=500.0, help="Weight on fingertip-to-moving-contact-target distance in MJWP rollout.")
     parser.add_argument("--mjwp-base-cost-weight", type=float, default=200.0, help="Weight on base xyz tracking inside MJWP rollout.")
-    parser.add_argument("--mjwp-finger-cost-weight", type=float, default=2.0, help="Weight on finger q tracking inside MJWP rollout.")
+    parser.add_argument("--mjwp-finger-cost-weight", type=float, default=2.0, help="Finger approach attraction inside MJWP; disabled at contact.")
     parser.add_argument("--mjwp-object-cost-weight", type=float, default=80.0, help="Weight on object position tracking inside MJWP rollout.")
     parser.add_argument("--mjwp-object-quat-cost-weight", type=float, default=5.0, help="Weight on object quaternion tracking inside MJWP rollout.")
     parser.add_argument("--mjwp-action-cost-weight", type=float, default=0.1, help="Weight on sampled action magnitude inside MJWP rollout.")
@@ -3921,7 +4741,8 @@ def build_argparser():
     parser.add_argument("--screenshot-interval", type=float, default=1.0, help="Seconds between automatic SVG screenshots. Use 0 to disable.")
     parser.add_argument("--screenshot-width", type=int, default=1280, help="Screenshot render width.")
     parser.add_argument("--screenshot-height", type=int, default=960, help="Screenshot render height.")
-    parser.add_argument("--video-output-dir", type=Path, default=DEFAULT_VIDEO_OUTPUT_DIR, help="Directory where MuJoCo MP4 recordings are written.")
+    parser.add_argument("--save", action="store_true", help="Record an MP4 video; recording is off by default.")
+    parser.add_argument("--video-output-dir", type=Path, default=DEFAULT_VIDEO_OUTPUT_DIR, help="MP4 output directory when --save is supplied.")
     parser.add_argument("--video-output-path", type=Path, default=None, help="Optional explicit MP4 output path. Overrides --video-output-dir.")
     parser.add_argument("--video-fps", type=float, default=20.0, help="MP4 capture frame rate.")
     parser.add_argument("--video-width", type=int, default=1280, help="MP4 render width.")

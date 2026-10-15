@@ -1,0 +1,27 @@
+{
+  "method": "GPU float64 batched projected LM, exact coupled SCM, 20 iterations",
+  "device": "NVIDIA GeForce RTX 5060 Ti",
+  "successful_trials": 3,
+  "attempted_trials": 3,
+  "execution_time_s": {
+    "mean": 2.713490676333246,
+    "population_std": 0.6990964336895678,
+    "n": 3
+  },
+  "planning_time_ms": {
+    "mean": 9.198403412631373,
+    "population_std": 0.5050899333522683,
+    "n": 744
+  },
+  "validation": {
+    "states": 12,
+    "candidate_predictions": 604,
+    "max_pose_abs": 1.214306433183765e-17,
+    "max_cost_abs": 5.211386877590485e-13
+  },
+  "source_sha256": {
+    "planning/mlqp_point.py": "7bcd3816b413273e8ab219ca038ecf70aabf89e3829a9c472467238f28557bf9",
+    "planning/direct_contact_force.py": "4cc093dcef5d4972fde2945f40966464ead9d6658986085d382cbf660be44f51",
+    "output/diagnostics/gpu_batch_lm_success_rollouts_20261014/gpu_lm.py": "114bb9232a9ee633ac0ed62b96d9d34b33e365380716c743f7e5855c4a097c22"
+  }
+}

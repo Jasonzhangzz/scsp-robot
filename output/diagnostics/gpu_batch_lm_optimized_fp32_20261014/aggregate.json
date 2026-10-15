@@ -1,0 +1,40 @@
+{
+  "method": "GPU analytic projected batched LM; FP32, maximum 20 iterations; per-candidate early stopping",
+  "successful_trials": 3,
+  "attempted_trials": 3,
+  "execution_time_s": {
+    "mean": 1.3878443073329738,
+    "population_std": 1.081957643583706,
+    "n": 3
+  },
+  "steps": {
+    "mean": 318,
+    "population_std": 245.05237535405908,
+    "n": 3
+  },
+  "planning_time_ms": {
+    "mean": 2.5524152075773654,
+    "population_std": 0.21933400078542262,
+    "n": 954
+  },
+  "validation": {
+    "states": 12,
+    "candidates": 620,
+    "max_pose_abs": 1.2953029904227975e-07,
+    "max_cost_abs": 1.8659267158049886e-06,
+    "max_jacobian_abs": 8.745629034856428e-08,
+    "quality_states": 9,
+    "max_best_cost_relative_increase": 9.731951091197652e-07
+  },
+  "iteration_diagnostics": {
+    "candidates": 471,
+    "mean_iterations": 9.286624203821656,
+    "early_stop_fraction": 0.6178343949044586,
+    "mean_model_evaluations": 13.67728237791932
+  },
+  "source_sha256": {
+    "output/diagnostics/gpu_batch_lm_optimized_fp32_20261014/gpu_lm.py": "188f53a8d653f4ca9031ab3240180f37032d58bc2e384f9ee0d5621790f5bb0b",
+    "output/diagnostics/gpu_batch_lm_optimized_fp32_20261014/gpu_lm_base.py": "c921ba887fbc2f35ff517c7240e1f1c2e26ed72bb476082461934404aedaf467",
+    "output/diagnostics/gpu_batch_lm_optimized_fp32_20261014/run.py": "2ef1d90e6b0364ef40693f6cf41827134d2c0579e1932b426271b1fee85e9022"
+  }
+}

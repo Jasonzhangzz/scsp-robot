@@ -1,0 +1,32 @@
+[ablation] a5; isolated test_mpc_isaac runtime
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Loading extension module gymtorch...
+[mpc-startup] trial=0 building contact/MPC runtime
+[acados] generating solver: mpc_soft_scm_v3_366459c2f9_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+[acados] compiling solver (4 large maps); log: /tmp/mpc_soft_scm_v3_366459c2f9_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000_codegen/build.log
+[acados] solver ready in 19.01s
+[mpc-startup] trial=0 ready in 22.48s (contact=cma-es mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 2.13s
+[mpc-startup] trial=1 building contact/MPC runtime
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[acados] reusing solver: mpc_soft_scm_v3_366459c2f9_param_staged2_6b97a67627_current_terminal_motion1_lm2_ablation_a5_6b55a96bf2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=1 ready in 4.98s (contact=cma-es mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 2.13s

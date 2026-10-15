@@ -1,0 +1,41 @@
+# Python 3.8 compatible pins for scsp-robot (conda env: acc).
+# pi0 is Python 3.11; those exact versions are not installable here.
+# Closest last-supported 3.8 wheels are used instead.
+#
+# Create env, then:
+#   conda create -n acc python=3.8 -y
+#   conda activate acc
+#   pip install -U pip setuptools wheel
+#   pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements-py38.txt
+#   pip install -e /home/zz/IsaacGym_Preview_4_Package/isaacgym/python
+#
+# Not on PyPI / not 3.8-compatible (install separately if needed):
+#   isaacgym          — local Preview 4, path above
+#   acados_template   — no 3.8 wheel for 0.5.1; use ACADOS_SOURCE_DIR + its python package
+#   mujoco-warp       — needs newer Python / mujoco than 3.8 allows
+#   torch 2.10+cu128  — pi0 version; last 3.8 torch is 2.4.1
+#   jax / brax        — optional; last 3.8 jax is ~0.4.13 (CPU):
+#                       pip install "jax==0.4.13" "jaxlib==0.4.13"
+
+numpy==1.24.4
+scipy==1.10.1
+casadi==3.6.7
+trimesh==4.4.9
+tqdm==4.66.5
+matplotlib==3.7.5
+PyYAML==6.0.2
+Pillow==10.4.0
+imageio==2.35.1
+scikit-learn==1.3.2
+deprecated==1.2.18
+flask==3.0.3
+opencv-python==4.10.0.84
+pytest==8.3.5
+emoji==2.14.1
+art==6.4
+SciencePlots==2.1.1
+open3d==0.18.0
+mujoco==3.1.6
+roboticstoolbox-python==1.1.1
+warp-lang==1.3.1

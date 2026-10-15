@@ -1,0 +1,85 @@
+<mujoco model="panda scene">
+
+  <statistic center="0.3 0 0.4" extent="1"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <mesh name="object" file="../../assets/objects/stanford_bunny2.stl"/>
+    <mesh name="goal_hand_0" file="hand_0.obj"/>
+    <mesh name="goal_hand_1" file="hand_1.obj"/>
+    <mesh name="goal_hand_2" file="hand_2.obj"/>
+    <mesh name="goal_hand_3" file="hand_3.obj"/>
+    <mesh name="goal_hand_4" file="hand_4.obj"/>
+    <mesh name="goal_finger_0" file="finger_0.obj"/>
+    <mesh name="goal_finger_1" file="finger_1.obj"/>
+    <!-- <mesh name="object" file="/home/zz/dxr/Franka-contact-face-detection-manipulation-main/envs/assets/objects/Controller_binary.stl" scale="0.05 0.05 0.05"/> -->
+    
+    <!-- <mesh name="object" file="../../assets/objects/foam_brick.stl" scale="0.8 0.8 0.8"/> -->
+    <texture name='surface' file="../assets/textures/general_block.png" gridsize="3 4" gridlayout=".U..LFRB.D.."/>
+
+    <material name="obj_surface" texture="surface" specular="1" shininess="0.3" reflectance="0.4"/>
+    <material name="block" rgba="0.8 0.2 0.2 1" specular="0.1" shininess="0.5"/>
+    <material name="goal_gripper_white" rgba="1 1 1 0.28" specular="0.1" shininess="0.1"/>
+    <material name="goal_gripper_off_white" rgba="0.92 0.94 0.96 0.28" specular="0.1" shininess="0.1"/>
+    <material name="goal_gripper_black" rgba="0.2 0.2 0.22 0.24" specular="0.05" shininess="0.05"/>
+    <material name="goal_gripper_blue" rgba="0.1 0.58 0.85 0.22" specular="0.08" shininess="0.08"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="1 1 0.05" type="plane" material="groundplane"/>
+
+    <body name="table">
+      <geom name="table" type="box" size="1. 1. 0.175" material="groundplane"
+              pos="1.2 0.0 0.175" quat="1 0 0 0"
+              rgba="1 1 1 0.2"/>
+    </body>
+
+    <body name="goal">
+        <geom name="goal" type="mesh" mesh="object" conaffinity="0" contype="0" material="obj_surface"
+              pos="0.0 0.0 0.0" quat="1 0 0 0"
+              rgba="1 1 1 0.2"/>
+    </body>
+
+    <body name="marker" pos="0.3 0 0.4">
+      <geom type="sphere" size="0.01" rgba="1 1 0 1" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="goal_gripper" pos="2 2 -1" quat="1 0 0 0">
+      <geom type="mesh" mesh="goal_hand_0" material="goal_gripper_off_white" contype="0" conaffinity="0"/>
+      <geom type="mesh" mesh="goal_hand_1" material="goal_gripper_black" contype="0" conaffinity="0"/>
+      <geom type="mesh" mesh="goal_hand_2" material="goal_gripper_black" contype="0" conaffinity="0"/>
+      <geom type="mesh" mesh="goal_hand_3" material="goal_gripper_white" contype="0" conaffinity="0"/>
+      <geom type="mesh" mesh="goal_hand_4" material="goal_gripper_off_white" contype="0" conaffinity="0"/>
+      <body name="goal_left_finger" pos="0 0 0.0584">
+        <geom type="mesh" mesh="goal_finger_0" material="goal_gripper_off_white" contype="0" conaffinity="0"/>
+        <geom type="mesh" mesh="goal_finger_1" material="goal_gripper_black" contype="0" conaffinity="0"/>
+      </body>
+      <body name="goal_right_finger" pos="0 0 0.0584" quat="0 0 0 1">
+        <geom type="mesh" mesh="goal_finger_0" material="goal_gripper_off_white" contype="0" conaffinity="0"/>
+        <geom type="mesh" mesh="goal_finger_1" material="goal_gripper_black" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+
+    <body name="obj" >
+        <freejoint name="object_table"/>
+        <geom name="obj" type="mesh" mesh="object" material="obj_surface"
+            pos="0.0 0.0 0.0" quat="1 0 0 0"
+            mass="0.1"
+            condim="6"
+            friction="0.9"/>
+    </body>
+
+  </worldbody>
+  <include file="panda_nohand.xml"/>
+  
+</mujoco>

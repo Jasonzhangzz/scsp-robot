@@ -1,0 +1,27 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.17.0
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q3d49577b99
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q3d49577b99
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qfd724e1e28
+Module gpu_lm 5c90639 load on device 'cuda:0' took 2.02 ms  (cached)
+STATE foam_brick 165 {"full_round_ms": 2.7265387501756777, "gpu_graph_ms": 0.9995615988969803, "prepare_upload_ms": 0.3988672999184928, "choose_ms": 2.086072850306664}
+STATE foam_brick 497 {"full_round_ms": 2.7175441998224414, "gpu_graph_ms": 1.0092271953821181, "prepare_upload_ms": 0.3960809001000598, "choose_ms": 2.089780949972919}
+direct_force solver=acados object=foam_brick seed=0 step=0 pos=0.021213 quat=0.001052 hold=0 success=False
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_qae2a5d4dcd
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_qae2a5d4dcd
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qfd724e1e28
+STATE elephant 40 {"full_round_ms": 2.3324697996940813, "gpu_graph_ms": 0.5708879917860031, "prepare_upload_ms": 0.4086811500201293, "choose_ms": 1.6991097001664457}
+STATE elephant 120 {"full_round_ms": 2.491033099795459, "gpu_graph_ms": 0.765486404299736, "prepare_upload_ms": 0.4105622499992023, "choose_ms": 1.8842933000996709}
+direct_force solver=acados object=elephant seed=0 step=0 pos=0.018291 quat=0.000083 hold=0 success=False
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q4df3fed05f
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q4df3fed05f
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qfd724e1e28
+STATE stanford_bunny2 31 {"full_round_ms": 2.3254617999555194, "gpu_graph_ms": 0.5825471997261047, "prepare_upload_ms": 0.40785485007290845, "choose_ms": 1.7325734500445833}
+STATE stanford_bunny2 95 {"full_round_ms": 2.2630979999121337, "gpu_graph_ms": 0.5500496059656144, "prepare_upload_ms": 0.40311724978892016, "choose_ms": 1.669726749878464}
+direct_force solver=acados object=stanford_bunny2 seed=0 step=0 pos=0.022764 quat=0.063545 hold=0 success=False
+SUMMARY {"cached_planning_ms": {"mean": 2.459364666416756, "std": 0.21060142386420166}, "full_round_ms": {"mean": 2.476024274892552, "std": 0.19918717151468862}, "gpu_graph_ms": {"mean": 0.7462933326760928, "std": 0.1958991753662715}, "graph_wall_ms": {"mean": 0.7607282165281504, "std": 0.19647555594001628}, "prepare_upload_ms": {"mean": 0.40419394998328545, "std": 0.013411571164298676}, "lm_adapter_ms": {"mean": 1.289041900099619, "std": 0.19510616632552416}, "choose_ms": {"mean": 1.8602595000781246, "std": 0.18345347571557702}, "other_step_ms": {"mean": 0.6157647748144276, "std": 0.03152595075143827}, "ranking_ms": {"mean": 0.5712175999785055, "std": 0.026405386139746145}, "readback_other_ms": {"mean": 0.12411973358818311, "std": 0.020814021902541186}, "n": 120}

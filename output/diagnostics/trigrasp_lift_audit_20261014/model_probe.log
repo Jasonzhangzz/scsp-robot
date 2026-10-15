@@ -1,0 +1,45 @@
+[startup] building MuJoCo scene with palm facing the object
+[startup] preprocessing contact surface
+Warp 1.16.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.16.0
+[startup] surface preprocessing: 0.812s
+[startup] constructing MPC (acados compiles on cache miss)
+[acados] reusing solver: mpc_soft_scm_allegro_v3_e9f808b0f0_param_staged2_c1242d5b6a_current_h4_c12_x79_u22_profile_e8ddba0a_jvp_v1_cost_jvp_v1
+[startup] MPC initialization: 2.088s
+[probe] force_tracking {'success': True, 'iterations': 4, 'cost': 0.17885125579349676, 'action': array([ 0.001 , -0.001 ,  0.001 , -0.005 , -0.005 , -0.005 ,  0.0125,
+       -0.0125, -0.0125, -0.0125,  0.0125,  0.0125,  0.0125,  0.0125,
+        0.0125,  0.0125,  0.0125,  0.0125,  0.0125,  0.0125,  0.0125,
+        0.0125]), 'model_force_sum': array([-0.03248813, -0.09144829,  0.05419407])}
+[probe] max_pad_lift {'success': True, 'iterations': 6, 'cost': -0.06154224206529092, 'action': array([ 0.001 ,  0.001 ,  0.001 , -0.005 , -0.005 , -0.005 , -0.0125,
+        0.0125,  0.0125,  0.0125, -0.0125,  0.0125,  0.0125,  0.0125,
+        0.0125,  0.0125,  0.0125,  0.0125, -0.0125,  0.0125, -0.0125,
+        0.0125]), 'model_force_sum': array([-0.02759274, -0.08127469,  0.06154224])}
+[probe] one-step zero {'model_pad_force_sum': array([-0.02640249, -0.07548346,  0.0431618 ]), 'actual_average_pad_wrench': array([-0.29384287, -0.41722942,  0.01294017,  0.01051196, -0.00273792,
+        0.00690037]), 'actual_final_pad_wrench': array([-0.28995092, -0.41201294,  0.00555654,  0.01094148, -0.00290562,
+        0.00663141]), 'actual_object_displacement': array([-0.00025412, -0.00041478, -0.00009003]), 'predicted_object_displacement': array([-0.00008246, -0.00030276, -0.00075858]), 'actual_contact_count': 4, 'actual_delta_vz': np.float64(-0.0032144377114989636), 'predicted_delta_vz': np.float64(-0.028394460405865754)}
+[probe] one-step mpc {'model_pad_force_sum': array([-0.02468087, -0.07510438,  0.04694632]), 'actual_average_pad_wrench': array([-0.28027414, -0.42173892,  0.01868955,  0.00929677, -0.00378476,
+        0.00636532]), 'actual_final_pad_wrench': array([-0.27751745, -0.41725157,  0.01200244,  0.00940074, -0.00406459,
+        0.0062629 ]), 'actual_object_displacement': array([-0.00022861, -0.00039651, -0.00004179]), 'predicted_object_displacement': array([-0.00007343, -0.00029493, -0.00073746]), 'actual_contact_count': 4, 'actual_delta_vz': np.float64(-0.0002003378629006024), 'predicted_delta_vz': np.float64(-0.027549685575074593)}
+[probe] one-step offline_mpc {'model_pad_force_sum': array([-0.03638631, -0.08284396,  0.0611269 ]), 'actual_average_pad_wrench': array([-0.33477803, -0.43884735,  0.04569001,  0.0092635 , -0.00068965,
+        0.00639653]), 'actual_final_pad_wrench': array([-0.32889016, -0.43768435,  0.04168355,  0.00900835, -0.00051665,
+        0.00596218]), 'actual_object_displacement': array([-0.00047346, -0.00045962,  0.00020002]), 'predicted_object_displacement': array([-0.000275  , -0.00041275, -0.00061788]), 'actual_contact_count': 4, 'actual_delta_vz': np.float64(0.014287886852237064), 'predicted_delta_vz': np.float64(-0.022766640402681646)}
+[probe] one-step base_up {'model_pad_force_sum': array([-0.02683011, -0.07481629,  0.05125366]), 'actual_average_pad_wrench': array([-0.29659888, -0.41555149,  0.03567986,  0.01067118, -0.00277952,
+        0.00695494]), 'actual_final_pad_wrench': array([-0.29356845, -0.40920307,  0.02995905,  0.01105951, -0.0029939 ,
+        0.00669664]), 'actual_object_displacement': array([-0.00025388, -0.00041656,  0.00003281]), 'predicted_object_displacement': array([-0.00007924, -0.00030361, -0.00070647]), 'actual_contact_count': 4, 'actual_delta_vz': np.float64(0.0040953702641573385), 'predicted_delta_vz': np.float64(-0.026310358071178985)}
+[probe] one-step force_tracking {'model_pad_force_sum': array([-0.03248813, -0.09144829,  0.05419407]), 'actual_average_pad_wrench': array([-0.2970271 , -0.48539381,  0.0330229 ,  0.00760669, -0.00709085,
+        0.0074321 ]), 'actual_final_pad_wrench': array([-0.29629214, -0.49293018,  0.02655313,  0.00737551, -0.0089319 ,
+        0.00709556]), 'actual_object_displacement': array([-0.00016899, -0.00061614,  0.00012282]), 'predicted_object_displacement': array([-0.00001975, -0.00048568, -0.00069188]), 'actual_contact_count': 4, 'actual_delta_vz': np.float64(0.009445138133534136), 'predicted_delta_vz': np.float64(-0.02572653327114965)}
+[probe] one-step max_pad_lift {'model_pad_force_sum': array([-0.02759274, -0.08127469,  0.06154224]), 'actual_average_pad_wrench': array([-0.29439567, -0.42913981,  0.05655798,  0.00910283, -0.00287148,
+        0.00645599]), 'actual_final_pad_wrench': array([-0.28909339, -0.42418287,  0.05433704,  0.00887704, -0.00328368,
+        0.00622093]), 'actual_object_displacement': array([-0.00024303, -0.00047755,  0.00018219]), 'predicted_object_displacement': array([-0.0000815 , -0.00041419, -0.00063705]), 'actual_contact_count': 4, 'actual_delta_vz': np.float64(0.013255595797519112), 'predicted_delta_vz': np.float64(-0.023533232764808586)}
+[probe] GS sweeps 1 {'pad_force_sum': array([0.00180283, 0.00489067, 0.01476142]), 'prediction': array([ 0.57795556, -0.01011927,  0.39836475]), 'normal_forces': array([0.00507551, 0.        , 0.        , 0.00179603])}
+[probe] GS sweeps 4 {'pad_force_sum': array([-0.02631529, -0.08680753,  0.02375759]), 'prediction': array([ 0.57792313, -0.01156458,  0.39803076]), 'normal_forces': array([0.0469922 , 0.07491732, 0.02697158, 0.02766117])}
+[probe] GS sweeps 8 {'pad_force_sum': array([-0.02468087, -0.07510438,  0.04694632]), 'prediction': array([ 0.57792997, -0.01146687,  0.39803745]), 'normal_forces': array([0.07228409, 0.07604237, 0.03152683, 0.03675607])}
+[probe] GS sweeps 16 {'pad_force_sum': array([-0.02177733, -0.07057629,  0.04633052]), 'prediction': array([ 0.57795024, -0.01142703,  0.39805295]), 'normal_forces': array([0.07216173, 0.073229  , 0.03011751, 0.03642708])}
+[probe] GS sweeps 32 {'pad_force_sum': array([-0.02187754, -0.07073881,  0.04636751]), 'prediction': array([ 0.57794973, -0.01142825,  0.39805225]), 'normal_forces': array([0.07215666, 0.07331872, 0.03018793, 0.0364342 ])}
+[probe] GS sweeps 64 {'pad_force_sum': array([-0.0218777 , -0.07073906,  0.0463677 ]), 'prediction': array([ 0.57794973, -0.01142825,  0.39805225]), 'normal_forces': array([0.07215668, 0.07331884, 0.03018809, 0.03643422])}

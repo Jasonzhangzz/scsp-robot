@@ -1,0 +1,20 @@
+{
+  "aligned_force_trial": {
+    "success": false,
+    "max_height_gain": 0.014470722982902529,
+    "loaded_frames": 54,
+    "steps": 450
+  },
+  "geometry_trial": {
+    "success": false,
+    "max_height_gain": 0.004100335444317815,
+    "loaded_frames": 11,
+    "steps": 450
+  },
+  "geometry02": {
+    "success": false,
+    "max_height_gain": 0.017965521145970387,
+    "loaded_frames": 70,
+    "steps": 450
+  }
+}

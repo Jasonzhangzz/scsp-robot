@@ -1,0 +1,23 @@
+{
+  "method": "Projected batch LM, CPU float64, exact SCM and objective, 20 iterations",
+  "attempted_trials": 3,
+  "successful_trials": 3,
+  "execution_time_s": {
+    "mean": 15.38602900166658,
+    "population_std": 6.178445136818256,
+    "n": 3
+  },
+  "planning_time_ms": {
+    "mean": 51.11734579748464,
+    "population_std": 2.688012993020443,
+    "n": 874
+  },
+  "scope": "3 tasks selected from successful acados cache; not full-benchmark success estimate",
+  "source_sha256": {
+    "planning/mlqp_point.py": "7bcd3816b413273e8ab219ca038ecf70aabf89e3829a9c472467238f28557bf9",
+    "planning/mlqp_point_scm.py": "1c672668898e90e69f3ee6e13ff5539dc45904b2e0bf9f59add62191efc1ffaa",
+    "planning/direct_contact_force.py": "4cc093dcef5d4972fde2945f40966464ead9d6658986085d382cbf660be44f51",
+    "examples/mpc/fingertips/test/test_scm_mujoco.py": "103ac7370d96f85a6efadb9445bbfc163d1bcc1cc58c0ec942e8a92a3092d2bd",
+    "output/diagnostics/batch_lm_success_rollouts_20261014/batch_lm.py": "a59986f1f2194d63330982ed02e2685ad2c853c8f80f892f6294779cb3546325"
+  }
+}

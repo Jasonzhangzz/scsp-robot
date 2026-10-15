@@ -1,0 +1,47 @@
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 5060 Ti" (15 GiB, sm_120, mempool enabled)
+   Kernel cache:
+     /home/zz/.cache/warp/1.17.0
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q3d49577b99
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q3d49577b99
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qfd724e1e28
+Module gpu_lm 5c90639 load on device 'cuda:0' took 2.01 ms  (cached)
+LM_SETUP foam_brick 0.1885032800000772
+direct_force solver=acados object=foam_brick seed=0 step=0 pos=0.055114 quat=0.578646 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=50 pos=0.024796 quat=0.795920 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=100 pos=0.028696 quat=0.249012 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=150 pos=0.025671 quat=0.260551 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=200 pos=0.024146 quat=0.187845 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=250 pos=0.025377 quat=0.108762 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=300 pos=0.029835 quat=0.040520 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=350 pos=0.022919 quat=0.024674 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=400 pos=0.025576 quat=0.020185 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=450 pos=0.025859 quat=0.000757 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=500 pos=0.023460 quat=0.000410 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=550 pos=0.020951 quat=0.000428 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=600 pos=0.018583 quat=0.000155 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=650 pos=0.016481 quat=0.000082 hold=0 success=False
+direct_force solver=acados object=foam_brick seed=0 step=663 pos=0.016260 quat=0.000077 hold=10 success=True
+LM_RESULT {"object": "foam_brick", "seed": 0, "solver": "batch-lm-gpu-analytic-fp32", "success": true, "settled": true, "steps": 664, "error": null, "iterations": 20, "source_success_trial": "output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_foam_brick_000.json", "reference": {"solver": "acados", "object": "foam_brick", "seed": 0, "steps": 488, "success": true, "settled": true, "final_pos": 0.016051977238886333, "final_quat": 0.0007814875524717602, "solver_backends": ["acados"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:43:42+08:00", "completed_at": "2026-10-13T21:43:57+08:00", "execution_time_s": 10.693459064001217, "elapsed_wall_time_s": 10.693459064001217, "simulation_time_s": 9.760000000000437, "planning_time_ms": {"n": 488, "mean": 19.482608906639413, "std": 10.87368556316915, "median": 16.25270801014267, "p95": 30.50518225354608, "min": 14.743795967660844, "max": 165.68689804989845}, "planning_rounds": 488}, "residual_cost_checks": 665, "execution_time_s": 2.9131231299998035, "elapsed_wall_time_s": 2.9131231299998035, "simulation_time_s": 13.280000000004739, "planning_time_ms": {"n": 664, "mean": 2.604082881055229, "std": 0.17010663872445003, "median": 2.6408074991195463, "p95": 2.813404299195099, "min": 2.0785929991689045, "max": 3.137771998808603}, "planning_rounds": 664}
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_qae2a5d4dcd
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_qae2a5d4dcd
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qfd724e1e28
+LM_SETUP elephant 0.11668449399985548
+direct_force solver=acados object=elephant seed=0 step=0 pos=0.060986 quat=0.555117 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=50 pos=0.023852 quat=0.003861 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=100 pos=0.020038 quat=0.000173 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=150 pos=0.016016 quat=0.000031 hold=0 success=False
+direct_force solver=acados object=elephant seed=0 step=161 pos=0.015896 quat=0.000033 hold=10 success=True
+LM_RESULT {"object": "elephant", "seed": 0, "solver": "batch-lm-gpu-analytic-fp32", "success": true, "settled": true, "steps": 162, "error": null, "iterations": 20, "source_success_trial": "output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_elephant_000.json", "reference": {"solver": "acados", "object": "elephant", "seed": 0, "steps": 172, "success": true, "settled": true, "final_pos": 0.015941028626524727, "final_quat": 2.3896221884922575e-05, "solver_backends": ["acados"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:43:57+08:00", "completed_at": "2026-10-13T21:44:08+08:00", "execution_time_s": 6.096003589977045, "elapsed_wall_time_s": 6.096003589977045, "simulation_time_s": 3.440000000000316, "planning_time_ms": {"n": 172, "mean": 31.280490030334224, "std": 5.946124131524561, "median": 29.009863501414657, "p95": 37.50310245377477, "min": 26.21889900183305, "max": 95.47623200342059}, "planning_rounds": 172}, "residual_cost_checks": 163, "execution_time_s": 0.730522978999943, "elapsed_wall_time_s": 0.730522978999943, "simulation_time_s": 3.2400000000002493, "planning_time_ms": {"n": 162, "mean": 2.59361632101956, "std": 0.21628295790605812, "median": 2.6939100007439265, "p95": 2.8112887492170557, "min": 2.015051999478601, "max": 2.9109290007909294}, "planning_rounds": 162}
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q4df3fed05f
+[acados] reusing solver: contact_lambda_soft_scm_v25_m10_f10000_u900_q4df3fed05f
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1200_qfd724e1e28
+LM_SETUP stanford_bunny2 0.11731801200039627
+direct_force solver=acados object=stanford_bunny2 seed=0 step=0 pos=0.055795 quat=0.594275 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=50 pos=0.026566 quat=0.846727 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=100 pos=0.020691 quat=0.021362 hold=0 success=False
+direct_force solver=acados object=stanford_bunny2 seed=0 step=127 pos=0.014456 quat=0.004356 hold=11 success=True
+LM_RESULT {"object": "stanford_bunny2", "seed": 0, "solver": "batch-lm-gpu-analytic-fp32", "success": true, "settled": true, "steps": 128, "error": null, "iterations": 20, "source_success_trial": "output/benchmarks/scm_solvers_7x5_20261013_211740/acados/trial_stanford_bunny2_000.json", "reference": {"solver": "acados", "object": "stanford_bunny2", "seed": 0, "steps": 327, "success": true, "settled": true, "final_pos": 0.015934704175468196, "final_quat": 0.0004735986762213207, "solver_backends": ["acados"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:48:20+08:00", "completed_at": "2026-10-13T21:48:34+08:00", "execution_time_s": 9.226276291999966, "elapsed_wall_time_s": 9.226276291999966, "simulation_time_s": 6.539999999999095, "planning_time_ms": {"n": 327, "mean": 24.825899492036438, "std": 9.704653227231521, "median": 20.237954042386264, "p95": 38.848209264688194, "min": 14.82673903228715, "max": 70.10933599667624}, "planning_rounds": 327}, "residual_cost_checks": 129, "execution_time_s": 0.5198868129991752, "elapsed_wall_time_s": 0.5198868129991752, "simulation_time_s": 2.5600000000000223, "planning_time_ms": {"n": 128, "mean": 2.2322439922106696, "std": 0.17530962484817184, "median": 2.248733499982336, "p95": 2.5387165994288807, "min": 1.7909640009747818, "max": 2.7150839996465947}, "planning_rounds": 128}

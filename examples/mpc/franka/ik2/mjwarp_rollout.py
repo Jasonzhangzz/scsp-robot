@@ -27,6 +27,7 @@ from examples.mpc.franka.ik2.params import ExplicitMPCParams
 from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule
 from examples.mpc.franka.ik2.contact_frames import (
     _contact_jacobian_np, tangent_basis_from_normal, mesh_table_contact_points,
+    resolve_nullspace_stiffness,
     support_patch_jacobians, contact_jacobian_angular_body_frame,
 )
 from planning.runtime_compat import make_runtime_profile
@@ -191,7 +192,7 @@ class MuJoCoFrankaOSC(IsaacFrankaOSCSimulator):
         self.obj_qadr = int(model.jnt_qposadr[joint])
         self.obj_vadr = int(model.jnt_dofadr[joint])
         self.torque_limits = np.array([87, 87, 87, 87, 12, 12, 12])
-        self.nullspace_stiffness = args.nullspace_stiffness
+        self.nullspace_stiffness = resolve_nullspace_stiffness(args)
         self.activate_tool_compensation = False
         self.tool_compensation_force = np.zeros(6)
         self._policy_schedule = PolicyActionSchedule(self.sim_dt_, POLICY_INTERVAL, float(param.mpc_u_ub_))
@@ -359,6 +360,12 @@ class MJWarpBatch:
                            submitted_at=cmd.get('submitted_at'), planner_dt=cmd.get('planner_dt'),
                            path_blocked=cmd.get('path_blocked'), release_pressure=cmd.get('release_pressure', False),
                            preserve_upright=cmd.get('preserve_upright', False),
+                           object_cost_stage=cmd.get('object_cost_stage'),
+                           tool_rotation_world=cmd.get('tool_rotation_world'),
+                           approach_phase=cmd.get('approach_phase'),
+                           tool_rotation_action=cmd.get('tool_rotation_action'),
+                           tool_force_world=cmd.get('tool_force_world'),
+                           tool_normal_world=cmd.get('tool_normal_world'),
                            solver_backend=cmd.get('solver_backend'))
         if record_transition and env._scm_recorder is not None:
             env._scm_recorder.begin(env.get_policy_state(), env.observation(env.param_.trial_seed_))

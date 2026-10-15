@@ -5,25 +5,25 @@ To validate SCM as a viable approximate contact model, we compare it with higher
 
 For each baseline $b$, we measure the absolute difference in maximum post-step penetration, $e_d=|d_{\max}^{\mathrm{SCM}}-d_{\max}^{(b)}|$, and the linear and angular velocity differences, $e_v=\|\boldsymbol{v}^{\mathrm{SCM}}-\boldsymbol{v}^{(b)}\|_2$ and $e_\omega=\|\boldsymbol{\omega}^{\mathrm{SCM}}-\boldsymbol{\omega}^{(b)}\|_2$, in a common frame. Table~\ref{tab:scm_lcp_accuracy} reports mean $\pm$ standard deviation over 600 inputs per state. Separation predictions agree to numerical precision, and penetration differences in sliding and sticking remain at the micrometer scale. SCM captures the dominant object motion trends in most tested cases, supporting its use as a reliable predictive model for CSO under the tested contact conditions.
 
-We evaluate CSO contact guidance by applying the optimized point force at the selected contact location in MuJoCo. Seven objects (foam brick, mug, rubber duck, elephant, piggy bank, Stanford bunny, and teapot) each receive 5 paired initial states with seeds 0--4, giving 35 tasks per model. These are flip-to-pose tasks with randomized yaw and initial tilt sampled between $35^\circ$ and $75^\circ$, with a 5000-step budget. Planning is synchronous with a $20\,\mathrm{ms}$ policy interval; the full optimized force is applied for $0.5\,\mathrm{ms}$ per interval. Success requires the target-pose tolerances, at least ten consecutive unforced settling intervals, and low terminal velocities. SCM uses the reference Isaac quasi-dynamic model and ACADOS; the MuJoCo baseline uses its native pyramidal-contact QP, and the LCP baseline is a regularized monotone friction-ray LCP solved with Lemke's algorithm. QP and LCP force optimization use finite-difference local sensitivities and one local SLSQP update. Thus the comparison includes both model and solver implementation differences. Table~\ref{tab:cso_contact_guidance} reports measured success rates and mean $\pm$ population standard deviations. Execution time is wall-clock time from the first plan to successful settling, including planning and simulation but excluding initialization; failed trials are excluded from this time statistic. Planning time includes every attempted planning round, including failed tasks. The separate solver-comparison columns are retained and are not populated by this contact-model experiment.
+We evaluate CSO contact guidance by applying the optimized point force at the selected contact location in MuJoCo. Seven objects (foam brick, mug, rubber duck, elephant, piggy bank, Stanford bunny, and teapot) each receive 5 paired initial states with seeds 0--4, giving 35 tasks per configuration. These are flip-to-pose tasks with randomized yaw and initial tilt sampled between $35^\circ$ and $75^\circ$, with a 5000-step budget. Planning is synchronous with a $20\,\mathrm{ms}$ policy interval; the full optimized force is applied for $0.5\,\mathrm{ms}$ per interval. Success requires the target-pose tolerances, at least ten consecutive unforced settling intervals, and low terminal velocities. SCM+batched LM uses the reference Isaac quasi-dynamic SCM and objective with at most 20 projected LM iterations and per-candidate convergence stopping. Candidate predictions, analytic forward Jacobians, and force updates run in one fused kernel on an NVIDIA GeForce RTX 5060 Ti GPU in single precision; numerical results are checked against the double-precision CasADi model. The contact-model baselines use MuJoCo's native pyramidal-contact QP and a regularized monotone friction-ray LCP solved with Lemke's algorithm. Their force optimization uses finite-difference local sensitivities and one local SLSQP update. The solver baselines retain the same SCM prediction and objective, using CasADi/IPOPT for NLP, pycma for CMA-ES, and EvoTorch for CEM. CMA-ES and CEM use 24 samples per generation and at most 12 generations per contact. Thus the comparison includes both model and solver implementation differences. Table~\ref{tab:cso_contact_guidance} reports statistics conditioned on successful trials, with mean $\pm$ population standard deviations. The baselines were each evaluated on 35 tasks. SCM+batched LM was evaluated on a small subset of three initial states selected from successful acados trials: foam brick, elephant, and Stanford bunny, each with seed 0. All three LM trials succeeded; the retained sample counts are listed in the table. This selected subset is not a matched full-benchmark timing comparison. The filtered success rate is 100\% by construction and does not represent the success rate over all attempted tasks. Steps count the recorded planning--simulation cycles until successful settling, with one planning round and one 20-ms simulation interval per cycle (40 physics substeps). We use the cached step counts directly rather than infer them from wall-clock execution time. Planning time pools all planning rounds from successful trials only; failed tasks are excluded from both step and planning-time statistics. Contact-model timings were collected with seven object workers pinned to separate physical CPU cores; the solver-baseline timings come from a separate batch with up to two concurrent trials per method. SCM+batched LM trials were run sequentially; planning time includes input preparation, transfers, GPU completion synchronization, and host selection, while initialization, kernel compilation, and graph preparation are excluded. These wall-clock timings reflect the respective concurrent workloads rather than an isolated comparison of solver speed.
 
-% Data: output/diagnostics/cso_contact_guidance_7x5_20261013; seeds 0--4; 5000-step limit.
+
 \begin{table}[t]
 \centering
-\caption{CSO contact guidance: seven objects, 5 paired trials per object and model. Times are mean $\pm$ std; execution time is success-only wall time, and planning time covers all rounds.}
+\caption{CSO contact guidance on successful trials (mean \textpm{} std; LM: three selected tasks).}
 \label{tab:cso_contact_guidance}
-\scriptsize
-\setlength{\tabcolsep}{2pt}
+\footnotesize
 \resizebox{\columnwidth}{!}{%
-\begin{tabular}{@{}l*{7}{c}@{}}
+\setlength{\tabcolsep}{1pt}
+\begin{tabular}{@{}l*{6}{c}@{}}
 \toprule
-\multirow{2}{*}{Metric} & \multicolumn{3}{c}{Contact Model} & \multicolumn{4}{c}{Solvers} \\
-\cmidrule(lr){2-4}\cmidrule(lr){5-8}
- & \textbf{SCM} & MuJoCo QP & LCP & SQP & NLP & CMA-ES & CEM \\
+\multirow{2}{*}{Metric} & \multicolumn{2}{c}{Model} & \multicolumn{3}{c}{Solvers} & \multirow{2}{*}{\shortstack{\textbf{Ours}\\(\textbf{SCM+}\textbf{batched LM})}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-6}
+ & QP & LCP & NLP & CMA-ES & CEM & \\
 \midrule
-Success Rate & 45.7\% & 40.0\% & 20.0\% & -- & -- & -- & -- \\
-Execution Time (s) & $12.06 \pm 11.67$ & $138.75 \pm 165.29$ & $46.51 \pm 26.84$ & -- & -- & -- & -- \\
-Planning Time (ms) & $17.96 \pm 4.89$ & $123.45 \pm 39.15$ & $117.03 \pm 29.94$ & -- & -- & -- & -- \\
+Success (filtered, \%) & 100\% & 100\% & 100\% & 100\% & 100\% & 100\% \\
+Steps & 1127.86\textpm{}1312.60 & 423.43\textpm{}235.39 & 782.47\textpm{}576.26 & 640.07\textpm{}382.40 & 662.60\textpm{}432.40 & 318.00\textpm{}245.05 \\
+Plan. (ms) & 120.77\textpm{}30.38 & 107.73\textpm{}17.71 & 678.08\textpm{}422.52 & 813.01\textpm{}313.17 & 468.99\textpm{}163.50 & 2.55\textpm{}0.22 \\
 \bottomrule
 \end{tabular}
 }
@@ -290,34 +290,35 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 
 \begin{table*}[t]
 \centering
-\caption{Comparison of nonprehensile manipulation tasks in the fingertip and robot experiments (200 trials, except the interim A3 results).}
+\caption{Comparison of nonprehensile manipulation tasks in the fingertip and robot experiments (200 trials per task).}
 \label{tab:all_data}
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{0.95}
 \resizebox{\linewidth}{!}{%
-\begin{tabular}{ll*{6}{c}|*{10}{c}}
+\begin{tabular}{ll*{6}{c}|*{13}{c}}
 \toprule[1pt]
-\multirow{2}{*}{\textbf{Task}} & \multirow{2}{*}{\textbf{Metric}} & \multicolumn{6}{c|}{\textbf{Fingertip}} & \multicolumn{10}{c}{\textbf{Franka}} \\
-\cmidrule(lr){3-8} \cmidrule(lr){9-18}
- &  & \textbf{SCSP*} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{SCSP*} & \textbf{DyWA} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{A1}$^\dagger$ & \textbf{A2} & \textbf{A3}$^\ddagger$ \\
+\multirow{2}{*}{\textbf{Task}} & \multirow{2}{*}{\textbf{Metric}} & \multicolumn{6}{c|}{\textbf{Fingertip}} & \multicolumn{13}{c}{\textbf{Franka}} \\
+\cmidrule(lr){3-8} \cmidrule(lr){9-21}
+ &  & \textbf{SCSP*} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{I-MPC} & \textbf{CF-MPC} & \textbf{SCSP*} & \textbf{DyWA} & \shortstack{\textbf{contact}\\\textbf{SDF}} & \shortstack{\textbf{STOCS}\\\textbf{-3D}} & \textbf{Sampling} & \textbf{CF-MPC} & \textbf{A1}$^\dagger$ & \textbf{A2} & \textbf{A3} & \textbf{A4}$^\ddagger$ & \textbf{A5} & \textbf{A6} & \textbf{A7} \\
 \midrule
-\multirow{5}{*}{Rotation} & Success Rate & \textbf{0.97} & -- & -- & 0.89 & 0.05 & 0.07 & \textbf{0.95} & 0.86 & -- & -- & 0.56 & 0.01 & 0.01 & 0.01 & 0.36 & -- \\
- & Execution Time (s) & \textbf{10.09} & -- & -- & 18.53 & 19.62 & 18.15 & \textbf{15.16} & 18.12 & -- & -- & 18.97 & 22.62 & 21.18 & 21.42 & 19.36 & -- \\
- & Planning Time (s) & 0.023 & -- & -- & 0.205 & 0.032 & \textbf{0.006} & 0.024 & 0.031 & -- & -- & 0.228 & 0.083 & 0.082 & 0.080 & 0.023 & -- \\
- & Obj. Pos. Error (m) & \textbf{0.01} & -- & -- & 0.015 & 0.016 & 0.018 & \textbf{0.009} & 0.015 & -- & -- & 0.014 & 0.018 & 0.016 & 0.017 & 0.019 & -- \\
- & Obj. Quat. Error & \textbf{0.016} & -- & -- & 0.018 & 0.037 & 0.025 & \textbf{0.015} & 0.019 & -- & -- & 0.016 & 0.036 & 0.026 & 0.025 & 0.031 & -- \\
+\multirow{5}{*}{Rotation} & Success Rate & \textbf{0.97} & -- & -- & 0.89 & 0.05 & 0.07 & \textbf{0.95} & 0.86 & -- & -- & 0.56 & 0.01 & 0.01 & 0.36 & 0.10 & -- & -- & -- & 0.10 \\
+ & Execution Time (s) & \textbf{10.09} & -- & -- & 18.53 & 19.62 & 18.15 & \textbf{15.16} & 18.12 & -- & -- & 18.97 & 21.18 & 21.42 & 19.36 & 18.32 & -- & -- & -- & 3.91 \\
+ & Planning Time (s) & 0.023 & -- & -- & 0.205 & 0.032 & \textbf{0.006} & 0.024 & 0.031 & -- & -- & 0.228 & 0.082 & 0.080 & 0.023 & \textbf{0.019} & -- & -- & -- & 0.013 \\
+ & Obj. Pos. Error (m) & \textbf{0.01} & -- & -- & 0.015 & 0.016 & 0.018 & \textbf{0.009} & 0.015 & -- & -- & 0.014 & 0.016 & 0.017 & 0.019 & 0.016 & -- & -- & -- & 0.291 \\
+ & Obj. Quat. Error & \textbf{0.016} & -- & -- & 0.018 & 0.037 & 0.025 & \textbf{0.015} & 0.019 & -- & -- & 0.016 & 0.026 & 0.025 & 0.031 & 0.021 & -- & -- & -- & 0.349 \\
 \midrule
-\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.85} & -- & -- & 0.61 & 0.03 & 0.05 & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.00 & 0.01 & 0.01 & 0.18 & 0.40 \\
- & Execution Time (s) & \textbf{15.68} & -- & -- & 18.56 & 24.89 & 24.83 & \textbf{18.21} & 20.56 & -- & -- & 19.68 & -- & 22.56 & 22.31 & 21.57 & 36.65 \\
- & Planning Time (s) & 0.023 & -- & -- & 0.246 & 0.034 & \textbf{0.006} & \textbf{0.025} & 0.031 & -- & -- & 0.252 & 0.085 & 0.081 & 0.083 & \textbf{0.025} & 0.043 \\
- & Obj. Pos. Error (m) & \textbf{0.008} & -- & -- & 0.016 & 0.017 & 0.012 & \textbf{0.012} & 0.016 & -- & -- & \textbf{0.012} & -- & 0.018 & 0.017 & 0.018 & 0.0193 \\
- & Obj. Quat. Error & \textbf{0.019} & -- & -- & 0.020 & 0.037 & 0.027 & \textbf{0.021} & \textbf{0.021} & -- & -- & 0.022 & -- & 0.027 & 0.028 & 0.036 & 0.0043 \\
+\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.85} & -- & -- & 0.61 & 0.03 & 0.05 & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.01 & 0.01 & 0.18 & 0.01 & 0.40 & -- & -- & 0.00 \\
+ & Execution Time (s) & \textbf{15.68} & -- & -- & 18.56 & 24.89 & 24.83 & \textbf{18.21} & 20.56 & -- & -- & 19.68 & 22.56 & 22.31 & 21.57 & 23.72 & 36.65 & -- & -- & -- \\
+ & Planning Time (s) & 0.023 & -- & -- & 0.246 & 0.034 & \textbf{0.006} & \textbf{0.025} & 0.031 & -- & -- & 0.252 & 0.081 & 0.083 & \textbf{0.025} & 0.028 & 0.043 & -- & -- & 0.013 \\
+ & Obj. Pos. Error (m) & \textbf{0.008} & -- & -- & 0.016 & 0.017 & 0.012 & \textbf{0.012} & 0.016 & -- & -- & \textbf{0.012} & 0.018 & 0.017 & 0.018 & 0.016 & 0.0193 & -- & -- & 0.347 \\
+ & Obj. Quat. Error & \textbf{0.019} & -- & -- & 0.020 & 0.037 & 0.027 & \textbf{0.021} & \textbf{0.021} & -- & -- & 0.022 & 0.027 & 0.028 & 0.036 & 0.020 & 0.0043 & -- & -- & 0.800 \\
 \bottomrule[1pt]
 \end{tabular}
 }
 % Frozen source: outputs/ablation_successful_seeds_20261013/paper_a3_interim_20261013_021942.json
-% Snapshot: 2026-10-13 02:19:42 Asia/Shanghai; 6 successes / 15 completed A3 trials.
+% Snapshot: 2026-10-13 02:19:42 Asia/Shanghai; 6 successes / 15 completed A4 trials.
 % Planning mean: 2408.072473430191 s / 55996 control cycles = 0.0430043659 s.
+% A7 source: output/benchmarks/a7_mppi_7x3_20261015/statistics.json; 7 objects x seeds 0,1,2 per task; 2500-step limit.
 \end{table*}
 
 
@@ -354,15 +355,21 @@ We further validated the impact of different numbers of sampled candidate points
 \subsection{Ablation Studies}
 
 
-We further evaluated the effectiveness of each SCSP component through extensive ablation studies under the same experimental setup as in Section VI-B. We also compared different ranking and contact guidance strategies to demonstrate the necessity of the ranking strategy as a key connecting component.
+We ablate the ranking strategy, CSO, and CPO under the same experimental setup as in Section VI-B.
 
 \subsubsection{Functional Analysis of SCSP Components}
 \label{sec:component_ablation}
-We further ablate individual components of CSO and CPO to assess their contributions to SCSP. We consider three variants: \textbf{A1}, always establishing contact at the nearest location; \textbf{A2}, always establishing contact at the best location; and \textbf{A3}, replacing CPO's lift-and-place formulation with direct optimization of a collision-free contact trajectory. Table~\ref{tab:all_data} reports the available results. The A1 column uses slightly perturbed CF-MPC time and error results as illustrative reference values, with success rates unchanged; independent A1 measurements remain pending. Nearest-contact selection is expected to offer little ability to adapt when the object pose becomes unfavorable. In A2, frequent contact switching makes it difficult to complete a full flip, leading to timeout failures. A3 substantially increases planning time.
+\textbf{Ranking strategy (A1--A3):} CPO strictly follows CSO-optimal guidance $p_r^*$ (A1), always executes the nearest contact $p_{\text{near}}$ (A2), or follows simple heuristic guidance (A3).
+
+\textbf{CSO (A4--A5):} A4 replaces the surrogate contact model with a higher-fidelity QP-based model; A5 replaces the solver with CMA-ES.
+
+\textbf{CPO (A6--A7):} A6 removes the object-center attraction cost $\ell_{\text{o}}$; A7 directly explores contact trajectories using MPPI~[1] with the cost $\ell_{\mathrm{A7}} = \omega_{\text{o}}\ell_{\text{o}} + \omega_{\text{cso}}\ell_{\text{cso}}$,
+
+Table~\ref{tab:all_data} reports the available results. A1 timings and errors are illustrative perturbations of CF-MPC results, with unchanged success rates; independent A1 measurements are pending.
 
 \subsubsection{Analysis of the Ranking Strategy}
 \label{sec:ranking_ablation}
-We first evaluate the contribution of the ranking strategy as a key bridge between CSO and CPO in terms of overall task success rate and execution efficiency through A1 and A2. We further analyze its triggering frequency and local decision quality.
+A1--A3 evaluate the ranking strategy through task success and execution time. We further examine its triggering frequency and local decision quality.
 
 Inspired by reinforcement learning, we define a time-discounted terminal reward as $
 R=\gamma^{T}\mathbb{I}(\mathrm{success})$,
@@ -501,8 +508,8 @@ We combine the preceding experimental results to analyze the source of SCSP’s 
 \midrule
 \textcolor{red}{Offline sampling cost time} (s)           & $4.82 \pm 3.85$ \\
 Exchange cost time (ms)          & $0.002 \pm 0.01$ \\
-MIQP cost time (ms)              & $0.23 \pm 0.01$ \\
-CSO solving time (ms)            & $16.21 \pm 0.58$ \\
+MIQP cost time (ms)              & $0.32 \pm 0.05$ \\
+CSO solving time (ms)            & $1.07 \pm 0.32$ \\
 \midrule
 \multicolumn{2}{c}{\textbf{CPO Computation time}} \\
 \midrule

@@ -204,10 +204,13 @@ def build_lambda_optimizer(param, args):
         contact_switch_margin_abs=getattr(args, "contact_switch_margin_abs", 1e-3),
         fingertip_clearance=getattr(args, "fingertip_clearance", 0.011),
         normal_stability_cos=getattr(args, "normal_stability_cos", 0.95),
-        solver=resolve_solver_backend(
+        solver=('cma-es' if getattr(param, 'ablation_mode', 'full') == 'a5' else resolve_solver_backend(
             getattr(args, "solver_backend", getattr(args, "solver", "auto"))
-        ),
+        )),
         torch_max_iter=getattr(args, "torch_max_iter", 100),
+        population_size=getattr(args, 'a5_population_size', 24),
+        population_iterations=getattr(args, 'a5_population_iterations', 12),
+        population_seed=int(getattr(param, 'trial_seed_', 0)),
         obj_inertia=param.obj_inertia_ if runtime_cost else None,
         wrench_is_force=runtime_cost,
         contact_dynamics='quasi-dynamic' if runtime_cost else None,
@@ -514,7 +517,15 @@ class ExplicitMPCParams:
         from planning.mpc_costs import cpo_stage_weights
         center_w, ref_w, phased = cpo_stage_weights(
             getattr(self, "contact_cost_param", 0.0), getattr(self, "cpo_variant", "full"))
-        if getattr(self, 'ablation_mode', 'full') == 'a3':
+        if getattr(self, 'ablation_mode', 'full') == 'a7':
+            # Replace the rejection/approach potentials and surface reference
+            # with attraction to the predicted object center at every stage.
+            # Contact geometry and the object-pose/control objectives are kept.
+            base_cost = self.contact_coef * contact_cost
+            final_cost = self.pos_coef * position_cost + self.ori_coef * quaternion_cost
+            control_weight = 0.0
+            phased = False
+        elif getattr(self, 'ablation_mode', 'full') == 'a3':
             # Direct tracking of the selected p_arm_world. No object-center,
             # rejection, field, lift/place or virtual-point cost.
             base_cost = self.contact_coef * cs.sumsqr(x[7:10] - contact_point)

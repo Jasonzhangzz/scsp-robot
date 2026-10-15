@@ -1,0 +1,98 @@
+{
+  "default": {
+    "success": true,
+    "held_seconds": 20.0,
+    "final_height_gain_m": 0.19998489753861864,
+    "final_pose_error_mm": 1.5554210970563003,
+    "min_contact_count": 3,
+    "force_closure_failures": 0,
+    "load_certificate_failures": 0,
+    "replan_count": 0,
+    "last_5s_pose_error_median_mm": 0.49065290207406115,
+    "last_5s_pose_error_max_mm": 2.426170509744144,
+    "prediction_error_median_mm": 0.04063001563937027,
+    "prediction_error_p95_mm": 0.2613042011584776
+  },
+  "runs": [
+    {
+      "run": "sticking_patches",
+      "success": false,
+      "best_height_gain_m": 0.05657931154336315,
+      "replan_count": 8
+    },
+    {
+      "run": "balanced_preload",
+      "success": false,
+      "best_height_gain_m": 0.006978648861085457,
+      "replan_count": 10
+    },
+    {
+      "run": "balanced_reserve04",
+      "success": true,
+      "best_height_gain_m": 0.19938694781969524,
+      "replan_count": 0
+    },
+    {
+      "run": "ablation_clamp",
+      "success": false,
+      "best_height_gain_m": 0.005440641770579346,
+      "replan_count": 6
+    },
+    {
+      "run": "ablation_fixed_load",
+      "success": true,
+      "best_height_gain_m": 0.19505856095606655,
+      "replan_count": 0
+    },
+    {
+      "run": "ablation_stationary_base",
+      "success": false,
+      "best_height_gain_m": 0.06745978418940785,
+      "replan_count": 4
+    },
+    {
+      "run": "balanced_hold10",
+      "success": false,
+      "best_height_gain_m": 0.19938694781969524,
+      "replan_count": 13
+    },
+    {
+      "run": "balanced_hold_reserve06_long",
+      "success": false,
+      "best_height_gain_m": 0.20018888936987744,
+      "replan_count": 4
+    },
+    {
+      "run": "pad_region_hold20",
+      "success": false,
+      "best_height_gain_m": 0.19820508267928383,
+      "replan_count": 3
+    },
+    {
+      "run": "material_region_hold20",
+      "success": false,
+      "best_height_gain_m": 0.19980526006593102,
+      "replan_count": 14
+    },
+    {
+      "run": "balanced_noslip_hold20",
+      "success": true,
+      "best_height_gain_m": 0.201373643922383,
+      "replan_count": 0
+    },
+    {
+      "run": "default_hold20",
+      "success": false,
+      "best_height_gain_m": 0.20143363156630067,
+      "replan_count": 13
+    },
+    {
+      "run": "default_hold20_t8",
+      "success": true,
+      "best_height_gain_m": 0.20145043519011713,
+      "replan_count": 0
+    }
+  ],
+  "regression_tests_passed": 71,
+  "source": "https://mujoco.readthedocs.io/en/stable/modeling.html"
+}

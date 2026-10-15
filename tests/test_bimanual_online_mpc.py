@@ -77,6 +77,47 @@ def test_no_contact_transmits_no_force_and_free_body_carries_gravity(mpc):
     np.testing.assert_allclose(mpc.model.contact_force_fn(x, command, phi, jac, mpc.model.runtime_parameters()), 0.)
 
 
+def test_approach_waypoint_changes_cost_anchor_without_faking_contact(mpc):
+    mpc.reset()
+    x = state(-.15, .15)
+    phi, jac = patches(x)
+    waypoints = np.array([[-.08, 0., .4], [.08, 0., .4]])
+    original_points = POINTS.copy()
+    request(mpc, x, phi=phi, jac=jac, approach_centers_world=waypoints, approach_mask=[True, False])
+    anchors = mpc._context[7:13].reshape(2, 3)
+    np.testing.assert_allclose(anchors[0], waypoints[0]-x[:3]+mpc.param_.online_contact_offset*NORMALS[0])
+    np.testing.assert_allclose(anchors[1], POINTS[1])
+    np.testing.assert_array_equal(POINTS, original_points)
+    np.testing.assert_array_equal(mpc._context[mpc._head_size:mpc._head_size+24], phi)
+    np.testing.assert_allclose(mpc._context[mpc._head_size+24:mpc._head_size+312].reshape(24, 12, order='F'), jac)
+    np.testing.assert_allclose(mpc.model.contact_force_fn(x, np.zeros(6), phi, jac,
+        mpc.model.runtime_parameters()), 0.)
+    # The waypoint stays in world coordinates while the object translates or
+    # rotates in the predicted future. A release must not chase a falling mesh.
+    assert mpc._context[35] == -1.
+    drifted = x.copy()
+    drifted[:3] += [.08, -.03, -.1]
+    drifted[3:7] = [np.cos(.2), 0., 0., np.sin(.2)]
+    first = np.asarray(mpc.terminal_residual_fn(x, mpc._context)).ravel()
+    second = np.asarray(mpc.terminal_residual_fn(drifted, mpc._context)).ravel()
+    np.testing.assert_allclose(first[:3], second[:3])
+
+
+def test_nonlinear_validation_rejects_a_step_that_opens_a_loaded_pair(mpc):
+    x = state()
+    phi, jac = patches(x)
+    mpc.plan_once(x[:3], x[3:7], x, phi, jac, contact_points_local=POINTS,
+        normals_local=NORMALS, desired_force_local=.5*NORMALS,
+        object_inertia=INERTIA, external_wrench=np.zeros(6),
+        contact_established=True, selected_contact_mask=[True, True],
+        live_grasp=dict(force_allocation_feasible=True))
+    warm = np.tile([.0001, 0., 0., -.0001, 0., 0.], (mpc.horizon, 1))
+    opening = np.tile([-.01, 0., 0., .01, 0., 0.], (mpc.horizon, 1))
+    selected, scale = mpc._select_nonlinear_controls(x, opening, warm, phi, jac, mpc.model.runtime_parameters())
+    assert scale == 0.
+    np.testing.assert_allclose(selected, warm)
+
+
 def test_unilateral_push_predicts_horizontal_motion_and_other_arm_cannot_support(mpc):
     x = state(-.06, .2)
     mpc.model.set_observation(x, INERTIA, np.zeros(6))

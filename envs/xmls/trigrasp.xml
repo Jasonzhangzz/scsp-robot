@@ -1,6 +1,6 @@
 <mujoco model="allegro_tabletop_trigrasp">
   <compiler angle="radian" autolimits="true" />
-  <option timestep="0.00250000" iterations="40" ls_iterations="80" />
+  <option timestep="0.00250000" iterations="40" ls_iterations="80" cone="elliptic" impratio="10.0" solver="Newton" noslip_iterations="3" tolerance="1e-8" />
   <statistic center="0.58000000 0.00000000 0.40142507" extent="0.55" />
   <visual>
     <headlight diffuse="0.72 0.72 0.72" ambient="0.25 0.25 0.25" specular="0.08 0.08 0.08" />
