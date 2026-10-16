@@ -21,7 +21,7 @@ class ContactViewer:
         self.reference=np.load(self.root/'contactaware/object_pose_7.npy')[:,[4,5,6,3,0,1,2]]
         self.overlay=None
         if demo_overlay:
-            from examples.retarget.visualization import DemonstrationOverlay
+            from examples.retarget.common.visualization import DemonstrationOverlay
             path=self.root/'demonstration_visual.npz'
             if not path.exists():
                 raise FileNotFoundError(f'MANO animation missing: {path}. Prepare the demonstration_visual.npz asset or use --no-demo-overlay.')
@@ -84,7 +84,7 @@ class ContactViewer:
         scene.ngeom+=1
 
     def decorate(self, scene, seconds, snapshot):
-        from examples.retarget.matrix_report import reference
+        from examples.retarget.common.trajectory import reference
         desired=reference(self.reference,np.array([seconds]))[0]
         goal_rotation=Rotation.from_quat(desired[3:],scalar_first=True).as_matrix()
         if self.overlay is None and scene.ngeom<scene.maxgeom:
