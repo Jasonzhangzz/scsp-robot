@@ -24,6 +24,12 @@ def add_direct_force_args(parser):
                         help='MuJoCo physics substeps per shared 20 ms prediction interval.')
     parser.add_argument('--force-output', default=None,
                         help='Write physical rollout traces and trial summaries to this JSON file.')
+    parser.add_argument('--contact-impratio', type=float, default=10.)
+    parser.add_argument('--contact-noslip-iterations', type=int, default=3)
+    parser.add_argument('--object-linear-damping', type=float, default=0.,
+                        help='Object velocity decay rate (1/s), matching Isaac AssetOptions.')
+    parser.add_argument('--object-angular-damping', type=float, default=.5,
+                        help='Object angular velocity decay rate (1/s), matching Isaac AssetOptions.')
     return parser
 
 
@@ -104,10 +110,11 @@ def configure_direct_force_optimizer(param, env, args):
     param.obj_mass_ = float(model.body_mass[model.body('obj').id])
     param.lambda_source_param_ = ExplicitMPCParams(
         args, rand_seed=int(getattr(param, 'trial_seed_', 0)), build_optimizer=False)
-    param.lambda_optimizer = build_lambda_optimizer(param.lambda_source_param_, args)
-    if (param.lambda_optimizer.contact_model != 'soft-scm' or
-            param.lambda_optimizer.robot_stiffness is None):
-        raise ValueError('Direct SCM execution requires two-stage coupled soft-SCM')
+    if param.lambda_source_param_.contact_model != 'diagonal-contact':
+        param.lambda_optimizer = build_lambda_optimizer(param.lambda_source_param_, args)
+        if (param.lambda_optimizer.contact_model == 'soft-scm' and
+                param.lambda_optimizer.robot_stiffness is None):
+            raise ValueError('Direct soft-SCM execution requires the coupled two-stage model')
     from planning.object_pose_cost import ObjectCostStages, target_up_axis
     param.force_cost_stages_ = ObjectCostStages(args, target_up_axis(param.target_q_))
     # PhysX averages the object/table materials. MuJoCo uses their maximum;
@@ -130,17 +137,55 @@ def configure_direct_force_optimizer(param, env, args):
     model.opt.timestep = param.lambda_optimizer.h / substeps
     param.frame_skip_ = substeps
     model.opt.cone = mujoco.mjtCone.mjCONE_ELLIPTIC
+    impratio = float(getattr(args, 'contact_impratio', 10.))
+    noslip = int(getattr(args, 'contact_noslip_iterations', 3))
+    if not np.isfinite(impratio) or impratio <= 0 or noslip < 0:
+        raise ValueError('contact impratio must be positive; noslip iterations nonnegative')
+    # Match trigrasp's online elliptic contact settings. These change
+    # tangential impedance, independently of normal solref and friction.
+    model.opt.impratio = impratio
+    model.opt.noslip_iterations = noslip
+    model.opt.solver = mujoco.mjtSolver.mjSOL_NEWTON
+    model.opt.iterations = 40
+    model.opt.ls_iterations = 80
+    model.opt.tolerance = 1e-8
     saved = {name: getattr(env.data_, name).copy() for name in
              ('qpos', 'qvel', 'ctrl', 'xfrc_applied', 'qfrc_applied')}
     model.body_ipos[body] = 0.
     model.body_iquat[body] = [1., 0., 0., 0.]
     model.body_inertia[body] = (source.sim_obj_inertia_diag_ *
                               model.body_mass[body] / source.sim_obj_mass_)
+    linear_decay = float(getattr(args, 'object_linear_damping', 0.))
+    angular_decay = float(getattr(args, 'object_angular_damping', .5))
+    if not np.isfinite([linear_decay, angular_decay]).all() or min(linear_decay, angular_decay) < 0:
+        raise ValueError('Object damping rates must be finite and nonnegative')
+    # PhysX damping is a velocity decay rate, whereas MuJoCo dof_damping
+    # multiplies velocity to produce force/torque. Convert through mass/inertia.
+    joint = model.body_jntadr[body]
+    dof = model.jnt_dofadr[joint]
+    model.dof_damping[dof:dof+3] = model.body_mass[body] * linear_decay
+    model.dof_damping[dof+3:dof+6] = model.body_inertia[body] * angular_decay
     model.opt.gravity[:] = source.gravity_[:3]
     mujoco.mj_setConst(model, env.data_)
     for name, value in saved.items():
         getattr(env.data_, name)[:] = value
     mujoco.mj_forward(model, env.data_)
+    if source.contact_model == 'diagonal-contact':
+        # The existing LM interface is quasi-dynamic: v_free=Q^-1*f/h.
+        # Q_object=M/h² restores physical v_free=v+h*M^-1*f without changing
+        # the actuator's Cartesian spring block or the residual interface.
+        # Keep the measured mass intact; never identify it from replay errors.
+        physical_mass = object_mass_body(env)
+        metric = physical_mass/(source.h_*source.h_)
+        source.obj_inertia_ = metric.copy()
+        source.Q[:6, :6] = metric
+        source.lambda_obj_mass_ = source.obj_mass_ = float(model.body_mass[body])
+        # Build AFTER installing the prior so every generated solver graph,
+        # not just the LM buffer preparation, embeds the same frozen metric.
+        opt = param.lambda_optimizer = build_lambda_optimizer(source, args)
+        if opt.robot_stiffness is None:
+            raise ValueError('Direct diagonal-contact execution requires the coupled two-stage model')
+        opt.diagonal_contact_physical_mass = physical_mass.copy()
     return param.lambda_optimizer
 
 

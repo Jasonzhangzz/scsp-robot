@@ -34,9 +34,12 @@ class ExplicitModel:
         self.soft_scm_response_time = float(getattr(param, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME))
         self.soft_scm_damping_ratio = float(getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO))
         self.soft_scm_regularization = float(getattr(param, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION))
-        self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
-            param.h_, self.soft_scm_response_time, self.soft_scm_damping_ratio,
-            self.soft_scm_regularization)
+        if self.contact_model == 'diagonal-contact':
+            self.soft_scm_a, self.soft_scm_b = 1., 0.
+        else:
+            self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
+                param.h_, self.soft_scm_response_time, self.soft_scm_damping_ratio,
+                self.soft_scm_regularization)
         self.contact_dynamics = str(getattr(param, 'contact_dynamics', 'full-dynamic'))
         if self.contact_dynamics not in ('full-dynamic', 'quasi-dynamic'):
             raise ValueError("contact_dynamics must be 'full-dynamic' or 'quasi-dynamic'")
@@ -97,7 +100,11 @@ class ExplicitModel:
             raise ValueError("ComFree timestep must be positive and damping nonnegative")
         v_smooth = curr_v + self.force_velocity_scale * inverse @ force
         speed = jac_mat @ v_smooth
-        if self.contact_model == 'soft-scm':
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_cs
+            v = diagonal_contact_velocity_cs(v_smooth, jac_mat, phi_vec, inverse, h,
+                                             self.soft_scm_regularization)
+        elif self.contact_model == 'soft-scm':
             # Includes object rotation and robot mobility in every active row.
             weights = inverse_diagonal_cs(jac_mat, inverse, self.soft_scm_regularization)
             residual = self.soft_scm_a * speed + self.soft_scm_b * phi_vec / h
@@ -177,6 +184,10 @@ class ExplicitModel:
             normal = blocks.mean(dim=1, keepdim=True)
             jacobian = (normal + float(np.exp(self.scm_theta[5]))*(blocks-normal)).reshape(jacobian.shape)
         speed = jacobian @ smooth
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_torch
+            return diagonal_contact_velocity_torch(smooth, jacobian, phi, inverse, h,
+                                                   self.soft_scm_regularization)
         if self.contact_model == 'soft-scm':
             weights = inverse_diagonal_torch(jacobian, inverse, self.soft_scm_regularization)
             a, b = soft_scm_coefficients(h, self.soft_scm_response_time*np.exp(self.scm_theta[4]),

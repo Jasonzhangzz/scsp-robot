@@ -140,6 +140,7 @@ def backend_for(engine, model, initial, args):
                    lcp_tolerance=getattr(args, "lcp_tolerance", 1e-8),
                    lcp_max_iterations=getattr(args, "lcp_max_iterations", 2000),
                    lcp_solver=getattr(args, "lcp_solver", "lemke"),
+                   contactsdf_sigma=getattr(args, "contactsdf_sigma", 120.),
                    scm_friction="point")
 
 
@@ -444,6 +445,34 @@ def run_configuration(shape, friction, timestep, args, rng, output):
     metadata["scm_soft"] = {"response_time_s": args.scm_response_time, "damping_ratio": args.scm_damping_ratio,
                             "law": "x=h/tau; a=(2*zeta*x+x*x)/(1+2*zeta*x+x*x); b=x*x/(1+2*zeta*x+x*x); p=max(-(a*J*v_projected+b*gap/h)/D,0)",
                             "interpretation": "per-row implicit spring-damper, effective mass=1/D; full contact coupling still approximated"}
+    metadata["scm_soft_corrected"] = {
+        "law": "p0=max(-(a*J*v_free+b*gap/h)/D,0); p=alpha*p0",
+        "alpha": "clip(-g_soft.T*p0 / (||J.T*p0||_Minv^2+r*||p0||^2),0,1)",
+        "interpretation": "single global amplitude correction; direct diagonal Delassus retained; no new fit parameters",
+        "limitation": "reduces the coupled soft quadratic along p0, not guaranteed to reduce reference velocity errors"}
+    metadata["dart"] = {
+        "source": "DART v6.16.0 ContactConstraint/PgsBoxedLcpSolver equations, deterministic NumPy port",
+        "collision": "MuJoCo CPU active contacts (touching or penetrating only)",
+        "contact_dimensions": 3, "cfm": 1e-5, "erp": .01, "max_erv_m_s": .001,
+        "friction": "two tangent box bounds; no torsion/rolling; zero restitution",
+        "integration": "MuJoCo smooth dynamics and Euler integration; no DART collision detector",
+        "distinction": "lcp engine remains the coupled associated friction-pyramid QP, not DART boxed friction"}
+    metadata["contactsdf"] = {
+        "source": "asu-iris/ContactSDF 3a21edf8e51788f72a7d77259af4dd584d5ec43f dynamics/lse_dynamics.py",
+        "sigma": getattr(args, "contactsdf_sigma", 120.),
+        "model": "dynamic extension of upstream LSE projection; Q=M/h^2; b=M*v/h+f_smooth",
+        "collision": "MuJoCo CPU active point contacts; not upstream C-SDF geometry",
+        "mass": "full current generalized mass including COM offset and angular coupling",
+        "limitation": "untrained physical-mass dynamic extension; not the pretrained upstream quasi-dynamic baseline"}
+    metadata['diagonal_contact'] = {
+        'law': 'one ordered normal/tangent pass, p_i=project(-J_i*v_current/(diag(J*Minv*J.T)_i+r))',
+        'collision': 'MuJoCo CPU; full current generalized mass',
+        'prior': 'physical normal/tangent diagonal Delassus; no learned metric or time-history update',
+        'passes': 1, 'regularization': args.scm_regularization,
+        'friction': 'two independent tangent box bounds; not a Coulomb disk or associated friction-pyramid QP',
+        'gap': 'max(phi,0)/h; no negative-gap restoration gain',
+        'LM': 'frozen geometry: finite piecewise-affine velocity map in candidate force',
+        'limitations': 'contact-order dependent; only one pass, no convergence guarantee; no penetration restoration'}
     stopped = False
     metadata["lcp"] = {"regularization": args.lcp_regularization,
                        "tolerance": args.lcp_tolerance, "max_iterations": args.lcp_max_iterations,
@@ -506,11 +535,14 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                            "reference_outcome_mode": predictions["mjwarp"][3],
                            "engine": engine, "predicted_mode": predicted_mode, "status": "ok", "failure": failure,
                            "step_seconds": elapsed}
-                    if engine == "scm_corrected" and data is not None:
+                    if engine in ("scm_corrected", "scm_soft_corrected") and data is not None:
                         row["scm_amplitude_scale"] = backends[engine].last_amplitude_scale
                     if engine == "lcp" and data is not None:
                         row.update(lcp_residual=backends[engine].api.last_lcp["residual"],
                                    lcp_iterations=backends[engine].api.last_lcp["iterations"])
+                    if engine == "dart" and data is not None:
+                        row.update(dart_converged=backends[engine].api.last_lcp["converged"],
+                                   dart_iterations=backends[engine].api.last_lcp["iterations"])
                     if reference is None or data is None:
                         row["status"] = "invalid_reference" if reference is None else "failed"
                     else:
@@ -580,7 +612,7 @@ def argument_parser():
                         help="Independent MJWarp animation before each mode; excluded from statistics. 0 disables it")
     parser.add_argument("--display-pause", type=nonnegative_float, default=.02,
                         help="Wall-clock hold per displayed one-step prediction [s]")
-    parser.add_argument("--engines", nargs="+", choices=("mjwarp", "comfree", "scm", "scm_corrected", "scm_soft", "lcp", "mujoco"), default=["mjwarp", "comfree", "scm", "scm_corrected"])
+    parser.add_argument("--engines", nargs="+", choices=("mjwarp", "comfree", "scm", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp", "dart", "contactsdf", "diagonal_contact", "mujoco"), default=["mjwarp", "comfree", "scm", "scm_corrected"])
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--shapes", nargs="+", type=canonical_shape, choices=(*SHAPES, *MESH_SHAPES),
                         default=["box", "sphere"], help="Primitives or repository STL objects; stanford_bunn2 aliases stanford_bunny2")
@@ -595,8 +627,12 @@ def argument_parser():
     parser.add_argument("--contact-damping", type=nonnegative_float, default=.001)
     parser.add_argument("--scm-regularization", type=positive_float, default=1e-8)
     parser.add_argument("--scm-motion", choices=("dynamic", "increment"), default="dynamic")
-    parser.add_argument("--scm-response-time", type=positive_float, default=.05, help="Soft SCM per-row relaxation time [s]")
-    parser.add_argument("--scm-damping-ratio", type=positive_float, default=1., help="Soft SCM per-row damping ratio")
+    parser.add_argument("--scm-response-time", type=positive_float, default=.008,
+                        help="Soft SCM relaxation time [s]; default calibrated for the 2 ms physics benchmark")
+    parser.add_argument("--scm-damping-ratio", type=positive_float, default=.25,
+                        help="Soft SCM damping ratio; benchmark default .25 (MPC model defaults are separate)")
+    parser.add_argument("--contactsdf-sigma", type=positive_float, default=120.,
+                        help="LSE sharpness for the dynamic ContactSDF extension (Q=M/h^2)")
     parser.add_argument("--lcp-regularization", type=positive_float, default=1e-8)
     parser.add_argument("--lcp-tolerance", type=positive_float, default=1e-8)
     parser.add_argument("--lcp-max-iterations", type=positive_int, default=2000)

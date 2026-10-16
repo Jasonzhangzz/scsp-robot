@@ -37,11 +37,20 @@ class Backend:
                  scm_regularization=1e-8, scm_motion="dynamic", scm_friction="point",
                  scm_response_time=.05, scm_damping_ratio=1.0,
                  lcp_regularization=1e-8, lcp_tolerance=1e-8, lcp_max_iterations=2000,
-                 lcp_solver="lemke",
+                 lcp_solver="lemke", contactsdf_sigma=120.,
                  collect_contacts=False):
         self.engine, self.model = engine, model
         self.collect_contacts = collect_contacts
         if engine == "mujoco":
+            return
+        if engine in ("dart", "contactsdf", "diagonal_contact"):
+            if __package__:
+                from .contact_dynamics import CpuContactEngine
+            else:
+                from contact_dynamics import CpuContactEngine
+            self.api = CpuContactEngine(model, engine, sigma=contactsdf_sigma,
+                                       regularization=scm_regularization)
+            self.cpu_contact = True
             return
         if model.nv > 60 and engine == "mjwarp":
             if __package__:
@@ -55,7 +64,7 @@ class Backend:
             from comfree_warp import mujoco_warp
         except ImportError as exc:
             raise RuntimeError("Install this directory's requirements.txt into .deps using pi0 Python first.") from exc
-        if engine not in ("comfree", "mjwarp", "scm", "scm_corrected", "scm_soft", "lcp"):
+        if engine not in ("comfree", "mjwarp", "scm", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
             raise ValueError(f"Unknown engine: {engine}")
         if mujoco.__version__ != "3.6.0":
             raise RuntimeError(f"Pinned ComFree requires MuJoCo 3.6.0; found {mujoco.__version__}. Reinstall requirements.txt into .deps.")
@@ -66,15 +75,15 @@ class Backend:
         self.nconmax, self.njmax = nconmax, njmax
         with wp.ScopedDevice(self.device):
             self.api = comfree_warp if engine == "comfree" else mujoco_warp
-            if engine in ("scm", "scm_corrected", "scm_soft"):
+            if engine in ("scm", "scm_corrected", "scm_soft", "scm_soft_corrected"):
                 if __package__:
                     from .scm_backend import ScmEngine
                 else:
                     from scm_backend import ScmEngine
                 self.api = ScmEngine(model, initial_data, regularization=scm_regularization,
                                      motion=scm_motion, friction=scm_friction,
-                                     amplitude_correction=engine == "scm_corrected",
-                                     response_time=scm_response_time if engine == "scm_soft" else 0.,
+                                     amplitude_correction=engine in ("scm_corrected", "scm_soft_corrected"),
+                                     response_time=scm_response_time if engine in ("scm_soft", "scm_soft_corrected") else 0.,
                                      damping_ratio=scm_damping_ratio)
             if engine == "lcp":
                 if __package__:
@@ -102,7 +111,11 @@ class Backend:
             self.wdata = self.api.put_data(model, initial_data, nworld=1, nconmax=nconmax, njmax=njmax)
 
     def step(self, data):
-        if self.engine == "mujoco":
+        if getattr(self, "cpu_contact", False):
+            started = time.perf_counter()
+            self.api.step(data)
+            self.last_step_seconds = time.perf_counter() - started
+        elif self.engine == "mujoco":
             started = time.perf_counter()
             mujoco.mj_step(self.model, data)
             self.last_step_seconds = time.perf_counter() - started
@@ -114,14 +127,14 @@ class Backend:
                     if value.size:
                         target = getattr(self.wdata, name)
                         wp.copy(target, wp.array(value, dtype=target.dtype, device=self.device))
-                if self.engine in ("scm", "scm_corrected", "scm_soft", "lcp"):
+                if self.engine in ("scm", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
                     self.api.update_mass(data)
                 wp.synchronize_device(self.device)
                 started = time.perf_counter()
                 self.api.step(self.wmodel, self.wdata)
                 wp.synchronize_device(self.device)
                 self.last_step_seconds = time.perf_counter() - started
-                if self.engine == "scm_corrected":
+                if self.engine in ("scm_corrected", "scm_soft_corrected"):
                     self.last_amplitude_scale = float(self.api.amplitude.numpy()[0])
                 ncontact = int(self.wdata.nacon.numpy()[0])
                 nconstraint = int(self.wdata.nefc.numpy()[0])
@@ -146,13 +159,15 @@ class Backend:
 
     def reset(self, data):
         """Reset shared-state probes, including all solver warm-start state."""
-        if self.engine != "mujoco":
+        if self.engine != "mujoco" and not getattr(self, "cpu_contact", False):
             with self.wp.ScopedDevice(self.device):
                 self.wdata = self.api.put_data(self.model, data, nworld=1,
                                                nconmax=self.nconmax, njmax=self.njmax)
 
     def solver_contacts(self, data):
         """Native solve-time geometry and forces, before CPU diagnostic forward."""
+        if getattr(self, "cpu_contact", False):
+            return self.api.last_contacts
         if self.engine == "mujoco":
             count = data.ncon
             force = np.zeros((count, 6))

@@ -1,64 +1,7 @@
-\section{Evaluation of Surrogate Contact Model}
-\label{sec:scm_evaluation}
-
-To validate SCM as a viable approximate contact model, we compare it with higher-fidelity baselines: an LCP-based contact dynamics model solved using Lemke's algorithm and direct simulation in MuJoCo Warp (MJWarp), following the benchmark protocol in~\cite{borse2026comfree}. We select six objects used in our manipulation experiments: elephant, Stanford bunny, teapot, foam brick, rubber duck, and mug. Initial poses are randomized with yaw angles sampled over $[-\pi,\pi]$. We construct three contact states to represent conditions that can arise during flipping tasks: separation using airborne or upward-moving objects, sliding using tangential velocities and forces, and sticking using zero initial velocity and forces below the friction limit. Each model receives the same pose, velocity, and external wrench, with mass $0.15\,\mathrm{kg}$, friction coefficient $0.5$, and time step $0.002\,\mathrm{s}$. SCM uses $\tau=0.008\,\mathrm{s}$ and $\zeta=0.25$. We sample 100 inputs per object and state.
-
-For each baseline $b$, we measure the absolute difference in maximum post-step penetration, $e_d=|d_{\max}^{\mathrm{SCM}}-d_{\max}^{(b)}|$, and the linear and angular velocity differences, $e_v=\|\boldsymbol{v}^{\mathrm{SCM}}-\boldsymbol{v}^{(b)}\|_2$ and $e_\omega=\|\boldsymbol{\omega}^{\mathrm{SCM}}-\boldsymbol{\omega}^{(b)}\|_2$, in a common frame. Table~\ref{tab:scm_lcp_accuracy} reports mean $\pm$ standard deviation over 600 inputs per state. Separation predictions agree to numerical precision, and penetration differences in sliding and sticking remain at the micrometer scale. SCM captures the dominant object motion trends in most tested cases, supporting its use as a reliable predictive model for CSO under the tested contact conditions.
-
-We evaluate CSO contact guidance by applying the optimized point force at the selected contact location in MuJoCo. Seven objects (foam brick, mug, rubber duck, elephant, piggy bank, Stanford bunny, and teapot) each receive 5 paired initial states with seeds 0--4, giving 35 tasks per configuration. These are flip-to-pose tasks with randomized yaw and initial tilt sampled between $35^\circ$ and $75^\circ$, with a 5000-step budget. Planning is synchronous with a $20\,\mathrm{ms}$ policy interval; the full optimized force is applied for $0.5\,\mathrm{ms}$ per interval. Success requires the target-pose tolerances, at least ten consecutive unforced settling intervals, and low terminal velocities. SCM+batched LM uses the reference Isaac quasi-dynamic SCM and objective with at most 20 projected LM iterations and per-candidate convergence stopping. Candidate predictions, analytic forward Jacobians, and force updates run in one fused kernel on an NVIDIA GeForce RTX 5060 Ti GPU in single precision; numerical results are checked against the double-precision CasADi model. The contact-model baselines use MuJoCo's native pyramidal-contact QP and a regularized monotone friction-ray LCP solved with Lemke's algorithm. Their force optimization uses finite-difference local sensitivities and one local SLSQP update. The solver baselines retain the same SCM prediction and objective, using CasADi/IPOPT for NLP, pycma for CMA-ES, and EvoTorch for CEM. CMA-ES and CEM use 24 samples per generation and at most 12 generations per contact. Thus the comparison includes both model and solver implementation differences. Table~\ref{tab:cso_contact_guidance} reports statistics conditioned on successful trials, with mean $\pm$ population standard deviations. The baselines were each evaluated on 35 tasks. SCM+batched LM was evaluated on a small subset of three initial states selected from successful acados trials: foam brick, elephant, and Stanford bunny, each with seed 0. All three LM trials succeeded; the retained sample counts are listed in the table. This selected subset is not a matched full-benchmark timing comparison. The filtered success rate is 100\% by construction and does not represent the success rate over all attempted tasks. Steps count the recorded planning--simulation cycles until successful settling, with one planning round and one 20-ms simulation interval per cycle (40 physics substeps). We use the cached step counts directly rather than infer them from wall-clock execution time. Planning time pools all planning rounds from successful trials only; failed tasks are excluded from both step and planning-time statistics. Contact-model timings were collected with seven object workers pinned to separate physical CPU cores; the solver-baseline timings come from a separate batch with up to two concurrent trials per method. SCM+batched LM trials were run sequentially; planning time includes input preparation, transfers, GPU completion synchronization, and host selection, while initialization, kernel compilation, and graph preparation are excluded. These wall-clock timings reflect the respective concurrent workloads rather than an isolated comparison of solver speed.
-
-
-\begin{table}[t]
-\centering
-\caption{CSO contact guidance on successful trials (mean \textpm{} std; LM: three selected tasks).}
-\label{tab:cso_contact_guidance}
-\footnotesize
-\resizebox{\columnwidth}{!}{%
-\setlength{\tabcolsep}{1pt}
-\begin{tabular}{@{}l*{6}{c}@{}}
-\toprule
-\multirow{2}{*}{Metric} & \multicolumn{2}{c}{Model} & \multicolumn{3}{c}{Solvers} & \multirow{2}{*}{\shortstack{\textbf{Ours}\\(\textbf{SCM+}\textbf{batched LM})}} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-6}
- & QP & LCP & NLP & CMA-ES & CEM & \\
-\midrule
-Success (filtered, \%) & 100\% & 100\% & 100\% & 100\% & 100\% & 100\% \\
-Steps & 1127.86\textpm{}1312.60 & 423.43\textpm{}235.39 & 782.47\textpm{}576.26 & 640.07\textpm{}382.40 & 662.60\textpm{}432.40 & 318.00\textpm{}245.05 \\
-Plan. (ms) & 120.77\textpm{}30.38 & 107.73\textpm{}17.71 & 678.08\textpm{}422.52 & 813.01\textpm{}313.17 & 468.99\textpm{}163.50 & 2.55\textpm{}0.22 \\
-\bottomrule
-\end{tabular}
-}
-\end{table}
-
-% Data: examples/mpc/franka/scm/outputs/soft_scm_lcp_lemke_objects_20261009/
-\begin{table*}[t]
-\centering
-\caption{Paired differences between SCM and each baseline (mean $\pm$ std; 600 inputs per mode). Separation velocity differences use nano-units to expose roundoff.}
-\label{tab:scm_lcp_accuracy}
-\scriptsize
-\setlength{\tabcolsep}{2pt}
-\renewcommand{\arraystretch}{0.95}
-\begin{tabular}{@{}l*{9}{c}@{}}
-\toprule
-\multirow{2}{*}{Baseline} & \multicolumn{3}{c}{Separation} & \multicolumn{3}{c}{Sliding} & \multicolumn{3}{c}{Sticking} \\
-\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
- & $e_d$ ($\mu$m) & $e_v$ (nm/s) & $e_\omega$ (nrad/s) & $e_d$ ($\mu$m) & $e_v$ (mm/s) & $e_\omega$ (rad/s) & $e_d$ ($\mu$m) & $e_v$ (mm/s) & $e_\omega$ (rad/s) \\
-\midrule
-MJWarp & $0.00 \pm 0.00$ & $0.16 \pm 1.63$ & $8.68 \pm 11.12$ & $3.08 \pm 8.29$ & $91.51 \pm 59.98$ & $2.30 \pm 1.47$ & $10.29 \pm 9.83$ & $5.80 \pm 4.77$ & $0.13 \pm 0.13$ \\
-LCP & $0.00 \pm 0.00$ & $0.00 \pm 0.00$ & $0.00 \pm 0.00$ & $2.91 \pm 10.61$ & $187.69 \pm 102.18$ & $2.37 \pm 1.71$ & $22.93 \pm 10.58$ & $15.33 \pm 5.56$ & $0.35 \pm 0.20$ \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-
 \section{Experiment: Nonprehensile Manipulation}
 \label{sec:experiment}
 
-\rev{This section evaluates the SCSP framework through experiments.} We first conduct nonprehensile manipulation experiments, which represent a complex contact-rich manipulation task with high demands on operational diversity and control robustness. The task is to adjust the pose of an object on the ground through nonprehensile manipulation, which consists of:
-\begin{itemize}
-    \item \textbf{On-ground rotation:} The robot needs to move the object to the target pose on the ground through pushing and rotating, which constitutes a 2D planar pushing task.
-    \item \textbf{On-ground flipping:} The robot needs to move the object to the target pose on the ground through pushing and flipping, which constitutes a 6D manipulation task.
-\end{itemize}
-We select a set of complex-shaped objects from the ContactDB dataset \cite{brahmbhatt2019contactdb} for validation. The objects are initialized at random poses with 
+This section evaluates the SCSP framework through nonprehensile manipulation experiments, which represent a class of contact-rich manipulation tasks characterized by frequent contact-state transitions and unstable control. The tasks consist of on-ground rotation and on-ground flipping. On-ground rotation requires the robot to move an object to a target pose on the ground through 2D pushing and rotating, whereas on-ground flipping involves 6D manipulation. We select a set of irregularly shaped objects from the ContactDB dataset \cite{brahmbhatt2019contactdb} for validation. The objects are initialized at random poses with 
 $x_{\text{init}}, y_{\text{init}} \in [-0.3, 0.3]$ m, 
 and Euler angles $(\phi_{\text{init}}, \theta_{\text{init}} , \psi_{\text{init}})$ 
 uniformly sampled from $[-\pi, \pi]$ rad. We define the conditions of task success as: 
@@ -68,16 +11,20 @@ uniformly sampled from $[-\pi, \pi]$ rad. We define the conditions of task succe
 1 - (\boldsymbol{\psi}_{\text{goal}}^\top \boldsymbol{\psi}_o)^2
 \le \textcolor{red}{0.015}, \label{eq:pose_success}
 \end{equation}
-\textcolor{red}{where the orientation tolerance corresponding to the quaternion error threshold is approximately $14.1^\circ$.} A trial is considered successful if the conditions are satisfied within 2500 rollout steps. We evaluate the algorithm on different robot platforms, namely a fingertip\footnote{The ``fingertip'' is a floating point with a collision volume and is commonly used as a simplified setup for validating contact planning methods.} and the Franka Emika Panda, and compare different methods in terms of success rate, efficiency, and convergence error. \rev{These experiments evaluate whether SCSP can select contact locations and complete tasks under complex contact interactions.} 
+\textcolor{red}{where the orientation tolerance corresponding to the quaternion error threshold is approximately $14.1^\circ$.} A trial is considered successful if the conditions are satisfied within 2500 rollout steps.
 
-Simulations are conducted in \texttt{MuJoCo} \cite{todorov2012mujoco} and  \texttt{IsaacGym} \cite{makoviychuk2021isaac} with a fixed integration time step $h=0.02 \text{s}$. For the sampling method in our CSO module, we use \texttt{CoACD} \cite{wei2022approximate} for convex decomposition of the objects and \texttt{trimesh} for mesh processing and local frame construction. The inner loop of CSO is implemented by solving the nonlinear SQP optimization using \texttt{CasADi} \cite{Andersson2019} with \texttt{SNOPT} \cite{gill2005snopt} solver, and the solver of CPO is \texttt{IPOPT} \cite{wachter2006implementation}. \rev{All experiments are conducted} on a desktop computer with the Intel i7-13620H processor and 32 GB RAM.
+Simulations are conducted in \texttt{MuJoCo} \cite{todorov2012mujoco} and  \texttt{IsaacGym} \cite{makoviychuk2021isaac} with a fixed integration time step $h=0.02 \text{s}$. For the sampling method in our CSO module, we use \texttt{CoACD} \cite{wei2022approximate} for convex decomposition of the objects and \texttt{trimesh} for mesh processing and local frame construction. CSO is solved using batched Levenberg--Marquardt (LM), while CPO is solved using \texttt{acados} SQP-RTI with HPIPM and a solver tolerance of $10^{-4}$. All experiments are conducted on a desktop computer with an Intel i7-13620H processor, 32 GB RAM, and an NVIDIA GeForce RTX 5090 GPU.
 
 We applied certain randomization to the environment and object parameters. The friction coefficients of the object $\mu_{\text{o}}$, fingertip $\mu_{\text{r}}$, and ground $\mu_{\text{env}}$ are all set to 0.5 with random perturbations of $\pm 0.2$. The object mass is set to $0.1$ kg and randomly sampled from the discrete set
-$\{0.01,0.1,1.0,10.0\}$ kg. We set $\boldsymbol{M}_o=\text{diag}(50,50,50,0.05,0.05,0.05)$ and $\boldsymbol{K}_r=300 \boldsymbol{I}_7$, and the dynamic parameters used in SCM are not measured precisely, but are instead roughly set to their mean values. For CSO, we set $n_s=70$ and $\hat{\lambda}^n_{\text{max}}=0.2$. For CPO, we set $\bar{\rho}=0.75$, $T_1=5$, $T_2=10$, $T_3=15$, $\varepsilon=0.01$, $w_{\text{lp}}=1$, $w_{\text{pos}}=500$, $w_{\text{quat}}=5$, $w_\text{u}=50$, $w_{\text{obj}}=10$. We conducted parameter tuning via grid search over 100 randomly sampled trials, and the resulting parameters were fixed for all subsequent experiments. In addition, based on the definition of the object’s local coordinate frame and the planar environment in the experiments, the stable pose set $\mathcal{X}_g$ can be written as $\mathcal{X}_g=\left\{\boldsymbol{x}_o\in\mathcal{X}\;\middle|\;\boldsymbol{R}\left(\boldsymbol{x}_o\right)e_z=e_z\right\}
-$ with $e_z=[0, 0, 1]^\top$. Therefore, $\ell_{\text{stab}}$ is defined as:
-\begin{equation}
-    \ell_{\text{stab}}=1-\bigl(\boldsymbol{R}(\boldsymbol{x}_o)e_z\bigr)^\top\bigl(\boldsymbol{R}(\boldsymbol{x}_{\text{goal}})e_z\bigr).
-\end{equation}
+$\{0.01,0.1,1.0,10.0\}$ kg. We set $\boldsymbol{M}_o=\text{diag}(50,50,50,0.05,0.05,0.05)$ and $\boldsymbol{K}_r=300 \boldsymbol{I}_7$, and the dynamic parameters used in SCM are not measured precisely, but are instead roughly set to their mean values.
+
+% CSO: test_scm_mujoco.py -> configure_direct_force_optimizer -> ik2.params.build_lambda_optimizer.
+% Defaults include two_stage_object_cost=True and friction_reg_coef=0.03.
+% The command cap is min(10 N, 600 N/m * 0.005 m) = 3 N;
+% the pyramidal friction cone uses mu=1.6 and normal cap 3/sqrt(1+mu^2).
+% CPO values follow the shared test_0902.py physical rollout and
+% fingertips/test/params.py; test_scm_mujoco.py executes CSO forces directly.
+For CSO, the default configuration samples $n_s=70$ candidate contacts, retains the two lowest-cost candidates, and uses a one-step prediction with 20 batched LM iterations. CSO and fingertip CPO share a prediction step of $0.02\,\mathrm{s}$ and pose weights $w_{\mathrm{pos}}=500$ and $w_{\mathrm{quat}}=20$. CSO uses force and tangential-force regularization weights of $0.01$ and $0.03$, respectively, with a $3\,\mathrm{N}$ force-command limit corresponding to $\hat{\lambda}^{n}_{\max}\approx1.59\,\mathrm{N}$ under the configured friction pyramid. CPO uses $N=5$, componentwise control bounds $|u_j|\leq0.005\,\mathrm{m}$, and weights $w_{\mathrm{lp}}=1$, $w_u=50$, and $w_{\mathrm{cso}}=10$. Its lifting and reference-contact attraction weights are both 20, while object-center attraction and repulsive-field terms are disabled. During the flipping stage, the orientation error measures alignment of the object's target upright axis with the world vertical, leaving yaw unconstrained. Let $\boldsymbol{a}_g=\boldsymbol{R}(\boldsymbol{x}_{\mathrm{goal}})^\top e_z$, where $e_z=[0,0,1]^\top$. The normalized upright error is $\ell_{\mathrm{stab}}(\boldsymbol{x}_o) = \frac{1}{2}\left[1-e_z^\top\boldsymbol{R}(\boldsymbol{x}_o)\boldsymbol{a}_g\right]$. The flipping-stage object cost is $\ell_{\mathrm{cso}}=500\ell_{\mathrm{pos}}+20\ell_{\mathrm{stab}}$, with the full quaternion-error weight set to zero. Here $\ell_{\mathrm{pos}}=\|\boldsymbol{p}_o-\boldsymbol{p}_{\mathrm{goal}}\|^2$, except for the Stanford bunny, which uses $\ell_{\mathrm{pos}}=\max(\|\boldsymbol{p}_{o,xy}-\boldsymbol{p}_{\mathrm{goal},xy}\|-0.08\,\mathrm{m},0)^2$ to allow vertical motion and planar displacement within an $8\,\mathrm{cm}$ radius during flipping.
 
 From Table \ref{tab:comparison}, we select the methods that are applicable to 6D manipulation, operate in real time, and can handle arbitrary manipulable object geometries as baselines, including:
 \begin{itemize}
@@ -102,6 +49,72 @@ and the terminal cost is defined the same as \eqref{equ:obj_pose_cost}. Although
 %     \item \textbf{w/o RS:} A variant of SCSP without the Ranking Strategy in CPO. In this method, CSO and CPO are fully connected, which means that CPO completely follows and executes the contact locations predicted by CSO. This ablation demonstrates that the ranking strategy is a crucial factor for the robustness of SCSP. 
 \end{itemize}
 
+\subsection{Evaluation of Surrogate Contact Model}
+\label{sec:scm_evaluation}
+
+To validate SCM as a viable approximate contact model, we compare it with three contact models: MuJoCo's underlying quadratic programming (QP) model (M1), comfree (M2), and the Contact Dynamics SDF proposed in ContactSDF~\cite{yang2024contactsdf} (M3). We evaluate prediction errors in the environment contact forces $\boldsymbol{\lambda}_{\mathrm{env}}$ and post-step object velocities $\boldsymbol{v}^{+}$ for objects of different shapes during contact transitions, sliding, sticking, and a complete flipping trajectory involving multiple contact modes. M1--M3 and SCM use $h=0.002\,\mathrm{s}$. An LCP model implemented in DART with $h=0.001\,\mathrm{s}$ serves as the ground-truth reference (GT), integrated over the same $0.002\,\mathrm{s}$ prediction interval.
+
+We also evaluate prediction errors relative to this reference over $h\in\{0.001,0.002,0.005,0.01,0.05,0.1\}\,\mathrm{s}$ to identify a suitable SCM time step for contact selection. Fig.~XX summarizes the prediction errors and their dependence on the time step; Table~\ref{tab:scm_velocity_error} reports the $\boldsymbol{v}^{+}$ errors across contact conditions and the flipping rollout. Soft-SCM has the smallest linear-velocity error during contact transitions. Its error remains small during sticking and along the flipping trajectory, while the angular error is larger than that of M1.
+% TODO: Replace Fig.~XX with the prediction-error and time-step-sweep figure reference.
+
+To assess the feasibility of the selected contacts, we directly apply each optimized force at its selected contact location, emulating perfect contact execution, and measure flipping success. We compare synchronous rollouts, in which each CSO update receives the current observation, with asynchronous inference, in which computation delays can render observations outdated. The model baselines include M1, M2, M3, M4 (SCM with $h=0.1\,\mathrm{s}$), and GT. We also compare SCM-based CSO using CMA-ES, CEM, or HPIPM. We use the derivative-free CMA-ES optimizer for M1 and M2 because their optimization objectives are nonsmooth.
+
+As shown in Table~\ref{tab:cso_contact_guidance}, all methods achieve 100\% success under synchronous execution. Under asynchronous execution, the proposed CSO, M3, and M1 achieve substantially higher success rates than the remaining methods. These results suggest that timely observations have a greater influence on contact-guidance feasibility than model fidelity in the tested tasks. Considering prediction accuracy and closed-loop task performance, we select SCM with $h=0.002\,\mathrm{s}$ as the contact model for CSO.
+% TODO: Fill the missing benchmark results. The selected h is provisionally set to 0.002 s to match the comparison above.
+
+
+\begin{table}[t]
+\centering
+\caption{CSO contact-guidance performance.}
+\label{tab:cso_contact_guidance}
+\footnotesize
+\resizebox{\columnwidth}{!}{%
+\setlength{\tabcolsep}{1.5pt}
+\begin{tabular}{@{}l*{8}{c}@{}}
+\toprule
+\multirow{2}{*}{Metric} & \multicolumn{4}{c}{Model} & \multicolumn{3}{c}{Solver (SCM)} & \multirow{2}{*}{\shortstack{\textbf{Ours}\\\textbf{SCM+LM}}} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-8}
+ & M1 & M2 & M3 & M4 & CMA-ES & CEM & HPIPM & \\
+\midrule
+Success: sync. (\%) & 100 & 100 & 100 & 100 & 100 & 100 & 100 & 100 \\
+Success: async. (\%) & -- & -- & -- & -- & -- & -- & -- & -- \\
+Steps (sync.) & \shortstack{$1127.86$\\$\pm1312.60$} & \shortstack{$423.43$\\$\pm235.39$} & -- & -- & \shortstack{$640.07$\\$\pm382.40$} & \shortstack{$662.60$\\$\pm432.40$} & -- & \shortstack{$318.00$\\$\pm245.05$} \\
+Plan. (ms, sync.) & \shortstack{$120.77$\\$\pm30.38$} & \shortstack{$107.73$\\$\pm17.71$} & -- & -- & \shortstack{$813.01$\\$\pm313.17$} & \shortstack{$468.99$\\$\pm163.50$} & -- & \shortstack{$2.55$\\$\pm0.22$} \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip
+\parbox{\columnwidth}{\scriptsize Steps and planning times: mean $\pm$ std over successful synchronous trials. Ours uses batched LM.}
+% Retained timing/step values are from the previous successful-trial table.
+% Synchronous success rates are the experimental results supplied by the author.
+% The previous NLP measurements are not reused for HPIPM.
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Prediction error of different contact model}
+\label{tab:scm_velocity_error}
+\scriptsize
+\resizebox{\columnwidth}{!}{%
+\setlength{\tabcolsep}{1pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{@{}l*{8}{c}@{}}
+\toprule
+\multirow{2}{*}{Condition} & \multicolumn{2}{c}{M1} & \multicolumn{2}{c}{M2} & \multicolumn{2}{c}{M3} & \multicolumn{2}{c}{\textbf{Ours}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+ & Linear & Angular & Linear & Angular & Linear & Angular & Linear & Angular \\
+\midrule
+Contact transition & $0.5509\pm0.2172$ & $2.8638\pm2.3953$ & $0.5863\pm0.2260$ & $3.1993\pm2.4064$ & $0.2795\pm0.1480$ & $8.4548\pm4.9945$ & $0.1173\pm0.0977$ & $2.2314\pm1.9720$ \\
+Sliding & $0.0396\pm0.0216$ & $0.7215\pm0.4854$ & $0.0142\pm0.0054$ & $0.5030\pm0.2432$ & $0.2313\pm0.1306$ & $5.5853\pm3.6646$ & $0.0059\pm0.0047$ & $0.2914\pm0.2291$ \\
+Sticking & $0.0007\pm0.0006$ & $0.0105\pm0.0129$ & $0.0141\pm0.0032$ & $0.0537\pm0.0391$ & $0.0770\pm0.0904$ & $0.9787\pm1.2084$ & $0.0033\pm0.0023$ & $0.0497\pm0.0320$ \\
+Rollout & $0.0216\pm0.0500$ & $0.3002\pm0.6932$ & $0.0268\pm0.0573$ & $0.3030\pm0.7074$ & $0.0757\pm0.0869$ & $1.5340\pm1.4575$ & $0.0128\pm0.0285$ & $0.1890\pm0.4125$ \\
+\bottomrule
+\end{tabular}
+}
+\par\smallskip
+\parbox{\columnwidth}{\scriptsize Linear errors: m/s; angular errors: rad/s. Entries show mean $\pm$ std.}
+\end{table}
+
 \subsection{Fingertip Manipulation in Simulation}\label{sec:fingertip_exps}
 
 We first conduct fingertip manipulation to validate the critical role of contact selection in contact-rich manipulation. Since DyWA is an offline-trained policy, it is not applicable to the fingertip experiments and is therefore omitted. By comparing with other model-based methods, we demonstrate that explicitly introducing a contact selection module is effective for handling complex manipulation tasks. 
@@ -124,11 +137,11 @@ We further evaluate SCSP in redundant robot manipulation tasks. Compared with fl
 
 
 
-\begin{figure}[!t]
- \centerline{\includegraphics[width=\columnwidth]{figures/franka_exp.pdf}}
-\caption{Experimental results of robot manipulation in simulation. SCSP significantly outperforms other model-based methods and exceeds the performance of well-trained learning-based methods.}
-\label{fig:results_panda}
-\end{figure}
+% \begin{figure}[!t]
+%  \centerline{\includegraphics[width=\columnwidth]{figures/franka_exp.pdf}}
+% \caption{Experimental results of robot manipulation in simulation. SCSP significantly outperforms other model-based methods and exceeds the performance of well-trained learning-based methods.}
+% \label{fig:results_panda}
+% \end{figure}
 
 Due to the strong dependencies of the source code released for DyWA, which are difficult to transfer, we follow its setup and conduct all experiments in \texttt{IsaacGym} for consistency, with other settings similar to Section \ref{sec:fingertip_exps}. All methods use our link-mounted sphere as the end-effector to replicate point contacts. Since DyWA uses the Franka gripper, we adjust the link length so that the sphere’s center coincides with the gripper’s center. The Cartesian stiffness $\boldsymbol{K}_x=\text{diag}(1000,1000,1000,50,50,50)$ and $\boldsymbol{D}_x=\sqrt{2\boldsymbol{K}_x}$. All methods use the same settings as in the fingertip experiments, except that $\boldsymbol{u} \in \mathbb{R}^7$ in I-MPC, CF-MPC and A-MPC. $\boldsymbol{p}_{\text{ee}}$ is obtained via differentiable forward kinematics.
 

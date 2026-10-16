@@ -10,7 +10,9 @@ def sync_assets(cache,host='8.147.67.185',port=1016):
     cache=Path(cache).resolve()
     requests=[('DexForge/assets/wuji','DexForge/assets'),
               (f'DexForge/data/dexycb/{SEQUENCE}','DexForge/data/dexycb'),
-              ('DexForge/contactaware/contactaware','DexForge/contactaware'),
+              ('DexForge/contactaware','DexForge'),
+              ('DexForge/tools','DexForge'),
+              ('DexForge/forceaware/third_party/comfree_warp','DexForge/forceaware/third_party'),
               ('DexForge/LICENSE','DexForge'),
               ('DexForge/THIRD_PARTY_NOTICES.md','DexForge'),
               ('wuji-description/hand/body/meshes/right/','wuji-description/hand/body/meshes/right')]

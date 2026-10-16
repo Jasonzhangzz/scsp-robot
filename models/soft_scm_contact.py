@@ -23,8 +23,8 @@ def normalize_contact_model(name):
     name = str(name).strip().lower().replace('_', '-')
     if name == 'scm-soft':
         name = 'soft-scm'
-    if name not in ('soft-scm', 'comfree'):
-        raise ValueError("contact_model must be 'soft-scm' or 'comfree'")
+    if name not in ('soft-scm', 'comfree', 'diagonal-contact'):
+        raise ValueError("contact_model must be 'soft-scm', 'comfree' or 'diagonal-contact'")
     return name
 
 

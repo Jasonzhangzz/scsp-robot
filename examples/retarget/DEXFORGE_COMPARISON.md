@@ -1,5 +1,9 @@
 # DexForge 与当前 retarget 的夹持差异（2026-10-16）
 
+本文是早先的实现比较。之后已按新要求关闭 Lambda，并重新求解同一条 Wuji
+轨迹；实际点坐标、GWS 数值、物理参数对齐及回放结果见
+[DEXFORGE_TRAJECTORY_TEST.md](DEXFORGE_TRAJECTORY_TEST.md)。
+
 本次核对 `/home/zz/GraspSONIC/thirdparty/DexForge`，HEAD 为
 `fa6d671948ef03d18514062748b94e445b63cd49`。CA/FA 控制代码没有本地修改，
 底层模拟器有四个已存在的修改文件。以下是当前代码路径的比较，不能把它当作

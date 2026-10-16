@@ -70,7 +70,9 @@ def sample_metrics(row,targets,friction,center,radius,weight,common_mu):
     native=gws_margin(points,normals,tangents,friction,center,radius)
     loaded_epsilon=gws_margin(points[loaded],normals[loaded],tangents[loaded],common_mu,center,radius)
     error,unmatched,missing=nearest_region_errors(contacts,targets)
-    force=np.asarray([c['force_world'] for c in contacts]).reshape(-1,3).sum(0)
+    forces=np.asarray([c['force_world'] for c in contacts]).reshape(-1,3)
+    force=forces.sum(0)
+    moment=np.cross(points-center,forces@rotation(np.asarray(row['pose']))).sum(0)
     clearance=float(row['clearance'])
     return dict(step=row['step'],time=row['time'],frame=row['reference_frame'],
         contacts=len(contacts),loaded_contacts=int(loaded.sum()),epsilon_common=epsilon,
@@ -79,6 +81,9 @@ def sample_metrics(row,targets,friction,center,radius,weight,common_mu):
         region_error_mm=float(np.mean(error)*1000) if error else None,
         unmatched_contacts=unmatched,missing_target_regions=missing,targets=len(targets),
         hand_vertical_N=float(force[2]),weight_N=weight,
+        total_normal_N=float(sum(c['normal_force'] for c in contacts)),
+        hand_moment_norm_Nm=float(np.linalg.norm(moment)),
+        gravity_wrench_residual_N=float(np.linalg.norm(np.r_[force+[0,0,-weight],moment/radius])),
         floor_vertical_N=float(row['floor_force_world'][2]),clearance_mm=1000*clearance,
         z_span_mm=1000*float(np.ptp(points[:,2])) if len(points) else 0.)
 
@@ -142,7 +147,8 @@ def main():
         point_object=sem['anchors'][i,k]) for k in np.flatnonzero(sem['mask'][i])] for i,frame in enumerate(sem['frame_ids'])}
     trajectories={'ours':ours};audits={'ours':dict(object_mass=float(hand.model.body_mass[hand.obj]),
         hand_object_friction=hand.friction,hand_kp=hand.model.actuator_gainprm[:,0],
-        hand_force_ranges=hand.model.actuator_forcerange)}
+        hand_force_ranges=hand.model.actuator_forcerange,object_inertia=hand.model.body_inertia[hand.obj],
+        gravity=hand.model.opt.gravity,execution_dt=float(hand.model.opt.timestep))}
     for name,prefix in [('DexForge',''),('DexForge_MuJoCo','mujoco_')]:
         path=args.dexforge/'forceaware'/f'{prefix}contact_diagnostics.jsonl'
         rows=read_jsonl(path)
@@ -161,6 +167,8 @@ def main():
             for c in row['actual_contacts']:
                 contact_table.append(dict(method=name,step=row['step'],time=row['time'],frame=row['reference_frame'],
                     body=c['body_name'],x=c['point_object'][0],y=c['point_object'][1],z=c['point_object'][2],
+                    nx=c['normal_object'][0],ny=c['normal_object'][1],nz=c['normal_object'][2],
+                    force_world_x=c['force_world'][0],force_world_y=c['force_world'][1],force_world_z=c['force_world'][2],
                     normal_force=c['normal_force'],gap=c['gap']))
             for target in row.get('guidance',[]):
                 error,_,_=nearest_region_errors([target],mano.get(frame,[]))

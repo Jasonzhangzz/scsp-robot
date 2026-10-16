@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import xml.etree.ElementTree as ET
 
 import mujoco
 import numpy as np
@@ -38,6 +39,9 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dexforge-root',type=Path,required=True)
     parser.add_argument('--result',type=Path,required=True)
+    parser.add_argument('--mujoco-dt',type=float,help='Defaults to the FA executor timestep for a matched replay.')
+    parser.add_argument('--mujoco-exclusions-from',type=Path,
+        help='Use the current controller scene structural collision exclusions in the matched mesh replay.')
     args=parser.parse_args();root=args.dexforge_root.resolve();result=args.result.resolve()
     sys.path.insert(0,str(root/'forceaware'))
     from forceaware.config import load_retarget_config
@@ -110,7 +114,8 @@ def main():
     if maximum>1e-4:raise RuntimeError(f'ComFree control replay diverged: max qpos error {maximum}')
     if force_error>1e-3:raise RuntimeError(f'Contact force reconstruction differs from generalized force: {force_error}')
     audit=dict(replay_max_qpos_error=maximum,object_mass=float(model.body_mass[obj]),
-        object_com=model.body_ipos[obj],gravity=model.opt.gravity,
+        object_com=model.body_ipos[obj],object_inertia=model.body_inertia[obj],gravity=model.opt.gravity,
+        execution_dt=cfg.simulator.time_grid.exec_dt,
         contact_friction=sorted(set(float(x) for x in mu[:,0] if x>0)),
         hand_kp=model.actuator_gainprm[index.hand_ctrl,0],
         hand_force_ranges=model.actuator_forcerange[index.hand_ctrl],
@@ -120,8 +125,22 @@ def main():
     (result/'forceaware/contact_audit.json').write_text(json.dumps(audit,default=serial,indent=2)+'\n')
     # Also inspect the independent native MuJoCo control replay, in its own scene.
     mesh=cfg.sequence.xml.with_name(cfg.sequence.xml.stem.rsplit('_',1)[0]+'_mesh.xml')
-    native=mujoco.MjModel.from_xml_path(str(mesh));data=mujoco.MjData(native)
-    native.opt.timestep=.002
+    if args.mujoco_exclusions_from is not None:
+        scene=ET.parse(mesh).getroot();contact=scene.find('contact')
+        if contact is None:contact=ET.SubElement(scene,'contact')
+        reference=ET.parse(args.mujoco_exclusions_from).getroot()
+        for exclude in reference.findall('contact/exclude'):
+            ET.SubElement(contact,'exclude',**exclude.attrib)
+        for element in scene.iter():
+            if element.get('file'):element.set('file',str((mesh.parent/element.get('file')).resolve()))
+        native=mujoco.MjModel.from_xml_string(ET.tostring(scene,encoding='unicode'))
+    else:native=mujoco.MjModel.from_xml_path(str(mesh))
+    data=mujoco.MjData(native)
+    native_dt=args.mujoco_dt or cfg.simulator.time_grid.exec_dt
+    control_dt=cfg.simulator.time_grid.mpc_dt
+    substeps=round(control_dt/native_dt)
+    if substeps<1 or not np.isclose(substeps*native_dt,control_dt):raise ValueError('MuJoCo dt must divide FA control sample dt')
+    native.opt.timestep=native_dt
     data.qpos[:]=saved['qpos_traj'][0];data.qvel[:]=saved['qvel_traj'][0]
     data.ctrl[index.hand_ctrl]=saved['ctrl_traj'][0]
     mujoco.mj_forward(native,data)
@@ -139,14 +158,16 @@ def main():
                 frame=c.frame.reshape(3,3).copy();frame[0]*=sign
                 contacts.append(contact_record(native,body,c.pos,frame,force,c.dist,pose))
             frame=float(saved['qpos_frames'][step])
-            item=dict(step=step,time=step*.01,reference_frame=frame,pose=pose,
+            item=dict(step=step,time=step*control_dt,reference_frame=frame,pose=pose,
                 actual_contacts=contacts,floor_force_world=floor,
                 guidance=guidance(frame,pose,data.xpos,data.xmat.reshape(-1,3,3)))
             stream.write(json.dumps(item,default=serial)+'\n')
             data.ctrl[index.hand_ctrl]=control
-            for _ in range(5):mujoco.mj_step(native,data)
+            for _ in range(substeps):mujoco.mj_step(native,data)
             mujoco.mj_forward(native,data)
     audit['object_mass']=float(native.body_mass[obj]);audit['scene']=str(mesh)
+    audit['object_inertia']=native.body_inertia[obj];audit['execution_dt']=native_dt
+    audit['structural_exclusions_reference']=str(args.mujoco_exclusions_from) if args.mujoco_exclusions_from else None
     audit['contact_friction']=sorted(set(float(c) for c in native.geom_friction[:,0]))
     audit['force_source']='MuJoCo mj_contactForce';audit.pop('replay_max_qpos_error')
     (result/'forceaware/mujoco_contact_audit.json').write_text(json.dumps(audit,default=serial,indent=2)+'\n')

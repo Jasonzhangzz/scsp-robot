@@ -61,7 +61,14 @@ class DemonstrationOverlay:
 
     def update(self, physical, frame):
         """Copy measured state for display; no writes to the physical MjData."""
-        frame = int(np.clip(frame, 0, len(self.poses)-1))
+        frame = float(np.clip(frame, 0, len(self.poses)-1))
+        lower = int(np.floor(frame));upper = min(lower+1,len(self.poses)-1)
+        fraction = frame-lower
+        pose = (1-fraction)*self.poses[lower]+fraction*self.poses[upper]
+        other = self.poses[upper,3:].copy()
+        if np.dot(self.poses[lower,3:],other)<0:other *= -1
+        pose[3:] = (1-fraction)*self.poses[lower,3:]+fraction*other
+        pose[3:] /= np.linalg.norm(pose[3:])
         if physical.qpos.shape != self.data.qpos.shape:
             raise ValueError('Overlay must preserve execution degrees of freedom')
         for name in ('qpos', 'qvel', 'act', 'ctrl', 'qacc_warmstart', 'qfrc_applied', 'xfrc_applied'):
@@ -71,13 +78,14 @@ class DemonstrationOverlay:
             target[:] = 0
             target[:len(source)] = source
         self.data.time = physical.time
-        self.data.mocap_pos[self.mocap] = self.poses[frame, :3]
-        self.data.mocap_quat[self.mocap] = self.poses[frame, 3:]
+        self.data.mocap_pos[self.mocap] = pose[:3]
+        self.data.mocap_quat[self.mocap] = pose[3:]
         changed = frame != self.frame
         if changed:
-            self.origin = self.vertices[frame].mean(axis=0)
+            interpolated = (1-fraction)*self.vertices[lower]+fraction*self.vertices[upper]
+            self.origin = interpolated.mean(axis=0)
             self.model.geom_pos[self.geom] = self.origin
-            vertices = (self.vertices[frame, self.vertex_ids]-self.origin) @ self.rotation
+            vertices = (interpolated[self.vertex_ids]-self.origin) @ self.rotation
             self.model.mesh_vert[self.va:self.va+self.vn] = vertices
             self.model.geom_rbound[self.geom] = np.linalg.norm(vertices,axis=1).max()
             faces = self.model.mesh_face[self.fa:self.fa+self.fn]

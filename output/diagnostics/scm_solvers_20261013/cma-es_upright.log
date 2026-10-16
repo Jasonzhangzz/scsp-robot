@@ -1,5 +1,0 @@
-direct_force solver=cma-es object=foam_brick seed=0 step=0 pos=0.056301 quat=0.493320 hold=0 success=False
-direct_force solver=cma-es object=foam_brick seed=0 step=50 pos=0.018982 quat=0.013496 hold=5 success=False
-direct_force solver=cma-es object=foam_brick seed=0 step=57 pos=0.015879 quat=0.014528 hold=12 success=True
-surrogate summary: steps=58 final_pos=0.015879 final_quat=0.014528 success=True
-surrogate timing: execution_time_s=51.49547079904005 planning_time_mean_ms=885.328 planning_time_p95_ms=1467.455 simulation_time_s=1.160

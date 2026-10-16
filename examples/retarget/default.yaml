@@ -1,25 +1,32 @@
 # Explicit command-line flags override these settings.
 mode: full
-lambda_mode: "off"
+lambda_mode: 'off'
+physics_profile: dexforge
 regrasp: false
 demo_overlay: true
 demo_alpha: 0.3
 demo_playback: reference
 mpc_solver: acados
+contact_model: comfree
+comfree_dt: 0.01
+comfree_device: cuda:0
+comfree_topk: 1
 horizon: 4
 command_dt: 0.03
-sim_dt: 0.0025
+sim_dt: 0.002
 fps: 30.0
 reference_window: 0.5
 lookahead: 0.06
-search_radii: [0.005, 0.01]
+search_radii:
+- 0.005
+- 0.01
 fps_samples: 8
 candidate_capacity: 8
 lambda_device: cpu
 lambda_iterations: 20
 force_limit: 100.0
-finger_stiffness_scale: 50.0
-finger_force_scale: 10.0
+finger_stiffness_scale: 1.0
+finger_force_scale: 1.0
 closure_depth: 0.004
 ik_iterations: 60
 contact_ik_iterations: 50
@@ -29,19 +36,6 @@ contact_target_depth: 0.004
 hand_patch_radius: 0.03
 hand_rate_scale: 1.25
 ik_tolerance: 0.012
-# Online trigrasp cost structure; shape stays a weak objective during contact.
-mpc_costs:
-  contact: 5000.0
-  original_contact: 150.0
-  object_position: 120.0
-  object_lateral: 300.0
-  object_rotation: 50.0
-  horizontal_recovery: 2000000.0
-  horizontal_tolerance: 0.005
-  transport: 1000.0
-  normal_support: 1.0
-  preload: 0.0
-  load_balance: 0.0
-  terminal: 4.0
-  posture_contact_scale: 0.05
+mpc_costs: {}
 seed: 0
+ik_backend: ca

@@ -156,6 +156,9 @@ def initialize_hand(hand,materials,targets,pose):
 
 
 def geometric_ik(hand,demo,contacts,args):
+    if getattr(args,'ik_backend','geometric')=='ca':
+        from examples.retarget.contactaware_ik import solve_contactaware
+        return solve_contactaware(hand,demo,args)
     shape,targets=shape_references(hand,demo)
     q=initialize_hand(hand,shape,targets[0],demo.poses[0]);states=[];reports=[]
     for i,pose in enumerate(demo.poses):
@@ -232,35 +235,63 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
     base_rates=np.r_[np.full(3,.15),np.full(3,.8),np.full(hand.nu-6,1.5)]
     peak=np.max(np.abs(np.diff(geometric,axis=0)/np.diff(demo.times)[:,None]),axis=0) if len(geometric)>1 else np.zeros(hand.nu)
     rates=np.maximum(base_rates,args.hand_rate_scale*peak)
-    command_limits=args.command_dt*rates
-    write_json(output/'hand_rate_limits.json',dict(rate_limits=rates,demonstration_peak=peak,scale=args.hand_rate_scale))
+    command_limits=hand.upper-hand.lower
+    write_json(output/'hand_rate_limits.json',dict(enabled=False,position_target_span=command_limits,
+        demonstration_peak=peak,rate_limits=None))
+    contact_model=getattr(args,'contact_model','comfree')
+    model_factory=None
+    if mode=='full' and contact_model=='comfree':
+        from models.wuji_comfree import ComFreeEngine,build_comfree_scene,comfree_model_factory
+        scene=build_comfree_scene(hand.scene_path,args.hand_assets/'right.xml',
+            output/'comfree_prediction.xml',args.comfree_dt)
+        forge=Path(args.dexforge_root or args.asset_cache/'DexForge')
+        engine=ComFreeEngine(scene,forge,timestep=args.comfree_dt,control_dt=args.command_dt,
+            device=args.comfree_device,contact_topk=args.comfree_topk)
+        physics_differences=engine.validate_physics(hand)
+        write_json(output/'comfree_physics.json',dict(scene=scene,timestep=args.comfree_dt,
+            control_substeps=round(args.command_dt/args.comfree_dt),device=str(engine.device),
+            physical_parameter_max_differences=physics_differences,
+            prediction='official full multibody ComFree',
+            linearization='per-stage central differences of the official forward step',
+            force_source='ComFree constraint rows',execution='unchanged MuJoCo position servos'))
+        model_factory=comfree_model_factory(engine)
     mpc=WujiOnlineMPC(hand,len(contacts.episodes),args.command_dt,args.horizon,args.mpc_solver,
         rates=rates,costs=args.mpc_costs,force_limit=args.force_limit,
         native_force_feedback=getattr(args,'native_force_feedback',False),
-        regrasp=getattr(args,'regrasp',False),closure_depth=args.closure_depth) if mode=='full' else None
+        regrasp=getattr(args,'regrasp',False),closure_depth=args.closure_depth,
+        model_factory=model_factory) if mode=='full' else None
     if mpc is not None:
         mpc.param_.mpc_failure_snapshot_=str(output/'acados_failure.npz')
         write_json(output/'mpc_costs.json',dict(weights=mpc.weights,force_residual_scale=mpc.force_scale))
-        write_json(output/'planning_model.json',dict(version='native_contact_pose_mpc_v23_mano_attractors',
+        write_json(output/'planning_model.json',dict(version='wuji_contact_mpc_v25_comfree_default',
+            contact_model=contact_model,
+            prediction_timestep=args.comfree_dt if contact_model=='comfree' else args.command_dt,
+            prediction_linearization='central_difference_per_stage' if contact_model=='comfree' else 'analytic_CasADi',
+            predicted_force_source='ComFree_constraint_rows' if contact_model=='comfree' else 'soft_SCM',
+            ik_backend=getattr(args,'ik_backend','geometric'),
             lambda_mode=getattr(args,'lambda_mode','off'),regrasp=getattr(args,'regrasp',False),
             contact_region='MANO_soft_attractors_no_feasibility_filter' if not lambda_enabled else 'legacy_Lambda',
             semantic_contacts_filtered=lambda_enabled,
-            closure_depth_m=args.closure_depth,contact_force_limit_N=args.force_limit,
+            closure_depth_m=args.closure_depth,contact_force_limit_N=args.force_limit if contact_model=='soft-scm' else None,
+            legacy_force_limit_N=args.force_limit,
             servo_target_kinematics='separate_FK_reference_and_exact_native_cost_evaluation',
             transport_reference_requires_stable_load_capacity=False,
             lambda_requires_closure_and_pose_descent=False,force_certificates_affect_control=False,
             candidate_ranking='native_MuJoCo_cost_and_collision_only',
             original_semantics='soft_prior_all_regions',
-            hand_reference_clock='all_frames_in_order_retimed_to_measured_tracking_and_object_progress',
+            hand_reference_clock='all_frames_in_order_demonstration_time',
             friction_cone='pyramidal',cone_edges=4,lambda_explicit_tangents=lambda_enabled,
             made_contact_frames='dominant_actual_MuJoCo_patch',runtime_contact_friction=True,
             external_wrench_target=False,lambda_force_tracking=False,
             internal_pressure_feedback=False,static_load_allocation=False,
-            grasp_response_requires_force_closure=False,grasp_response_minimum_made_slots=2,
+            grasp_response_requires_force_closure=False,
+            SCM_grasp_response_enabled=contact_model=='soft-scm',
+            grasp_response_minimum_made_slots=2 if contact_model=='soft-scm' else None,
             hold_candidate='unchanged_physical_servo_target',
             offline_contact_ik_reference='transported_with_measured_object_pose',
-            contact_command_speeds=dict(translation=.04,rotation=.2,fingers=.5),
-            dynamics='reduced_grouped_SCM_and_force_limited_response',
+            command_speed_limits=False,
+            ground_contact_points=4 if contact_model=='soft-scm' else 'ComFree_collision_layout',ground_momentum_retained=True,
+            dynamics='official_ComFree_full_multibody' if contact_model=='comfree' else 'reduced_grouped_SCM_and_force_limited_response',
             execution='position_servos_with_declared_finger_tuning'))
     runtime_materials=contacts.materials.copy()
     records=[];plans=[];qhistory=[];controls=[];pose_history=[];phase='approach';last_qref=geometric[0].copy();last_slots=()
@@ -297,10 +328,11 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
             # Visit every frame in order, retiming physical execution to object
             # progress. All frames were IK solved offline; no frame is dropped
             # and no hard hand-shape threshold decides this reference clock.
-            hand_rate=hand_reference_rate(q,geometric[hand_cursor.index]) if mode=='full' else 1.
-            reference=hand_cursor.update(args.command_dt*hand_rate,ready=step>0 and
-                (mode=='ik-only' or (hand_cursor.index<target_index and
-                    not (mpc.regrasp is not None and mpc.regrasp.move is not None))))
+            hand_rate=1.
+            reference=hand_cursor.update(args.command_dt,ready=step>0 and not recovering)
+            # Follow every CA posture on its demonstration clock. An unlifted
+            # object must not freeze all subsequent closing references.
+            target_index=max(target_index,min(int(np.searchsorted(demo.times,demo.times[reference]+args.lookahead)),len(demo.times)-1))
             target_shape=hand.kinematics(readiness_materials,hand.set_state(geometric[reference],pose))[0]
             slots=tuple(np.flatnonzero(contacts.mask[reference]));active=contacts.mask[reference].astype(float)
             goal=demo.poses[target_index];materials=runtime_materials if mode=='full' else contacts.materials
@@ -506,7 +538,7 @@ def run_rollout(hand,demo,contacts,geometric,args,mode,output,offline_plans=None
     return report
 
 
-def mpc_limits(hand,args):return args.command_dt*np.r_[np.full(3,.15),np.full(3,.8),np.full(hand.nu-6,1.5)]
+def mpc_limits(hand,args):return hand.upper-hand.lower
 
 
 def parser():
@@ -515,7 +547,12 @@ def parser():
     p.add_argument('--dexforge-root',type=Path);p.add_argument('--sequence',type=Path);p.add_argument('--hand-assets',type=Path)
     p.add_argument('--physics-reference',type=Path,
         help='Copy object inertia/contact parameters and floor from this DexForge XML; keep native mesh collision representation.')
+    p.add_argument('--physics-profile',choices=['dexforge','native'],default='dexforge',
+        help='Default dexforge: inherit the matching object SDF scene physics. native retains the mesh scene parameters.')
     p.add_argument('--mano-models',type=Path,default=Path('/home/zz/GraspSONIC/thirdparty/DexForge/assets/mano'))
+    p.add_argument('--ik-backend',choices=['ca','geometric'],default='ca',help='Default: run the original DexForge CA solver and transfer its FK posture reference.')
+    p.add_argument('--ca-result',type=Path,help='Reuse a complete original CA result for this input sequence.')
+    p.add_argument('--ca-scene',type=Path,help='Mounted mesh scene belonging to --ca-result; required for FK chart conversion.')
     p.add_argument('--sync-assets',action='store_true');p.add_argument('--output',type=Path,default=ROOT/'outputs/wuji_retarget')
     p.add_argument('--mode',choices=['ik-only','full'],default='full');p.add_argument('--compare',action='store_true')
     p.add_argument('--headless',action='store_true');p.add_argument('--video',action='store_true')
@@ -530,23 +567,28 @@ def parser():
     p.add_argument('--regrasp',action=argparse.BooleanOptionalAction,default=False,
         help='Online measured release and recovery toward MANO anchors; MPC evaluates nearby projections.')
     p.add_argument('--mpc-solver',choices=['acados','ipopt'],default='acados');p.add_argument('--horizon',type=int,default=4)
+    p.add_argument('--contact-model',choices=['comfree','soft-scm'],default='comfree',
+        help='Default comfree: full ComFree prediction; soft-scm selects the legacy reduced predictor.')
+    p.add_argument('--comfree-dt',type=float,default=.01)
+    p.add_argument('--comfree-device',default='cuda:0')
+    p.add_argument('--comfree-topk',type=int,choices=range(1,9),default=1)
     p.add_argument('--native-cost-refinement','--native-force-feedback',dest='native_force_feedback',action='store_true',help='Refine the same pose/distance cost through native position-servo dynamics; increases computation.')
-    p.add_argument('--command-dt',type=float,default=.03);p.add_argument('--sim-dt',type=float,default=.0025)
+    p.add_argument('--command-dt',type=float,default=.03);p.add_argument('--sim-dt',type=float,default=.002)
     p.add_argument('--fps',type=float,default=30.);p.add_argument('--subsample',type=int,default=1);p.add_argument('--max-frames',type=int,default=0)
     p.add_argument('--max-steps',type=int,default=600);p.add_argument('--max-infeasible-steps',type=int,default=20)
     p.add_argument('--stop-on-contact-failure',action='store_true',help='Stop after repeated infeasible contacts; otherwise continue bounded geometric hand tracking.')
     p.add_argument('--ik-iterations',type=int,default=60);p.add_argument('--contact-ik-iterations',type=int,default=50)
     p.add_argument('--hand-patch-radius',type=float,default=.03)
-    p.add_argument('--hand-rate-scale',type=float,default=1.25,help='Minimum control rates are scaled peak geometric IK trajectory velocities.')
+    p.add_argument('--hand-rate-scale',type=float,default=1.25,help='Legacy metadata only; position commands have no speed limit.')
     p.add_argument('--contact-ik-tolerance',type=float,default=.002)
     p.add_argument('--contact-penetration-limit',type=float,default=None,help='Active contact collision tolerance; defaults to DexForge FA config.')
     p.add_argument('--contact-target-depth',type=float,default=None,help='Soft IK allowance for active contact; defaults to DexForge FA target_phi magnitude.')
     p.add_argument('--closure-depth',type=float,default=.004,help='Virtual servo target closure in metres along the MANO contact normal.')
-    p.add_argument('--finger-stiffness-scale',type=float,default=50.,help='Finger kp multiplier; kv scales by its square root.')
-    p.add_argument('--finger-force-scale',type=float,default=10.,help='Multiplier for BOTH finger actuator and joint torque limits.')
+    p.add_argument('--finger-stiffness-scale',type=float,default=1.,help='Finger kp multiplier; kv scales by its square root.')
+    p.add_argument('--finger-force-scale',type=float,default=1.,help='Multiplier for BOTH finger actuator and joint torque limits.')
     p.add_argument('--ik-tolerance',type=float,default=.012);p.add_argument('--lambda-device',default='cpu')
     p.add_argument('--mpc-costs',type=json.loads,default={},help='MPC cost weights as JSON; also accepts a mapping in YAML config.')
-    p.add_argument('--lambda-iterations',type=int,default=20);p.add_argument('--force-limit',type=float,default=100.,help='Shared contact force cap (N) for MPC and Lambda.')
+    p.add_argument('--lambda-iterations',type=int,default=20);p.add_argument('--force-limit',type=float,default=100.,help='Legacy soft-SCM/Lambda contact force cap (N); ComFree forces follow actuator/joint torque limits.')
     p.add_argument('--search-radii',type=float,nargs='+',default=[.005,.01]);p.add_argument('--fps-samples',type=int,default=8)
     p.add_argument('--candidate-capacity',type=int,default=8);p.add_argument('--seed',type=int,default=0)
     p.add_argument('--reference-window',type=float,default=.5);p.add_argument('--lookahead',type=float,default=.06)
@@ -567,11 +609,19 @@ def main(argv=None):
             if '--'+key.replace('_','-') not in explicit:setattr(args,key,value)
     from planning.wuji_retarget_mpc import WujiRetargetCosts
     if args.lambda_mode not in ('off','offline','online'):p.error('lambda-mode must be off, offline or online (quote "off" in YAML)')
+    if args.physics_profile not in ('dexforge','native'):p.error('physics-profile must be dexforge or native')
+    if args.contact_model not in ('comfree','soft-scm'):p.error('contact-model must be comfree or soft-scm')
+    if args.contact_model=='comfree' and (args.mode=='full' or args.compare) and args.mpc_solver!='acados':
+        p.error('ComFree prediction requires --mpc-solver acados; use --contact-model soft-scm for IPOPT')
     try:WujiRetargetCosts(**args.mpc_costs)
     except (TypeError,ValueError) as exc:p.error(f'invalid mpc-costs: {exc}')
     for key in ('command_dt','sim_dt','fps','ik_tolerance','contact_ik_tolerance','force_limit','reference_window','hand_rate_scale','finger_stiffness_scale','finger_force_scale'):
         if not np.isfinite(getattr(args,key)) or getattr(args,key)<=0:p.error(f'{key} must be positive and finite')
     if abs(round(args.command_dt/args.sim_dt)*args.sim_dt-args.command_dt)>1e-10:p.error('command-dt must be a multiple of sim-dt')
+    if not np.isfinite(args.comfree_dt) or args.comfree_dt<=0:p.error('comfree-dt must be positive and finite')
+    if args.contact_model=='comfree' and abs(round(args.command_dt/args.comfree_dt)*args.comfree_dt-args.command_dt)>1e-10:
+        p.error('command-dt must be a multiple of comfree-dt')
+    if args.comfree_topk not in range(1,9):p.error('comfree-topk must be between 1 and 8')
     if args.max_frames<0 or args.max_infeasible_steps<1 or args.lambda_iterations<1:p.error('invalid frame or iteration count')
     if not np.isfinite(args.hand_patch_radius) or args.hand_patch_radius<0:p.error('hand-patch-radius must be finite and nonnegative')
     if not np.isfinite(args.lookahead) or args.lookahead<0:p.error('lookahead must be finite and nonnegative')
@@ -591,11 +641,18 @@ def main(argv=None):
     if not np.isfinite(args.closure_depth) or args.closure_depth<0:p.error('closure-depth must be finite and nonnegative (virtual servo compression, independent of collision tolerance)')
     args.sequence=Path(args.sequence or root/'data/dexycb'/SEQUENCE)
     args.hand_assets=Path(args.hand_assets or root/'assets/wuji');args.mano_models=Path(args.mano_models);args.output=Path(args.output)
-    args.output.mkdir(parents=True,exist_ok=True);write_json(args.output/'config.json',vars(args))
+    args.output.mkdir(parents=True,exist_ok=True)
     demo=load_demonstration(args.sequence,root,args.mano_models,args.fps,args.subsample,args.max_frames)
     meta=json.loads((args.sequence/'mano_raw/meta.json').read_text())
     label=meta['object'].partition('_')[2] if meta['object'].partition('_')[0].isdigit() else meta['object']
     scene=args.sequence/'scene/leaphand'/f'{label}_mesh.xml';tree=ET.parse(scene).getroot()
+    if args.physics_reference is None and args.physics_profile=='dexforge':
+        candidates=[scene.with_name(f'{label}_sdf.xml'),
+            root/'data/dexycb'/args.sequence.name/'scene/leaphand'/f'{label}_sdf.xml',
+            root/'data/dexycb'/SEQUENCE/'scene/leaphand'/f'{label}_sdf.xml']
+        args.physics_reference=next((path.resolve() for path in candidates if path.is_file()),None)
+        if args.physics_reference is None:p.error('matching DexForge physics scene missing; provide --physics-reference or select --physics-profile native')
+    write_json(args.output/'config.json',vars(args))
     collider=next(g for g in tree.findall("worldbody/body[@name='obj']/geom") if g.get('contype','1')!='0')
     mesh=tree.find(f"asset/mesh[@name='{collider.get('mesh')}']")
     mesh_path=(scene.parent/mesh.get('file')).resolve()

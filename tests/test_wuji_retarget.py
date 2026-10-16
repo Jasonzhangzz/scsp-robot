@@ -85,11 +85,68 @@ def test_semantic_relaxation_proposes_regions_without_swapping_fingers_or_palm()
     assert len(proposals)<=3 and len(set(proposals))==len(proposals)
 
 
-def test_wuji_solver_cache_key_distinguishes_control_rate_bounds(physical_hand):
+def test_wuji_commands_are_not_limited_by_demo_or_contact_speed(physical_hand):
     from planning.wuji_retarget_mpc import WujiMPCParams
     first=WujiMPCParams(physical_hand,3,rates=np.ones(physical_hand.nu))
     second=WujiMPCParams(physical_hand,3,rates=np.full(physical_hand.nu,2.))
-    assert first.tag!=second.tag
+    np.testing.assert_array_equal(first.mpc_u_ub_,physical_hand.upper-physical_hand.lower)
+    np.testing.assert_array_equal(first.mpc_u_ub_,second.mpc_u_ub_)
+    assert first.tag==second.tag
+
+
+def test_ca_fk_transfer_preserves_grasp_across_wrist_mounts(physical_hand):
+    import copy
+    from scipy.spatial.transform import Rotation
+    from examples.retarget.contactaware_ik import transfer_postures
+    hand=physical_hand;source=copy.copy(hand.model)
+    body=mujoco.mj_name2id(source,mujoco.mjtObj.mjOBJ_BODY,'base_rx_link')
+    source.body_quat[body]=Rotation.from_rotvec([.2,-.3,.4]).as_quat()[[3,0,1,2]]
+    mujoco.mj_setConst(source,mujoco.MjData(source))
+    q=np.clip(np.full(hand.nu,.1),hand.lower,hand.upper);q[:6]=[.1,.2,.3,.4,-.5,.6]
+    src=POSE.copy();dst=POSE.copy();dst[:3]+=[.03,-.02,.01]
+    dst[3:]=Rotation.from_rotvec([.1,.2,-.1]).as_quat()[[3,0,1,2]]
+    before=hand.data.qpos.copy()
+    mapped,reports=transfer_postures(hand,source,q[None],src[None],dst[None])
+    np.testing.assert_array_equal(mapped[0,6:],q[6:])
+    np.testing.assert_array_equal(hand.data.qpos,before)
+    assert reports[0]['max_body_position_error_m']<2e-6
+    assert reports[0]['max_body_rotation_error_rad']<2e-5
+
+
+def test_partial_grasp_preserves_support_from_floor():
+    import casadi as cs
+    from models.allegro_grasp_response import force_limited_grasp_cs,grasp_operators
+    # The pads cannot support gravity on their own. A stationary object has
+    # already received floor support in SCM and must remain stationary after
+    # replacing only the pad response.
+    jac=np.zeros((8,8))
+    for i,sign in enumerate([1.,-1.]):
+        normal=np.array([sign,0,0]);t1=np.array([0,1.,0]);t2=np.array([0,0,1.])
+        for k,d in enumerate([normal+t1,normal+t2,normal-t1,normal-t2]):
+            jac[4*i+k,:3]=d;jac[4*i+k,6+i]=-sign
+    vm,rj,gi,gm,internal=grasp_operators(jac,np.ones(2),np.eye(6),2)
+    kwargs=dict(h=.03,friction=1.,velocity_map=cs.DM(vm),robot_jac=cs.DM(rj),object_mass=cs.DM.eye(6),
+        grasp_inverse=cs.DM(gi),grasp_mobility=cs.DM(gm),internal_map=cs.DM(internal),
+        reference_force=cs.DM([.1,0,0,-.1,0,0]),normal_limits=cs.DM([.1,.1]),other_wrench=cs.DM.zeros(6))
+    velocity,_=force_limited_grasp_cs(cs.DM.zeros(8),kwargs['reference_force'],cs.DM.zeros(6),
+        cs.DM.ones(2),cs.DM.eye(6),cs.DM([0,0,-1.,0,0,0]),cs.DM(jac),cs.DM.zeros(8),
+        retain_other_contacts=True,**kwargs)
+    np.testing.assert_allclose(np.asarray(velocity).ravel(),0.,atol=1e-10)
+
+
+def test_floor_support_spans_the_face_and_releases_when_lifted(physical_hand):
+    from examples.retarget.contact_geometry import contact_geometry
+    hand=physical_hand;q=np.clip(np.zeros(hand.nu),hand.lower,hand.upper);q[:3]=[1.,1.,1.]
+    pose=POSE.copy();pose[2]=-hand.surface.mesh.vertices[:,2].min()
+    hand.set_state(q,pose,hand.data)
+    phi,jac,*_=contact_geometry(hand,[],np.empty(0),12)
+    rows=jac[:16].reshape(4,4,6+hand.nu).mean(axis=1)
+    np.testing.assert_allclose(rows[:,:3],np.tile([0.,0.,1.],(4,1)))
+    assert np.linalg.matrix_rank(rows[:,3:5]-rows[0,3:5])==2
+    assert np.max(phi[:16])<.00501
+    pose[2]+=.1;hand.set_state(q,pose,hand.data)
+    lifted=contact_geometry(hand,[],np.empty(0),12)[0]
+    assert np.min(lifted[:16])>=.1-1e-10
 
 
 def test_geometric_ik_solves_each_contact_and_noncontact_frame(monkeypatch):
@@ -333,7 +390,7 @@ def test_lambda_off_keeps_unreachable_mano_targets_in_online_mpc(physical_hand,t
             return hand.servo.copy(),dict(status='TEST_HOLD',selected_control='hold',
                 executed_action=np.zeros(hand.nu))
     monkeypatch.setattr(wuji_retarget_mpc,'WujiOnlineMPC',MPC)
-    args=retarget.parser().parse_args(['--headless','--no-demo-overlay','--max-steps','2'])
+    args=retarget.parser().parse_args(['--contact-model','soft-scm','--headless','--no-demo-overlay','--max-steps','2'])
     assert args.lambda_mode=='off'
     import yaml
     assert yaml.safe_load((Path(retarget.__file__).parent/'default.yaml').read_text())['lambda_mode']=='off'
@@ -505,7 +562,7 @@ def test_posture_tracking_remains_active_when_all_semantic_contacts_are_made(phy
     assert loaded[6]==pytest.approx(unloaded[6]*np.sqrt(mpc.weights.posture_contact_scale))
 
 
-def test_trigrasp_object_cost_scaling_and_terminal_task_objective(physical_hand):
+def test_fa_normalized_object_cost_and_terminal_task_objective(physical_hand):
     from planning.wuji_retarget_mpc import WujiOnlineMPC,WujiRetargetCosts
     with pytest.raises(ValueError):WujiRetargetCosts(posture_contact_scale=0.)
     hand=physical_hand;hand.set_state(np.zeros(hand.nu),POSE,hand.data);hand.servo=np.zeros(hand.nu)
@@ -514,12 +571,12 @@ def test_trigrasp_object_cost_scaling_and_terminal_task_objective(physical_hand)
     mpc.plan(POSE,hand.servo,[],empty,empty,empty,np.empty(0))
     state=mpc.state();cp=mpc.current_cp
     baseline=float(mpc.path_cost_fn(state,np.zeros(hand.nu),cp))
-    for axis,weight in [(0,300.),(1,300.),(2,120.)]:
+    for axis,weight in [(0,1.),(1,1.),(2,1.)]:
         shifted=state.copy();shifted[axis]+=.002
         assert float(mpc.path_cost_fn(shifted,np.zeros(hand.nu),cp))-baseline==pytest.approx(weight*.002**2)
-        assert float(mpc.final_cost_fn(shifted,cp))-float(mpc.final_cost_fn(state,cp))==pytest.approx(4*weight*.002**2)
+        assert float(mpc.final_cost_fn(shifted,cp))-float(mpc.final_cost_fn(state,cp))==pytest.approx(2*weight*.002**2)
     outside=state.copy();outside[0]+=.02
-    assert float(mpc.path_cost_fn(outside,np.zeros(hand.nu),cp))-baseline==pytest.approx(300*.02**2+2e6*.015**2)
+    assert float(mpc.path_cost_fn(outside,np.zeros(hand.nu),cp))-baseline==pytest.approx(.02**2)
 
 
 def test_measured_contact_survives_lambda_failure_and_reference_release(physical_hand,monkeypatch):
@@ -615,7 +672,8 @@ def test_distance_grip_tracks_lift_without_force_or_load_permission(physical_han
     assert float(mpc.final_cost_fn(closed,cp))<float(mpc.final_cost_fn(state,cp))
     np.testing.assert_array_equal(closed[:-hand.nu],state[:-hand.nu])
     limits=np.asarray(report['effective_command_limits'])
-    np.testing.assert_allclose(limits,np.r_[np.full(3,.0012),np.full(3,.006),np.full(hand.nu-6,.015)])
+    np.testing.assert_allclose(limits,hand.upper-hand.lower)
+    assert not report['rate_limits_enabled']
     assert any(c['source']=='closure_seed' for c in report['candidate_scores'])
     # Torque saturation can leave a large target/measured angle difference.
     # Closing distance must use FK at the target, not extrapolate a measured-q
@@ -634,14 +692,14 @@ def test_distance_grip_tracks_lift_without_force_or_load_permission(physical_han
     values=np.asarray(mpc.residual_fn(mpc.state(),np.zeros(hand.nu),mpc.current_cp)).ravel()
     world=POSE[:3]+np.asarray(lagged['execution_anchors'])
     for k,sl in enumerate(mpc.closure_residual_slices):
-        expected=np.sqrt(mpc.weights.contact)*min(normals[k]@(sp[k]-world[k])-mpc.closure_depth,0.)
+        expected=np.sqrt(mpc.weights.closure)*min(normals[k]@(sp[k]-world[k])-mpc.closure_depth,0.)
         np.testing.assert_allclose(values[sl],[expected],atol=1e-10)
     # Compression is a runtime reference, independent of collision tolerance;
     # tightening it must not require rebuilding the MPC dynamics/cost graph.
     deeper=mpc.current_cp.copy();deeper[mpc.closure_depth_index]=.012
     deep_values=np.asarray(mpc.residual_fn(mpc.state(),np.zeros(hand.nu),deeper)).ravel()
     for k,sl in enumerate(mpc.closure_residual_slices):
-        expected=np.sqrt(mpc.weights.contact)*min(normals[k]@(sp[k]-world[k])-.012,0.)
+        expected=np.sqrt(mpc.weights.closure)*min(normals[k]@(sp[k]-world[k])-.012,0.)
         np.testing.assert_allclose(deep_values[sl],[expected],atol=1e-10)
     hand.servo=before_servo
     # Holding preserves the actual servo target exactly.
@@ -822,8 +880,8 @@ def test_finger_tuning_updates_servos_and_both_torque_clamps_without_moving_regi
     hand_xml=root/'assets/wuji/right_mesh.xml'
     object_xml=root/'data/dexycb/dexycb_004_sugar_box_20200709_142802/scene/leaphand/sugar_box_mesh.xml'
     defaults=parser().parse_args([])
-    assert (defaults.finger_stiffness_scale,defaults.finger_force_scale,defaults.force_limit,defaults.closure_depth)==(50.,10.,100.,.004)
-    assert defaults.sim_dt==.0025
+    assert (defaults.finger_stiffness_scale,defaults.finger_force_scale,defaults.force_limit,defaults.closure_depth)==(1.,1.,100.,.004)
+    assert defaults.sim_dt==.002 and defaults.physics_profile=='dexforge'
     xml=build_scene(hand_xml,object_xml,tmp_path/'tuned.xml',POSE,
         finger_stiffness_scale=10.,finger_force_scale=3.)
     tuned=WujiHand(xml,physical_hand.surface);source=physical_hand.model

@@ -179,7 +179,7 @@ def add_lambda_predictor_args(parser):
     parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
     parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
     parser.add_argument('--cso-guidance', choices=('cso', 'pose', 'random', 'nearest'), default='cso')
-    parser.add_argument('--contact-model', choices=('soft-scm', 'comfree'), default='soft-scm')
+    parser.add_argument('--contact-model', choices=('soft-scm', 'comfree', 'diagonal-contact'), default='soft-scm')
     parser.add_argument('--soft-scm-response-time', '--force-response-time',
                         dest='soft_scm_response_time', type=float, default=SOFT_SCM_RESPONSE_TIME)
     parser.add_argument('--soft-scm-damping-ratio', type=float, default=SOFT_SCM_DAMPING_RATIO)
@@ -435,7 +435,7 @@ class ExplicitMPCParams:
         self.obj_inertia_ = np.identity(6)
         self.obj_inertia_[0:3, 0:3] = 50 * np.eye(3)
         self.obj_inertia_[3:, 3:] = 0.05 * np.eye(3)
-        self.grouped_contact_response_ = self.runtime_object_cost_ and getattr(args, 'contact_model', 'soft-scm') == 'soft-scm'
+        self.grouped_contact_response_ = self.runtime_object_cost_ and getattr(args, 'contact_model', 'soft-scm') in ('soft-scm', 'diagonal-contact')
         self.robot_stiff_ = np.diag(self.n_cmd_ * [CARTESIAN_TASK_STIFFNESS if self.runtime_object_cost_ else 100])
 
         Q = np.zeros((self.n_qvel_, self.n_qvel_))
@@ -461,8 +461,9 @@ class ExplicitMPCParams:
         self.soft_scm_response_time = float(getattr(args, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME))
         self.soft_scm_damping_ratio = float(getattr(args, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO))
         self.soft_scm_regularization = float(getattr(args, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION))
-        soft_scm_coefficients(self.h_, self.soft_scm_response_time,
-                              self.soft_scm_damping_ratio, self.soft_scm_regularization)
+        if self.contact_model != 'diagonal-contact':
+            soft_scm_coefficients(self.h_, self.soft_scm_response_time,
+                                  self.soft_scm_damping_ratio, self.soft_scm_regularization)
 
         self.mpc_model = mpc_model
         requested_solver = getattr(

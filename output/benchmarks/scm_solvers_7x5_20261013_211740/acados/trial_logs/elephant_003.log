@@ -1,7 +1,0 @@
-direct_force solver=acados object=elephant seed=3 step=0 pos=0.042155 quat=0.992184 hold=0 success=False
-direct_force solver=acados object=elephant seed=3 step=50 pos=0.061097 quat=0.582122 hold=0 success=False
-direct_force solver=acados object=elephant seed=3 step=100 pos=0.027872 quat=0.010938 hold=0 success=False
-direct_force solver=acados object=elephant seed=3 step=150 pos=0.019000 quat=0.000115 hold=0 success=False
-direct_force solver=acados object=elephant seed=3 step=200 pos=0.015939 quat=0.000065 hold=3 success=False
-direct_force solver=acados object=elephant seed=3 step=207 pos=0.015946 quat=0.000066 hold=10 success=True
-TRIAL_RESULT {"solver": "acados", "object": "elephant", "seed": 3, "steps": 208, "success": true, "settled": true, "final_pos": 0.015945841600636064, "final_quat": 6.567020567571635e-05, "solver_backends": ["acados"], "fallback_rounds": 0, "unstable_rounds": 0, "error": null, "started_at": "2026-10-13T21:31:14+08:00", "completed_at": "2026-10-13T21:31:28+08:00", "execution_time_s": 8.650383199972566, "elapsed_wall_time_s": 8.650383199972566, "simulation_time_s": 4.160000000000414, "planning_time_ms": {"n": 208, "mean": 36.598891178213165, "std": 10.275016193828659, "median": 37.93731750920415, "p95": 47.643817638163455, "min": 15.986538026481867, "max": 102.79666498536244}, "planning_rounds": 208}

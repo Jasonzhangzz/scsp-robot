@@ -1,8 +1,8 @@
-"""Material-point Wuji MPC on the shared grouped soft-SCM contact response.
+"""Wuji retarget MPC with ComFree or legacy grouped soft-SCM prediction.
 
 State = object pose, measured hand q, mixed velocity, carried servo target.
-Predicted hand-object contact impulses come from SCM, never from applied Lambda
-forces. Actual contacts remain controlled independently of Lambda validity.
+The caller selects the predictor. Contact forces come from its dynamics,
+without applied Lambda forces or force-based task permission gates.
 """
 from dataclasses import dataclass
 import hashlib
@@ -30,7 +30,7 @@ def geometric_closure_step(normal_jacobian,gaps,depth,limits,stiffness=None):
     the position target while a touching surface still lacks closure reserve.
     """
     rows=np.asarray(normal_jacobian)[:,6:]
-    error=np.clip(np.asarray(gaps)+depth,0.,.0006)
+    error=np.maximum(np.asarray(gaps)+depth,0.)
     inverse_stiffness=np.ones(rows.shape[1]) if stiffness is None else 1/np.maximum(np.asarray(stiffness)[6:],1e-8)
     weighted=inverse_stiffness[:,None]*rows.T
     correction=weighted@np.linalg.solve(rows@weighted+1e-8*np.eye(len(rows)),error)
@@ -40,33 +40,35 @@ def geometric_closure_step(normal_jacobian,gaps,depth,limits,stiffness=None):
 
 @dataclass(frozen=True)
 class WujiRetargetCosts:
-    """Online trigrasp weights, with persistent soft MANO correspondence.
+    """FA relative weights in metres, normalized by its object-position scale.
 
-    trigrasp releases its IK attraction at contact. Retargeting retains a small
-    nonzero attraction to every frame's pose, without a shape-error constraint.
+    Original MANO points remain persistent soft priors. Cached touch anchors
+    describe dynamics and do not add a second contact-locking objective.
     """
-    contact: float = 5000.
-    original_contact: float = 150.
+    # FA ratios, normalized by its 1e8 object-position coefficient.
+    contact: float = 0.
+    original_contact: float = .01
     existing_contact_scale: float = .1
-    normal: float = .1
-    object_position: float = 120.
-    object_lateral: float = 300.
-    object_rotation: float = 50.
-    horizontal_recovery: float = 2e6
+    normal: float = 0.
+    object_position: float = 1.
+    object_lateral: float = 1.
+    object_rotation: float = .09
+    horizontal_recovery: float = 0.
     horizontal_tolerance: float = .005
-    transport: float = 1000.
-    normal_support: float = 1.
+    transport: float = 0.
+    normal_support: float = 0.
+    closure: float = .4
     preload: float = 0.
     load_balance: float = 0.
     posture_base: float = 1.
-    posture_rotation: float = .5
-    posture_fingers: float = 5.
-    posture_contact_scale: float = .05
-    action_base: float = .03
-    action_rotation: float = 50.
-    action_fingers: float = 50.
-    collision: float = 1e7
-    terminal: float = 4.
+    posture_rotation: float = .09
+    posture_fingers: float = .000009
+    posture_contact_scale: float = 1.
+    action_base: float = .01
+    action_rotation: float = .0009
+    action_fingers: float = .0001
+    collision: float = .75
+    terminal: float = 2.
 
     def __post_init__(self):
         for name, value in vars(self).items():
@@ -77,7 +79,7 @@ class WujiRetargetCosts:
         if self.existing_contact_scale>1:raise ValueError('existing_contact_scale must be in [0, 1]')
 
 
-class WujiContactModel:
+class WujiContactContext:
     transports_contacts=True
     def __init__(self,param,slots):
         self.param_=param;self.slots=slots;n=param.n_cmd_;nv=param.n_qvel_;nx=param.n_qpos_;self.pose_size=7+n
@@ -94,6 +96,24 @@ class WujiContactModel:
         self.reference=np.r_[np.zeros(3),1.,np.zeros(3+n)]
         self.inverse=np.eye(6);self.robot_mass=np.ones(n);self.external=np.zeros(6)
         self.robot_external=np.zeros(n)
+
+    def runtime_parameters(self,sigma):
+        h=self.param_.h_;response=h*self.param_.robot_damping_+h*h*np.diag(self.param_.robot_stiff_)
+        return np.r_[sigma,self.reference,self.inverse.reshape(-1,order='F'),1/(self.robot_mass+response),self.external,self.robot_external,
+            self.projection.reshape(-1,order='F'),self.pressure_bias,self.command_limits,
+            self.grasp_map.reshape(-1,order='F'),self.grasp_robot.reshape(-1,order='F'),
+            self.object_mass.reshape(-1,order='F'),self.grasp_inverse.reshape(-1,order='F'),
+            self.grasp_mobility.reshape(-1,order='F'),self.grasp_internal.reshape(-1,order='F'),
+            self.grasp_reference,self.grasp_limits,self.other_wrench,float(self.grasp_active),self.contact_friction]
+
+
+class WujiContactModel(WujiContactContext):
+    """Legacy grouped soft-SCM predictor."""
+    contact_model="soft-scm"
+
+    def __init__(self,param,slots):
+        super().__init__(param,slots)
+        n=param.n_cmd_;nv=param.n_qvel_;nx=param.n_qpos_
         x=cs.SX.sym('wuji_state',nx);u=cs.SX.sym('wuji_command',n)
         phi=cs.SX.sym('wuji_gap',4*param.max_ncon_);jac=cs.SX.sym('wuji_contact',4*param.max_ncon_,nv)
         mp=cs.SX.sym('wuji_physics',self.model_parameter_dim)
@@ -114,11 +134,12 @@ class WujiContactModel:
         velocity=x[self.pose_size:self.pose_size+nv];h=param.h_
         target=cs.fmin(cs.DM(param.hand_upper),cs.fmax(cs.DM(param.hand_lower),x[-n:]+command))
         response=h*param.robot_damping_+h*h*np.diag(param.robot_stiff_)
-        hand_free=velocity[6:]+mp[o+36:o+36+n]*(h*cs.DM(param.robot_stiff_)@(target-x[7:self.pose_size])-cs.DM(response)*velocity[6:])
+        hand_free=velocity[6:]+hand_inverse*(h*(cs.DM(param.robot_stiff_)@(target-x[7:self.pose_size])+robot_external)-cs.DM(response)*velocity[6:])
         robot_mass=1/mp[o+36:o+36+n]-cs.DM(response)
-        effort=(hand_free-velocity[6:])*robot_mass/h
-        effort=cs.fmin(cs.DM(param.actuator_upper),cs.fmax(cs.DM(param.actuator_lower),effort))
-        hand_free=velocity[6:]+h*(effort+robot_external)/robot_mass
+        effort=(hand_free-velocity[6:])*robot_mass/h-robot_external
+        bounded=cs.fmin(cs.DM(param.actuator_upper),cs.fmax(cs.DM(param.actuator_lower),effort))
+        hand_free=cs.if_else(cs.fabs(effort-bounded)>1e-10,
+            velocity[6:]+h*(bounded+robot_external)/robot_mass,hand_free)
         free=cs.vertcat(velocity[:6]+h*inverse[:6,:6]@external,hand_free)
         a,b=soft_scm_coefficients(h,.02,1.,1e-8)
         nxt,impulses=grouped_contact_velocity_cs(free,jac,gaps,inverse,h,a,b,1e-8,
@@ -147,7 +168,7 @@ class WujiContactModel:
                 grasp_inverse=grasp_inverse,grasp_mobility=mobility,internal_map=internal,
                 reference_force=reference_force,normal_limits=normal_limits,other_wrench=other_wrench,
                 friction_cone='pyramidal',allow_preload_growth=True,
-                force_limit=param.contact_force_limit)
+                force_limit=param.contact_force_limit,retain_other_contacts=True)
             supported=cs.vertcat(supported[:3],rotation_cs(q).T@rotation_cs(qr)@supported[3:6],supported[6:])
             nxt=cs.if_else(mp[cursor]>.5,supported,nxt)
             force=cs.if_else(mp[cursor]>.5,supported_force,force)
@@ -165,24 +186,15 @@ class WujiContactModel:
         next_velocity=cs.vertcat(nxt[:3],rotation_cs(quat).T@rotation_cs(q)@omega,hand_velocity)
         self.prediction_fn=cs.Function('wuji_contact_step',[x,u,phi,jac,mp],[cs.vertcat(next_pose,next_velocity,target)],{'cse':True})
 
-    def runtime_parameters(self,sigma):
-        h=self.param_.h_;response=h*self.param_.robot_damping_+h*h*np.diag(self.param_.robot_stiff_)
-        return np.r_[sigma,self.reference,self.inverse.reshape(-1,order='F'),1/(self.robot_mass+response),self.external,self.robot_external,
-            self.projection.reshape(-1,order='F'),self.pressure_bias,self.command_limits,
-            self.grasp_map.reshape(-1,order='F'),self.grasp_robot.reshape(-1,order='F'),
-            self.object_mass.reshape(-1,order='F'),self.grasp_inverse.reshape(-1,order='F'),
-            self.grasp_mobility.reshape(-1,order='F'),self.grasp_internal.reshape(-1,order='F'),
-            self.grasp_reference,self.grasp_limits,self.other_wrench,float(self.grasp_active),self.contact_friction]
-
 
 class WujiMPCParams:
     def __init__(self,hand,slots,dt=.03,horizon=4,solver='acados',rates=None):
         self.h_=dt;self.n_cmd_=self.n_robot_qpos_=hand.nu;self.n_qvel_=6+hand.nu
         self.n_qpos_=7+hand.nu+self.n_qvel_+hand.nu
-        self.max_ncon_=slots+9;self.num_contacts=slots
+        self.max_ncon_=slots+12;self.num_contacts=slots
         self.hand_lower=hand.lower;self.hand_upper=hand.upper;self.friction=hand.friction
         self.contact_force_limit=100.
-        self.contact_friction=np.r_[np.full(slots,hand.friction),hand.floor_friction,np.full(8,hand.friction)]
+        self.contact_friction=np.r_[np.full(slots,hand.friction),np.full(4,hand.floor_friction),np.full(8,hand.friction)]
         self.actuator_lower=np.where(hand.model.actuator_forcelimited,hand.model.actuator_forcerange[:,0],-1e6)
         self.actuator_upper=np.where(hand.model.actuator_forcelimited,hand.model.actuator_forcerange[:,1],1e6)
         self.robot_stiff_=np.diag(hand.model.actuator_gainprm[:,0]);self.robot_damping_=-hand.model.actuator_biasprm[:,2]
@@ -190,7 +202,9 @@ class WujiMPCParams:
         self.model_params=1.;self.ipopt_max_iter_=60;self.mpc_ipopt_fallback_=False
         self.mpc_compact_dynamics_=True;self.mpc_compact_cost_=True;self.mpc_prune_codegen_=True
         self.mpc_acados_profile_=dict(nlp_solver_type='SQP_RTI',qp_solver='FULL_CONDENSING_HPIPM',nlp_solver_max_iter=1,levenberg_marquardt=.01)
-        self.mpc_u_ub_=dt*(np.r_[np.full(3,.15),np.full(3,.8),np.full(hand.nu-6,1.5)] if rates is None else np.asarray(rates));self.mpc_u_lb_=-self.mpc_u_ub_
+        # Absolute position/joint bounds remain physical. There is no velocity
+        # or contact-specific increment limit; any bounded target is reachable.
+        self.mpc_u_ub_=hand.upper-hand.lower;self.mpc_u_lb_=-self.mpc_u_ub_
         low=np.r_[np.full(3,-3.),np.full(4,-2.),hand.lower,np.full(self.n_qvel_,-100.),hand.lower]
         high=np.r_[np.full(3,3.),np.full(4,2.),hand.upper,np.full(self.n_qvel_,100.),hand.upper]
         self.mpc_q_lb_=low;self.mpc_q_ub_=high
@@ -200,7 +214,7 @@ class WujiMPCParams:
 
 
 class WujiOnlineMPC(MPCExplicit):
-    def __init__(self,hand,slots,dt=.03,horizon=4,solver='acados',rates=None,costs=None,force_limit=100.,native_force_feedback=False,regrasp=False,closure_depth=.004):
+    def __init__(self,hand,slots,dt=.03,horizon=4,solver='acados',rates=None,costs=None,force_limit=100.,native_force_feedback=False,regrasp=False,closure_depth=.004,model_factory=None):
         self.hand=hand;self.slots=slots;p=WujiMPCParams(hand,slots,dt,horizon,solver,rates)
         self.weights=costs if isinstance(costs,WujiRetargetCosts) else WujiRetargetCosts(**(costs or {}))
         self.force_limit=float(force_limit)
@@ -213,10 +227,16 @@ class WujiOnlineMPC(MPCExplicit):
         p.contact_force_limit=self.force_limit
         self.force_scale=1/max(float(hand.model.body_mass[hand.obj]*np.linalg.norm(hand.model.opt.gravity)),1e-6)
         tuning=np.r_[p.robot_stiff_.ravel(),p.robot_damping_,p.actuator_lower,p.actuator_upper,self.force_limit]
-        p.tag=hashlib.sha1((p.tag+repr(self.weights)+'distance_grip_v6_gap_closure_release').encode()+tuning.tobytes()).hexdigest()[:10]
-        physics=WujiContactModel(p,slots);self.physics=physics
+        p.tag=hashlib.sha1((p.tag+repr(self.weights)+'contact_v7_ground_momentum_no_rate_limits').encode()+tuning.tobytes()).hexdigest()[:10]
+        physics=(model_factory or WujiContactModel)(p,slots);self.physics=physics
+        if hasattr(physics,'predict_numeric') and solver!='acados':
+            raise ValueError('Runtime ComFree prediction requires the acados RTI backend')
         self._build_cost(p,physics)
         super().__init__(p,cost_kind='param',model=physics)
+        if hasattr(physics,'predict_numeric'):
+            from models.wuji_comfree import NumericFunction
+            self.stage_prediction_fn=NumericFunction(self.stage_prediction_fn,
+                lambda x,u,phi,jac,mp,reference:physics.predict_numeric(x,u))
         self.stage_cost_on_next=False
         self.warm=None
         self.previous_reference=None;self.previous_active=None
@@ -241,9 +261,11 @@ class WujiOnlineMPC(MPCExplicit):
         servo0=take(n)
         servo_points0=cs.reshape(take(3*s),3,s)
         servo_jac=cs.reshape(take(3*s*n),3*s,n)
+        self.measured_kinematics_offset=i
         points=cs.reshape(take(3*s),3,s);normals=cs.reshape(take(3*s),3,s)
         jac=cs.reshape(take(3*s*n),3*s,n)
         normal_jac=cs.reshape(take(3*s*n),3*s,n)
+        self.original_kinematics_offset=i
         original_points=cs.reshape(take(3*s),3,s)
         original_jac=cs.reshape(take(3*s*n),3*s,n)
         anchors=cs.reshape(take(3*s),3,s);original=cs.reshape(take(3*s),3,s)
@@ -280,7 +302,7 @@ class WujiOnlineMPC(MPCExplicit):
         # planning.allegro_mpc_costs, used by trigrasp's online controller.
         terms=[np.sqrt(w.object_lateral)*(x[:2]-goal[:2]),
             np.sqrt(w.object_position)*(x[2]-goal[2]),
-            np.sqrt(w.object_rotation/8)*cs.reshape(rotation_cs(goal[3:7]).T@rotation_cs(x[3:7])-cs.DM.eye(3),9,1),
+            np.sqrt(w.object_rotation/2)*cs.reshape(rotation_cs(goal[3:7]).T@rotation_cs(x[3:7])-cs.DM.eye(3),9,1),
             np.sqrt(w.horizontal_recovery)*cs.fmax(lower-x[:2],0),
             np.sqrt(w.horizontal_recovery)*cs.fmax(x[:2]-upper,0)]
         support_forces=[];support_moments=[]
@@ -318,7 +340,7 @@ class WujiOnlineMPC(MPCExplicit):
                 np.sqrt(w.original_contact)*semantic_gate*original_alignment,
                 np.sqrt(w.transport)*gate*loaded*(1-release_mask[k])*(servo_points[:,k]-transport_position-rotation_cs(goal[3:7])@anchors[:,k]),
                 np.sqrt(w.normal)*semantic_gate*(predicted_normals[:,k]-rotation_cs(x[3:7])@desired_normals[:,k]),
-                np.sqrt(w.contact)*gate*closure_error])
+                np.sqrt(w.closure)*gate*closure_error])
             support_normal=predicted_normals[:,k]/cs.sqrt(cs.sumsqr(predicted_normals[:,k])+1e-12)
             support_forces.append(gate*support_normal)
             support_moments.append(gate*cs.cross((predicted[:,k]-x[:3])/.05,support_normal))
@@ -432,12 +454,8 @@ class WujiOnlineMPC(MPCExplicit):
         gaps=phi.reshape(-1,4)[:self.slots,0]
         requested_gaps=gaps[planning_active>0]
         near_contact=bool(actual) or bool(len(requested_gaps) and np.min(requested_gaps)<=.02)
-        # Demonstration velocity peaks belong to free-space playback. Applying
-        # them during contact allowed 3 cm wrist and .25 rad finger commands
-        # per cycle. Match trigrasp's slower contact envelope, including seeds
-        # and the native executor, while measured retiming preserves all frames.
-        contact_limits=p.h_*np.r_[np.full(3,.04),np.full(3,.2),np.full(hand.nu-6,.5)]
-        u_ub=np.minimum(p.mpc_u_ub_,contact_limits) if near_contact else p.mpc_u_ub_.copy()
+        # Contact proximity is diagnostic; it never changes command bounds.
+        u_ub=p.mpc_u_ub_.copy()
         u_lb=-u_ub
         self.physics.command_limits=u_ub.copy()
         r=rotation(state[:7])
@@ -493,7 +511,7 @@ class WujiOnlineMPC(MPCExplicit):
         # The force-limited response can describe partial grasps. Neither a
         # geometric closure Boolean nor CURRENT gravity support may prevent
         # predicting transport and the buildup of physically generated preload.
-        self.physics.grasp_active=bool(len(ids)>=2)
+        self.physics.grasp_active=bool(len(ids)>=2 and getattr(self.physics,'uses_scm_grasp_response',True))
         # Lambda contributes contact locations, never an applied force.
         # Compression follows the same distance objective in SCM and MuJoCo.
         # Distance-controlled compression replaces static load allocation and
@@ -547,13 +565,16 @@ class WujiOnlineMPC(MPCExplicit):
         if regrasp_report['moving_slots'] and regrasp_report['phase']!='settle':
             cost_stick[regrasp_report['moving_slots']]=0.
         original_points,_,original_jac=hand.kinematics(materials if original_materials is None else original_materials)
+        if hasattr(self.physics,'set_contact_materials'):
+            self.physics.set_contact_materials(materials,active)
         force_action=-self.physics.pressure_bias
         force,jx,ju=self.physics.force_linearization_fn(state,force_action,phi,jac,mp)
         # Match trigrasp's measured-output correction. In particular, zero
         # PHYSICAL hold must predict the pressure actually present. Zero raw
         # optimizer input also applies pressure_bias, so calibrating there
         # incorrectly subtracted the feedback's own force-building response.
-        # The motion model remains force-limited SCM.
+        # The selected dynamics model supplies physical prediction; this
+        # correction only calibrates optional force residuals.
         force_baseline=np.asarray(force).reshape(-1).copy()
         raw_normal=np.einsum('ij,ij->i',normal_rows,force_baseline.reshape(-1,3))
         force_gain=np.repeat(np.where(made,np.clip(measured_normal/np.maximum(raw_normal,.01),.2,50.),1.),3)
@@ -599,6 +620,20 @@ class WujiOnlineMPC(MPCExplicit):
             cp=self.current_cp.copy();offset=self.force_offset
             start=self.servo_kinematics_offset
             cp[start:start+len(servo_geometry)]=servo_kinematics(current[-hand.nu:],current[:7])
+            # Native ranking evaluates exact FK, including large unrestricted
+            # finger motions. Keep collision linearizations in their old chart.
+            data=hand.set_state(current[7:7+hand.nu],current[:7],kinematic=True)
+            exact_points,exact_normals,_=hand.kinematics(cost_materials,data)
+            exact_original,_,_=hand.kinematics(original_materials,data)
+            start=self.measured_kinematics_offset
+            cp[start:start+3*self.slots]=pack(exact_points.T)
+            cp[start+3*self.slots:start+6*self.slots]=pack(exact_normals.T)
+            start=self.original_kinematics_offset
+            cp[start:start+3*self.slots]=pack(exact_original.T)
+            delta=current[7:7+hand.nu]-cp[7+2*hand.nu:7+3*hand.nu]
+            cp[7+2*hand.nu:7+3*hand.nu]=current[7:7+hand.nu]
+            rows=cp[-8*(1+hand.nu):].reshape(8,1+hand.nu)
+            rows[:,0]+=rows[:,1:]@delta
             cp[offset:offset+p.n_qpos_]=current;offset+=p.n_qpos_
             cp[offset:offset+hand.nu]=command;offset+=hand.nu
             raw=np.asarray(self.physics.contact_force_fn(current,command,phi,jac,mp)).reshape(-1)
@@ -643,7 +678,7 @@ class WujiOnlineMPC(MPCExplicit):
                 if source=='transport_seed':
                     delta=np.zeros(hand.nu)
                     motion=np.asarray(goal)[:3]-current[:3]
-                    delta[:3]=motion*min(1.,.05*p.h_/max(np.linalg.norm(motion),1e-12))
+                    delta[:3]=motion
                 if source in ('closure_seed','closure_transport_seed'):
                     target_ids=np.flatnonzero(planning_active)
                     delta=np.zeros(hand.nu)
@@ -660,7 +695,7 @@ class WujiOnlineMPC(MPCExplicit):
                         delta[6:]=rows.T@np.linalg.solve(rows@rows.T+1e-6*np.eye(len(rows)),error)
                     if source=='closure_transport_seed':
                         motion=np.asarray(goal)[:3]-current[:3]
-                        delta[:3]=motion*min(1.,.05*p.h_/max(np.linalg.norm(motion),1e-12))
+                        delta[:3]=motion
                 target_ids=np.flatnonzero(active)
                 if source in ('material_seed','projection_seed') and len(target_ids) and not approach:
                     predicted=cost_points+(cost_jac.reshape(-1,hand.nu)@(current[7:7+hand.nu]-state[7:7+hand.nu])).reshape(-1,3)
@@ -700,9 +735,7 @@ class WujiOnlineMPC(MPCExplicit):
                 hand.preview_sequence(targets,p.h_,observer=observe)
                 values=[];current=state;current_force=measured.reshape(-1);current_other=other_load
                 def parameters(x,u,force,other):
-                    cp=self.current_cp.copy();o=self.force_offset
-                    start=self.servo_kinematics_offset
-                    cp[start:start+len(servo_geometry)]=servo_kinematics(x[-hand.nu:],x[:7])
+                    cp=exact_cost_parameters(x,u);o=self.force_offset
                     cp[o:o+p.n_qpos_]=x;o+=p.n_qpos_
                     cp[o:o+hand.nu]=u;o+=hand.nu
                     cp[o:o+3*self.slots]=force;o+=3*self.slots
@@ -737,7 +770,7 @@ class WujiOnlineMPC(MPCExplicit):
         def object_pose_cost(pose):
             error=rotation(goal).T@rotation(pose)-np.eye(3)
             return float(self.weights.object_lateral*np.sum((pose[:2]-goal[:2])**2)+
-                self.weights.object_position*(pose[2]-goal[2])**2+self.weights.object_rotation/8*np.sum(error**2))
+                self.weights.object_position*(pose[2]-goal[2])**2+self.weights.object_rotation/2*np.sum(error**2))
         initial_pose_cost=object_pose_cost(state[:7])
         evaluated=[];hold_cost=np.inf
         for source,commands in candidates:
@@ -796,9 +829,16 @@ class WujiOnlineMPC(MPCExplicit):
                     force_balance_N=float(np.linalg.norm(previous_force.reshape(-1,3).sum(axis=0)+
                         previous_other[:3]+hand.model.body_mass[hand.obj]*hand.model.opt.gravity)),
                     object_pose_cost=pose_cost,object_pose_reduction=initial_pose_cost-pose_cost))
+                if hasattr(self,'trajectory_objective'):
+                    evaluated[-1]['native_states']=np.asarray(native_states)
                 if source=='hold':hold_cost=score
                 # For a hold command every fraction is identical.
                 if source=='hold':break
+        if hasattr(self,'trajectory_objective') and evaluated:
+            scores=self.trajectory_objective(state,evaluated)
+            for candidate,value in zip(evaluated,scores):
+                candidate['score']=float(value)
+                if candidate['source']=='hold':hold_cost=float(value)
         self.warm=None
         winner,contact_plan_status=select_contact_candidate(evaluated,hold_cost)
         if winner is None:
@@ -830,6 +870,7 @@ class WujiOnlineMPC(MPCExplicit):
             internal_pressure_control=pressure_active,internal_pressure_reference_N=pressure_reference.tolist(),
             internal_pressure_slots=pressure_ids.tolist() if pressure_active else [],
             near_contact_control=near_contact,effective_command_limits=u_ub.tolist(),
+            rate_limits_enabled=False,
             internal_load_seed={k:(v.tolist() if isinstance(v,np.ndarray) else v) for k,v in load_seed.items()},
             candidate_scores=[dict(source=c['source'],fraction=c['fraction'],cost=c['score'],
                 force_balance_N=c['force_balance_N'],force_closure=c['certificate']['force_closure'],

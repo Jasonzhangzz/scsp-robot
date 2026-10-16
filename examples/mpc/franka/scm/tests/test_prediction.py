@@ -115,7 +115,7 @@ def test_native_friction_power_frame_and_sign():
 
 
 @pytest.mark.parametrize("motion", ["dynamic", "increment"])
-@pytest.mark.parametrize("engine", ["scm", "scm_corrected", "scm_soft"])
+@pytest.mark.parametrize("engine", ["scm", "scm_corrected", "scm_soft", "scm_soft_corrected"])
 @pytest.mark.parametrize("shape", ["sphere", "box"])
 def test_gpu_scm_matches_numpy_diagonal_formula_and_reset(motion, engine, shape):
     import warp as wp
@@ -147,13 +147,13 @@ def test_gpu_scm_matches_numpy_diagonal_formula_and_reset(motion, engine, shape)
     incoming = np.asarray(state.qvel, dtype=np.float32).astype(float)
     projected = vf if motion == "dynamic" else vf - incoming
     g = J @ projected + gap / .002
-    if engine == "scm_soft":
+    if engine in ("scm_soft", "scm_soft_corrected"):
         x = .002 / .05
         denominator = 1 + 2 * x + x * x
         a, b = (2 * x + x * x) / denominator, x * x / denominator
         g = a * (J @ projected) + b * gap / .002
     p = np.maximum(-g / (diagonal + 1e-8), 0)
-    if engine == "scm_corrected":
+    if engine in ("scm_corrected", "scm_soft_corrected"):
         W = J @ inverse @ J.T + 1e-8 * np.eye(count)
         denominator = p @ W @ p
         alpha = float(np.clip(-(g @ p) / denominator, 0, 1)) if denominator > 0 else 1.
@@ -181,13 +181,13 @@ def test_gpu_three_engines_agree_without_contact():
     initial.qvel[:] = [.4, -.2, .1, 0, 0, 0]
     mujoco.mj_forward(model, initial)
     predictions = []
-    for engine in ("mjwarp", "comfree", "scm", "scm_corrected", "scm_soft"):
+    for engine in ("mjwarp", "comfree", "scm", "scm_corrected", "scm_soft", "scm_soft_corrected"):
         backend = backend_for(engine, model, initial, options())
         data = fresh_data(model, initial.qpos, initial.qvel)
         backend.reset(data)
         backend.step(data)
         assert len(backend.last_contacts["gap"]) == 0
-        if engine == "scm_corrected":
+        if engine in ("scm_corrected", "scm_soft_corrected"):
             assert backend.last_amplitude_scale == 1
         predictions.append(data)
     for data in predictions[1:]:
@@ -282,7 +282,7 @@ def test_amplitude_kernel_uses_full_mass_coupling():
             wp.array(J[None], dtype=wp.float32), wp.array(gap[None], dtype=wp.float32),
             wp.array(vf[None], dtype=wp.float32), wp.zeros((1, 2), dtype=wp.float32),
             wp.array(np.diag(inverse), dtype=wp.float32), wp.array(inverse, dtype=wp.float32),
-            False, False, r], outputs=[force, reaction, alpha])
+            False, False, r, 0., 1.], outputs=[force, reaction, alpha])
         np.testing.assert_allclose(alpha.numpy(), expected_alpha, rtol=3e-6)
         np.testing.assert_allclose(force.numpy()[0] * h, expected_alpha * p, rtol=3e-6)
         np.testing.assert_allclose(reaction.numpy()[0] * h, expected_alpha * J.T @ p, rtol=3e-6)

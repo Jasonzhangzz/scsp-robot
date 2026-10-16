@@ -1,10 +1,13 @@
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.so
 *.o
 .DS_Store
 .acados_ocp_*.json
 c_generated_code/
+# Generated benchmark results, diagnostics and source snapshots.
+/output/
 outputs/
 *.egg-info/
 .venv/
@@ -12,3 +15,14 @@ venv/
 envs/assets/objects/_generated_collision/
 thirdparty/
 .cursor/debug-*.log
+# Runtime/JIT and LaTeX build intermediates.
+/jit_tmp*.c
+/MUJOCO_LOG.TXT
+/texput.log
+tro_revision/*.aux
+tro_revision/*.log
+tro_revision/*.out
+tro_revision/*.toc
+tro_revision/*.fls
+tro_revision/*.fdb_latexmk
+tro_revision/*.synctex.gz

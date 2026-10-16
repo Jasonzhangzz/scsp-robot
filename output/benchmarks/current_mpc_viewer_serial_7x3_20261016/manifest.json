@@ -1,5 +1,5 @@
 {
-  "status": "running",
+  "status": "complete",
   "created_utc": "2026-10-15T17:14:08.673943+00:00",
   "source_root": "/home/zz/scsp-robot/output/benchmarks/current_mpc_async_7x3_20261016/source/scsp-robot",
   "entry": "examples/mpc/franka/ik2/test_mpc_isaac.py",
@@ -224,5 +224,7 @@
     "OMP_NUM_THREADS": null,
     "OPENBLAS_NUM_THREADS": null,
     "MKL_NUM_THREADS": null
-  }
+  },
+  "completed_trials": 42,
+  "completed_utc": "2026-10-15T17:45:48.148699+00:00"
 }

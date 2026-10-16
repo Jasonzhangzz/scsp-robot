@@ -1,8 +1,0 @@
-WARNING Tue Oct 13 19:04:03 2026: Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 1.1170.
-
-WARNING Tue Oct 13 19:04:03 2026: Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 1.1160.
-
-WARNING Tue Oct 13 19:04:04 2026: Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 0.8975.
-
-WARNING Tue Oct 13 19:04:04 2026: Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 0.8920.
-

@@ -75,6 +75,7 @@ def correct_amplitude(
     vfree: wp.array2d(dtype=float), v: wp.array2d(dtype=float),
     inverse_diagonal: wp.array(dtype=float), inverse_dense: wp.array2d(dtype=float),
     use_diagonal: bool, increment: bool, regularization: float,
+    response_time: float, damping_ratio: float,
     force: wp.array2d(dtype=float), generalized_force: wp.array2d(dtype=float),
     amplitude: wp.array(dtype=float),
 ):
@@ -82,6 +83,13 @@ def correct_amplitude(
     # below are converted to impulse units before the scalar line search.
     world = wp.tid()
     h = timestep[world % timestep.shape[0]]
+    a = float(1.0)
+    b = float(1.0)
+    if response_time > 0.0:
+        x = h / response_time
+        divisor = 1.0 + 2.0 * damping_ratio * x + x*x
+        a = (2.0 * damping_ratio * x + x*x) / divisor
+        b = x*x / divisor
     numerator = float(0.0)
     denominator = float(0.0)
     for row in range(nefc[world]):
@@ -92,7 +100,7 @@ def correct_amplitude(
             if increment:
                 predicted -= v[world, i]
             velocity += J[world, row, i] * predicted
-        numerator += (velocity + gap[world, row] / h) * impulse
+        numerator += (a * velocity + b * gap[world, row] / h) * impulse
         denominator += regularization * impulse * impulse
     for i in range(nv):
         q_i = h * generalized_force[world, i]
@@ -127,8 +135,8 @@ class ScmEngine:
         self.model, self.regularization = model, regularization
         self.motion, self.friction = motion, friction
         self.amplitude_correction = amplitude_correction
-        if response_time < 0 or damping_ratio <= 0 or (response_time > 0 and amplitude_correction):
-            raise ValueError("Use positive damping ratio and nonnegative response time; soft SCM and amplitude correction are separate ablations.")
+        if response_time < 0 or damping_ratio <= 0:
+            raise ValueError("Use positive damping ratio and nonnegative response time.")
         self.response_time, self.damping_ratio = response_time, damping_ratio
         M = np.zeros((model.nv, model.nv))
         mujoco.mj_fullM(model, M, initial_data.qM)
@@ -202,7 +210,8 @@ class ScmEngine:
             wp.launch(correct_amplitude, dim=d.nworld,
                       inputs=[m.nv, m.opt.timestep, d.nefc, d.efc.J, d.efc.efc_dist,
                               d.qvel_smooth_pred, d.qvel, self.inverse_diagonal, self.inverse_dense,
-                              self.use_diagonal, self.motion == "increment", self.regularization],
+                              self.use_diagonal, self.motion == "increment", self.regularization,
+                              self.response_time, self.damping_ratio],
                       outputs=[d.efc.force, d.qfrc_constraint, self.amplitude])
         self.finish_step(m, d)
 

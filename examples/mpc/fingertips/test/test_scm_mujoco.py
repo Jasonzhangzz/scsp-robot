@@ -9,6 +9,7 @@ Choose the SCM force solver with --solver acados|ipopt|cma-es|cem.
 """
 
 import argparse
+import copy
 import csv
 import json
 import os
@@ -243,6 +244,15 @@ def _model_response(optimizer, jacobian, phi, lam, p_local, n_arm, t1, t2,
     q_inv = np.asarray(optimizer.Q_inv, dtype=np.float64)
     J_arm = contact_jacobian(p_local)
     frame = np.column_stack((n_arm, t1, t2))
+    if optimizer.contact_model == 'comfree':
+        smooth = (np.zeros(6) if velocity is None else np.asarray(velocity)) + q_inv @ (
+            optimizer.gravity_velocity_scale * gravity +
+            optimizer.wrench_velocity_scale * J_arm.T @ (frame @ lam))
+        weights = optimizer.compute_env_diag_inverse(jacobian)
+        v_plus = optimizer._contact_velocity_numpy(smooth, jacobian, weights, phi)
+        x_plus = np.asarray(optimizer.cs_qposInteg_(current_pose, v_plus)).reshape(7)
+        response = dict(v_plus=v_plus, x_plus=x_plus, model='comfree')
+        return dict(selected=response, surrogate=response, regularization=regularization)
     if reference_predictor is not None:
         response = reference_predictor.predict(lam, p_local, frame)
         return dict(selected=response, surrogate_accuracy={}, regularization=regularization)
@@ -305,6 +315,8 @@ def _solve_step(param, args, env, contact, mode, coupling_scale=1.0,
         # Isaac's default quasi-dynamic ranking starts each prediction at
         # rest. Only shared-response variants carry measured velocity.
         velocity = optimizer.rank_object_velocity.copy()
+        if optimizer.contact_model == 'diagonal-contact':
+            velocity = object_velocity_body(env)
         stages = param.force_cost_stages_
         observed_linear = env.data_.qvel[:3].copy()
         observed_angular = r_obj @ env.data_.qvel[3:6]
@@ -607,7 +619,10 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
     args.obj = obj
     args.rollout = True
     args.solver = getattr(args, 'solver', 'acados')
-    param = ExplicitMPCParams(args, rand_seed=int(seed),
+    construction_args = copy.copy(args)
+    if args.solver == 'batched-lm':
+        construction_args.solver = 'torch-gn'
+    param = ExplicitMPCParams(construction_args, rand_seed=int(seed),
                               target_type="ground-rotation", model="explicit")
     param.trial_seed_ = int(seed)
     env = MjSimulator(param)
@@ -615,7 +630,17 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
     if mass is None:
         mass = float(env.model_.body_mass[env.model_.body('obj').id])
     _set_physical_mass(param, env, mass)
-    configure_direct_force_optimizer(param, env, args)
+    configure_direct_force_optimizer(param, env, construction_args)
+    if args.solver == 'batched-lm':
+        from planning.scm_batched_lm import GPUExactBatchLM
+        lm = GPUExactBatchLM(param.lambda_optimizer, iterations=args.lm_iterations)
+        lm.install()
+        # Verify the CUDA contact map and objective against the current
+        # CasADi SCM graph before accepting any benchmark result.
+        lm.validate = True
+        _solve_step(param, args, env, Contact(param), mode)
+        lm.validate = False
+        param.scm_lm_validation_ = lm.validations
     if mode in ('qp', 'lcp'):
         from planning.point_contact_baselines import install_point_contact_baseline
         install_point_contact_baseline(env, mode, maxiter=getattr(args, 'baseline_maxiter', 12))
@@ -627,6 +652,13 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
     max_steps = int(args.max_steps if steps is None else steps)
     success_hold = 0
     hold_steps = max(1, int(getattr(args, 'success_hold_steps', 10)))
+    async_planner = None
+    if getattr(args, 'async_planner', False):
+        if execution != 'wrench' or mode != 'surrogate':
+            raise ValueError('Async planner requires SCM wrench execution')
+        from planning.direct_force_async import AsyncForcePlanner
+        async_planner = AsyncForcePlanner(env, param, args, _solve_step, Contact,
+                                         mode, coupling_scale, lambda_scale)
     # Scene/model construction and compilation are deliberately outside this
     # clock. Lazy work triggered by a planning round remains inside its timing.
     rollout_start = time.perf_counter()
@@ -635,9 +667,13 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
         for step in range(max_steps):
             planning_start = time.perf_counter()
             try:
-                solved = _solve_step(param, args, env, contact, mode,
-                                     coupling_scale=coupling_scale,
-                                     lambda_scale=lambda_scale)
+                if async_planner is None:
+                    solved = _solve_step(param, args, env, contact, mode,
+                                         coupling_scale=coupling_scale,
+                                         lambda_scale=lambda_scale)
+                    plan_updated = True
+                else:
+                    solved, plan_updated = async_planner.poll(env)
             except (RuntimeError, ValueError, FloatingPointError) as exc:
                 pos,quat = _goal_errors(env.get_state(),param.target_p_,param.target_q_)
                 rows.append(dict(object=obj,seed=int(seed),step=step,success=False,
@@ -649,6 +685,8 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
                                  initial_object_pose=env.get_state()[:7].copy() if step==0 else None))
                 raise RolloutPlanningFailure(exc,rows) from exc
             planning_time_ms = 1000.*(time.perf_counter()-planning_start)
+            if async_planner is not None:
+                planning_time_ms = solved['planning_time_ms'] if plan_updated else 0.
             # The old diagonal-SCM/LCP oracle uses a different mobility map.
             # Record the shared predictor and measured motion directly.
             refs = {'prediction_model': solved['response']['selected']['model']}
@@ -660,7 +698,7 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
             # Reaching the tolerance starts an unforced settling interval.
             # If inertia carries the object outside it, resume optimization.
             before_errors = _goal_errors(before, solved['target_p'], solved['target_q'])
-            stages = param.force_cost_stages_
+            stages = solved['stages'] if async_planner is not None else param.force_cost_stages_
             flip_park = bool(getattr(param, 'force_flip_settling_', False))
             if stages.stage != 'flip' or stages.angle is None or stages.angle > stages.enter_angle + 2.:
                 flip_park = False
@@ -698,7 +736,13 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
                 "initial_object_pose": before[:7].copy() if step == 0 else None,
                 "best_contact_point": solved['p_local'].copy(),
                 "optimal_force_contact": solved['lam_base'].copy(),
-                "selected_idx": int(optimizer.last_selected_idx),
+                "selected_idx": int(solved.get('selected_idx', optimizer.last_selected_idx)),
+                "async_planner": async_planner is not None,
+                "planning_updated": plan_updated,
+                "command_age_s": float(env.data_.time - solved.get('observation_time', env.data_.time)),
+                "contact_impratio": float(env.model_.opt.impratio),
+                "contact_noslip_iterations": int(env.model_.opt.noslip_iterations),
+                "lm_validation": getattr(param, 'scm_lm_validation_', []) if step == 0 else None,
                 "predicted_x_plus": solved['response']['selected']['x_plus'].copy(),
                 "object_cost_stage": solved['object_cost_stage'],
                 "optimizer_model": solved['response']['selected']['model'],
@@ -716,8 +760,8 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
                 "h_model": float(solved["h"]),
                 "h_exec": float(h_exec),
                 "solver_requested": args.solver if mode == 'surrogate' else 'slsqp',
-                "solver_backend": str(getattr(param.lambda_optimizer, "last_solver_status",
-                                               getattr(param.lambda_optimizer, "solver", "unknown"))),
+                "solver_backend": solved.get('solver_status', str(getattr(param.lambda_optimizer, "last_solver_status",
+                                               getattr(param.lambda_optimizer, "solver", "unknown")))),
                 "solver_requested_backend": (str(getattr(param.lambda_optimizer, "solver", "unknown"))
                                              if mode == 'surrogate' else 'slsqp-local-linearization'),
                 "solver_fallback_reason": getattr(param.lambda_optimizer,
@@ -735,7 +779,7 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
                     solved.get("calibration_noise_std", 0.0)),
             }
             rows.append(row)
-            if not solved.get('settling', False):
+            if async_planner is None and not solved.get('settling', False):
                 from planning.object_pose_cost import object_cost_np
                 progress = object_cost_np(env.get_state()[:7],
                                           np.r_[param.target_p_, param.target_q_],
@@ -759,6 +803,10 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
                     args.solver, obj, seed, step, pos_err, quat_err, success_hold, success), flush=True)
             if args.viewer:
                 time.sleep(0.01)
+            if async_planner is not None:
+                # Common real-time physics clock: continue applying the latest
+                # command while inference runs, without waiting for each solve.
+                time.sleep(max(0., rollout_start + (step+1)*h_exec - time.perf_counter()))
             if row['mujoco_unstable']:
                 row['success'] = False
                 row['execution_time_s'] = None
@@ -770,6 +818,8 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
                     and not env.viewer_.is_running():
                 break
     finally:
+        if async_planner is not None:
+            async_planner.close()
         if env.viewer_ is not None:
             env.viewer_.close()
     return rows
@@ -912,8 +962,10 @@ def build_parser():
     add_rollout_via_args(parser)
     add_direct_force_args(parser)
     parser.add_argument('--solver', '--solver-backend', dest='solver',
-                        choices=('acados', 'ipopt', 'cma-es', 'cem'), default='acados',
+                        choices=('acados', 'ipopt', 'cma-es', 'cem', 'batched-lm'), default='acados',
                         help='SCM per-contact force optimizer (default: acados).')
+    parser.add_argument('--async-planner', action='store_true')
+    parser.add_argument('--lm-iterations', type=int, default=20)
     parser.add_argument('--population-size', type=int, default=24,
                         help='CMA-ES/CEM samples per generation per contact.')
     parser.add_argument('--population-iterations', type=int, default=12,

@@ -56,7 +56,7 @@ def force_limited_grasp_cs(velocity, raw_forces, current_velocity, hand_inverse,
                            velocity_map, robot_jac, object_mass, grasp_inverse,
                            grasp_mobility, internal_map, reference_force, normal_limits,
                            other_wrench, friction_cone='coulomb', allow_preload_growth=False,
-                           force_limit=None):
+                           force_limit=None, retain_other_contacts=False):
     """Mixed world-linear/body-angular response, Newton reaction included."""
     import casadi as cs
     if friction_cone not in ('coulomb','pyramidal'):raise ValueError('Invalid friction cone')
@@ -67,6 +67,11 @@ def force_limited_grasp_cs(velocity, raw_forces, current_velocity, hand_inverse,
     # all inverses are computed outside the SX derivative/codegen graph.
     object_jac = object_point_jacobian_cs(jac, normal_limits.numel())
     wrench_map = object_jac.T
+    if retain_other_contacts:
+        # The coupled solve replaces ONLY the pad response. Recover all other
+        # contact reactions (including the floor) from the SCM momentum balance;
+        # measured external wrenches must not be added a second time.
+        other_wrench = object_mass@(velocity[:6]-current_velocity)/h-external-wrench_map@raw_forces
     # Undo raw pad impulses, retain robot-only/other-contact effects, then
     # solve the coupled robot/object velocity rather than imposing u/h.
     hand_free = velocity[6:]+h*hand_inverse*(robot_jac.T@raw_forces)
@@ -100,6 +105,8 @@ def force_limited_grasp_cs(velocity, raw_forces, current_velocity, hand_inverse,
         active = gaps[4*i] <= 1e-5
         forces.append(cs.if_else(active, normal*pressure+tangent, cs.DM.zeros(3)))
     forces = cs.vertcat(*forces)
-    obj_velocity = current_velocity+h*object_inverse@(external+other_wrench+wrench_map@forces)
+    obj_velocity = (velocity[:6]+h*object_inverse@wrench_map@(forces-raw_forces)
+                    if retain_other_contacts else
+                    current_velocity+h*object_inverse@(external+other_wrench+wrench_map@forces))
     hand_velocity = velocity[6:]-h*hand_inverse*(robot_jac.T@(forces-raw_forces))
     return cs.vertcat(obj_velocity, hand_velocity), forces

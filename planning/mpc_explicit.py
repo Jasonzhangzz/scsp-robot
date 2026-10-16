@@ -626,6 +626,8 @@ class MPCExplicit:
                         **getattr(self, 'support_plane', {}))
                     reference = x_guess[k].copy()
                 stage_geometry[k] = (gaps, rows, reference)
+                if hasattr(self.model, 'prepare_stage'):
+                    mp = self.model.prepare_stage(x_guess[k], u_guess[k], gaps, rows, mp)
                 stage_parameters[k] = np.r_[np.asarray(gaps).ravel(),
                     np.asarray(rows).reshape(-1, order='F'), cost_params,
                     np.asarray(mp).ravel(), reference]

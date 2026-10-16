@@ -33,7 +33,8 @@ def contact_geometry(hand,materials,active,capacity,*,return_friction=False):
     local=(points-pose[:3])@r
     projected,gaps,inward=hand.surface.query(local) if n else (np.empty((0,3)),np.empty(0),np.empty((0,3)))
     phi=np.ones(4*capacity);jac=np.zeros((4*capacity,6+nu));stick=np.zeros(n)
-    coefficients=np.full(capacity,mu);coefficients[n]=hand.floor_friction
+    floor_count=4 if capacity>=n+12 else 1
+    coefficients=np.full(capacity,mu);coefficients[n:n+floor_count]=hand.floor_friction
     _,actual=hand.observed_contacts(materials,active)
     for i,m in enumerate(materials):
         matching=[c for c in actual if c['slot']==i]
@@ -63,7 +64,15 @@ def contact_geometry(hand,materials,active,capacity,*,return_friction=False):
     # Plane support at the actual mesh lowest point; object inertia is identical
     # to Lambda and the executed scene. It is not a fabricated hand contact.
     vertices=hand.surface.mesh.vertices@r.T+pose[:3]
-    point=vertices[np.argmin(vertices[:,2])]
+    # A box resting on a face has a support polygon, not a single corner.
+    # Spread real hull points over the lowest face; keep four prospective rows
+    # when airborne too, so support appears through unilateral dynamics.
+    candidates=vertices[vertices[:,2]<=vertices[:,2].min()+.005]
+    chosen=[int(np.argmin(candidates[:,2]))]
+    while len(chosen)<min(floor_count,len(candidates)):
+        distance=np.min(np.linalg.norm(candidates[:,None]-candidates[chosen][None],axis=2),axis=1)
+        distance[chosen]=-1
+        chosen.append(int(np.argmax(distance)))
     floor=mujoco.mj_name2id(hand.model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
     floor_z=hand.model.geom_pos[floor,2] if floor>=0 else -100.
     normal=np.array([0.,0.,1.]);normal,t1,t2=frame(normal)
@@ -73,9 +82,11 @@ def contact_geometry(hand,materials,active,capacity,*,return_friction=False):
         if hand.obj in hand.model.geom_bodyid[[c.geom1,c.geom2]] and floor in (c.geom1,c.geom2):
             t1,t2=native_tangents(normal,c.frame.reshape(3,3)[1:]);break
     floor_mu=hand.floor_friction
-    for k,direction in enumerate((normal+floor_mu*t1,normal+floor_mu*t2,normal-floor_mu*t1,normal-floor_mu*t2)):
-        jac[4*n+k,:3]=direction;jac[4*n+k,3:6]=np.cross(point-pose[:3],direction)@r
-    phi[4*n:4*n+4]=point[2]-floor_z
+    for slot,index in enumerate(chosen):
+        point=candidates[index];offset=4*(n+slot)
+        for k,direction in enumerate((normal+floor_mu*t1,normal+floor_mu*t2,normal-floor_mu*t1,normal-floor_mu*t2)):
+            jac[offset+k,:3]=direction;jac[offset+k,3:6]=np.cross(point-pose[:3],direction)@r
+        phi[offset:offset+4]=point[2]-floor_z
     collision=np.zeros((8,1+nu));collision[:,0]=1.
     obstacles=[];represented=set()
     allowed={m.body for i,m in enumerate(materials) if active[i] or stick[i]}
@@ -107,9 +118,10 @@ def contact_geometry(hand,materials,active,capacity,*,return_friction=False):
     for index,(gap,rows,key,contact_mu) in enumerate(sorted(obstacles,key=lambda x:x[0])[:8]):
         maintained=hand.obj in key and any(body in held for body in key if body!=hand.obj)
         if not maintained:collision[index]=np.r_[gap,rows.mean(axis=0)[6:]]
-        phi[4*(n+1+index):4*(n+2+index)]=gap
-        jac[4*(n+1+index):4*(n+2+index)]=rows
-        coefficients[n+1+index]=contact_mu
+        offset=n+floor_count+index
+        phi[4*offset:4*(offset+1)]=gap
+        jac[4*offset:4*(offset+1)]=rows
+        coefficients[offset]=contact_mu
     result=(phi,jac,points,normals,jp,stick,collision)
     return (*result,coefficients) if return_friction else result
 

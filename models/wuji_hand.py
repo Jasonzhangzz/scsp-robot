@@ -167,6 +167,7 @@ def build_scene(hand_xml, object_scene, output, initial_pose, dt=None,exclude_mo
 
 class WujiHand:
     def __init__(self, scene, surface):
+        self.scene_path = Path(scene).resolve()
         self.model = mujoco.MjModel.from_xml_path(str(scene))
         self.mount_exclusions={(entry.get('body1'),entry.get('body2')) for entry in ET.parse(scene).getroot().findall('contact/exclude')}
         self.data = mujoco.MjData(self.model)

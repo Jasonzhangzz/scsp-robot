@@ -1,7 +1,11 @@
 # MANO → Wuji semantic retarget
 
-`retarget.py` runs semantic geometric IK, persistent MANO contact attractions, and
-closed-loop material-point MPC in MuJoCo. The initial example is DexForge's
+FA + ADMM 的物体接触点/力搜索与可视化入口见
+[FA_FORCE_CONTACT_ADMM.md](FA_FORCE_CONTACT_ADMM.md)：保留手动作 FA cost，
+在物体侧用原生 ComFree 优化摩擦锥力和期望位姿轨迹，并持续探索局部接触点。
+
+`retarget.py` runs the original DexForge CA posture solver, persistent MANO contact attractions, and
+closed-loop material-point MPC with full ComFree prediction and MuJoCo execution. The initial example is DexForge's
 prepared right-hand DexYCB Sugar Box sequence. The wrist has six actuated
 coordinates and the hand has twenty actuated joints. Only the hand's position
 servos act on the object; Lambda forces are planning witnesses and diagnostics.
@@ -26,7 +30,18 @@ Lambda is disabled by default. Every demonstrated contact remains a soft MPC
 target even when its exact location is unreachable; no force/IK solve removes
 the target or changes its contact mask. MPC evaluates nearby projection controls
 online. A failed nearby contact or recovery continues to aim at the MANO anchor.
-The geometric IK trajectory is a posture prior, not a contact acceptance test.
+The CA trajectory is a posture prior, not a contact acceptance test. CA's contact
+mask and optimized anchors never replace the MANO targets given to MPC.
+`--ik-backend geometric` explicitly restores the earlier geometric IK baseline.
+CA runs in an isolated subprocess and converts its mounted wrist coordinates
+through FK; `ca_ik_audit.json` verifies every rigid hand body's pose. A saved CA
+result can be reused with `--ca-result DIR --ca-scene MOUNTED_MESH_XML`.
+
+Current MPC costs use FA's normalized object/query/posture weight ratios, with
+the extra transport and contact-lock costs disabled. Position targets have no
+velocity limit. The demonstration clock advances through every CA reference,
+and ComFree predicts full hand/object contact dynamics. The archived SCM fixes and
+regression results: [contact dynamics and CA fix](CONTACT_DYNAMICS_CA_FIX.md).
 
 Legacy `--lambda-mode offline` and `online` remain available for comparison.
 With offline mode, plans are
@@ -39,8 +54,11 @@ supplies Lambda forces or a wrench target to MPC.
 MPC reads the measured hand/object state each cycle, predicts contact dynamics,
 checks native MuJoCo horizon costs and collisions, and executes one position
 command. It retains MANO contact regions and closes 4 mm inward along their
-normals. Finger kp is scaled by 50, damping by sqrt(50), and both finger torque
-clamps by 10. Lambda and MPC share a 100 N contact force cap. These defaults are
+normals. The default DexForge physics profile preserves the original finger
+gains and both torque clamps (scale 1), uses a 2 ms MuJoCo step, and inherits
+object/floor coefficients from the matching DexForge SDF scene. The MPC force
+cap of 100 N applies to the legacy soft-SCM/Lambda path. ComFree contact forces follow
+the declared actuator and joint torque limits. These settings are
 configurable with `--closure-depth`, `--finger-stiffness-scale`,
 `--finger-force-scale` and `--force-limit` (also in `default.yaml`).
 
@@ -64,23 +82,25 @@ Current contact-only MPC architecture (no external wrench target):
 [Load-support diagnosis against trigrasp](LOAD_SUPPORT_DIAGNOSIS.md) explains
 the measured preload, material-point and actuator-allocation failures.
 Current distance-control changes and validation: [grip control fix](GRIP_CONTROL_FIX.md).
-`--physics-reference PATH_TO_DEXFORGE_SCENE.xml` copies its object inertia,
+`--physics-profile dexforge` is the default. `--physics-reference PATH_TO_DEXFORGE_SCENE.xml` overrides which scene supplies object inertia,
 contact coefficients and floor while preserving native MuJoCo mesh geometry.
 The generated scene and `physics_parameters.json` record the exact parameters.
-Use `--finger-stiffness-scale 1 --finger-force-scale 1 --sim-dt .01` to compare
-with the unscaled Wuji servos and executor step of the bundled DexForge case.
+`--physics-profile native` retains the mesh source's original object parameters.
+The 2 ms native step was selected by replaying the same FA controls; a 10 ms
+ComFree step does not imply identical stability with a 10 ms MuJoCo step.
 `export_dexforge_contacts.py` exports native ComFree forces and its MuJoCo replay;
 `compare_contact_trajectories.py` compares object-local points and recomputes GWS
 margin with the same force normalization, object radius and friction for all runs.
 DexForge contact, force-closure and control differences, including the limits of
 the Sharpa comparison: [DexForge comparison](DEXFORGE_COMPARISON.md).
+Fresh matched-parameter trajectory measurements: [DexForge trajectory test](DEXFORGE_TRAJECTORY_TEST.md).
 Earlier native closure and wrist tests: [force-closure validation](FORCE_CLOSURE_VALIDATION.md).
 
 Use a Python 3.11 environment with NumPy, SciPy, MuJoCo, CasADi, Warp, trimesh,
 rtree, PyYAML and pytest. Loading legacy MANO pickles also requires chumpy.
 The tested local interpreter is `/home/zz/miniconda3/envs/pi0/bin/python`.
 The shared acados locator finds the installed tree automatically. IPOPT is
-available with `--mpc-solver ipopt`; acados errors are reported without silently
+available with `--contact-model soft-scm --mpc-solver ipopt`; acados errors are reported without silently
 switching solver backends.
 
 ```bash
@@ -154,7 +174,7 @@ and ffmpeg; use `MUJOCO_GL=egl` for headless rendering).
   Palm and finger descriptors use longitudinal, palmar and thumb-side axes,
   rather than treating MANO's global axes as Wuji's body axes. Palmar normal
   coordinates remain continuous, including lateral contacts.
-- IK jointly solves all 26 coordinates with analytic point/normal Jacobians,
+- The optional `--ik-backend geometric` jointly solves all 26 coordinates with analytic point/normal Jacobians,
   joint bounds and mesh collision penalties. Diagnostics explicitly mark
   configurations that fail reachability or collision validation. Geometric pose
   tolerance is 12 mm; the separate contact IK tolerance defaults to 2 mm.
@@ -172,8 +192,9 @@ and ffmpeg; use `MUJOCO_GL=egl` for headless rendering).
   a nonzero running measured-joint objective for that frame's geometric IK.
   Contact IK is an additional seed/constraint and never replaces the geometric
   target. Position commands include bounded gravity feedforward; no gravity
-  compensation force is injected. Command rates cover 1.25 times the geometric
-  trajectory's peak per-coordinate velocity, with configured minimum rates.
+  compensation force is injected. Commands are bounded by absolute joint/control
+  position ranges and actuator torque limits; there are no demo-derived or
+  contact-specific speed caps. `--hand-rate-scale` is retained for CLI compatibility.
   The original hand material position remains a soft prior; its search radius
   is independent of the strict 5/10 mm object-anchor FPS radius. Existing real
   hand/object contact bodies remain permitted during joint contact IK.
@@ -286,3 +307,53 @@ DexYCB labels and the current per-frame tracker are documented in
 `outputs/wuji_retarget_delivery_*` and `outputs/wuji_retarget_final_review`.
 Command coverage and physical object accuracy must be assessed separately.
 No claim of outperforming DexForge is supported by these measurements.
+
+## Default contact prediction: ComFree
+
+`retarget.py` now defaults to `--contact-model comfree`. It generates
+`full/comfree_prediction.xml` from the executed scene and Wuji query clouds,
+checks body/joint/inertia and servo parameters, and predicts the full hand/object
+motion with the official ComFree step (10 ms substeps, 30 ms commands).
+Execution remains native MuJoCo. The current cost, MANO attractors, Lambda-off
+setting and candidate family are preserved. Predicted forces come from real
+ComFree constraint rows; the SCM grasp-response correction is disabled.
+
+The acados RTI interface uses per-stage central-difference linearization of
+ComFree; it does not yet use FA's adjoint/Adam optimizer. `--contact-model
+soft-scm` explicitly restores the legacy predictor. Runtime ComFree prediction
+requires `--mpc-solver acados`; `--comfree-device` and `--comfree-dt` select its
+device and integration step. The command interval must be an integer multiple
+of that step. The existing mesh collision guard remains in use.
+
+[FA cost formulas and the meaning of collision-gap closure](DEXFORGE_FA_COST.md)
+explain the upstream objective separately from this model change.
+
+## MuJoCo / ComFree closed-loop ablations (2026-10-16)
+
+The eight fixed-duration cases are recorded in
+[`outputs/retarget_matrix_20261016/report.md`](../../outputs/retarget_matrix_20261016/report.md).
+They share one 72-frame Wuji-right SugarBox CA array and object reference, zero
+initial velocity, the original physical gains/inertias, and 5.4 s of execution.
+Lambda and force-based control gates are disabled. Metrics use simulation time,
+with separate motion and hold segments; each DexForge case is solved closed-loop.
+
+`experiment_matrix.py --output <dir> --prepare` prepares the common inputs.
+`matrix_ours_worker.py --experiment <dir> --executor mujoco|comfree --method
+current|comfree_model|fa_cost` runs one current-controller case. `matrix_fa_worker.py
+--experiment <dir> --executor mujoco|comfree --forge <DexForge root>` runs the
+original FA optimizer with the selected executor. Preparation uses the archived
+CA/data sources named in `experiment_matrix.py`; it does not solve new CA inputs.
+
+The model-only case retains the current cost, RTI and candidate family and uses
+the official ComFree forward step, with per-stage numerical linearization. The
+FA-cost case retains SCM and the current 30 ms / 120 ms grid, adapting the full
+FA formulas and smoothing; it does not use FA's 300 ms horizon or multistart
+Adam. All current-controller cases retain the existing mesh collision guard,
+including when the physical executor is ComFree.
+
+`matrix_report.py <dir>`, `matrix_finalize.py <dir>` and `matrix_plot.py <dir>`
+write common-clock metrics, check input/control contracts, and plot the results.
+`matrix_validate.py` compares the ComFree adapter with the upstream executor;
+`matrix_regularization_validate.py` compares smoothing with upstream FA kernels.
+The report records the scope of the cost adaptation and all QP failures. These
+single-sequence ablations do not establish cross-object performance.

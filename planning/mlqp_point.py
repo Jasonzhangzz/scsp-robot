@@ -105,9 +105,14 @@ class LambdaContactControlOptimizer:
         self.soft_scm_response_time = float(soft_scm_response_time)
         self.soft_scm_damping_ratio = float(soft_scm_damping_ratio)
         self.soft_scm_regularization = float(soft_scm_regularization)
-        self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
-            self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio,
-            self.soft_scm_regularization)
+        if self.contact_model == 'diagonal-contact':
+            self.soft_scm_a, self.soft_scm_b = 1., 0.
+            if shared_response is not None:
+                raise ValueError('Diagonal contact is a separate model; shared-response variants are unsupported')
+        else:
+            self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
+                self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio,
+                self.soft_scm_regularization)
         # Rollout receives a physical force from the fingertip PD loop.  The
         # legacy ideal-contact path historically supplied an impulse-like
         # lambda; retain that convention there for backwards compatibility.
@@ -906,7 +911,7 @@ class LambdaContactControlOptimizer:
         soft-SCM uses inverse diagonal Delassus; ComFree uses its prior row
         masses. Zero Jacobian padding exerts no reaction in either model.
         """
-        if getattr(self, 'contact_model', 'comfree') == 'soft-scm':
+        if getattr(self, 'contact_model', 'comfree') in ('soft-scm', 'diagonal-contact'):
             j = friction_jacobian_numpy(J_tilde, self.scm_theta) if hasattr(self, "scm_theta") else J_tilde
             masses = inverse_diagonal_numpy(
                 j, self.Q_inv, self.soft_scm_regularization)
@@ -925,9 +930,11 @@ class LambdaContactControlOptimizer:
         qi = type(inverse).zeros(9, 9)
         qi[:6, :6] = inverse
         qi[6:, 6:] = cs.DM.eye(3)/self.robot_stiffness
-        env_j = friction_jacobian_cs(env_j, theta)
+        if self.contact_model != 'diagonal-contact':
+            env_j = friction_jacobian_cs(env_j, theta)
         relative = cs.horzcat(cs.DM.eye(3), -cs.skew(point), -cs.DM.eye(3))
-        mu = self.base_mu_arm_obj*cs.exp(theta[5])
+        mu = (self.base_mu_arm_obj if self.contact_model == 'diagonal-contact'
+              else self.base_mu_arm_obj*cs.exp(theta[5]))
         n, t1, t2 = frame[:, 0], frame[:, 1], frame[:, 2]
         pyramid = cs.vertcat((n+mu*t1).T, (n+mu*t2).T, (n-mu*t1).T, (n-mu*t2).T)
         j = cs.vertcat(cs.horzcat(env_j, cs.DM.zeros(env_j.size1(), 3)), pyramid@relative)
@@ -944,9 +951,14 @@ class LambdaContactControlOptimizer:
             return result if full_velocity else result[:6]
         free = cs.vertcat(velocity + self.gravity_velocity_scale*inverse@tau,
                           force/(self.h*self.robot_stiffness))
-        a, b = response_cs(self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio, theta)
-        result = grouped_contact_velocity_cs(free, j, cs.vertcat(phi, cs.repmat(arm_gap,4,1)),
-            qi, self.h, a, b, self.soft_scm_regularization, return_impulses=return_impulses)
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_cs
+            result = diagonal_contact_velocity_cs(free, j, cs.vertcat(phi, cs.repmat(arm_gap,4,1)),
+                qi, self.h, self.soft_scm_regularization, return_impulses=return_impulses)
+        else:
+            a, b = response_cs(self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio, theta)
+            result = grouped_contact_velocity_cs(free, j, cs.vertcat(phi, cs.repmat(arm_gap,4,1)),
+                qi, self.h, a, b, self.soft_scm_regularization, return_impulses=return_impulses)
         if return_impulses:
             velocity_next, impulses = result
             return (velocity_next if full_velocity else velocity_next[:6]), impulses
@@ -962,7 +974,7 @@ class LambdaContactControlOptimizer:
         and is distinct from the predicted object contact reaction. The ideal
         direct-force executor uses that variable as a short point-force pulse.
         """
-        if self.robot_stiffness is None or self.contact_model != 'soft-scm':
+        if self.robot_stiffness is None or self.contact_model not in ('soft-scm', 'diagonal-contact'):
             raise ValueError('Contact reaction export requires coupled quasi-dynamic soft-SCM')
         force_contact = np.asarray(force_contact, dtype=float).reshape(3)
         point = np.asarray(point, dtype=float).reshape(3)
@@ -999,7 +1011,7 @@ class LambdaContactControlOptimizer:
                     contact_force_body=contact,
                     contact_force_contact=frame.T @ contact,
                     environment_reactions=np.asarray(reactions).reshape(-1, 3),
-                    model='coupled-quasi-dynamic-soft-scm')
+                    model='coupled-quasi-dynamic-'+self.contact_model)
 
     def _arm_velocity_numpy(self, velocity, tau, force, point, frame, env_j, phi):
         if getattr(self, 'shared_response', None) is not None:
@@ -1019,6 +1031,10 @@ class LambdaContactControlOptimizer:
         mu = self.mu_arm_obj
         pyramid = np.stack([n+mu*t1, n+mu*t2, n-mu*t1, n-mu*t2])
         j = np.r_[np.c_[friction_jacobian_numpy(env_j, self.scm_theta), np.zeros((env_j.shape[0], 3))], pyramid@relative]
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_numpy
+            return diagonal_contact_velocity_numpy(free, j, np.r_[phi, np.zeros(4)], qi,
+                self.h, self.soft_scm_regularization)[:6]
         return grouped_contact_velocity_numpy(free, j, np.r_[phi, np.zeros(4)], qi,
             self.h, self.soft_scm_a, self.soft_scm_b, self.soft_scm_regularization)[:6]
 
@@ -1039,6 +1055,10 @@ class LambdaContactControlOptimizer:
         blocks = env_j.reshape(-1,4,6); normal = blocks.mean(dim=1,keepdim=True)
         env_j = (normal + float(np.exp(self.scm_theta[5]))*(blocks-normal)).reshape(env_j.shape)
         j = torch.cat([torch.cat([env_j, env_j.new_zeros((env_j.shape[0],3))],dim=1), pyramid@relative])
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_torch
+            return diagonal_contact_velocity_torch(free,j,torch.cat([phi,phi.new_zeros(4)]),qi,
+                self.h,self.soft_scm_regularization)[:6]
         if getattr(self, 'shared_response', None) is not None:
             from models.cartesian_contact_response import contact_response_torch
             settings = dict(self.shared_response)
@@ -1051,6 +1071,11 @@ class LambdaContactControlOptimizer:
             self.h,self.soft_scm_a,self.soft_scm_b,self.soft_scm_regularization)[:6]
 
     def _contact_velocity_cs(self, smooth, jacobian, weights, phi, inverse=None, theta=None):
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_cs
+            mobility = cs.DM(self.Q_inv) if inverse is None else inverse
+            return diagonal_contact_velocity_cs(smooth, jacobian, phi, mobility,
+                self.h, self.soft_scm_regularization)
         if self.contact_model == 'comfree':
             return self._comfree_velocity_cs(smooth, jacobian, weights, phi)
         inverse = cs.DM(self.Q_inv) if inverse is None else inverse
@@ -1073,6 +1098,10 @@ class LambdaContactControlOptimizer:
         return velocity
 
     def _contact_velocity_numpy(self, smooth, jacobian, weights, phi):
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_numpy
+            return diagonal_contact_velocity_numpy(smooth, jacobian, phi, self.Q_inv,
+                self.h, self.soft_scm_regularization)
         if self.contact_model == 'comfree':
             return self._comfree_velocity_numpy(smooth, jacobian, weights, phi)
         if hasattr(self, "scm_theta"):
@@ -1090,6 +1119,10 @@ class LambdaContactControlOptimizer:
         return velocity
 
     def _contact_velocity_torch(self, smooth, jacobian, weights, phi, inverse):
+        if self.contact_model == 'diagonal-contact':
+            from models.diagonal_contact import diagonal_contact_velocity_torch
+            return diagonal_contact_velocity_torch(smooth, jacobian, phi, inverse,
+                self.h, self.soft_scm_regularization)
         if self.contact_model == 'comfree':
             return self._comfree_velocity_torch(smooth, jacobian, weights, phi, inverse)
         if hasattr(self, "scm_theta"):
