@@ -117,12 +117,12 @@ An online Valid Region Selection procedure is further applied to identify feasib
 
 The sampling strategy transforms the original optimization into a discrete–continuous optimization problem. We further simplify \eqref{equ:inner_loop} to improve efficiency. Most existing contact models are computationally expensive for scenarios that require repeatedly solving \eqref{equ:inner_loop}. Moreover, the complementarity in contact dynamics and the coupling between $\boldsymbol{\lambda}_{\text{env}}$ and $\boldsymbol{\lambda}_{\text{r}}$  make the optimization difficult to converge, leading to physically inconsistent results. To address this issue and enable online contact selection, we present a surrogate contact model (SCM) as a local approximation of the original contact dynamics. The procedure of SCM is illustrated in Fig. \ref{fig:stick1}. The approximation relies on the following assumptions of the object-environment contact:
 
-\begin{assumption}[Fixed Contact Set]
- The object--environment contact location remains unchanged in each SCM rollout, i.e., no new contacts are created and existing contacts remain.\label{assumption:mode}
+\begin{assumption}[Frozen Substep Contact Set]
+ At each SCM prediction substep, the current contact geometry, active contact rows, gaps, and inertia are recomputed from the current state and held fixed during that one-step update.\label{assumption:mode}
 \end{assumption}
 
 \begin{assumption}[Multi-Contact Decoupling]
- The contact between the object and the environment can be approximated by independent spring–damper systems, neglecting higher-order dynamic couplings between different contact locations. \label{assumption:decoupling}
+ The initial contact impulse is approximated by independent diagonal Delassus rows, while the discarded inter-contact coupling is accounted for by one global amplitude correction.\label{assumption:decoupling}
 \end{assumption}
 
 We express the one-step object dynamics in impulse units, absorbing any inertia regularization into $\boldsymbol{M}_o$:
@@ -159,8 +159,7 @@ Here
 \qquad\boldsymbol{R}=r\boldsymbol{I},\quad r>0.
 \end{aligned}
 \end{equation}
-The Delassus matrix has contact blocks $\boldsymbol{W}_{ij}=\boldsymbol{\tilde J}_{\mathrm{env},i}\boldsymbol{M}_o^{-1}\boldsymbol{\tilde J}_{\mathrm{env},j}^{\top}+\boldsymbol{R}_{ij}\in\mathbb R^{m_i\times m_j}$, where $m_i$ is the number of friction-pyramid rows at contact $i$ ($m_i=4$ for two tangential directions).
-The diagonal blocks $\boldsymbol{W}_{ii}$ describe local contact mobility, while the off-diagonal blocks $\boldsymbol{W}_{ij}$ represent inter-contact coupling. Assumption~\ref{assumption:decoupling} motivates the block-diagonal approximation:
+The Delassus matrix has contact blocks $\boldsymbol{W}_{ij}=\boldsymbol{\tilde J}_{\mathrm{env},i}\boldsymbol{M}_o^{-1}\boldsymbol{\tilde J}_{\mathrm{env},j}^{\top}+\boldsymbol{R}_{ij}\in\mathbb R^{m_i\times m_j}$, where $m_i$ is the number of friction-pyramid rows at contact $i$ ($m_i=4$ for two tangential directions). The diagonal blocks $\boldsymbol{W}_{ii}$ describe local contact mobility, while the off-diagonal blocks $\boldsymbol{W}_{ij}$ represent inter-contact coupling. Assumption~\ref{assumption:decoupling} motivates the block-diagonal approximation:
 \begin{equation}
 \boldsymbol{W}_{\text{env}} \approx \text{blockdiag}(\boldsymbol{W}_{11}, \boldsymbol{W}_{22}, \ldots, \boldsymbol{W}_{n_{\text{env}} n_{\text{env}}}),
 \end{equation}
@@ -169,76 +168,69 @@ and \eqref{eq:env_complementarity} is decomposed to subproblems:
 \boldsymbol{0} \leq \boldsymbol{\beta}_{\text{env},i} \perp \boldsymbol{W}_{ii} \boldsymbol{\beta}_{\text{env},i} + (\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{v}_{\mathrm{free}} + \boldsymbol{\tilde{\phi}}_i/h) \geq \boldsymbol{0}.
 \label{equ:contact_i_complementarity}
 \end{equation}
-Furthermore, we decompose $\boldsymbol{W}_{ii}$ into a diagonal surrogate and a remainder:
+At each prediction substep, SCM uses the diagonal part of the full, current Delassus matrix:
 \begin{equation}
-\boldsymbol{W}_{ii} = \boldsymbol{D} + \boldsymbol{E}, \label{equ:decomposation}
+\boldsymbol{D}=\operatorname{diag}(\boldsymbol{\tilde J}_{\mathrm{env}}\boldsymbol{M}_o^{-1}\boldsymbol{\tilde J}_{\mathrm{env}}^\top)+r\boldsymbol{I},
+\qquad \boldsymbol{E}=\boldsymbol{W}_{\mathrm{env}}-\boldsymbol{D}.
+\label{eq:max_decomposition}
 \end{equation}
-where $\boldsymbol{D}\succ0$ is diagonal and $\boldsymbol{E}$ contains the discarded coupling. We use a finite-response diagonal contact law with response time $\tau>0$ and damping ratio $\zeta>0$. Define
+The diagonal SCM impulse and its global amplitude correction are
 \begin{equation}
- x=h/\tau,\qquad
- a=\frac{2\zeta x+x^2}{1+2\zeta x+x^2},\qquad
- b=\frac{x^2}{1+2\zeta x+x^2}.
- \label{eq:scm_response_coefficients}
+\begin{aligned}
+\boldsymbol{g}_{\mathrm{env}}&=\boldsymbol{\tilde J}_{\mathrm{env}}\boldsymbol{v}_{\mathrm{free}}+\boldsymbol{\tilde\phi}_{\mathrm{env}}/h,\qquad
+\boldsymbol{\beta}^{(0)}_{\mathrm{env}}=\max\left(-\boldsymbol{D}^{-1}\boldsymbol{g}_{\mathrm{env}},\boldsymbol{0}\right),\\
+\alpha&=\operatorname{clip}\left(
+-\frac{\boldsymbol{g}_{\mathrm{env}}^\top\boldsymbol{\beta}^{(0)}_{\mathrm{env}}}
+{(\boldsymbol{\beta}^{(0)}_{\mathrm{env}})^\top\boldsymbol{W}_{\mathrm{env}}\boldsymbol{\beta}^{(0)}_{\mathrm{env}}},0,1\right),\qquad
+\hat{\boldsymbol{\beta}}_{\mathrm{env}}=\alpha\boldsymbol{\beta}^{(0)}_{\mathrm{env}},
+\end{aligned}
+\label{eq:scm_amplitude_correction}
 \end{equation}
-An implicit spring--damper response for each row gives
-\begin{equation}
-\boldsymbol{\hat{\beta}}_{\text{env}, i}
-=
-\max
-\left(
--
-\boldsymbol{D}^{-1}
-(a\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{v}_{\mathrm{free}} + b\boldsymbol{\tilde{\phi}}_i/h),
-\;\boldsymbol{0}
-\right).
-\label{eq:quasi-closed_form_solution_nonsmooth}
-\end{equation}
-With \eqref{eq:quasi-closed_form_solution_nonsmooth}, we can obtain the following lemma:
+where $\operatorname{clip}(\cdot,0,1)$ bounds the scalar correction to $[0,1]$ and $\alpha=1$ when $\boldsymbol{\beta}^{(0)}_{\mathrm{env}}=\boldsymbol{0}$. For $\boldsymbol{z}=\boldsymbol{\tilde J}_{\mathrm{env}}^\top\boldsymbol{\beta}^{(0)}_{\mathrm{env}}$, the denominator is evaluated as $\boldsymbol{z}^\top\boldsymbol{M}_o^{-1}\boldsymbol{z}+r\|\boldsymbol{\beta}^{(0)}_{\mathrm{env}}\|_2^2$; the full Delassus matrix is not formed or inverted for this correction. In the implementation, $r=10^{-8}$ and the hard componentwise maximum is used. Define $\boldsymbol{s}=\alpha\boldsymbol{g}_{\mathrm{env}}$; then $\hat{\boldsymbol{\beta}}_{\mathrm{env}}=\max(-\boldsymbol{D}^{-1}\boldsymbol{s},\boldsymbol{0})$, which preserves the notation used below.
+
+With \eqref{eq:scm_amplitude_correction}, we can obtain the following lemma:
 \begin{lemma}
-With the diagonal surrogate, the approximated environment contact impulse $\boldsymbol{\hat{\beta}}_{\text{env}}$ is an explicit function of $\boldsymbol{\lambda}_{\text{r}}$.
+With the diagonal surrogate and the scalar amplitude correction, the approximated environment contact impulse $\hat{\boldsymbol{\beta}}_{\mathrm{env}}$ is an explicit function of $\boldsymbol{\lambda}_{\mathrm{r}}$.
 \end{lemma}
-To obtain a high-quality approximation, we decompose $\boldsymbol{W}_{ii}$ in \eqref{equ:decomposation} as:
-\begin{equation}\label{equ:max_decomposition}
-\boldsymbol{D}=\operatorname{diag}(\boldsymbol{\tilde J}_{\mathrm{env},i}\boldsymbol{M}_o^{-1}\boldsymbol{\tilde J}_{\mathrm{env},i}^\top)+r\boldsymbol{I},
-\end{equation}
-where $r$ is the same regularization as in the coupled reference. The unregularized part of $\boldsymbol{D}$ is the closest diagonal approximation to $\boldsymbol{W}_{ii}-\boldsymbol{R}_{ii}$ in the Frobenius norm\footnote{Proof see Appendix \ref{proof:closest_approximation}.}; this matrix approximation property alone does not establish accurate motion prediction. The componentwise maximum in \eqref{eq:quasi-closed_form_solution_nonsmooth} is nonsmooth at activation boundaries. When the contact set changes within the CSO horizon, variations in $\boldsymbol{\tilde{J}}_{\text{env},i}$ and $\boldsymbol{\tilde{\phi}}_i$ introduce additional non-smoothness. With the contact geometry and gaps frozen at the start of each rollout under Assumption \ref{assumption:mode}, we further obtain:
+The unregularized part of $\boldsymbol{D}$ is the closest diagonal approximation to $\boldsymbol{W}_{\mathrm{env}}-\boldsymbol{R}$ in the Frobenius norm\footnote{Proof see Appendix \ref{proof:closest_approximation}.}; the scalar $\alpha$ then compensates the discarded coupling along the diagonal impulse direction. With geometry, gaps, inertia, and $\boldsymbol{D}$ frozen within a prediction substep, the initial impulse is piecewise affine in $\boldsymbol{\lambda}_{\mathrm r}$, while $\alpha$ makes the corrected impulse piecewise rational and differentiable away from activation, clipping, and zero-impulse boundaries. We further obtain:
 \begin{lemma}\label{lemma2:piecewise-linear}
-With contact geometry, gaps, inertia, $\boldsymbol{D}$, and the response coefficients held fixed, the surrogate environment contact impulse $\boldsymbol{\hat{\beta}}_{\text{env}}$ is a piecewise affine function of $\boldsymbol{\lambda}_{\text{r}}$:
+With contact geometry, gaps, inertia, and $\boldsymbol{D}$ held fixed, the SCM impulse is a piecewise smooth function of $\boldsymbol{\lambda}_{\mathrm{r}}$:
 \begin{equation}
-\boldsymbol{\hat{\beta}}_{\text{env}, i}
-=
-\max
-\left(
--
-\boldsymbol{D}^{-1}
-\left[
-a\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{v}_{\mathrm{free}}
-+b\boldsymbol{\tilde{\phi}}_{\text{env},i}/h
-\right],
-\;\boldsymbol{0}
-\right).
+\begin{aligned}
+\boldsymbol{\beta}^{(0)}_{\mathrm{env}}
+&=\max\left(-\boldsymbol{D}^{-1}\boldsymbol{g}_{\mathrm{env}},\boldsymbol{0}\right),\\
+\hat{\boldsymbol{\beta}}_{\mathrm{env}}&=\alpha\boldsymbol{\beta}^{(0)}_{\mathrm{env}},\\
+\boldsymbol{g}_{\mathrm{env}}&=\boldsymbol{\tilde J}_{\mathrm{env}}\boldsymbol{v}_{\mathrm{free}}+\boldsymbol{\tilde\phi}_{\mathrm{env}}/h.
+\end{aligned}
 \label{eq:quasi-closed_form_solution}
 \end{equation}
 \end{lemma}
 \begin{proof}
     \renewcommand{\qedsymbol}{}
-    Under the stated frozen-coefficient conditions, $\boldsymbol{\tilde{J}}_{\text{env},i}$, $\boldsymbol{\tilde{\phi}}_{\text{env},i}$, $\boldsymbol{W}_{ii}$, $\boldsymbol{D}$, and $\boldsymbol{M}_o^{-1}$ are constant. The argument of the componentwise projection in \eqref{eq:quasi-closed_form_solution} is affine in $\boldsymbol{\lambda}_{\mathrm r}$, which makes the surrogate environment impulse piecewise affine.
+    Under the stated frozen-coefficient conditions, $\boldsymbol{\tilde{J}}_{\mathrm{env}}$, $\boldsymbol{\tilde{\phi}}_{\mathrm{env}}$, $\boldsymbol{W}_{\mathrm{env}}$, $\boldsymbol{D}$, and $\boldsymbol{M}_o^{-1}$ are constant. The argument of the componentwise projection in \eqref{eq:quasi-closed_form_solution} is affine in $\boldsymbol{\lambda}_{\mathrm r}$, and the scalar correction is a rational function on each fixed active/clipping branch; hence the corrected impulse is piecewise smooth.
 \end{proof}
 Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified} gives the explicit update:
 \begin{equation}
 f_{\mathrm{SCM}}:\begin{cases}
 \hat{\boldsymbol{v}}^+=\boldsymbol{v}_{\mathrm{free}}+
-\boldsymbol{M}_o^{-1}\sum_i\boldsymbol{\tilde J}_{\mathrm{env},i}^\top
-\hat{\boldsymbol{\beta}}_{\mathrm{env},i},\\
+\boldsymbol{M}_o^{-1}\boldsymbol{\tilde J}_{\mathrm{env}}^\top
+\hat{\boldsymbol{\beta}}_{\mathrm{env}},\\
 \hat{\boldsymbol{x}}_{k+1}=\boldsymbol{x}_k+h\hat{\boldsymbol{v}}^+.
 \end{cases}
 \label{equ:scm}
 \end{equation}
-The pose update is expressed in local coordinates; orientations are integrated on the rotation manifold. SCM retains the explicit diagonal construction of~\cite{jin2024complementarity}, with finite spring--damper response coefficients. Nonnegative pyramid impulses satisfy the environment friction cone by construction; the robot-force limits remain in~\eqref{equ:csqp}. The componentwise maximum is piecewise affine and differentiable away from activation boundaries, as in the implementation.
+The pose update is expressed in local coordinates; orientations are integrated on the rotation manifold. SCM retains the dynamic diagonal Delassus construction, followed by one global amplitude correction per prediction substep; it has no finite-response $a,b$ coefficients, soft spring--damper response, or additional inner optimization. Nonnegative pyramid impulses satisfy the environment friction cone by construction, and the robot-force limits remain in~\eqref{equ:csqp}. The initial componentwise maximum is piecewise affine, while the corrected map is piecewise rational and differentiable away from activation, clipping, and zero-impulse boundaries.
+
+To reduce cycle-to-cycle noise in the candidate utility used for ranking, we apply an exponential moving average (EMA) independently for each candidate ID:
+\begin{equation}
+\bar{\ell}_{t,i}=(1-\rho_{\mathrm{EMA}})\bar{\ell}_{t-1,i}+\rho_{\mathrm{EMA}}\ell_{t,i},\qquad \rho_{\mathrm{EMA}}=0.35,
+\label{eq:scm_ema}
+\end{equation}
+with the first observation initializing $\bar{\ell}_{t,i}=\ell_{t,i}$. Only observations with the same candidate ID are blended; the EMA is applied after each candidate rollout to the ranking utility; it does not modify that rollout's SCM impulse or state update. We refer to this corrected model simply as SCM throughout.
 
 \begin{lemma}[Motion approximation and task consistency of SCM]
 \label{lem:scm_task_consistency}
-For identical state, geometry, inertia, and robot input, let $\boldsymbol{W}=\boldsymbol{W}_{\mathrm{env}}\succ0$, let $\boldsymbol{D}\succ0$ collect the SCM diagonal blocks, and set $\boldsymbol{E}=\boldsymbol{W}-\boldsymbol{D}$. Define $\boldsymbol{s}=a\boldsymbol{\tilde J}_{\mathrm{env}}\boldsymbol{v}_{\mathrm{free}}+b\boldsymbol{\tilde\phi}_{\mathrm{env}}/h$ and $\Delta\boldsymbol{g}=\boldsymbol{g}_{\mathrm{env}}-\boldsymbol{s}$. SCM and the coupled reference~\eqref{eq:dual_problem} satisfy
+For identical state, geometry, inertia, and robot input, let $\boldsymbol{W}=\boldsymbol{W}_{\mathrm{env}}\succ0$, let $\boldsymbol{D}\succ0$ collect the SCM diagonal terms, and set $\boldsymbol{E}=\boldsymbol{W}-\boldsymbol{D}$. Define $\boldsymbol{s}=\alpha\boldsymbol{g}_{\mathrm{env}}$ and $\Delta\boldsymbol{g}=\boldsymbol{g}_{\mathrm{env}}-\boldsymbol{s}$. SCM and the coupled reference~\eqref{eq:dual_problem} satisfy
 \begin{equation}
 \begin{aligned}
 \|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{\boldsymbol{M}_o}
@@ -248,7 +240,7 @@ For identical state, geometry, inertia, and robot input, let $\boldsymbol{W}=\bo
 \end{aligned}
 \label{eq:scm_motion_error_bound}
 \end{equation}
-where $\|\boldsymbol{z}\|_A=(\boldsymbol{z}^{\top}A\boldsymbol{z})^{1/2}$. The two terms account for discarded coupling and finite-response mismatch, respectively. In local pose coordinates, let $\boldsymbol{q}=\nabla\ell_{\mathrm{cso}}(\boldsymbol{x}_k)$ on a differentiable objective branch. Then
+where $\|\boldsymbol{z}\|_A=(\boldsymbol{z}^{\top}A\boldsymbol{z})^{1/2}$. The first term accounts for discarded coupling and the second for the global amplitude correction. In local pose coordinates, let $\boldsymbol{q}=\nabla\ell_{\mathrm{cso}}(\boldsymbol{x}_k)$ on a differentiable objective branch. Then
 \begin{equation}
 \boldsymbol{q}^{\top}\hat{\boldsymbol{v}}^+
 +\|\boldsymbol{q}\|_{\boldsymbol{M}_o^{-1}}\eta<0
@@ -268,6 +260,7 @@ The bound is state dependent and can be conservative in worst-case contact confi
 \caption{Illustration of SCM. SCM is a lightweight approximation of the object-environment contact, enabling fast contact selection optimization.}
 \label{fig:stick1}
 \end{figure}
+
 \subsection{Formulation of CSO}\label{sec:cs_opt}
 
 Integrating SCM into \eqref{equ:inner_loop}, we can obtain the formulation of CSO as: 
@@ -315,7 +308,7 @@ The original contact dynamics in \eqref{equ:inner_loop} are non-differentiable b
  \frac{\partial\hat{\boldsymbol{\beta}}_{\mathrm{env},j}}
  {\partial\boldsymbol{\lambda}_{\mathrm r,i}}\right).
 \end{equation}
-The impulse derivative follows from~\eqref{eq:quasi-closed_form_solution} with fixed response coefficients. The resulting map is piecewise smooth; the continuous force subproblem is solved for each candidate using SNOPT, and the candidate costs are enumerated.
+The impulse derivative follows from~\eqref{eq:quasi-closed_form_solution} with fixed contact geometry, active set, and clipping branches. The resulting map is piecewise smooth; the continuous force subproblem is solved for each candidate using SNOPT, and the candidate costs are enumerated.
 
 
 
