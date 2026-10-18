@@ -128,6 +128,21 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     )
     from scipy.spatial.transform import Rotation
 
+    current_seq = msg.get("seq")
+    previous_seq = trackers.get("last_observation_seq")
+    gap = (None if previous_seq is None or current_seq is None
+           else int(current_seq) - int(previous_seq))
+    if gap is not None and gap > 1:
+        # Latest-only delivery can skip one or more 20 ms observations while
+        # the planner is busy.  Feedback and an MPC warm start from the
+        # skipped interval are stale for the current state.
+        trackers["observation_gap_resets"] = int(trackers.get("observation_gap_resets", 0)) + 1
+        trackers["sol_guess"] = None
+        trackers["last_verify_cost"] = None
+        msg = dict(msg)
+        msg["dwell"] = None
+    if current_seq is not None:
+        trackers["last_observation_seq"] = int(current_seq)
     dwell = msg.get("dwell")
     if dwell is not None:
         dwell = dict(dwell)
@@ -232,6 +247,8 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "lambda_solves": int(getattr(param.lambda_optimizer, "acados_solve_count", 0)),
         "mpc_solves": int(getattr(mpc, "acados_solve_count", 0)),
         "mpc_init_error": str(getattr(mpc, "_acados_init_error", "") or ""),
+        "observation_gap": gap,
+        "observation_gap_reset": bool(gap is not None and gap > 1),
     }
 
 

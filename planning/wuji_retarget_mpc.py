@@ -392,7 +392,7 @@ class WujiOnlineMPC(MPCExplicit):
         return np.r_[h.object_pose(),h.data.qpos[h.qadr],h.data.qvel[h.ov:h.ov+6],h.data.qvel[h.dadr],h.servo]
 
     def plan(self,goal,qref,materials,anchors,original,inward,active,*,original_materials=None,contact_qref=None,approach=False,lambda_valid=True,execution_mask=None):
-        from examples.retarget.contact_geometry import contact_geometry
+        from planning.wuji_contact_geometry import contact_geometry
         from models.wuji_hand import rotation,MaterialPoint
         state=self.state();p=self.param_;hand=self.hand
         semantic_active=np.asarray(active,float).copy()
@@ -766,7 +766,7 @@ class WujiOnlineMPC(MPCExplicit):
         # a true physical hold so harmful pressure feedback can be rejected.
         hold_commands=np.tile(-self.physics.pressure_bias,(p.mpc_horizon_,1))
         candidates=[('solver',raw_commands),*seeds,('hold',hold_commands)]
-        from examples.retarget.contact_geometry import native_grasp_certificate
+        from planning.wuji_contact_geometry import native_grasp_certificate
         def object_pose_cost(pose):
             error=rotation(goal).T@rotation(pose)-np.eye(3)
             return float(self.weights.object_lateral*np.sum((pose[:2]-goal[:2])**2)+

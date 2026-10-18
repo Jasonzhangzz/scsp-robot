@@ -18,6 +18,19 @@ def test_best_changes_separate_raw_cso_and_guided_point_from_rs_triggers():
     assert best_point_changes(rows[:-1],dict(steps=4))['best_contact_switch_events'] is None
 
 
+def test_best_changes_prefer_world_coordinates_for_rotating_object():
+    rows = [
+        dict(step=0, optimal_local=[1, 0, 0], best_contact_local=[1, 0, 0],
+             optimal_world=[0, 1, 0], best_contact_world=[0, 1, 0]),
+        dict(step=1, optimal_local=[1, 0, 0], best_contact_local=[1, 0, 0],
+             optimal_world=[0, 1, 0], best_contact_world=[0, 0, 1]),
+    ]
+    result = best_point_changes(rows, dict(steps=2, completion_time_s=.2))
+    assert result['best_contact_switch_events'] == 0
+    assert result['guided_contact_switch_events'] == 1
+    assert result['guided_contact_switch_frequency_hz'] == 5
+
+
 def test_complete_source_cache_roundtrip_and_configuration_guard(tmp_path):
     sampler=DecisionSampler()
     sampler.decisions=[dict(step=i,optimal_local=[.1*i,0,0],best_contact_local=[0,0,0]) for i in range(3)]

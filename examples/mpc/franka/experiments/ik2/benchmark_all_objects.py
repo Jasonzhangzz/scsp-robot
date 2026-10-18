@@ -21,7 +21,7 @@ import time
 from datetime import datetime, timezone
 
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[5]
 ENTRY = ROOT / 'examples/mpc/franka/ik2/test_mpc_isaac.py'
 
 

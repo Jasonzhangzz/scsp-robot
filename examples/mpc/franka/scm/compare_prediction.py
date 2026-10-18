@@ -612,7 +612,7 @@ def argument_parser():
                         help="Independent MJWarp animation before each mode; excluded from statistics. 0 disables it")
     parser.add_argument("--display-pause", type=nonnegative_float, default=.02,
                         help="Wall-clock hold per displayed one-step prediction [s]")
-    parser.add_argument("--engines", nargs="+", choices=("mjwarp", "comfree", "scm", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp", "dart", "contactsdf", "diagonal_contact", "mujoco"), default=["mjwarp", "comfree", "scm", "scm_corrected"])
+    parser.add_argument("--engines", nargs="+", choices=("mjwarp", "comfree", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp", "dart", "contactsdf", "diagonal_contact", "mujoco"), default=["mjwarp", "comfree", "scm_corrected"])
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--shapes", nargs="+", type=canonical_shape, choices=(*SHAPES, *MESH_SHAPES),
                         default=["box", "sphere"], help="Primitives or repository STL objects; stanford_bunn2 aliases stanford_bunny2")

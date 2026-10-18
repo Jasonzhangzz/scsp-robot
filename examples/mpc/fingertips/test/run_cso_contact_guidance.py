@@ -113,83 +113,10 @@ def source_hashes():
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output-dir',type=Path,required=True)
-    parser.add_argument('--cpus',default='0,2,4,6,8,10,12')
-    args=parser.parse_args()
-    out=args.output_dir.resolve();out.mkdir(parents=True,exist_ok=True)
-    cpus=[int(s) for s in args.cpus.split(',')]
-    available=os.sched_getaffinity(0)
-    if len(cpus)!=7 or len(set(cpus))!=7 or not set(cpus)<=available:
-        raise ValueError('Need seven distinct available CPUs')
-    cores=[]
-    for cpu in cpus:
-        top=Path('/sys/devices/system/cpu/cpu%d/topology'%cpu)
-        cores.append((top.joinpath('physical_package_id').read_text().strip(),
-                      top.joinpath('core_id').read_text().strip()))
-    if len(set(cores))!=7:
-        raise ValueError('CPUs must belong to seven distinct physical cores')
-    fingerprint=source_hashes()
-    manifest=dict(objects=OBJECTS,models=MODELS,seeds=list(range(5)),steps=5000,
-                  cpu_by_object=dict(zip(OBJECTS,cpus)),physical_cores=cores,
-                  threads=dict(OPENBLAS_NUM_THREADS='1',OMP_NUM_THREADS='1',MKL_NUM_THREADS='1'),
-                  execution_protocol='Seven concurrent object workers, each pinned to a separate physical CPU core; models/seeds sequential within each worker. Wall times reflect this load.',
-                  source_sha256=fingerprint)
-    manifest_path=out/'manifest.json'
-    if manifest_path.exists():
-        old=json.loads(manifest_path.read_text())
-        if any(old.get(k)!=json.loads(json.dumps(v)) for k,v in manifest.items()):
-            raise ValueError('Existing cohort has a different configuration or source revision')
-    else:
-        manifest['started_at']=datetime.now(ZoneInfo('Asia/Hong_Kong')).isoformat()
-        manifest_path.write_text(json.dumps(manifest,indent=2)+'\n')
-    env=os.environ.copy();env.update(manifest['threads'])
-    script=ROOT/'examples/mpc/fingertips/test/benchmark_contact_models.py'
-
-    def run_object(pair):
-        obj,cpu=pair
-        shard=out/'workers'/obj;shard.mkdir(parents=True,exist_ok=True)
-        command=['taskset','-c',str(cpu),sys.executable,str(script),'--objects',obj,
-                 '--models','scm,qp,lcp','--trials','5','--steps','5000',
-                 '--output-dir',str(shard),'--resume']
-        with (out/(obj+'.log')).open('a',buffering=1) as log:
-            print('Command: '+json.dumps(command),file=log,flush=True)
-            code=subprocess.run(command,cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT).returncode
-        return obj,code
-
-    print('Starting 105 tasks. Worker logs and metadata: '+str(out),flush=True)
-    with ThreadPoolExecutor(max_workers=7) as pool:
-        completed=list(pool.map(run_object,zip(OBJECTS,cpus)))
-    if any(code for _,code in completed):
-        raise RuntimeError('Worker process failure; table unchanged: '+repr(completed))
-    for obj in OBJECTS:
-        for path in (out/'workers'/obj).glob('trial_*.*'):
-            target=out/path.name
-            if not target.exists():
-                os.link(path,target)
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0,str(ROOT))
-    from examples.mpc.fingertips.test.benchmark_contact_models import summarize
-    report=summarize(out)
-    validate_cohort(report)
-    report['execution_protocol']=manifest['execution_protocol']
-    report['cpu_by_object']=manifest['cpu_by_object']
-    (out/'summary.json').write_text(json.dumps(report,indent=2)+'\n')
-    if source_hashes()!=fingerprint:
-        raise RuntimeError('Experiment source changed during the cohort; raw results saved, table unchanged')
-    paper=ROOT/'tro_revision/experiment.tex'
-    original=paper.read_text()
-    updated=fill_table(original,report,data_dir=str(out.relative_to(ROOT)))
-    (out/'experiment_before.tex').write_text(original)
-    (out/'experiment_filled.tex').write_text(updated)
-    if paper.read_text()!=original:
-        raise RuntimeError('Paper changed during table preparation; saved proposed update, table unchanged')
-    temporary=paper.with_name('experiment.tex.cso-tmp')
-    temporary.write_text(updated);os.replace(temporary,paper)
-    (out/'completed.json').write_text(json.dumps(dict(tasks=105,table_updated=True,
-                  finished_at=datetime.now(ZoneInfo('Asia/Hong_Kong')).isoformat()),indent=2)+'\n')
-    print('Completed 105 tasks and filled tab:cso_contact_guidance in '+str(paper),flush=True)
+    raise SystemExit('This paper-table runner describes the archived uncorrected SCM cohort. '
+                     'Use benchmark_contact_models.py for the current corrected-SCM protocol; '
+                     'historical table-formatting helpers remain available for recorded results.')
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     main()

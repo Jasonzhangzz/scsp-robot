@@ -140,69 +140,37 @@ def test_optimized_force_pulse_preserves_force_and_integrated_impulse(env, monke
     np.testing.assert_array_equal(parked['actual_applied_impulse_body'], np.zeros(6))
 
 
-def test_legacy_impulse_scale_is_applied_once_and_torque_cap_preserves_point(env):
-    from examples.mpc.fingertips.test.test_scm_mujoco import _step_contact_force
-    point = np.array([.1, 0., 0.])
-    solved = dict(lam=np.array([.003, 0., 0.]), p_local=point,
-                  n_arm=np.array([0., 1., 0.]), t1=np.array([0., 0., 1.]),
-                  t2=np.array([1., 0., 0.]), wrench_is_force=False)
-    info = _step_contact_force(env, solved, lambda_scale=.5)
-    np.testing.assert_allclose(info['force_body'][:3], [0., 5., 0.])
-    solved['execution_torque_cap'] = .05
-    limited = _step_contact_force(env, solved, lambda_scale=.5)
-    applied = limited['force_body']
-    np.testing.assert_allclose(applied[3:], np.cross(point-env.model_.body_ipos[1], applied[:3]))
-    np.testing.assert_allclose(np.linalg.norm(applied[3:]), .05)
-    assert limited['force_was_clipped']
-
-
-def test_direct_rollout_reaches_goal_and_settles_without_pose_updates(monkeypatch):
-    from examples.mpc.fingertips.test.test_0902 import build_parser
-    from examples.mpc.fingertips.test.test_scm_mujoco import _run_rollout
-    from envs.fingertips_env import MjSimulator
-
-    args = build_parser().parse_args(['--direct_force', '--headless', '--trial_num', '1'])
-    args.skip_model_comparison = True
-    initial = []
-    reset = MjSimulator.reset_mj_env
-
-    def capture_reset(self):
-        reset(self)
-        initial.append(self.data_.qpos[:7].copy())
-
-    monkeypatch.setattr(MjSimulator, 'reset_mj_env', capture_reset)
-    rows = _run_rollout(args, 'surrogate', 'foam_brick', seed=0, mass=None, steps=2500)
+def test_direct_rollout_uses_corrected_scm_and_continuous_physical_force(monkeypatch):
+    from examples.mpc.fingertips.test.test_scm_mujoco import build_parser, _run_rollout
+    from planning.mlqp_point import LambdaContactControlOptimizer
+    monkeypatch.setattr(LambdaContactControlOptimizer, '_build_acados_contact_solver',
+                        lambda *a: pytest.fail('New benchmark must not build a legacy solver'))
+    args = build_parser().parse_args([])
+    rows = _run_rollout(args, 'scm_corrected', 'foam_brick', seed=0, steps=2500)
     final = rows[-1]
     assert final['success'] and final['settled']
     assert final['success_hold'] >= 10
     assert final['goal_pos'] < .02 and final['goal_quat'] < .015
-    assert np.linalg.norm(final['velocity_body'][3:]) < .5
-    assert len(initial) == 1
-    assert final['execution_time_s'] > 0
     np.testing.assert_allclose(final['simulation_time_s'], .02*len(rows), atol=1e-9)
-    assert not np.allclose(final['object_pose'], initial[0])
+    assert not np.allclose(final['object_pose'], rows[0]['initial_object_pose'])
     for row in rows:
-        assert row['planning_time_ms'] > 0
-        if not row['success']:
-            assert row['execution_time_s'] is None
+        assert row['optimizer_model'] == 'scm_corrected'
+        if row['planning_updated']:
+            assert row['planning_time_ms'] > 0
+        else:
+            assert row['planning_time_ms'] is None
         info = row['execution_info']
-        assert not info['mujoco_unstable']
+        assert info['pose_overwrites'] == 0
         assert not info['force_was_clipped']
-        assert np.linalg.norm(row['optimal_force_contact']) <= 3.000001
-        assert info['max_substep_force'] <= 3.000001
-        assert info['active_substeps'] in (0, 1)
-        if info['active_substeps']:
-            np.testing.assert_allclose(info['actuator_force_contact'], row['optimal_force_contact'])
-            np.testing.assert_allclose(np.linalg.norm(info['applied_force_body'][:3]),
-                                       np.linalg.norm(row['optimal_force_contact']), atol=1e-12)
-        np.testing.assert_allclose(info['actual_applied_impulse_body'],
-                                   info['applied_force_body'] * info['applied_force_duration'], atol=1e-12)
-        assert row['optimizer_model'] == 'coupled-quasi-dynamic-soft-scm'
+        assert np.linalg.norm(row['optimal_force_contact']) <= 10.000001
+        assert info['active_substeps'] in (0, 40)
+        np.testing.assert_allclose(info['actual_applied_impulse_body'][:3],
+            row['applied_force_body'] * .02, atol=1e-12)
 
 
 @pytest.fixture(scope='module')
 def shared_predictors():
-    from examples.mpc.fingertips.test.test_scm_mujoco import build_parser
+    from examples.mpc.fingertips.test.test_0902 import build_parser
     from examples.mpc.fingertips.test.params import ExplicitMPCParams as MjParams
     from examples.mpc.franka.ik2.params import ExplicitMPCParams as IsaacParams, build_lambda_optimizer
     from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
@@ -261,7 +229,6 @@ def test_scm_and_isaac_factories_have_identical_parameters(shared_predictors):
 
 @pytest.mark.parametrize('speed', [0., .02, -.04])
 def test_exported_scm_prediction_matches_isaac_nlp_and_numpy(shared_predictors, speed, monkeypatch):
-    from examples.mpc.fingertips.test import test_scm_mujoco as benchmark
     scm, isaac, _ = shared_predictors
     point = scm.sample_point[0]
     frame = np.column_stack((scm.normal[0], scm.t1[0], scm.t2[0]))
@@ -282,11 +249,6 @@ def test_exported_scm_prediction_matches_isaac_nlp_and_numpy(shared_predictors, 
                     isaac.scm_theta, isaac.object_cost_config(), isaac.max_contact_force]
     expected, _ = isaac._acados_candidate_fn(current, force, packed)
     np.testing.assert_allclose(exported['x_plus'], np.asarray(expected).reshape(7), atol=1e-12)
-    monkeypatch.setattr(benchmark, 'surrogate_response',
-                        lambda *a, **k: pytest.fail('Independent diagonal SCM must not be used'))
-    measured = benchmark._model_response(scm, scm.J_tilde, scm.env_phi, force, point,
-                                        *frame.T, gravity, 'surrogate', velocity=velocity)
-    np.testing.assert_allclose(measured['selected']['x_plus'], exported['x_plus'], atol=1e-12)
     # Drive and reaction are different quantities; the reaction must be
     # transmitted through the same nine-DoF contact graph.
     assert not np.allclose(exported['contact_force_body'], frame@force)

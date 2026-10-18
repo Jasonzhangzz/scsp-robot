@@ -14,7 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[5]
 OBJECTS = ('foam_brick', 'stanford_bunny2', 'elephant', 'piggy_bank',
            'teapot', 'mug', 'rubber_duck')
 

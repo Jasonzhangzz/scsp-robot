@@ -2577,8 +2577,8 @@ def _add_rollout_policy_args(parser):
     parser.add_argument(
         "--solver-backend",
         choices=("portable", "auto", "acados", "ipopt"),
-        default="auto",
-        help="Portable uses deterministic IPOPT for both planner and contact ranking.",
+        default="acados",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--table-clearance",
@@ -2652,15 +2652,20 @@ def _add_rollout_policy_args(parser):
     )
     parser.add_argument(
         "--async-planner",
-        dest="async_planner",
+        dest="trial",
         action="store_true",
-        help="ROS-style latest-only state/action topics in a second process.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--sync-planner",
-        dest="async_planner",
+        dest="trial",
         action="store_false",
-        help="Rank+MPC in the Isaac process (debug).",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--trial",
+        action="store_true",
+        help="Run the trial through the asynchronous planner protocol.",
     )
     parser.add_argument("--compute-threads", type=int, default=None,
                         help="Numerical library threads; default 1 unless set in environment; 0 preserves library defaults.")
@@ -2679,8 +2684,25 @@ def _add_rollout_policy_args(parser):
         action="store_true",
         help="GPU PhysX in the viewer (fights Warp MPPI on the same device).",
     )
-    parser.set_defaults(headless=False, async_planner=True)
+    # The normal developer path is synchronous Isaac/MPC with acados.
+    # ``--trial`` is the explicit opt-in for the latest-only async protocol;
+    # keep the old switches hidden so existing helper scripts still parse.
+    parser.set_defaults(headless=False, async_planner=False, trial=False)
+    public_dests = {
+        "help", "obj", "trial", "trial_num", "trial_start", "max_rollout_length",
+        "headless", "physics_backend", "num_envs", "target_type",
+        "rollout_summary_json",
+    }
+    for action in parser._actions:
+        if action.option_strings and action.dest not in public_dests:
+            action.help = argparse.SUPPRESS
     return parser
+
+
+def _apply_execution_mode(args):
+    """Resolve the public execution switch before constructing an Isaac bus."""
+    args.async_planner = bool(getattr(args, "trial", False))
+    return args
 
 
 def run_mpc_planner(bus, args):

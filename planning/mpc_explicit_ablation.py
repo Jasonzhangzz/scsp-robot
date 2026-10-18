@@ -139,7 +139,7 @@ class MPCExplicit:
 
         self.source_param_ = param
         self.velocity_state = bool(getattr(param, 'runtime_object_cost_', False)
-            and getattr(param, 'contact_model', '') == 'soft-scm'
+            and getattr(param, 'contact_model', '') in ('soft-scm', 'scm-corrected', 'comfree')
             and not getattr(param, 'online_scm_', False) and model is None
             and param.n_qpos_ == 10 and param.n_cmd_ == 3
             and getattr(param, 'mpc_carry_velocity_', True))

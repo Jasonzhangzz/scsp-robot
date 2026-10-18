@@ -71,31 +71,11 @@ def test_population_search_improves_known_objective_and_repeats(backend, monkeyp
         assert torch.equal(torch_state, torch.random.get_rng_state())
 
 
-@pytest.mark.parametrize('backend', ['ipopt', 'cma-es', 'cem'])
-def test_scm_backend_runs_in_real_mujoco_without_acados(backend, monkeypatch):
-    from examples.mpc.fingertips.test.test_scm_mujoco import build_parser, _run_rollout
-    monkeypatch.setenv('MUJOCO_HEADLESS', '1')
-    monkeypatch.setattr(LambdaContactControlOptimizer, '_build_acados_contact_solver',
-                        lambda *a: pytest.fail('Explicit alternative must not build acados'))
-    args = build_parser().parse_args(['--solver', backend, '--population-size', '8',
-                                     '--population-iterations', '2'])
-    assert resolve_solver_backend(args.solver) == backend
-    rows = _run_rollout(args, 'surrogate', 'foam_brick', seed=0, steps=2)
-    assert len(rows) == 2
-    assert not np.allclose(rows[-1]['object_pose'], rows[0]['initial_object_pose'])
-    for row in rows:
-        assert row['solver_requested'] == row['solver_backend'] == backend
-        assert not row['solver_fallback'] and not row['mujoco_unstable']
-        assert row['optimizer_model'] == 'coupled-quasi-dynamic-soft-scm'
-        force = np.asarray(row['optimal_force_contact'])
-        assert abs(force[1]) + abs(force[2]) <= 1.2 * force[0] + 1e-7
-        assert np.linalg.norm(force) <= 3.000001
-
-
 def test_population_evaluator_matches_shared_prediction_and_ipopt_objective():
-    from examples.mpc.fingertips.test.test_scm_mujoco import build_parser
+    from examples.mpc.fingertips.test.test_0902 import build_parser
     from examples.mpc.franka.ik2.params import ExplicitMPCParams, build_lambda_optimizer
-    args = build_parser().parse_args(['--solver', 'cem'])
+    args = build_parser().parse_args([])
+    args.solver = 'cem'
     source = ExplicitMPCParams(args, rand_seed=0, build_optimizer=False)
     opt = build_lambda_optimizer(source, args)
     # Include an active support patch, nonzero gap and online calibration.

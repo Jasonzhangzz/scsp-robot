@@ -12,6 +12,25 @@ import numpy as np
 from utils.ranking_metrics import discounted_terminal_reward, _mean_std
 
 
+def _local_to_world(point, curr_q):
+    if point is None:
+        return None
+    q = np.asarray(curr_q, dtype=float).reshape(-1)
+    if q.size < 7 or not np.isfinite(q[:7]).all():
+        return None
+    w, x, y, z = q[3:7]
+    n = float(np.linalg.norm([w, x, y, z]))
+    if n < 1e-12:
+        return None
+    w, x, y, z = np.asarray([w, x, y, z]) / n
+    rotation = np.array([
+        [1-2*(y*y+z*z), 2*(x*y-z*w), 2*(x*z+y*w)],
+        [2*(x*y+z*w), 1-2*(x*x+z*z), 2*(y*z-x*w)],
+        [2*(x*z-y*w), 2*(y*z+x*w), 1-2*(x*x+y*y)],
+    ])
+    return (q[:3] + rotation @ np.asarray(point, dtype=float)).tolist()
+
+
 def contact_decision_context(opt, curr_q, near_idx, guide_idx, *, near_arm,
                              observed, accept, hold, switch_observed, stage):
     """Describe the binary commitment before CPO, independent of index jitter."""
@@ -38,11 +57,20 @@ def contact_decision_context(opt, curr_q, near_idx, guide_idx, *, near_arm,
     feasible = bool(len(hits) and np.isfinite(costs[int(hits[0])]))
     eligible = bool((near_arm or observed) and (decision == 'switch' or accept or hold)
                     and distinct(near_idx, switch_idx) and feasible)
+    best_world = _local_to_world(point(guide_idx), curr_q)
+    near_world = _local_to_world(point(near_idx), curr_q)
     return dict(decision=decision, eligible=eligible, near_idx=near_idx,
                 optimal_idx=best_idx, guide_idx=guide_idx, switch_idx=switch_idx,
                 best_contact_idx=guide_idx, best_contact_local=point(guide_idx),
                 near_local=point(near_idx), optimal_local=point(best_idx),
-                switch_local=point(switch_idx), stage=stage,
+                switch_local=point(switch_idx),
+                best_contact_world=best_world,
+                best_contact_point_world=best_world,
+                p_arm_world=near_world,
+                near_world=near_world,
+                optimal_world=_local_to_world(point(best_idx), curr_q),
+                switch_world=_local_to_world(point(switch_idx), curr_q),
+                stage=stage,
                 policy_q=np.asarray(curr_q).tolist())
 
 
@@ -168,6 +196,8 @@ def evaluate_state(event, rollouts, *, gamma):
     opposite = 'stay' if rs == 'switch' else 'switch'
     advantage = q[rs] - q[opposite]
     return dict(**event, rollouts=rollouts, q=q, q_rs=q[rs],
+                value_original=q[rs], value_perturbed=q[opposite],
+                value_delta=q[opposite] - q[rs],
                 advantage_rs=advantage, advantage_switch=q['switch']-q['stay'],
                 cdr=max(q.values())-q[rs])
 
@@ -178,6 +208,14 @@ def summarize_cdr(states, trials, *, gamma, policy_dt=.02):
     successful = [t for t in trials if t['success'] and not t.get('aborted')]
     steps = sum(t['steps'] for t in successful)
     switches = sum(t['rs_switch_events'] for t in successful)
+    durations = [float(t.get('completion_time_s') or t['steps']*policy_dt)
+                 for t in successful]
+    total_duration = sum(durations)
+    best_events = [t.get('best_contact_point_world_change_events',
+                         t.get('guided_contact_switch_events')) for t in successful]
+    best_events = [int(v) for v in best_events if v is not None]
+    original_values = [s['value_original'] for s in states if 'value_original' in s]
+    perturbed_values = [s['value_perturbed'] for s in states if 'value_perturbed' in s]
     return dict(gamma=gamma, policy_interval_s=policy_dt, n_states=len(states),
         source_trials=len(trials), successful_source_trials=len(successful),
         cdr=_mean_std([s['cdr'] for s in states]),
@@ -189,6 +227,14 @@ def summarize_cdr(states, trials, *, gamma, policy_dt=.02):
         switch_fraction_per_ranking=physical['switch_fraction_per_ranking'],
         switches_per_successful_trial=physical['switches_per_rollout'],
         physical_switching_measured_trials=physical['measured_rollouts'],
+        ranking_strategy_switching_frequency_hz=(
+            switches/total_duration if total_duration else None),
+        best_contact_point_world_changes=sum(best_events) if best_events else None,
+        best_contact_point_world_change_frequency_hz=(
+            sum(best_events)/total_duration if best_events and total_duration else None),
+        value_original=_mean_std(original_values),
+        value_perturbed=_mean_std(perturbed_values),
+        value_delta=_mean_std([b-a for a, b in zip(original_values, perturbed_values)]),
         rs_decision_trigger_frequency_hz=switches/(steps*policy_dt) if steps else None,
         rs_decision_trigger_fraction_per_ranking=(switches/sum(t['rs_evaluations'] for t in successful)
             if sum(t['rs_evaluations'] for t in successful) else None))

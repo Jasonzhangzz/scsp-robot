@@ -225,7 +225,7 @@ bunny2 首次启动原本需要编译约 15 MB 的动力学雅可比 C 文件；
 ```bash
 git fetch origin developer
 git worktree add --detach /tmp/developer-reference/scsp-robot origin/developer
-python examples/mpc/franka/ik2/compare_developer_rollouts.py \
+python examples/mpc/franka/experiments/ik2/compare_developer_rollouts.py \
   --reference-root /tmp/developer-reference/scsp-robot \
   --objects foam_brick stanford_bunny2 elephant \
   --trials 1 --steps 5000 --workers 2 \

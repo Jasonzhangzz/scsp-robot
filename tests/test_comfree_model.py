@@ -86,6 +86,59 @@ def test_lambda_numpy_casadi_torch_same_predicted_velocity_and_derivative(dt):
     assert np.all(masses[4:] == 0)
 
 
+@pytest.mark.parametrize("model", ["comfree", "scm-corrected"])
+def test_lambda_direct_models_apply_selected_wrench_without_arm_activation(model):
+    """Lambda direct-force models bypass arm gating; MPC owns that response."""
+    optimizer = LambdaContactControlOptimizer.__new__(LambdaContactControlOptimizer)
+    optimizer.h = .01
+    optimizer.Q_inv = np.diag([2., 3., 4., 5., 6., 7.])
+    optimizer.max_contacts = 2
+    optimizer.contact_model = model
+    optimizer.K_contact = .2
+    optimizer.comfree_damping = .001
+    optimizer.soft_scm_regularization = 1e-8
+    optimizer.robot_stiffness = 600.
+    optimizer.gravity_velocity_scale = 1. / optimizer.h
+    optimizer.wrench_velocity_scale = 1. / optimizer.h
+    optimizer.base_mu_arm_obj = optimizer.mu_arm_obj = .8
+
+    velocity = np.array([.02, -.03, .04, .01, -.02, .03])
+    tau = np.array([.1, -.2, .3, .04, -.05, .06])
+    force = np.array([.7, -.2, .4])
+    point = np.array([.03, -.02, .01])
+    frame = np.eye(3)
+    env_j = np.zeros((8, 6))
+    phi = np.array([-.02, -.01, 0., .01, .02, -.03, .01, 0.])
+    inverse = optimizer.Q_inv
+    skew = np.array([[0., -point[2], point[1]],
+                     [point[2], 0., -point[0]],
+                     [-point[1], point[0], 0.]])
+    relative = np.c_[np.eye(3), -skew]
+    expected_object = (velocity + optimizer.gravity_velocity_scale * inverse @ tau
+                       + optimizer.wrench_velocity_scale * inverse @ relative.T @ force)
+
+    numpy_result = optimizer._arm_velocity_numpy(
+        velocity, tau, force, point, frame, env_j, phi)
+    np.testing.assert_allclose(numpy_result, expected_object, atol=1e-12)
+
+    cs_result_a = optimizer._arm_velocity_cs(
+        cs.DM(velocity), cs.DM(tau), cs.DM(force), cs.DM(point), cs.DM(frame),
+        cs.DM(env_j), cs.DM(phi), cs.DM(inverse), cs.DM.zeros(6, 1),
+        arm_gap=-.2)
+    cs_result_b = optimizer._arm_velocity_cs(
+        cs.DM(velocity), cs.DM(tau), cs.DM(force), cs.DM(point), cs.DM(frame),
+        cs.DM(env_j), cs.DM(phi), cs.DM(inverse), cs.DM.zeros(6, 1),
+        arm_gap=.2)
+    np.testing.assert_allclose(np.asarray(cs_result_a).reshape(6), expected_object, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(cs_result_a), np.asarray(cs_result_b), atol=1e-12)
+
+    tensor = lambda value: torch.tensor(value, dtype=torch.float64)
+    torch_result = optimizer._arm_velocity_torch(
+        tensor(velocity), tensor(tau), tensor(force), tensor(point), tensor(frame),
+        tensor(env_j), tensor(phi), tensor(inverse))
+    np.testing.assert_allclose(torch_result.numpy(), expected_object, atol=1e-12)
+
+
 def test_explicit_model_is_physical_comfree_euler_and_normalizes_quaternion():
     mass = np.diag([.2, .2, .2, .003, .004, .005, 1, 1, 1])
     param = SimpleNamespace(n_qpos_=10, n_qvel_=9, n_robot_qpos_=3, n_cmd_=3, max_ncon_=1,

@@ -64,7 +64,7 @@ class Backend:
             from comfree_warp import mujoco_warp
         except ImportError as exc:
             raise RuntimeError("Install this directory's requirements.txt into .deps using pi0 Python first.") from exc
-        if engine not in ("comfree", "mjwarp", "scm", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
+        if engine not in ("comfree", "mjwarp", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
             raise ValueError(f"Unknown engine: {engine}")
         if mujoco.__version__ != "3.6.0":
             raise RuntimeError(f"Pinned ComFree requires MuJoCo 3.6.0; found {mujoco.__version__}. Reinstall requirements.txt into .deps.")
@@ -75,7 +75,7 @@ class Backend:
         self.nconmax, self.njmax = nconmax, njmax
         with wp.ScopedDevice(self.device):
             self.api = comfree_warp if engine == "comfree" else mujoco_warp
-            if engine in ("scm", "scm_corrected", "scm_soft", "scm_soft_corrected"):
+            if engine in ("scm_corrected", "scm_soft", "scm_soft_corrected"):
                 if __package__:
                     from .scm_backend import ScmEngine
                 else:
@@ -127,7 +127,7 @@ class Backend:
                     if value.size:
                         target = getattr(self.wdata, name)
                         wp.copy(target, wp.array(value, dtype=target.dtype, device=self.device))
-                if self.engine in ("scm", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
+                if self.engine in ("scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
                     self.api.update_mass(data)
                 wp.synchronize_device(self.device)
                 started = time.perf_counter()
@@ -219,7 +219,7 @@ def nonnegative_float(value):
 
 def add_common_arguments(parser, *, include_scm=False):
     parser.add_argument("--headless", action="store_true", help="Disable the visualization window (shown by default)")
-    choices = ("both", "all", "mujoco", "mjwarp", "comfree") + (("three", "four", "five", "scm", "scm_corrected", "scm_soft") if include_scm else ())
+    choices = ("both", "all", "mujoco", "mjwarp", "comfree") + (("three", "four", "scm_corrected", "scm_soft") if include_scm else ())
     parser.add_argument("--engine", choices=choices, default="three" if include_scm else "both",
                         help="both=ComFree+MJWarp; three adds SCM; four adds amplitude-corrected SCM; five adds soft SCM (physics only); all also includes MuJoCo CPU")
     parser.add_argument("--device", default="cuda:0", help="CUDA device used by both Warp engines")
@@ -231,10 +231,11 @@ def add_common_arguments(parser, *, include_scm=False):
 
 
 def engines_for(choice, *, include_scm=False):
-    return {"both": ("mjwarp", "comfree"), "three": ("mjwarp", "comfree", "scm"),
-            "four": ("mjwarp", "comfree", "scm", "scm_corrected"),
-            "five": ("mjwarp", "comfree", "scm", "scm_corrected", "scm_soft"),
-            "all": ("mujoco", "mjwarp", "comfree") + (("scm", "scm_corrected", "scm_soft") if include_scm else ())}.get(choice, (choice,))
+    if choice == "scm":
+        raise ValueError("Uncorrected SCM was removed; use scm_corrected")
+    return {"both": ("mjwarp", "comfree"), "three": ("mjwarp", "comfree", "scm_corrected"),
+            "four": ("mjwarp", "comfree", "scm_corrected", "scm_soft"),
+            "all": ("mujoco", "mjwarp", "comfree") + (("scm_corrected", "scm_soft") if include_scm else ())}.get(choice, (choice,))
 
 
 def contact_metrics(model, data):

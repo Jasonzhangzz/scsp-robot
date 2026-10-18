@@ -36,7 +36,7 @@ def main():
             continue
         metadata = json.loads((folder / "metrics.json").read_text())["metadata"]
         model = make_model(metadata["shape"], metadata["friction"], metadata["timestep_s"], metadata["mass_kg"])
-        backend = backend_for("scm", model, fresh_data(model), options)
+        backend = backend_for("scm_soft", model, fresh_data(model), options)
         display = fresh_data(model)
         if args.headless:
             context = nullcontext(None)
@@ -63,7 +63,14 @@ def main():
                 free = backend.wdata.qvel_smooth_pred.numpy()[0, :6].astype(float)
                 inv = np.linalg.inv(M)
                 D = np.einsum("ij,jk,ik->i", J, inv, J) + options.scm_regularization
-                predicted = free + inv @ J.T @ np.maximum(-(J @ free + gap / model.opt.timestep) / D, 0)
+                x = float(model.opt.timestep) / backend.api.response_time
+                divisor = 1 + 2*backend.api.damping_ratio*x + x*x
+                a = (2*backend.api.damping_ratio*x+x*x)/divisor
+                b = x*x/divisor
+                projected = free
+                if backend.api.motion == 'increment':
+                    projected = free - np.asarray(states['qvel_initial'][i],dtype=np.float32).astype(float)
+                predicted = free + inv @ J.T @ np.maximum(-(a*(J @ projected) + b*gap/model.opt.timestep) / D, 0)
                 # Check the cache against the GPU before using it for tuning.
                 # GPU reaction accumulation and mass solves use float32;
                 # this grid uses float64. Record the discrepancy explicitly.

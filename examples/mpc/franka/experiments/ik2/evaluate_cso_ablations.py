@@ -16,9 +16,9 @@ import subprocess
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(ROOT))
-from examples.mpc.franka.ik2.evaluate_a7 import OBJECTS, SEEDS, TASKS, metric
+from examples.mpc.franka.experiments.ik2.evaluate_a7 import OBJECTS, SEEDS, TASKS, metric
 
 VARIANTS = ('a4', 'a5')
 
@@ -159,7 +159,7 @@ def main():
                 return
             except (AssertionError, ValueError):
                 raise RuntimeError('Partial or invalid trial cell must be audited before a retry: '+str(cell))
-        command = [sys.executable, '-u', str(Path(__file__).resolve().with_name('run_ablation.py')),
+        command = [sys.executable, '-u', str(ROOT/'examples/mpc/franka/ik2/run_ablation.py'),
             '--'+variant, '--task', task, '--obj', obj, '--headless', '--async-planner',
             '--headless-realtime', '--physics-backend', 'isaac', '--solver-backend', 'acados',
             '--trial-start', '0', '--trial_num', '3', '--max_rollout_length', '2500',

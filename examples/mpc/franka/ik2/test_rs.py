@@ -1,10 +1,11 @@
-"""Run matched switch/stay rollouts for experiment.tex's ranking CDR.
+"""Run matched IsaacGym switch/stay rollouts for ranking Value differences.
 
 Examples (run from the repository root, using the simulation environment):
   python test_rs.py --obj foam_brick --rotation --trial_num 10 \
       --solver-backend portable --ranking-metric-gamma .999 --rs-output outputs/rs_rotation
-  python test_rs.py --obj bunny2 --flipping --trial_num 10 \
-      --physics-backend mjwarp --rs-output outputs/rs_flip
+  python test_rs.py --obj foam_brick --flipping --trial_num 1 \
+      --headless --sync-planner --no-adaptive --solver-backend acados \
+      --rs-event-stage flip --rs-output outputs/rs_flip
 
 The original successful suffix supplies the factual Q sample. The opposite
 branch reconstructs the complete prefix and changes ONLY the sampled decision;
@@ -127,6 +128,7 @@ def run_trial(args, trial, sampler, *, reference=None):
         torch.cuda.manual_seed_all(100 + trial)
     values = dict(vars(args), trial_start=trial, trial_num=1, num_envs=1,
                   headless=True, rollout=True, async_planner=False,
+                  sync_planner=True, online_scm=False, scm_record_data=False,
                   ranking_metrics_jsonl='', rollout_summary_json='',
                   rollout_trace_jsonl='', rollout_planner_snapshots='')
     local = argparse.Namespace(**values)
@@ -164,6 +166,12 @@ def write_json(path, data):
 def run(args, *, trial_runner=run_trial):
     if not 0 < args.ranking_metric_gamma < 1:
         raise ValueError('ranking-metric-gamma must be in (0, 1) for CDR')
+    if not np.isclose(float(getattr(args, 'ranking_metric_eta', 1.0)), 1.0):
+        raise ValueError('CDR uses a unit success reward; ranking-metric-eta must be 1')
+    if getattr(args, 'physics_backend', 'isaac') != 'isaac':
+        raise ValueError('test_rs is intentionally IsaacGym-only; use test_mpc_isaac defaults')
+    if getattr(args, 'solver_backend', 'acados') != 'acados':
+        raise ValueError('test_rs requires the developer acados planner configuration')
     if args.trial_start < 0 or args.trial_num <= 0 or args.rs_repeats <= 0:
         raise ValueError('trial-start must be nonnegative; trial_num and rs-repeats positive')
     if (args.rs_max_per_kind < 0 or not np.isfinite(args.rs_best_change_distance)
@@ -238,7 +246,12 @@ def run(args, *, trial_runner=run_trial):
             trial_file.write(json.dumps(summary, default=json_value, allow_nan=False)+'\n')
             trial_file.flush()
             if summary['success']:
-                events = select_events(sampler.events, max_per_kind=args.rs_max_per_kind,
+                # Programmatic callers from the orchestration tests predate
+                # the CLI stage selector; the CLI itself defaults to flip.
+                stage = getattr(args, 'rs_event_stage', 'all')
+                source_events = [event for event in sampler.events
+                                 if stage == 'all' or event.get('stage') == stage]
+                events = select_events(source_events, max_per_kind=args.rs_max_per_kind,
                                        seed=args.rs_sample_seed+trial)
                 valid_ids = {f'trial_{trial}_step_{e["step"]}' for e in events}
                 if any(s['trial'] == trial and key not in valid_ids
@@ -276,6 +289,7 @@ def run(args, *, trial_runner=run_trial):
                             rollouts[branch].append(continuation_outcome(replay.summaries[0],
                                 event['step'], gamma=args.ranking_metric_gamma))
                     state = evaluate_state(event, rollouts, gamma=args.ranking_metric_gamma)
+                    state['object'] = str(getattr(args, 'obj', ''))
                     states.append(state)
                     state_file.write(json.dumps(state, default=json_value, allow_nan=False)+'\n')
                     state_file.flush()
@@ -318,7 +332,14 @@ def main():
                         help='Minimum local best-point displacement (m) to reject mesh jitter.')
     parser.add_argument('--rs-match-atol', type=float, default=1e-7,
                         help='Absolute prefix-matching tolerance; mismatches abort evaluation.')
-    parser.set_defaults(headless=True, async_planner=False, num_envs=1, rollout=True)
+    parser.add_argument('--rs-event-stage', choices=('all', 'flip'), default='flip',
+                        help='Sample only ranking decisions from this object-cost stage.')
+    parser.set_defaults(headless=True, async_planner=False, sync_planner=True,
+                        num_envs=1, rollout=True, physics_backend='isaac',
+                        solver_backend='acados', online_scm=False,
+                        contact_model='soft-scm', two_stage_object_cost=True,
+                        ranking_metric_gamma=.95, ranking_metric_eta=1.0,
+                        no_adaptive=True)
     args = parser.parse_args()
     run(args)
 

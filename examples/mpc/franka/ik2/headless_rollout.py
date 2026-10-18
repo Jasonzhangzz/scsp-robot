@@ -374,9 +374,13 @@ def main():
     else:
         os.environ.pop('SCSP_PLANNER_ONLY', None)
         from isaacgym import gymapi, gymtorch  # Must precede Torch.
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
+    from examples.mpc.franka.ik2.test_mpc_isaac import (
+        _add_rollout_policy_args,
+        _apply_execution_mode,
+    )
     parser = _add_rollout_policy_args(argparse.ArgumentParser(description=__doc__))
     args = parser.parse_args()
+    _apply_execution_mode(args)
     run = run_mjwarp_headless if args.physics_backend == 'mjwarp' else run_isaac_headless
     run(args)
 

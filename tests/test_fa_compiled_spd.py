@@ -3,8 +3,8 @@ import casadi as cs
 import numpy as np
 import pytest
 
-from examples.retarget.fa_compiled_spd import spd_solver
-from examples.retarget.fa_compiled_model import native_clamp
+from examples.retarget.compiled.spd import spd_solver
+from examples.retarget.compiled.model import native_clamp
 
 
 @pytest.mark.parametrize('size',[8,32])

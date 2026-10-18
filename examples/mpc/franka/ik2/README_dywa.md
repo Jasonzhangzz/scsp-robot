@@ -1,6 +1,7 @@
 # DyWA Isaac 运行入口
 
-入口为 `test_dywa_isaac.py`，适配层为 `planning/dywa_interface.py`。
+入口为 `examples/mpc/franka/experiments/ik2/test_dywa_isaac.py`，适配层为
+`planning/dywa_interface.py`。
 学生策略在 DyWA 自己的模拟器和控制器中执行，动作保持时间为预训练使用的 100 ms。
 评估 reset 直接初始化环境和学生历史，跳过训练包装器的 `mixed_reset` 随机动作预热，
 避免在开始计分前扰动物体和机械臂。
@@ -10,7 +11,7 @@
 从仓库根目录运行：
 
 ```bash
-python examples/mpc/franka/ik2/test_dywa_isaac.py \
+python examples/mpc/franka/experiments/ik2/test_dywa_isaac.py \
   --headless --trial_num 1 --max_rollout_length 20 --dywa-dry-run
 ```
 
@@ -40,7 +41,7 @@ python examples/mpc/franka/ik2/test_dywa_isaac.py \
 ```bash
 DYWA_ROOT=/path/to/custom/DyWA \
 DYWA_PYTHON=/path/to/envs/acc/bin/python \
-python examples/mpc/franka/ik2/test_dywa_isaac.py \
+python examples/mpc/franka/experiments/ik2/test_dywa_isaac.py \
   --headless --trial_num 1 --max_rollout_length 300 \
   --dywa-ckpt-dir /path/to/ckpts
 ```

@@ -115,7 +115,7 @@ def test_native_friction_power_frame_and_sign():
 
 
 @pytest.mark.parametrize("motion", ["dynamic", "increment"])
-@pytest.mark.parametrize("engine", ["scm", "scm_corrected", "scm_soft", "scm_soft_corrected"])
+@pytest.mark.parametrize("engine", ["scm_corrected", "scm_soft", "scm_soft_corrected"])
 @pytest.mark.parametrize("shape", ["sphere", "box"])
 def test_gpu_scm_matches_numpy_diagonal_formula_and_reset(motion, engine, shape):
     import warp as wp
@@ -181,7 +181,7 @@ def test_gpu_three_engines_agree_without_contact():
     initial.qvel[:] = [.4, -.2, .1, 0, 0, 0]
     mujoco.mj_forward(model, initial)
     predictions = []
-    for engine in ("mjwarp", "comfree", "scm", "scm_corrected", "scm_soft", "scm_soft_corrected"):
+    for engine in ("mjwarp", "comfree", "scm_corrected", "scm_soft", "scm_soft_corrected"):
         backend = backend_for(engine, model, initial, options())
         data = fresh_data(model, initial.qpos, initial.qvel)
         backend.reset(data)

@@ -124,10 +124,12 @@ def correct_amplitude(
 class ScmEngine:
     """Independent bodies for the fidelity suite; exact current mass mobility."""
 
-    def __init__(self, model, initial_data, *, regularization=1e-8, motion="dynamic", friction="point", amplitude_correction=False,
+    def __init__(self, model, initial_data, *, regularization=1e-8, motion="dynamic", friction="point", amplitude_correction=True,
                  response_time=0.0, damping_ratio=1.0):
         if regularization <= 0:
             raise ValueError("SCM r must be positive (R=rI, in inverse-mass units).")
+        if type(self) is ScmEngine and not amplitude_correction and response_time == 0.:
+            raise ValueError("Standalone uncorrected SCM was removed; enable amplitude correction")
         if model.neq or model.nu or model.nsensor:
             raise ValueError("SCM benchmark currently supports unactuated, sensorless rigid bodies without equality constraints.")
         if model.opt.integrator != mujoco.mjtIntegrator.mjINT_EULER:

@@ -4,8 +4,7 @@ import mujoco
 import numpy as np
 import trimesh
 
-from examples.retarget.visualization import DemonstrationOverlay
-from examples.retarget.offline_contacts import restore_plan
+from examples.retarget.common.visualization import DemonstrationOverlay
 from models.wuji_hand import MaterialPoint, ObjectSurface
 from planning.wuji_regrasp import OnlineRegrasp, RegraspSettings
 
@@ -182,23 +181,3 @@ def test_recovery_timeout_does_not_claim_recontact_and_reference_release_cancels
     kwargs['active']=np.zeros(2)
     _,_,report,_=controller.update(**kwargs)
     assert not report['moving_slots'] and controller.move is None
-
-
-def test_offline_plan_restores_material_identity():
-    value=dict(valid=True,slots=[2],points=[[.1,0,0]],normals=[[1,0,0]],force_vectors_local=[[3,0,0]],
-        ik=dict(q=[0,1],materials=[dict(body=4,local=[.01,0,0],normal=[1,0,0],finger='thumb',region='distal',source_local=None)]))
-    plan=restore_plan(value)
-    assert plan['slots']==(2,) and plan['ik']['materials'][0].finger=='thumb'
-    np.testing.assert_array_equal(plan['ik']['q'],[0,1])
-
-
-def test_infeasible_transition_can_approach_upcoming_valid_grasp_without_skipping_hand_frames():
-    from examples.retarget.offline_contacts import execution_reference
-    plans=[dict(valid=True,slots=[]),dict(valid=False,slots=[0]),
-        dict(valid=False,slots=[0]),dict(valid=True,slots=[0,1,2]),dict(valid=True,slots=[])]
-    assert execution_reference(plans,0,3)==0  # Preserve a feasible current phase.
-    assert execution_reference(plans,1,2)==1  # No lookahead beyond object progress.
-    assert execution_reference(plans,1,3)==3
-    assert execution_reference(plans,3,4)==3
-    plans[3]['valid']=False
-    assert execution_reference(plans,1,4)==1  # A later release is not a grasp.

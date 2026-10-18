@@ -94,25 +94,6 @@ def test_wuji_commands_are_not_limited_by_demo_or_contact_speed(physical_hand):
     assert first.tag==second.tag
 
 
-def test_ca_fk_transfer_preserves_grasp_across_wrist_mounts(physical_hand):
-    import copy
-    from scipy.spatial.transform import Rotation
-    from examples.retarget.contactaware_ik import transfer_postures
-    hand=physical_hand;source=copy.copy(hand.model)
-    body=mujoco.mj_name2id(source,mujoco.mjtObj.mjOBJ_BODY,'base_rx_link')
-    source.body_quat[body]=Rotation.from_rotvec([.2,-.3,.4]).as_quat()[[3,0,1,2]]
-    mujoco.mj_setConst(source,mujoco.MjData(source))
-    q=np.clip(np.full(hand.nu,.1),hand.lower,hand.upper);q[:6]=[.1,.2,.3,.4,-.5,.6]
-    src=POSE.copy();dst=POSE.copy();dst[:3]+=[.03,-.02,.01]
-    dst[3:]=Rotation.from_rotvec([.1,.2,-.1]).as_quat()[[3,0,1,2]]
-    before=hand.data.qpos.copy()
-    mapped,reports=transfer_postures(hand,source,q[None],src[None],dst[None])
-    np.testing.assert_array_equal(mapped[0,6:],q[6:])
-    np.testing.assert_array_equal(hand.data.qpos,before)
-    assert reports[0]['max_body_position_error_m']<2e-6
-    assert reports[0]['max_body_rotation_error_rad']<2e-5
-
-
 def test_partial_grasp_preserves_support_from_floor():
     import casadi as cs
     from models.allegro_grasp_response import force_limited_grasp_cs,grasp_operators
@@ -135,7 +116,7 @@ def test_partial_grasp_preserves_support_from_floor():
 
 
 def test_floor_support_spans_the_face_and_releases_when_lifted(physical_hand):
-    from examples.retarget.contact_geometry import contact_geometry
+    from planning.wuji_contact_geometry import contact_geometry
     hand=physical_hand;q=np.clip(np.zeros(hand.nu),hand.lower,hand.upper);q[:3]=[1.,1.,1.]
     pose=POSE.copy();pose[2]=-hand.surface.mesh.vertices[:,2].min()
     hand.set_state(q,pose,hand.data)
@@ -147,42 +128,6 @@ def test_floor_support_spans_the_face_and_releases_when_lifted(physical_hand):
     pose[2]+=.1;hand.set_state(q,pose,hand.data)
     lifted=contact_geometry(hand,[],np.empty(0),12)[0]
     assert np.min(lifted[:16])>=.1-1e-10
-
-
-def test_geometric_ik_solves_each_contact_and_noncontact_frame(monkeypatch):
-    from examples.retarget import retarget
-    calls=[]
-    class Hand:
-        def solve_ik(self,q,pose,materials,targets,**kwargs):
-            calls.append((q.copy(),len(materials),kwargs['shape_targets'].copy()))
-            return q+1,dict(valid=True,max_contact_error=0.)
-    demo=SimpleNamespace(poses=np.tile(POSE,(4,1)))
-    contacts=SimpleNamespace(mask=np.array([[False],[True],[False],[True]]),materials=['pad'],
-        hand_targets=np.zeros((4,1,3)),hand_normals=np.zeros((4,1,3)))
-    shape=np.arange(12).reshape(4,1,3)
-    monkeypatch.setattr(retarget,'shape_references',lambda hand,demo:(['shape'],shape))
-    monkeypatch.setattr(retarget,'initialize_hand',lambda *args:np.zeros(26))
-    q,_=retarget.geometric_ik(Hand(),demo,contacts,SimpleNamespace(ik_iterations=5,ik_tolerance=.01))
-    assert [call[1] for call in calls]==[0,1,0,1]
-    for frame,call in enumerate(calls):
-        np.testing.assert_array_equal(call[0],np.full(26,frame))
-        np.testing.assert_array_equal(call[2],shape[frame])
-    np.testing.assert_array_equal(q[:,0],[1,2,3,4])
-
-
-def test_geometric_hand_pose_is_distinct_from_contact_feasibility(monkeypatch):
-    from examples.retarget import retarget
-    class Hand:
-        def solve_ik(self,q,*args,**kwargs):
-            return q,dict(valid=False,collisions=[],max_contact_error=.016,max_shape_error=.20)
-    demo=SimpleNamespace(poses=POSE[None])
-    contacts=SimpleNamespace(mask=np.ones((1,1),bool),materials=['pad'],
-        hand_targets=np.zeros((1,1,3)),hand_normals=np.zeros((1,1,3)))
-    monkeypatch.setattr(retarget,'shape_references',lambda *args:(['shape'],np.zeros((1,1,3))))
-    monkeypatch.setattr(retarget,'initialize_hand',lambda *args:np.zeros(26))
-    _,reports=retarget.geometric_ik(Hand(),demo,contacts,SimpleNamespace(ik_iterations=5,ik_tolerance=.012))
-    assert reports[0]['geometric_pose_valid']
-    assert not reports[0]['semantic_contact_valid']
 
 
 def test_semantic_finger_order_is_anatomical_not_mano_or_wuji_column_order():
@@ -362,50 +307,6 @@ def physical_hand(tmp_path_factory):
     return WujiHand(xml,surface)
 
 
-def test_lambda_off_keeps_unreachable_mano_targets_in_online_mpc(physical_hand,tmp_path,monkeypatch):
-    from types import SimpleNamespace
-    from examples.retarget import retarget
-    from planning import wuji_retarget_mpc
-    hand=physical_hand
-    body=mujoco.mj_name2id(hand.model,mujoco.mjtObj.mjOBJ_BODY,'right_finger2_link4')
-    material=MaterialPoint(body,np.zeros(3),np.array([-1.,0,0]),'index','distal')
-    # Deliberately unreachable contacts must still reach MPC as soft targets.
-    anchors=np.tile(np.array([[[1.,1.,1.],[2.,2.,2.]]]),(2,1,1))
-    contacts=SimpleNamespace(episodes=[None,None],materials=[material,material],
-        mask=np.ones((2,2),bool),anchors=anchors,normals=np.tile([-1.,0,0],(2,2,1)))
-    demo=SimpleNamespace(poses=np.tile(POSE,(2,1)),times=np.array([0.,.03]))
-    q=np.clip(np.zeros(hand.nu),hand.lower,hand.upper)
-    geometric=np.tile(q,(2,1));seen=[]
-    def forbidden(*args,**kwargs):pytest.fail('Lambda/contact feasibility must not run when disabled')
-    monkeypatch.setattr(retarget,'LocalLambdaPolicy',forbidden)
-    monkeypatch.setattr(hand,'solve_ik',forbidden)
-    monkeypatch.setattr(hand,'nearest_material',forbidden)
-    monkeypatch.setattr(retarget,'shape_references',lambda *a:([material],np.zeros((2,1,3))))
-    class MPC:
-        def __init__(self,*args,**kwargs):
-            self.param_=SimpleNamespace();self.weights={};self.force_scale=1.;self.regrasp=None
-        def plan(self,goal,qref,materials,points,original,normals,active,**kwargs):
-            seen.append((points.copy(),original.copy(),active.copy(),kwargs['execution_mask'].copy()))
-            assert kwargs['contact_qref'] is None
-            return hand.servo.copy(),dict(status='TEST_HOLD',selected_control='hold',
-                executed_action=np.zeros(hand.nu))
-    monkeypatch.setattr(wuji_retarget_mpc,'WujiOnlineMPC',MPC)
-    args=retarget.parser().parse_args(['--contact-model','soft-scm','--headless','--no-demo-overlay','--max-steps','2'])
-    assert args.lambda_mode=='off'
-    import yaml
-    assert yaml.safe_load((Path(retarget.__file__).parent/'default.yaml').read_text())['lambda_mode']=='off'
-    report=retarget.run_rollout(hand,demo,contacts,geometric,args,'full',tmp_path/'full',
-        offline_plans=[dict(valid=False)])
-    assert len(seen)==2 and report['lambda_failures']==0
-    for points,original,active,mask in seen:
-        np.testing.assert_array_equal(points,anchors[0])
-        np.testing.assert_array_equal(original,anchors[0])
-        np.testing.assert_array_equal(active,np.ones(2))
-        np.testing.assert_array_equal(mask,np.ones(2))
-    records=[json.loads(line) for line in (tmp_path/'full/diagnostics.jsonl').read_text().splitlines()]
-    assert all(not r['lambda_enabled'] and r['lambda_valid'] is None and r['force_error']==[] for r in records)
-
-
 def test_dexforge_physics_reference_preserves_mesh_and_copies_object_and_floor(physical_hand,tmp_path):
     root=Path(__file__).resolve().parents[1]/'thirdparty/retarget_assets/DexForge'
     reference=tmp_path/'sdf.xml'
@@ -427,20 +328,6 @@ def test_dexforge_physics_reference_preserves_mesh_and_copies_object_and_floor(p
     assert matched.model.geom_condim[floor]==6
     np.testing.assert_array_equal(matched.model.mesh_vert,physical_hand.model.mesh_vert)
     np.testing.assert_array_equal(matched.model.actuator_gainprm,physical_hand.model.actuator_gainprm)
-
-
-def test_trajectory_gws_uses_common_scale_and_is_invariant_to_duplicate_contacts():
-    from examples.retarget.compare_contact_trajectories import gws_margin
-    from planning.contact_friction import native_tangents
-    points=.02*np.r_[np.eye(3),-np.eye(3)];normals=-points/.02
-    tangents=native_tangents(normals);center=np.zeros(3)
-    value=gws_margin(points,normals,tangents,.5,center,.04)
-    assert value>0
-    assert gws_margin(np.tile(points,(2,1)),np.tile(normals,(2,1)),np.tile(tangents,(2,1,1)),.5,center,.04)==pytest.approx(value)
-    offset=np.array([.2,-.1,.4])
-    assert gws_margin(points+offset,normals,tangents,.5,offset,.04)==pytest.approx(value)
-    assert gws_margin(points,normals*0+np.array([1.,0,0]),
-        native_tangents(np.tile([1.,0,0],(6,1))),.5,center,.04)<=1e-7
 
 
 def test_material_jacobian_matches_fk_finite_difference(physical_hand):
@@ -580,7 +467,7 @@ def test_fa_normalized_object_cost_and_terminal_task_objective(physical_hand):
 
 
 def test_measured_contact_survives_lambda_failure_and_reference_release(physical_hand,monkeypatch):
-    from examples.retarget.contact_geometry import contact_geometry
+    from planning.wuji_contact_geometry import contact_geometry
     from planning import grasp_force_allocation
     from planning.wuji_retarget_mpc import WujiOnlineMPC
     hand=physical_hand;hand.set_state(np.zeros(hand.nu),POSE,hand.data);hand.servo=np.zeros(hand.nu)
@@ -785,7 +672,7 @@ def test_native_pyramid_certificate_uses_actual_tangent_axes():
 
 
 def test_contact_prediction_uses_observed_native_frame_not_an_arbitrary_rotation(physical_hand,monkeypatch):
-    from examples.retarget.contact_geometry import contact_geometry
+    from planning.wuji_contact_geometry import contact_geometry
     hand=physical_hand;hand.set_state(np.zeros(hand.nu),POSE,hand.data)
     body=mujoco.mj_name2id(hand.model,mujoco.mjtObj.mjOBJ_BODY,'right_finger2_link4')
     material=MaterialPoint(body,np.zeros(3),np.array([1.,0,0]),'index','distal')
@@ -813,43 +700,6 @@ def test_runtime_native_scm_impulses_have_nonnegative_mujoco_ray_representation(
         assert represented.success
 
 
-def test_interrupted_rollout_command_recovery_preserves_clipping_and_order():
-    from examples.retarget.verify_force_closure import recover_commands,longest_run,gravity_capacity
-    records=[dict(step=i,mpc=dict(executed_action=delta)) for i,delta in enumerate([[.1,-.2],[.1,0.]])]
-    np.testing.assert_allclose(recover_commands(records,[0,0],[-1,-1],[.15,1]),[[.1,-.2],[.15,-.2]])
-    assert longest_run([False,True,True,False,True])==2
-    records[0]['step']=1
-    with pytest.raises(ValueError):recover_commands(records,[0,0],[-1,-1],[1,1])
-    capacity=gravity_capacity(np.zeros((1,3)),np.array([[0.,0,1.]]),
-        np.array([[[1.,0,0],[0,1.,0]]]),.5,np.array([2.]),np.array([0,0,-1.,0,0,0]))
-    assert capacity==pytest.approx(2.)
-
-
-def test_static_native_support_witness_respects_motor_and_servo_force_bounds():
-    from examples.retarget.verify_force_closure import actuator_support_witness
-    def evaluate(cap,measured):
-        model=mujoco.MjModel.from_xml_string(f'''<mujoco><compiler autolimits="true"/>
-          <worldbody><body name="right" pos=".05 0 .05"><joint name="r" type="slide" axis="1 0 0" range="-.2 .2"/><geom type="sphere" size=".025"/></body>
-          <body name="left" pos="-.05 0 .05"><joint name="l" type="slide" axis="1 0 0" range="-.2 .2"/><geom type="sphere" size=".025"/></body>
-          <body name="obj" pos="0 0 .05"><freejoint/><inertial pos="0 0 0" mass="1" diaginertia=".001 .001 .001"/><geom type="box" size=".025 .025 .025"/></body></worldbody>
-          <actuator><position joint="r" kp="100" ctrlrange="-.2 .2" forcerange="-{cap} {cap}"/>
-          <position joint="l" kp="100" ctrlrange="-.2 .2" forcerange="-{cap} {cap}"/></actuator></mujoco>''')
-        hand=SimpleNamespace(model=model,nu=2,obj=3,qadr=np.array([0,1]),dadr=np.array([0,1]),lower=np.full(2,-.2),upper=np.full(2,.2),friction=1.)
-        def set_state(q,pose,data):
-            data.qpos[:2]=q;data.qpos[2:]=pose;data.qvel[:]=0;mujoco.mj_forward(model,data)
-        hand.set_state=set_state
-        snapshot=dict(hand_q=np.zeros(2),object_pose=[0,0,.05,1,0,0,0],contacts=[
-            dict(point=[.025,0,0],normal=[-1,0,0],tangents=[[0,1,0],[0,0,1]],normal_force=1.,body=1,body_name='right'),
-            dict(point=[-.025,0,0],normal=[1,0,0],tangents=[[0,1,0],[0,0,1]],normal_force=1.,body=2,body_name='left')])
-        return actuator_support_witness(hand,snapshot,.01,measured_budget=measured)
-    assert not evaluate(2.,False)['feasible']
-    assert not evaluate(10.,True)['feasible']
-    future=evaluate(10.,False)
-    assert future['feasible']
-    np.testing.assert_allclose(future['required_normal_forces'],[4.905,4.905],atol=1e-7)
-    np.testing.assert_allclose(future['required_joint_torque'],[-4.905,4.905],atol=1e-7)
-
-
 def test_anatomical_surface_coordinates_are_invariant_to_global_axis_orientation():
     from planning.wuji_retarget import anatomical_coordinates
     from scipy.spatial.transform import Rotation
@@ -859,47 +709,6 @@ def test_anatomical_surface_coordinates_are_invariant_to_global_axis_orientation
     rotation=Rotation.from_euler('xyz',[.3,1.1,.7]).as_matrix()
     transformed=anatomical_coordinates(points@rotation.T,rotation@axis,rotation@palmar,rotation@thumb)
     np.testing.assert_allclose(transformed,reference,atol=1e-12)
-
-
-def test_scene_preserves_dexforge_options_contact_masks_and_servos(physical_hand):
-    from examples.retarget.retarget import physics_audit
-    root=Path(__file__).resolve().parents[1]/'thirdparty/retarget_assets/DexForge'
-    report=physics_audit(physical_hand,root/'assets/wuji/right_mesh.xml',
-        root/'data/dexycb/dexycb_004_sugar_box_20200709_142802/scene/leaphand/sugar_box_mesh.xml')
-    assert report['option_overrides']==[]
-    assert report['options']['timestep']==pytest.approx(.01)
-    assert report['options']['iterations']==10
-    assert report['object_mass']==pytest.approx(.514)
-    assert report['hand_object_friction']==pytest.approx(.5)
-    assert report['object_floor_friction']==pytest.approx(1.)
-
-
-def test_finger_tuning_updates_servos_and_both_torque_clamps_without_moving_regions(physical_hand,tmp_path):
-    from examples.retarget.retarget import physics_audit,parser
-    root=Path(__file__).resolve().parents[1]/'thirdparty/retarget_assets/DexForge'
-    hand_xml=root/'assets/wuji/right_mesh.xml'
-    object_xml=root/'data/dexycb/dexycb_004_sugar_box_20200709_142802/scene/leaphand/sugar_box_mesh.xml'
-    defaults=parser().parse_args([])
-    assert (defaults.finger_stiffness_scale,defaults.finger_force_scale,defaults.force_limit,defaults.closure_depth)==(1.,1.,100.,.004)
-    assert defaults.sim_dt==.002 and defaults.physics_profile=='dexforge'
-    xml=build_scene(hand_xml,object_xml,tmp_path/'tuned.xml',POSE,
-        finger_stiffness_scale=10.,finger_force_scale=3.)
-    tuned=WujiHand(xml,physical_hand.surface);source=physical_hand.model
-    np.testing.assert_allclose(tuned.model.actuator_gainprm[:6],source.actuator_gainprm[:6])
-    np.testing.assert_allclose(tuned.model.actuator_gainprm[6:,0],10*source.actuator_gainprm[6:,0])
-    np.testing.assert_allclose(tuned.model.actuator_biasprm[6:,2],np.sqrt(10)*source.actuator_biasprm[6:,2])
-    np.testing.assert_allclose(tuned.model.actuator_forcerange[6:],3*source.actuator_forcerange[6:])
-    np.testing.assert_allclose(tuned.model.jnt_actfrcrange[6:26],3*source.jnt_actfrcrange[6:26])
-    np.testing.assert_allclose(tuned.model.actuator_ctrlrange,source.actuator_ctrlrange)
-    # Identical hand configuration and material coordinates produce exactly
-    # the same geometric region after tuning.
-    q=np.clip(np.zeros(tuned.nu),tuned.lower,tuned.upper)
-    for h in (physical_hand,tuned):h.set_state(q,POSE,h.data)
-    material=MaterialPoint(tuned.palm,np.array([.01,0,.02]),np.array([1.,0,0]),'palm','palm')
-    np.testing.assert_allclose(tuned.kinematics([material])[0],physical_hand.kinematics([material])[0])
-    report=physics_audit(tuned,hand_xml,object_xml,finger_stiffness_scale=10.,finger_force_scale=3.)
-    assert report['actuators_match_declared_tuning'] and report['contact_geoms_match']
-    assert report['object_mass']==pytest.approx(.514) and report['hand_object_friction']==pytest.approx(.5)
 
 
 def test_predictor_contains_joint_stops_under_gravity(physical_hand):
@@ -1012,48 +821,6 @@ def test_upstream_active_contact_allowance_does_not_relax_noncontact_collisions(
     assert not hand.collision_report(data,set())['valid']
     contact.dist=-.009
     assert not hand.collision_report(data,{body})['valid']
-
-
-def test_dexycb_import_uses_grasp_identity_calibration_and_valid_masks(tmp_path):
-    from examples.retarget.dexycb_data import prepare_sequence,read_yaml
-    import yaml,json
-    dataset=tmp_path/'data';sequence=dataset/'subject'/'sequence';camera='123'
-    (sequence/camera).mkdir(parents=True)
-    metadata=dict(mano_sides=['right'],serials=[camera],ycb_ids=[1,3],ycb_grasp_ind=1,
-        num_frames=2,extrinsics='test',mano_calib=['test'])
-    (sequence/'meta.yml').write_text(yaml.safe_dump(metadata))
-    shape=dataset/'calibration/mano_test';shape.mkdir(parents=True)
-    (shape/'mano.yml').write_text(yaml.safe_dump(dict(betas=np.arange(10).astype(float).tolist())))
-    ext=dataset/'calibration/extrinsics_test';ext.mkdir(parents=True)
-    transform=np.c_[np.eye(3),[.1,.2,.3]]
-    (ext/'extrinsics.yml').write_text(yaml.dump(dict(extrinsics={camera:tuple(transform.ravel().tolist())})))
-    assert read_yaml(ext/'extrinsics.yml')['extrinsics'][camera]==transform.ravel().tolist()
-    for frame in range(2):
-        poses=np.tile(np.c_[np.eye(3),np.zeros(3)],(2,1,1))
-        poses[1,:,3]=[.2,.3,.4]
-        if frame==0:poses[1]=0.
-        np.savez(sequence/camera/f'labels_{frame:06d}.npz',pose_m=np.ones((1,51)),pose_y=poses)
-    template=tmp_path/'scene.xml'
-    template.write_text('<mujoco><asset><mesh name="sugar_box_mesh" file="mesh.obj"/></asset><worldbody><body name="obj"><joint name="obj_joint" type="free"/><inertial mass="0.514" pos="0 0 0" diaginertia=".001 .001 .001"/><geom mesh="sugar_box_mesh" type="mesh"/></body></worldbody></mujoco>')
-    output=prepare_sequence(dataset,sequence,camera,template,tmp_path/'prepared');raw=output/'mano_raw'
-    meta=json.loads((raw/'meta.json').read_text())
-    assert meta['object_index']==1 and meta['object']=='004_sugar_box'
-    np.testing.assert_array_equal(np.load(raw/'frame_valid.npy'),[False,True])
-    np.testing.assert_array_equal(np.load(raw/'extrinsics_4x4.npy')[:3],transform)
-    poses=np.load(raw/'object_pose_camera_7.npy')
-    np.testing.assert_allclose(poses[1,1],[0,0,0,1,.2,.3,.4])
-
-
-def test_table_plane_uses_object_support_to_reject_larger_background_wall():
-    from examples.retarget.dexycb_data import fit_table_plane
-    rng=np.random.default_rng(7)
-    floor=np.c_[rng.uniform(-.5,.5,(1000,2)),1+rng.normal(0,.0005,1000)]
-    wall=np.c_[np.ones(3000),rng.uniform(-.5,.5,3000),rng.uniform(.3,1.3,3000)]
-    vertices=np.array([[x,y,z] for x in (-.04,.04) for y in (-.05,.05) for z in (.85,.999)])
-    result=fit_table_plane(np.vstack((floor,wall)),vertices)
-    np.testing.assert_allclose(result['normal_camera'],[0,0,-1],atol=.001)
-    assert result['offset_camera']==pytest.approx(-1.,abs=.001)
-    assert result['inliers']>=1000 and result['rms_m']<.001
 
 
 def test_semantic_material_is_on_physical_collider_not_internal_visual_query(physical_hand):

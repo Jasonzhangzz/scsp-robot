@@ -31,9 +31,15 @@ def best_point_changes(decisions, summary):
     complete = (len(decisions) == summary['steps'] and
                 [d['step'] for d in decisions] == list(range(summary['steps'])))
     result = dict(best_contact_switch_events=None, best_contact_switch_frequency_hz=None,
-        best_contact_change_definition='object-local CSO argmin candidate changes between consecutive ranking evaluations; first candidate excluded',
+        best_contact_change_definition='world-space CSO argmin candidate changes between consecutive ranking evaluations; first candidate excluded',
+        best_contact_point_world_change_definition='world-space guided best contact changes between consecutive ranking evaluations; first candidate excluded',
         best_contact_trace_complete=complete)
-    for prefix, field in [('best_contact', 'optimal_local'), ('guided_contact', 'best_contact_local')]:
+    for prefix, local_field, world_fields in [
+            ('best_contact', 'optimal_local', ('optimal_world',)),
+            ('guided_contact', 'best_contact_local', ('best_contact_point_world', 'best_contact_world'))]:
+        field = next((candidate for candidate in world_fields
+                      if complete and all(d.get(candidate) is not None for d in decisions)),
+                     local_field)
         if not complete or any(d.get(field) is None for d in decisions):
             result[prefix+'_switch_events'] = None
             result[prefix+'_switch_frequency_hz'] = None
@@ -42,6 +48,8 @@ def best_point_changes(decisions, summary):
         changes = sum(np.linalg.norm(b-a)>1e-9 for a,b in zip(points,points[1:]))
         result[prefix+'_switch_events'] = int(changes)
         result[prefix+'_switch_frequency_hz'] = changes/duration if duration else None
+    result['best_contact_point_world_change_events'] = result['guided_contact_switch_events']
+    result['best_contact_point_world_change_frequency_hz'] = result['guided_contact_switch_frequency_hz']
     return result
 
 

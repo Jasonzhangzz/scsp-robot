@@ -1,100 +1,69 @@
-# SCM 求解器分支
+# scm_corrected / ContactSDF / LCP / MuJoCo QP 点力基准
 
-`test_scm_mujoco.py` 可用 `--solver`（别名 `--solver-backend`）选择
-`acados`、`ipopt`、`cma-es` 或 `cem`，默认仍为 `acados`。
+本入口只使用 `scm_corrected`：逐行 Delassus 对角得到初始冲量，再进行一次全局 alpha 修正。它没有 softSCM 响应时间或阻尼系数，也不是 `diagonal-contact` 的顺序单遍模型。
 
-| 分支 | 接触点上的力优化 |
-| --- | --- |
-| `acados` | 原有 ACADOS SQP-RTI；保留现有 IPOPT fallback |
-| `ipopt` | CasADi Opti / IPOPT，直接求解原有非线性约束问题 |
-| `cma-es` | pycma 全协方差 CMA-ES，使用 ask/tell 更新采样分布 |
-| `cem` | EvoTorch 库的 CEM，通过其 `cem` / `cem_ask` / `cem_tell` 接口执行 |
+四模型从相同实测状态预测完整 20 ms 持续施力轨迹，默认 40 个 0.5 ms 子步，逐步更新状态、接触与无约束动力学，分别优化自身的选点和力。物理执行保留 XML 质量、惯性原点和完整质量耦合，在物体上固定的表面点持续施力 20 ms，由 MuJoCo 进行 40 个子步；静稳验证及异步指令失效时撤力，不写入预测位姿或速度。统一使用三维点接触、棱锥摩擦和原生 QP 默认的 noslip=0。
 
-三个新增分支使用同一个 coupled quasi-dynamic soft-SCM 预测图、位姿代价和力正则项。
-候选接触点、接触选择策略和 MuJoCo 点力执行器继续共用。
-采样分支直接从 IPOPT 目标图导出 CasADi Function，不调用 IPOPT 或 ACADOS；
-每个样本都满足法向力上限、摩擦锥和总力上限，再返回本次搜索中代价最小的可行力。
-达到采样预算只表示返回可行最优样本，不表示已证明全局最优。
+## 环境和运行
 
-CMA-ES 使用 `cma`，CEM 使用 `evotorch`，均已加入 requirements.txt 可选依赖：
+参考仿真依赖仍使用 `examples/mpc/franka/scm/requirements.txt` 的锁定版本。实验解释器为 `.venv/pi0/bin/python`，基于已有 CUDA Torch 环境创建独立 venv；MuJoCo 3.6.0、Warp 1.16.0 和固定提交 ComFree 安装在参考目录 `.deps`，由 `runtime_env.py` 激活，不覆盖其他环境。
 
 ```bash
-conda run --no-capture-output -n pi0 python -m pip install 'cma>=4,<5' 'evotorch>=0.6,<0.7'
+.venv/pi0/bin/python examples/mpc/fingertips/test/run_contact_benchmark_background.py \
+  --output-dir log/contact_models_RUN
 ```
 
-从仓库根目录运行，修改 `--solver` 即可切换：
+后台启动器创建独立进程和 Xvfb 显示，实际运行 MuJoCo viewer；规划使用 CUDA，实际物理执行使用 CPU MuJoCo，渲染采用独立进程的软件 OpenGL。无需轮询，退出后自动审计；状态与错误写入 STATUS.json，输出写入 controller.log / supervisor.log / audit.log。直接运行 benchmark_contact_models.py 可前台执行同一流程。
+
+默认七物体、seeds 0/1/2、每个 trial 最多 5000 步。先做模型数值预检和完整可视化对照，再完成 84 次同步，最后完成 84 次异步。`--phase preflight|viewer|sync|async|summary` 可分阶段运行；异步阶段要求同步结果完整，正式阶段要求可视化核对通过。`--resume` 仅复用协议和源码哈希相同的已有结果。
+
+单独试跑：
 
 ```bash
-SCSP_PLANNER_ONLY=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
-  conda run --no-capture-output -n pi0 python \
-  examples/mpc/fingertips/test/test_scm_mujoco.py \
-  --solver ipopt --obj foam_brick --steps 5000 \
-  --force-output output/scm_solvers/ipopt.json
+.venv/pi0/bin/python examples/mpc/fingertips/test/test_scm_mujoco.py \
+  --model scm_corrected --obj foam_brick --steps 5000 \
+  --force-output log/scm_trial.json
 ```
 
-`--solver cma-es` 和 `--solver cem` 使用同样命令。
-无 `--viewer` 时无窗口运行；加上 `--viewer` 可查看仿真。
-`--execution` 默认 `wrench`，由 MuJoCo 物理推进实际施力结果。
-JSON 和同名 CSV 保存逐步轨迹、请求/实际求解后端、规划耗时与成功状态。
-达到步数上限仍未成功会保存结果并返回退出码 1；成功并停稳返回 0。
-短程 smoke test 未到目标时的退出码 1 与求解异常不同。
-`--qp` / `--lcp` 使用各自现有 SLSQP 基线，此处 `--solver` 只选择 SCM 力优化分支。
+`--model` 还可选 `contactsdf`、`lcp`、`qp`，`--qp` / `--lcp` 为兼容别名。`--viewer` 开启独立进程的可视化，`--async-planner` 开启隔离数据与优化状态的异步规划。
 
-采样参数：
+## 优化与校验
 
-| 参数 | 默认值 | 含义 |
-| --- | --- | --- |
-| `--population-size` | 24 | 每个候选接触点、每代的样本数，至少 4 |
-| `--population-iterations` | 12 | 每个接触点最多运行的代数，至少 1 |
-| `--solver-seed` | 0 | 加到 trial seed 的随机种子偏移 |
-| `--cem-elite-fraction` | 0.25 | CEM 精英比例，范围 (0, 1]，至少取 2 个样本 |
+CUDA CEM 对每个表面点使用 24 个力样本、同步默认 12 代、25% 精英；异步在同一代数上限内按实际求解耗时调整搜索代数，候选点与力样本并行计算。实现采用固定种子的 Warp CUDA 核和缓存 CUDA graph；每轮重新上传实测状态，不能继承其他候选的仿真状态。初始种群包含撤力及不同量级的纯法向力锚点；保留全部代中的最优可行解。它是预算内搜索最优样本，不证明连续空间全局最优。
 
-两个采样分支每个接触点单独初始化分布，并先评估撤力和纯法向力种子。
-CEM 的采样、精英选择与分布更新由 EvoTorch 执行，标准差下限为 0.02。
-仅在接口层处理力约束映射和 SCM 目标计算，没有自行实现 CMA-ES 或 CEM 算法。
-随机种子按 trial 分离；不修改场景的全局 NumPy 随机状态。
-EvoTorch 的 CPU Torch RNG 使用 `fork_rng` 隔离，执行后恢复调用者状态。
-增大代数/种群会增加每轮完整接触规划的耗时。
+- SCM：原始初始冲量经过一次全局 alpha 缩放，保持自由运动不变。
+- ContactSDF：复用已修复的动态 LSE 投影，Q=M/h²、sigma=120；属于未训练的动态扩展。
+- LCP：GPU float64 顺序投影求解完整耦合问题，检查原始尺度互补残差及活跃行 slack，并与 CPU Lemke 核对。
+- QP：以 float64 在六维速度空间执行带线搜索的 Newton，求解 MuJoCo 原生棱锥软接触 QP。每个子步按实际 solref/solimp、body_invweight0、摩擦和 impratio 重建原生正则与参考加速度，保留原生软化项；完整轨迹与 CPU MuJoCo mj_step 对照，失败则对整个模型统一锁定 CPU AdamW。
 
-回归验证：
+本场景为一个自由刚体与静态水平面，因此 GPU 使用双精度刚体方程，保留 COM 偏移、非对角惯性、陀螺项与逐自由度阻尼。平面—网格接触严格遵循 MuJoCo 3.6 的支撑点、邻居与最多三个接触点规则。依赖中 Warp 的四接触点算法及自由关节共享阻尼实现不参与当前完整轨迹求解。每个模型、物体与种子都核对初态及加载且非零初速度状态下所有候选点的 CPU/GPU 最优轨迹。CPU Lemke 若数值失效，使用相同 LCP 的独立 active-set 解，仍检查原始问题残差，并记录参考解的回退原因与次数。
 
-```bash
-SCSP_PLANNER_ONLY=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
-  conda run --no-capture-output -n pi0 python -m pytest -q \
-  tests/test_scm_force_solvers.py tests/test_runtime_compat.py \
-  tests/test_direct_contact_force.py tests/test_grouped_contact_response.py \
-  tests/test_shared_cartesian_contact.py tests/test_franka_contact_limits.py \
-  tests/test_franka_scene_friction.py
-```
+AdamW 回退通过自身模型的中心有限差分得到梯度，不使用 SCM 梯度替代；日志记录实际后端和原因。旧 SLSQP 局部线性化、ACADOS 和 softSCM 不再参与本入口。其他 MPC 的 softSCM 及其库求解器测试保留。
 
-新增测试覆盖约束、二次目标优化、种子复现、全局 RNG 不被修改、
-三个分支不构造 ACADOS 的真实 MuJoCo 运行，以及在线 SCM 参数变化后的预测/代价一致性。
+## 稳定控制与异步执行
 
-CMA-ES 接口参见 [pycma 官方文档](https://cma-es.github.io/apidocs-pycma/cma.evolution_strategy.CMAEvolutionStrategy.html)。
-CEM 接口参见 [EvoTorch 官方文档](https://docs.evotorch.ai/latest/reference/evotorch/algorithms/functional/)。
+默认仍保留 10 N 直施力上限，不混用旧笛卡尔执行器的约 3 N 可达上限。另对所有模型统一加入单控制周期的力冲量约束：`||h F/m|| <= 0.3 m/s`、`||h I_COM^-1 ((p-COM) × F)|| <= 5 rad/s`。这限制力本身注入的动量，防止优化器通过预测的接触抵消选择过大的力；不是对实际总速度的硬裁剪。约束直接参数化进 CEM/AdamW 的可行域，实际执行不裁剪最优力。位置/姿态代价之外加入翻转阶段末端线速度系数 2、角速度系数 0.02；完整位姿阶段默认乘 `--pose-velocity-scale .1`，缓解单步目标下的位置停滞。进入撤力验证前必须同时满足静稳速度阈值。进入翻转直立角度范围且低速后先撤力，让原生接触摩擦消耗残余运动；超过原有回退角度才恢复翻转施力。阶段切换仍须满足原有的实测速度阈值和稳定计时，避免每周期新力打断静稳验证。
 
-## 本次验证结果
+异步只从复制的实测状态规划，不再用接触模型在 CPU 外推未来发布状态。初始化预热首条指令及工作线程，从第 1 周期开始向工作线程提交最新观测；预算内完成的结果在当前仿真周期发布，不预设未来执行步，也不因超过旧预定步而丢弃。超时等待期间保持已有指令；每周期重新检查观测年龄（默认最多 0.1 s）、目标阶段和接触点是否仍高于地面阈值。保持同一指令期间，累计力冲量不能超过上述 COM/角速度增量预算；旧力保持不会重置预算。失效时撤力，记录具体原因，不缩放执行器输出。
 
-2026-10-13，在 pi0 环境使用 CasADi 3.7.2、MuJoCo 3.11.0、
-pycma 4.5.0、EvoTorch 0.6.1。完整回归测试 **67 项通过**。
-以下均为 `foam_brick`、种子 0、真实 `wrench` 执行，成功后满足无外力保持与停稳判据：
+`--async-planning-budget-ms` 默认取控制周期的 80%（20 ms 周期对应 16 ms），由实测完整求解耗时调整下一轮 CEM/AdamW 代数，最少一代、最多 `--population-iterations` 代；保留全部表面点、候选数量及 40 子步预测精度。设为 `0` 可关闭预算适配。该预算用于调整工作量，不是硬实时保证；单代也超过控制周期的后端仍如实记录超时。同步模式保持完整搜索预算。日志记录实际搜索代数，异步回放按原始代数重算，避免墙钟抖动改变回放结果。
 
-| 库求解器 | 起点 | 成功步数 | 最终位置误差 (m) | 最终姿态误差 |
-| --- | --- | --- | --- | --- |
-| CasADi / IPOPT | 直立 | 285 | 0.017044 | 0.000137 |
-| pycma / CMA-ES | 默认随机倾斜 | 461 | 0.005642 | 0.013217 |
-| pycma / CMA-ES | 直立 | 58 | 0.015879 | 0.014528 |
-| EvoTorch / CEM | 默认随机倾斜 | 489 | 0.016218 | 0.000187 |
-| EvoTorch / CEM | 直立 | 282 | 0.016319 | 0.001129 |
+`--async-result-wait-ms` 默认也是控制周期的 80%，等待总量同时受当前周期墙钟截止时间限制。等待期间仿真状态不推进，因此预算内结果可对同一实测仿真状态施力，消除原来强制跨周期取结果造成的 20 ms 滞后；墙钟规划时间仍完整计入统计，这不等价于真实硬件的零计算延迟。超时后退化为有限旧力保持；下一周期可以消费旧结果并在剩余等待预算内追赶最新观测。设为 `0` 可测量完全非阻塞异步时序。日志记录同周期指令比例和包含物理执行的周期工作耗时。
 
-直立测试附加 `--init_tilt_min_deg 0 --init_tilt_deg 0 --steps 1000`。
-默认倾斜测试使用 `--steps 5000`。这些成功任务均未切换求解后端，
-未出现 MuJoCo 不稳定，逐步力满足 3 N 上限和摩擦金字塔约束。
-CMA-ES 与 CEM 默认倾斜测试的初始物体位姿相同。
-额外的 IPOPT 默认倾斜长测约 20 分钟后主动停止，没有完整结果，
-不计为成功或算法失败；本次 IPOPT 的停稳验证范围是直立起点。
+`--async-max-command-age` 调整最大观测年龄。日志区分更新、有限保持、过期、接触点失效、目标阶段变化、冲量耗尽和静稳验证。只有从当前周期观测预测并实际执行的指令才计入模型单步预测误差，避免把异步滞后记作模型误差。
 
-轨迹 JSON/CSV、日志及 `summary.json` 保存于
-`output/diagnostics/scm_solvers_20261013/`。
-其中 `legacy_numpy_cem/` 是已经移除的旧手写 CEM 记录，不能作为当前库分支的验证。
-本次仅覆盖上述物体和种子，不能推断其他物体/种子的任务成功率。
+## 成功与日志
+
+沿用两阶段 flipping→目标位姿。目标默认在源物体网格坐标系中采样，再用 XML 的 mesh-to-body 安装旋转转换到 MuJoCo body 坐标；初始化与目标使用同一转换。这样杯子、茶壶等目标是自然直立姿态，撤力后不会因网格安装旋转自行倒下。用 `--target-frame body` 可保留旧 body 坐标解释。目标高度按实际编译碰撞网格和目标姿态计算桌面支撑高度，并加 0.5 mm 间隙；只修改本基准场景，不改变共享 params 的其他实验。可用 `--target-height-mode fixed --target-height .03` 重现原固定高度。日志同时保存请求目标、目标坐标系、安装四元数与实际目标。
+
+最终成功需位置误差 <0.02m、四元数指标 1−dot(q,qd)² <0.015，连续 10 个无外力控制周期并静稳（线速度 <0.05m/s、角速度 <0.5rad/s）。撤力验证入口使用相同的位置/姿态阈值，并要求当前速度静稳；10 个验证周期均须满足位姿和速度阈值。稳定翻转单独记录，不代替完整位姿成功。
+
+每个 trial 保存日志、JSON/CSV 逐步轨迹和独立规划轮次。控制步从 1 开始计数，失败的 completion_steps 为 null。统计按实际规划调用计算，旧指令复用步没有规划耗时样本；包含已完成但未发布的异步规划。编译、场景初始化和预热单列，不计入正式规划均值。
+
+可视化只读取独立模型与数据副本。同步比较完整轨迹；异步以记录的观测/发布时序重新规划对照，另保存真实实时 viewer 运行结果，区分渲染功能差异与线程调度延迟。
+
+输出目录包含 protocol.json、backend_validation.json、viewer_consistency/、sync/、async/、summary.log、summary.json、summary.csv 和实验源码快照。2026-10-13 的旧 softSCM/ACADOS/CMA-ES 结果仅属于历史实验，不能与本协议合并。
+
+2026-10-17 的单次 20 ms Euler 基线（contact_models_20261017_021541）存在持续施力预测与异步滞后问题，仅作为诊断数据，不能混入当前 40 子步与冲量约束协议。
+
+2026-10-17 的 `contact_models_20261017_030917` 属于修复前的固定高度、未来状态外推和单周期指令协议；其日志保留用于诊断，修复后的目标、速度代价和异步执行协议必须使用新输出目录。

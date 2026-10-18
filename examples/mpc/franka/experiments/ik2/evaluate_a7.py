@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[5]
 OBJECTS = ('foam_brick', 'stanford_bunny2', 'elephant', 'piggy_bank',
            'teapot', 'mug', 'rubber_duck')
 SEEDS = (0, 1, 2)
@@ -87,7 +87,7 @@ def main():
         for obj in OBJECTS:
             cell = out/task/obj
             cell.mkdir()
-            commands[task+'/'+obj] = [sys.executable, '-u', str(Path(__file__).with_name('run_ablation.py')),
+            commands[task+'/'+obj] = [sys.executable, '-u', str(ROOT/'examples/mpc/franka/ik2/run_ablation.py'),
                 '--a7', '--task', task, '--obj', obj, '--headless', '--sync-planner',
                 '--no-headless-realtime', '--physics-backend', 'isaac', '--solver-backend', 'ipopt',
                 '--trial-start', '0', '--trial_num', '3', '--max_rollout_length', '2500',

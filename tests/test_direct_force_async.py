@@ -62,14 +62,14 @@ def test_pending_planner_uses_isolated_snapshot_and_retains_command(monkeypatch)
 
 
 def test_contact_settings_and_isaac_angular_decay(monkeypatch):
-    from examples.mpc.fingertips.test.test_scm_mujoco import build_parser
+    from examples.mpc.fingertips.test.test_0902 import build_parser
     from examples.mpc.fingertips.test.params import ExplicitMPCParams
     from envs.fingertips_env import MjSimulator
     from planning.direct_contact_force import configure_direct_force_optimizer
 
     monkeypatch.setenv('MUJOCO_HEADLESS', '1')
-    args = build_parser().parse_args(['--solver', 'ipopt'])
-    args.rollout = True
+    args = build_parser().parse_args([])
+    args.rollout, args.solver = True, 'ipopt'
     param = ExplicitMPCParams(args, rand_seed=0)
     env = MjSimulator(param)
     configure_direct_force_optimizer(param, env, args)
