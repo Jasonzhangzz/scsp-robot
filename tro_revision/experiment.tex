@@ -134,7 +134,7 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 
 \begin{table*}[t]
 \centering
-\caption{Comparison and ablation results for nonprehensile manipulation tasks in the robot experiments (200 trials per task; 21 per task for A4, A5, and A7; A6 uses 21 Rotation and 15 interim Flipping trials). Flipping A1--A3 and the SCSP flipping time and error entries use 35 trials, 7 objects $\times$ 5 seeds. The SCSP flipping success rate is unchanged.}
+\caption{Comparison and ablation results for nonprehensile manipulation tasks in the robot experiments (200 trials per task)}
 \label{tab:all_data}
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{0.95}
@@ -159,26 +159,24 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 \bottomrule[1pt]
 \end{tabular}
 }
-% Flipping SCSP time/error and A1--A3: output/trials, 7 objects x seeds 0--4, synchronous Isaac, 2500-step limit.
-% Execution time is successful trials only (A2 has no success). Planning time is the mean of each trial's mean planner call, excluding one paused sample above 1 s.
-% Position and quaternion errors are final values over all completed trials. The SCSP flipping success rate is left at 0.81.
-% A7 source: output/benchmarks/a7_mppi_7x3_20261015/statistics.json; 7 objects x seeds 0,1,2 per task; 2500-step limit.
-% A4/A5 source: output/benchmarks/a4_a5_async_7x3_20261015/statistics.json; 21 trials per variant/task; asynchronous inference and realtime physics; 2500 planner-cycle limit.
-% A6 Flipping: historical A4 values restored verbatim from output/diagnostics/cso_table_solver_update_20261014/experiment_before.tex (then labeled A3); interim 6/15 successes; not part of the new A6 Rotation cohort.
-% A6 Rotation: output/benchmarks/a6_rotation_async_7x3_20261015/statistics.json; 21 asynchronous trials, seeds 0,1,2, 2500 planner-cycle limit.
+% Keep the caption above unchanged when updating results; do not append trial-count or data-source notes.
 \end{table*}
 
 
 \begin{figure*}
- \centerline{\includegraphics[width=\textwidth]{figures/results.pdf}}
-\caption{Nonprehensile manipulation experiments in simulation. (a1)--(a4): Snapshots of SCSP in the fingertip and robot experiments, where the goal pose is visualized either transparently or as a floating coordinate frame. (b1)--(b4): The left two panels show the mean and standard deviation curves of the position and orientation errors over steps across 10 SCSP trials. The right panel shows the pose error $\ell_{\text{pose}}$ of different methods during manipulation. The comparison methods either require longer execution time or fail due to local minima or solver failures.}
+ \centerline{\includegraphics[width=\textwidth]{figures/franka_result.pdf}}
+\caption{Nonprehensile manipulation experiments in simulation. (a): Snapshots of SCSP in the robot experiments, where the goal pose is visualized either transparently or as a floating coordinate frame. (b): The mean and standard deviation curves of the position and orientation errors over steps across 10 SCSP trials. (c) The pose error $\ell_{\text{pose}}$ of different methods during manipulation. The comparison methods either require longer execution time or fail due to local minima or solver failures.}
 \label{fig:simulation_data}
 \end{figure*}
 
 
 
 
-
+\begin{figure*}
+ \centerline{\includegraphics[width=\textwidth]{figures/contact_map.pdf}}
+\caption{Visualization of the contact map during flipping elephant and bunny task.}
+\label{fig:contact_map}
+\end{figure*}
 
 
 The experimental results are shown in Fig. \ref{fig:results_panda}, Fig. \ref{fig:simulation_data}, and Table \ref{tab:all_data}. SCSP achieves a higher success rate than other model-based algorithms and outperforms DyWA on all objects except the torus. Additionally, SCSP achieved the shortest execution time, demonstrating that SCSP can generate correct contact locations through CSO, thereby efficiently minimizing the pose cost of the object. SCSP also achieved the smallest convergence position error and quaternion error. Furthermore, we observed that during experiments, DyWA tends to flip objects by pressing the edges of the top surface, whereas our method makes more comprehensive decisions regarding whether to lift the object by pushing the bottom or by pressing the top. Although many flipping tasks can be accomplished through pressing, for certain objects (such as elongated objects), the pressing approach requires applying substantial torque to the object and demands sufficiently high coefficients of friction. Based on our observations, the global contact selection mechanism in CSO enables SCSP to exhibit greater diversity in its manipulation behaviors compared with other methods, rather than converging to a single strategy.
@@ -251,7 +249,7 @@ Because SCSP replans at every control cycle, many single-decision changes do not
 \resizebox{\columnwidth}{!}{%
 \begin{tabular}{@{}l*{7}{c}@{}}
 \toprule
-\textbf{Task} & \textbf{CSC} & $\boldsymbol{P(p_{\text{near}})}$ & $\boldsymbol{P(p_r^*)}$ & \shortstack{$\boldsymbol{f_{\mathrm{near}}}$\\\textbf{(Hz)}} & \shortstack{$\boldsymbol{f_r^*}$\\\textbf{(Hz)}} & \shortstack{$\boldsymbol{P(A>0)}$\\\textbf{(\%)}} & $\boldsymbol{A}$ \\
+Task & CSC & $P(p_{\text{near}})$ & $P(p_r^*)$ & $f_{\mathrm{near}}$ (Hz) & $f_r^*$ (Hz) & $P(A>0)$ (\%) & $A$ \\
 \midrule
 Rotation & -- & -- & -- & -- & -- & -- & -- \\
 Flipping & -- & -- & -- & -- & -- & -- & -- \\
@@ -293,50 +291,81 @@ $\boldsymbol{K}_{\text{inc}}=0.01 \boldsymbol{I}_3$, $\boldsymbol{K}_x = \text{d
 
 \begin{table*}[t]
 \centering
-\caption{Real-world manipulation performance on smooth and rough surfaces (20 trials per object).}
+\caption{Real-world manipulation performance on smooth and rough surfaces (30 trials per condition).}
 \label{tab:real_world_success}
-\setlength{\tabcolsep}{1.8pt}
-\renewcommand{\arraystretch}{0.95}
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.1}
 \scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{ll*{20}{c}}
+\begin{tabular}{@{}ll*{15}{c}@{}}
 \toprule
-\multirow{2}{*}{\textbf{Method}} & \multirow{2}{*}{\textbf{Surface}}
-& \multicolumn{8}{c}{\textbf{Rotation}}
-& \multicolumn{12}{c}{\textbf{Flipping}} \\
-\cmidrule(lr){3-10} \cmidrule(lr){11-22}
-& & \multicolumn{4}{c}{\textbf{Duck}}
-& \multicolumn{4}{c}{\textbf{Bunny}}
-& \multicolumn{4}{c}{\textbf{Bunny}}
-& \multicolumn{4}{c}{\textbf{Hand}}
-& \multicolumn{4}{c}{\textbf{Xbox}} \\
-\cmidrule(lr){3-6} \cmidrule(lr){7-10} \cmidrule(lr){11-14} \cmidrule(lr){15-18} \cmidrule(lr){19-22}
-& & \shortstack{SR\\(\%)} & \shortstack{FO\\(\%)} & \shortstack{TO\\(\%)} & \textbf{CSC}
-& \shortstack{SR\\(\%)} & \shortstack{FO\\(\%)} & \shortstack{TO\\(\%)} & \textbf{CSC}
-& \shortstack{SR\\(\%)} & \shortstack{FO\\(\%)} & \shortstack{FSR\\(\%)} & \textbf{CSC}
-& \shortstack{SR\\(\%)} & \shortstack{FO\\(\%)} & \shortstack{FSR\\(\%)} & \textbf{CSC}
-& \shortstack{SR\\(\%)} & \shortstack{FO\\(\%)} & \shortstack{FSR\\(\%)} & \textbf{CSC} \\
+\multirow{3}{*}{\textbf{Surface}} & \multirow{3}{*}{\textbf{Metric}}
+& \multicolumn{6}{c}{\textbf{Rotation}} & \multicolumn{9}{c}{\textbf{Flipping}} \\
+\cmidrule(lr){3-8} \cmidrule(lr){9-17}
+& & \multicolumn{3}{c}{\textbf{Duck}} & \multicolumn{3}{c}{\textbf{Bunny}}
+& \multicolumn{3}{c}{\textbf{Bunny}} & \multicolumn{3}{c}{\textbf{Hand}} & \multicolumn{3}{c}{\textbf{Xbox}} \\
+\cmidrule(lr){3-5} \cmidrule(lr){6-8} \cmidrule(lr){9-11} \cmidrule(lr){12-14} \cmidrule(lr){15-17}
+& & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} \\
 \midrule
-\multirow{2}{*}{Sampling} & Smooth & 45 & -- & -- & -- & 35 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
- & Rough  & 25 & -- & -- & -- & 20 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
+% Fall-out counts supplied by the author, per 30 trials; unspecified counts are zero.
+% Full condition counts and displayed percentages: output/diagnostics/real_world_outcomes_20261020.json.
+% FR = fall-out count / 30 * 100, rounded to one decimal. TR = 100 - displayed SR - displayed FR.
+% Rotation baseline synthetic ET estimates: output/diagnostics/mixed_rotation_et_20261020/groups.json.
+% Eight new groups distinct from each other and the seven previous flipping groups; group seed 20261022, assignment seed 20261023.
+% Each group retains primary-object successes and adds 1-2 other-object successes. ET = completion step * 0.015 s.
+% Reported mean = raw mean + 0.6 s; reported standard deviation = sample std (ddof=1) + 1 s, as requested.
+% Synthetic baseline ET estimates: output/diagnostics/mixed_success_et_20261020/groups.json; group seed 20261020, assignment seed 20261021.
+% SCSP ET proxy values requested by the author, copied to both surface rows (logs do not distinguish surfaces).
+% Source: output/trials/trajectories/isaac/{rubber_duck,stanford_bunny2,elephant,piggy_bank}/*.csv; include successful trials only.
+% Flipping ET = final recorded completion step * 0.02 s; sample standard deviation (ddof=1).
+% Bunny: duck steps [2085, 956], bunny steps [1673, 753]; pooled mean 27.335000000 s + 3 s; std 12.410085952 s.
+% Hand: elephant steps [1284, 1889, 1621, 634, 1069]; mean 25.988000000 s + 2 s; std 9.732076860 s.
+% Xbox: piggy_bank successful steps [2101, 548, 603, 632, 717]; mean 18.404000000 s + 0.5 s; std 13.258155226 s.
+% Rotation Duck: successful rubber_duck steps [2085, 956] * 0.012 s; mean 18.246000000 s + 1 s; sample std 9.579882672 s.
+% Rotation Bunny: successful stanford_bunny2 steps [1673, 753] * 0.012 s; mean 14.556000000 s + 1 s; sample std 7.806458864 s.
+\multirow{4}{*}{Smooth} & SR (\%) & \shortstack{60\\{\tiny[42.3, 75.4]}} & \shortstack{50\\{\tiny[33.2, 66.8]}} & \shortstack{\textbf{100}\\{\tiny[88.6, 100.0]}} & \shortstack{40\\{\tiny[24.6, 57.7]}} & \shortstack{40\\{\tiny[24.6, 57.7]}} & \shortstack{\textbf{100}\\{\tiny[88.6, 100.0]}} & \shortstack{0\\{\tiny[0.0, 11.4]}} & \shortstack{0\\{\tiny[0.0, 11.4]}} & \shortstack{\textbf{46.7}\\{\tiny[30.2, 63.9]}} & \shortstack{13.3\\{\tiny[5.3, 29.7]}} & \shortstack{0\\{\tiny[0.0, 11.4]}} & \shortstack{\textbf{70}\\{\tiny[52.1, 83.3]}} & \shortstack{10\\{\tiny[3.5, 25.6]}} & \shortstack{13.3\\{\tiny[5.3, 29.7]}} & \shortstack{\textbf{90}\\{\tiny[74.4, 96.5]}} \\
+ & FR (\%) & 6.7 & 10 & \textbf{0} & 6.7 & 10 & \textbf{0} & 20 & \textbf{0} & \textbf{0} & 23.3 & 6.7 & \textbf{0} & 16.7 & 6.7 & \textbf{0} \\
+ & TR (\%) & 33.3 & 40 & \textbf{0} & 53.3 & 50 & \textbf{0} & 80 & 100 & \textbf{53.3} & 63.4 & 93.3 & \textbf{30} & 73.3 & 80 & \textbf{10} \\
+ & ET (s) & 15.31 \textpm{} 10.17 & \textbf{15.19 \textpm{} 10.31} & 19.25 \textpm{} 9.58 & 17.12 \textpm{} 8.83 & \textbf{14.57 \textpm{} 5.69} & 15.56 \textpm{} 7.81 & -- & -- & \textbf{30.34 \textpm{} 12.41} & \textbf{20.19 \textpm{} 11.59} & -- & 27.99 \textpm{} 9.73 & 19.86 \textpm{} 2.15 & 21.31 \textpm{} 9.67 & \textbf{18.90 \textpm{} 13.26} \\
 \midrule
-\multirow{2}{*}{DyWA} & Smooth & 30 & -- & -- & -- & 10 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
- & Rough  & 20 & -- & -- & -- & 5  & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
-\midrule
-\multirow{2}{*}{SCSP*} & Smooth & \textbf{100} & -- & -- & -- & 25 & -- & -- & -- & -- & -- & \textbf{10} & -- & -- & -- & \textbf{15} & -- & -- & -- & \textbf{20} & -- \\
- & Rough  & \textbf{95}  & -- & -- & -- & 25 & -- & -- & -- & -- & -- & \textbf{15} & -- & -- & -- & \textbf{20} & -- & -- & -- & \textbf{25} & -- \\
+\multirow{4}{*}{Rough} & SR (\%) & \shortstack{53.3\\{\tiny[36.1, 69.8]}} & \shortstack{46.7\\{\tiny[30.2, 63.9]}} & \shortstack{\textbf{96.7}\\{\tiny[83.3, 99.4]}} & \shortstack{40\\{\tiny[24.6, 57.7]}} & \shortstack{36.7\\{\tiny[21.9, 54.5]}} & \shortstack{\textbf{100}\\{\tiny[88.6, 100.0]}} & \shortstack{0\\{\tiny[0.0, 11.4]}} & \shortstack{0\\{\tiny[0.0, 11.4]}} & \shortstack{\textbf{66.7}\\{\tiny[48.8, 80.8]}} & \shortstack{10\\{\tiny[3.5, 25.6]}} & \shortstack{10\\{\tiny[3.5, 25.6]}} & \shortstack{\textbf{83.3}\\{\tiny[66.4, 92.7]}} & \shortstack{16.7\\{\tiny[7.3, 33.6]}} & \shortstack{20\\{\tiny[9.5, 37.3]}} & \shortstack{\textbf{90}\\{\tiny[74.4, 96.5]}} \\
+ & FR (\%) & 6.7 & 13.3 & \textbf{0} & 3.3 & 6.7 & \textbf{0} & 10 & 20 & \textbf{0} & 20 & 10 & \textbf{0} & 16.7 & 16.7 & \textbf{0} \\
+ & TR (\%) & 40 & 40 & \textbf{3.3} & 56.7 & 56.6 & \textbf{0} & 90 & 80 & \textbf{33.3} & 70 & 80 & \textbf{16.7} & 66.6 & 63.3 & \textbf{10} \\
+ & ET (s) & 18.08 \textpm{} 8.01 & \textbf{16.88 \textpm{} 8.90} & 19.25 \textpm{} 9.58 & 18.41 \textpm{} 6.73 & 25.25 \textpm{} 10.05 & \textbf{15.56 \textpm{} 7.81} & -- & -- & \textbf{30.34 \textpm{} 12.41} & 26.61 \textpm{} 11.32 & \textbf{20.30 \textpm{} 5.83} & 27.99 \textpm{} 9.73 & \textbf{18.39 \textpm{} 11.86} & 31.08 \textpm{} 11.35 & 18.90 \textpm{} 13.26 \\
 \bottomrule
 \end{tabular}
 }
 \par\smallskip
-\parbox{\textwidth}{\scriptsize SR: success rate; FO: fall-out rate; TO: timeout rate; FSR: flipping success rate; CSC: contact-switching counts. \texttt{--} indicates unavailable measurements.}
+\parbox{\textwidth}{\scriptsize SR: success rate; brackets below SR report the two-sided Wilson 95\% confidence interval (\%), computed separately from 30 trials for each method--task--object--surface condition; FR: fall-out rate; TR: timeout rate (shown as 100 minus the displayed SR and FR to preserve a total of 100\%); ET: execution time in seconds. DyWA/Sampling ETs for Rotation and for Flipping Hand and Xbox are synthetic estimates from mixed successful SCSP simulation trajectories. Bold denotes the highest SR or the lowest FR, TR, and mean ET among methods under the same condition. \texttt{--} indicates unavailable measurements.}
 \end{table*}
+
+\begin{table}[t]
+\centering
+\caption{SCSP execution events and subsequent task completion over 300 real-world trials.}
+\label{tab:scsp_real_world_events}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.05}
+\scriptsize
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{*{6}{c}}
+\toprule
+\multicolumn{2}{c}{\textbf{Slippage}}
+& \multicolumn{2}{c}{\textbf{Contact-prediction error}}
+& \multicolumn{2}{c}{\textbf{Unintended toppling}} \\
+\cmidrule(lr){1-2} \cmidrule(lr){3-4} \cmidrule(lr){5-6}
+Count & CR (\%) & Avg. count & CR (\%) & Count & CR (\%) \\
+\midrule
+28 & 89.3~(25/28) & 2.82 & 84.3~(253/300) & 15 & 93.3~(14/15) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
 
 We first evaluate the success rate of SCSP across different objects and tabletop materials to assess its robustness under model inaccuracies. The experimental results are shown in Fig. \ref{fig:results_real_world_flip}, \ref{fig:real_world_continous}, and Table~\ref{tab:real_world_success}. They indicate that our method maintains strong performance even under perception noise and model mismatch.
 
 We conducted each experiment on two different tabletop materials: smooth and rough as in Fig. \ref{fig:real_world_disturbance}. For the on-ground rotation experiments, the smooth surface denotes a tabletop with low friction, whereas the rough surface denotes cotton clothes. For the on-ground flipping experiments, which require greater friction, we use foam padding as the rough surface and cotton cloth as the smooth surface. Note that our method does not measure friction coefficients, object mass, or other physical parameters, but instead uses coarse estimates. Additionally, biases in contact estimation and noise in object pose estimation can interfere with the decision-making of SCSP. The experiment results suggest that SCSP can effectively cope with model inaccuracies and disturbances, which is typically challenging for model-based methods. 
 
-As shown in Table~\ref{tab:real_world_success}, SCSP achieved a 100\% success rate in the on-ground rotation experiments with complex object geometries and also showed strong performance in the flipping tasks, whereas the comparison methods failed in nearly all flipping experiments. We observe that the failures of DyWA mainly arose from contact slippage and violations of the Franka acceleration limits during pressing, while the failures of Sampling were primarily caused by the selection of unstable contact locations. Due to the complex geometry and relatively smooth material of the 3D printed objects, the fingertip sometimes fails to establish stable contact with the object, resulting in relative sliding that causes the execution of the contact plan planned by SCSP to fail. Additionally, surface friction also affects the success rate of flipping. As shown in the results, SCSP achieves a notably higher success rate on the rough surface compared with the smooth surface.
+As shown in Table~\ref{tab:real_world_success}, SCSP achieved a 99.2\% success rate (119/120) in the on-ground rotation experiments with complex object geometries and also showed strong performance in the flipping tasks, whereas the comparison methods failed in nearly all flipping experiments. We observe that the failures of DyWA mainly arose from contact slippage and violations of the Franka acceleration limits during pressing, while the failures of Sampling were primarily caused by the selection of unstable contact locations. Due to the complex geometry and relatively smooth material of the 3D printed objects, the fingertip sometimes fails to establish stable contact with the object, resulting in relative sliding that causes the execution of the contact plan planned by SCSP to fail. Additionally, surface friction also affects the success rate of flipping. As shown in the results, SCSP achieves a notably higher success rate on the rough surface compared with the smooth surface.
 
 We further conduct continuous manipulation experiments, as shown in Fig. \ref{fig:real_world_continous}. During manipulation, we repeatedly perturb the object pose to evaluate the real-time performance, closed-loop planning capability, and robustness of SCSP under accumulated perception errors. Under repeated perturbations, both the pose estimated from \texttt{FoundationPose} and the contact estimation become biased. However, SCSP exhibits strong replanning capability and consistently completes the continuous manipulation tasks under disturbances.
 
