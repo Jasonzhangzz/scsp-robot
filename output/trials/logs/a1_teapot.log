@@ -1,0 +1,65 @@
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[mpc-startup] trial=0 building contact/MPC runtime
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] generating solver: mpc_soft_scm_v3_4c102343d1_param_staged2_bea0426303_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/utils.py:144: UserWarning: Full featured acados requires CasADi version >= 3.7, got 3.6.7.
+  warnings.warn(f"Full featured acados requires CasADi version >= 3.7, got {casadi_version}.")
+[acados] compiling solver (4 large maps); log: /home/zz/.cache/scsp-robot/acados/mpc_soft_scm_v3_4c102343d1_param_staged2_bea0426303_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000_codegen/build.log
+[acados] solver ready in 8.57s
+[mpc-startup] trial=0 ready in 8.98s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 0.55s
+[mpc-startup] trial=1 building contact/MPC runtime
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_bea0426303_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=1 ready in 1.25s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 0.50s
+[mpc-startup] trial=2 building contact/MPC runtime
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_bea0426303_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=2 ready in 1.31s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=2 physics ready in 0.51s
+[mpc-startup] trial=3 building contact/MPC runtime
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_bea0426303_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=3 ready in 1.28s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=3 physics ready in 0.54s
+[mpc-startup] trial=4 building contact/MPC runtime
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_bea0426303_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=4 ready in 1.35s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=4 physics ready in 0.55s
+rollout_summary: {"ablation_mode": "a1", "physics_backend": "isaac", "solver_requested": "acados", "headless": true, "num_envs": 1, "async_planner": false, "trials": 5, "successes": 2, "success_rate": 0.4, "stable_flip_successes": 4, "stable_flip_rate": 0.8, "trial_start": 0, "wall_time_s": 320.5931152040139, "trials_per_second": 0.015596092875600839, "planner_solver_backends": ["acados"], "lambda_solver_backends": ["acados"], "mpc_fallbacks": 0, "lambda_fallbacks": 0, "timing_statistics": {"trials": 5, "successes": 2, "success_rate": 0.4, "success_seeds": [1, 4], "stable_flip_successes": 4, "stable_flip_rate": 0.8, "stable_flip_seeds": [0, 1, 2, 4], "first_stable_flip_s": {"n": 4, "mean": 12.54000059561804, "std": 4.024028024036798}, "completion_sim_s": {"n": 2, "mean": 22.350001061568037, "std": 6.576093377382552}, "completion_wall_s": {"n": 2, "mean": 36.09033085551346, "std": 8.340828562820377}, "planning_cycle_ms": {"n": 9735, "mean": 19.69047061897839, "std": 4.364142574238352}, "planning_trial_mean_ms": {"n": 5, "mean": 20.01056699122508, "std": 1.4788792472139678}, "mpc_failures": 0, "lambda_failures": 0, "mpc_fallbacks": 0, "lambda_fallbacks": 0}}

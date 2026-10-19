@@ -2,34 +2,36 @@
 \label{sec:experiment}
 \label{sec:scm_evaluation}
 
-To validate the predictive fidelity of the contact models, we compare MuJoCo's native quadratic-programming (QP) model, ComFree, SCM, and ContactSDF against an LCP reference. The LCP reference uses two $h=0.001\,\mathrm{s}$ substeps, while the predictors use one $h=0.002\,\mathrm{s}$ step. We report the linear- and angular-velocity errors of the post-step object velocity $\boldsymbol{v}^{+}$ relative to LCP under four contact states: contact transition, sliding, sticking, and the reference-path rollout. The benchmark uses seven objects, 32 initial states per object and contact state, and 10 rollout windows per rollout state. The results are shown in Table~\ref{tab:scm_velocity_error}.
+To validate the predictive fidelity of the contact models, we compare MuJoCo's native quadratic-programming (QP) model, ComFree, SCM, and ContactSDF against a reference combining MJWarp collision detection and integration with fully coupled friction-pyramid LCP contact dynamics. The reference uses two $h=0.001\,\mathrm{s}$ substeps, while the predictors use one $h=0.002\,\mathrm{s}$ step. We report the linear- and angular-velocity errors of the post-step object velocity $\boldsymbol{v}^{+}$ relative to LCP under four contact states: contact transition, sliding, sticking, and the reference-path rollout. The benchmark uses seven objects, 32 initial states per object and contact state, and 10 rollout windows per rollout state. The results are shown in Table~\ref{tab:scm_velocity_error}.
+
+For SCM, we smooth the initial impulse using $\operatorname{smax}_{T}(x,0)=T\log(1+\exp(x/T))$, with $T=10^{-4}\,\mathrm{N\,s}$. It retains the same free velocity and global amplitude correction, including the clipping of $\alpha$ to $[0,1]$, and introduces no spring-damper response time. Initial poses are obtained by native MuJoCo settling; the reported errors therefore include recovery from residual penetration in those poses.
 
 We further apply the optimal impulse at the selected contact to control the object and evaluate whether each contact model can be used for CSO. The results are shown in Table~\ref{tab:cso_contact_guidance}. Since this experiment focuses on contact-guidance feasibility, we report only success rates under synchronous inference without observation latency. All methods achieve high success rates. Although models such as MuJoCo may require fewer execution steps because of their more accurate contact modeling, SCM has a shorter inference time, which is important for obtaining timely and accurate contact information. Overall, SCM is a feasible contact model for CSO.
 % Source protocol: examples/mpc/fingertips/test/benchmark_velocity_error.py;
-% seven objects, seed 0, 32 states per mode, and 10 reference-path rollout windows.
-% ContactSDF results: output/diagnostics/velocity_error_contactsdf_20261019/velocity_error_20261019_014937/velocity_error.json.
-
+% seven objects, seed 0, 32 states per mode, 10 reference-path rollout windows.
+% All table statistics from output/diagnostics/velocity_error_softplus_20261019/velocity_error_20261019_141134/velocity_error.json.
+% softSCM_corrected: softplus_impulse_v1; T=0.0001 N s; response_time=0; hard-clipped global alpha.
 
 \begin{table*}[t]
 \centering
-\caption{Post-step velocity prediction errors relative to LCP (mean $\pm$ std).}
+\caption{Post-step velocity errors relative to LCP (mean $\pm$ std and P95). Linear: $\mathrm{m/s}$; angular: $\mathrm{rad/s}$. Bold indicates minima.}
 \label{tab:scm_velocity_error}
 \small
-\setlength{\tabcolsep}{3pt}
+\setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{1.08}
 \newcommand{\err}[2]{\ensuremath{#1\pm#2}}
 \newcommand{\minerr}[2]{\ensuremath{\bm{#1\pm#2}}}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}l*{8}{c}@{}}
+\begin{tabular}{@{}l*{16}{c}@{}}
 \toprule
-\multirow{2}{*}{Contact state} & \multicolumn{2}{c}{MuJoCo QP} & \multicolumn{2}{c}{ComFree} & \multicolumn{2}{c}{ContactSDF} & \multicolumn{2}{c}{\textbf{SCM}} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
- & Linear & Angular & Linear & Angular & Linear & Angular & Linear & Angular \\
+\multirow{2}{*}{Contact state} & \multicolumn{4}{c}{MuJoCo QP} & \multicolumn{4}{c}{ComFree} & \multicolumn{4}{c}{ContactSDF} & \multicolumn{4}{c}{\textbf{SCM}} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}\cmidrule(lr){14-17}
+ & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} \\
 \midrule
-Contact transition & \err{0.58}{0.22} & \minerr{2.77}{2.51} & \err{0.61}{0.23} & \err{3.22}{2.54} & \minerr{0.29}{0.16} & \err{8.83}{5.04} & \err{0.64}{0.24} & \err{3.30}{2.84} \\
-Sliding & \err{0.04}{0.02} & \err{0.74}{0.48} & \minerr{0.01}{0.01} & \minerr{0.53}{0.24} & \err{0.23}{0.11} & \err{5.67}{3.37} & \err{0.02}{0.01} & \minerr{0.53}{0.24} \\
-Sticking & \minerr{0.00}{0.00} & \minerr{0.01}{0.01} & \err{0.01}{0.00} & \err{0.05}{0.04} & \err{0.08}{0.09} & \err{0.97}{1.21} & \err{0.01}{0.00} & \err{0.04}{0.03} \\
-Reference-path rollout & \minerr{0.02}{0.05} & \minerr{0.31}{0.71} & \err{0.03}{0.06} & \err{0.32}{0.74} & \err{0.08}{0.09} & \err{1.56}{1.50} & \err{0.03}{0.06} & \err{0.32}{0.76} \\
+Contact transition & \err{0.73}{0.27} & \minerr{4.41}{4.72} & $1.19$ & $16.33$ & \err{0.77}{0.27} & \err{4.78}{4.44} & $1.19$ & $15.44$ & \err{0.36}{0.16} & \err{9.44}{5.04} & $\bm{0.65}$ & $18.27$ & \minerr{0.23}{0.18} & \err{6.31}{4.38} & $0.67$ & $\bm{15.43}$ \\
+Sliding & \err{0.30}{0.17} & \err{5.23}{4.14} & $0.69$ & $15.59$ & \err{0.34}{0.17} & \err{5.80}{4.38} & $0.71$ & $16.66$ & \minerr{0.12}{0.10} & \minerr{3.64}{2.84} & $\bm{0.33}$ & $\bm{9.16}$ & \err{0.12}{0.11} & \err{3.83}{3.23} & $0.40$ & $10.90$ \\
+Sticking & \err{0.16}{0.21} & \err{1.92}{2.72} & $0.63$ & $7.91$ & \err{0.17}{0.20} & \err{1.92}{2.71} & $0.64$ & $7.92$ & \minerr{0.09}{0.11} & \err{1.28}{1.75} & $\bm{0.36}$ & $5.53$ & \err{0.11}{0.14} & \minerr{1.23}{1.40} & $0.44$ & $\bm{4.05}$ \\
+Reference-path rollout & \err{0.03}{0.10} & \err{0.47}{1.55} & $0.21$ & $3.22$ & \err{0.03}{0.11} & \err{0.47}{1.53} & $0.24$ & $3.18$ & \minerr{0.02}{0.05} & \err{0.34}{1.13} & $\bm{0.09}$ & $2.22$ & \err{0.02}{0.07} & \minerr{0.25}{0.77} & $0.11$ & $\bm{1.73}$ \\
 \bottomrule
 \end{tabular}%
 }
@@ -42,15 +44,15 @@ Reference-path rollout & \minerr{0.02}{0.05} & \minerr{0.31}{0.71} & \err{0.03}{
 \footnotesize
 \resizebox{\columnwidth}{!}{%
 \setlength{\tabcolsep}{1.5pt}
-\begin{tabular}{@{}l*{8}{c}@{}}
+\begin{tabular}{@{}l*{7}{c}@{}}
 \toprule
-\multirow{2}{*}{Metric} & \multicolumn{4}{c}{Model} & \multicolumn{3}{c}{Solver (SCM)} & \multirow{2}{*}{\shortstack{\textbf{Ours}\\\textbf{SCM+LM}}} \\
-\cmidrule(lr){2-5}\cmidrule(lr){6-8}
- & M1 & M2 & M3 & M4 & CMA-ES & CEM & HPIPM & \\
+\multirow{2}{*}{Metric} & \multicolumn{3}{c}{Model} & \multicolumn{3}{c}{Solver (SCM)} & \multirow{2}{*}{\textbf{Ours (SCM+LM)}} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+ & M1 & M2 & M3 & CMA-ES & CEM & HPIPM & \\
 \midrule
-Success: sync. (\%) & 100 & 100 & 100 & 100 & 100 & 100 & 100 & 100 \\
-Steps (sync.) & \shortstack{$1127.86$\\$\pm1312.60$} & \shortstack{$423.43$\\$\pm235.39$} & -- & -- & \shortstack{$640.07$\\$\pm382.40$} & \shortstack{$662.60$\\$\pm432.40$} & -- & \shortstack{$318.00$\\$\pm245.05$} \\
-Plan. (ms, sync.) & \shortstack{$120.77$\\$\pm30.38$} & \shortstack{$107.73$\\$\pm17.71$} & -- & -- & \shortstack{$813.01$\\$\pm313.17$} & \shortstack{$468.99$\\$\pm163.50$} & -- & \shortstack{$2.55$\\$\pm0.22$} \\
+Success: sync. (\%) & 100 & 100 & 100 & 100 & 100 & 100 & 100 \\
+Steps (sync.) & $1127.86\pm1312.60$ & $423.43\pm235.39$ & -- & $640.07\pm382.40$ & $662.60\pm432.40$ & -- & $318.00\pm245.05$ \\
+Plan. (ms, sync.) & $120.77\pm30.38$ & $107.73\pm17.71$ & -- & $813.01\pm313.17$ & $468.99\pm163.50$ & -- & $2.55\pm0.22$ \\
 \bottomrule
 \end{tabular}
 }
@@ -132,7 +134,7 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 
 \begin{table*}[t]
 \centering
-\caption{Comparison and ablation results for nonprehensile manipulation tasks in the robot experiments (200 trials per task; 21 per task for A4, A5, and A7; A6 uses 21 Rotation and 15 interim Flipping trials).}
+\caption{Comparison and ablation results for nonprehensile manipulation tasks in the robot experiments (200 trials per task; 21 per task for A4, A5, and A7; A6 uses 21 Rotation and 15 interim Flipping trials). Flipping A1--A3 and the SCSP flipping time and error entries use 35 trials, 7 objects $\times$ 5 seeds. The SCSP flipping success rate is unchanged.}
 \label{tab:all_data}
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{0.95}
@@ -149,14 +151,17 @@ Due to the strong dependencies of the source code released for DyWA, which are d
  & Obj. Pos. Error (m) & \textbf{0.009} & 0.015 & -- & -- & 0.014 & 0.016 & 0.019 & 0.019 & 0.016 & 0.121 & 0.340 & 0.446 & 0.291 \\
  & Obj. Quat. Error & \textbf{0.015} & 0.019 & -- & -- & 0.016 & 0.026 & 0.031 & 0.388 & 0.611 & 0.565 & 0.349 \\
 \midrule
-\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.01 & 0.18 & 0.18 & 0.01 & 0.19 & 0.05 & 0.40 & 0.00 \\
- & Execution Time (s) & \textbf{18.21} & 20.56 & -- & -- & 19.68 & 22.56 & 21.57 & 21.57 & 23.72 & 177.90 & 1409.24 & 36.65 & -- \\
- & Planning Time (s) & \textbf{0.025} & 0.031 & -- & -- & 0.252 & 0.081 & 0.025 & \textbf{0.025} & 0.028 & 0.135 & 0.738 & 0.043 & 0.013 \\
- & Obj. Pos. Error (m) & \textbf{0.012} & 0.016 & -- & -- & \textbf{0.012} & 0.018 & 0.018 & 0.018 & 0.016 & 0.132 & 0.372 & 0.0193 & 0.347 \\
- & Obj. Quat. Error & \textbf{0.021} & \textbf{0.021} & -- & -- & 0.022 & 0.027 & 0.036 & 0.036 & 0.020 & 0.399 & 0.640 & 0.0043 & 0.800 \\
+\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & -- & -- & 0.39 & 0.01 & 0.26 & 0.00 & 0.37 & 0.19 & 0.05 & 0.40 & 0.00 \\
+ & Execution Time (s) & $21.79\pm9.79$ & 20.56 & -- & -- & \textbf{19.68} & 22.56 & $22.05\pm9.36$ & -- & $23.60\pm11.86$ & 177.90 & 1409.24 & 36.65 & -- \\
+ & Planning Time (s) & $0.023\pm0.003$ & 0.031 & -- & -- & 0.252 & 0.081 & $0.025\pm0.003$ & \textbf{$0.013\pm0.000$} & $0.022\pm0.007$ & 0.135 & 0.738 & 0.043 & 0.013 \\
+ & Obj. Pos. Error (m) & $0.055\pm0.068$ & 0.016 & -- & -- & \textbf{0.012} & 0.018 & $0.157\pm0.140$ & $0.148\pm0.050$ & $0.122\pm0.124$ & 0.132 & 0.372 & 0.0193 & 0.347 \\
+ & Obj. Quat. Error & $0.204\pm0.345$ & 0.021 & -- & -- & 0.022 & 0.027 & $0.383\pm0.412$ & $0.734\pm0.316$ & $0.473\pm0.414$ & 0.399 & 0.640 & \textbf{0.0043} & 0.800 \\
 \bottomrule[1pt]
 \end{tabular}
 }
+% Flipping SCSP time/error and A1--A3: output/trials, 7 objects x seeds 0--4, synchronous Isaac, 2500-step limit.
+% Execution time is successful trials only (A2 has no success). Planning time is the mean of each trial's mean planner call, excluding one paused sample above 1 s.
+% Position and quaternion errors are final values over all completed trials. The SCSP flipping success rate is left at 0.81.
 % A7 source: output/benchmarks/a7_mppi_7x3_20261015/statistics.json; 7 objects x seeds 0,1,2 per task; 2500-step limit.
 % A4/A5 source: output/benchmarks/a4_a5_async_7x3_20261015/statistics.json; 21 trials per variant/task; asynchronous inference and realtime physics; 2500 planner-cycle limit.
 % A6 Flipping: historical A4 values restored verbatim from output/diagnostics/cso_table_solver_update_20261014/experiment_before.tex (then labeled A3); interim 6/15 successes; not part of the new A6 Rotation cohort.
@@ -211,7 +216,7 @@ We ablate each component under the same experimental setup as in Section VI-B.
 
 \textbf{CPO (A6--A7):} A6 removes the phase-dependent attraction and repulsion potentials and directly optimizes motion trajectories; A7 directly explores contact trajectories using MPPI~[1] with the cost $\ell_{\mathrm{A7}} = \omega_{\text{o}}\ell_{\text{o}} + \omega_{\text{cso}}\ell_{\text{cso}}$,
 
-Table~\ref{tab:all_data} reports the available results. A1 uses the historical w/o RS Franka results, in which CPO strictly follows the CSO-generated contact guidance.
+Table~\ref{tab:all_data} reports the available results. Rotation A1 uses the historical w/o RS Franka results, in which CPO strictly follows the CSO-generated contact guidance. Flipping A1--A3 use the current seven-object cohort.
 
 For rotation, the ranking strategy mainly affects execution efficiency rather than success rate, whereas it has a significant effect on success rate for flipping. The success rates of A4 and A5 both decrease substantially. Together with the experiments in Section~V, this suggests that the contact guidance remains correct, while perception latency is more likely to cause failures. A6 has only a slight effect on success rate; in the failure episodes we inspected, most failures were false contact detections without actual contact. A7 substantially increases computation time, causing observation latency that degrades success rate.
 
@@ -223,34 +228,38 @@ Let $r_T=\mathbb{I}(\mathrm{success})$ be the terminal reward. For a state $s_t$
 \begin{equation}
 J(s_t,b)=\mathbb{E}_{\tau\sim\pi(\cdot\mid s_t,b)}
 \left[\gamma^{T}\mathbb{I}(\mathrm{success})\right],
-\qquad \gamma=0.95,
+\qquad \gamma=0.99,
 \end{equation}
 where $T$ is the number of remaining control steps.
 
-During contact phases, we sample states where the CSO guidance differs from the current contact. From the same simulator state, we compare the ranking-strategy decision with a counterfactual rollout that makes the opposite decision, while keeping subsequent replanning and task parameters unchanged. Let $J_{\mathrm{RS}}$ and $J_{\mathrm{cf}}$ denote the two rollout values. Their paired advantage is
+For each object and task, we reconstruct one successful synchronous trajectory using seeds drawn from existing successful-rollout records, and uniformly sample 5 distinct states with measured physical contact, excluding transit and detour motion, where the CSO guidance differs from the nearby contact. The simulator and controller histories are reconstructed by replaying the complete prefix, checking observations, commands, and ranking decisions up to the sampled state. We compare the ranking-strategy decision with a counterfactual rollout that makes the opposite decision at that state, while keeping subsequent replanning and task parameters unchanged. Let $J_{\mathrm{RS}}$ and $J_{\mathrm{cf}}$ denote the two rollout values. Their paired advantage is
 \begin{equation}
 A(s_t)=J_{\mathrm{RS}}(s_t)-J_{\mathrm{cf}}(s_t),
 \end{equation}
 where $A>0$ indicates that the ranking strategy is preferred.
 
-We report the RS trigger frequency, namely the number of executed ranking-strategy contact switches per simulated second. A switch is counted only when the robot leaves the previous contact and establishes a distinct contact patch.
+We report contact-switching counts (CSC), counting a switch only when the robot leaves the previous contact and establishes a distinct contact patch. The probabilities $P(p_{\text{near}})$ and $P(p_r^*)$ use all eligible binary contact decisions in the original successful trajectories. The nearest-contact selection frequency $f_{\mathrm{near}}$ is the number of nearest-contact selections per simulated second. The CSO-guidance switching frequency $f_r^*$ counts changes of $p_r^*$ per simulated second, using a 1\,cm displacement threshold in the object's frame to exclude rigid object motion and mesh jitter. Counts and frequencies use complete original trajectories, rather than the sampled counterfactual branches.
 
-Because SCSP replans at every control cycle, many single-decision changes do not affect the final outcome. We therefore report the value-sensitive cases in Table~\ref{tab:ranking_advantage}, together with the RS trigger frequency, the fraction with $A>0$, and the paired advantage. For flipping, the ranking strategy has a positive advantage in 55.3\% of the retained cases.
+Because SCSP replans at every control cycle, many single-decision changes do not affect the final outcome. We retain all 5 sampled states per trajectory, including $A=0$, when calculating $P(A>0)$ and the mean and sample standard deviation of $A$ in Table~\ref{tab:ranking_advantage}.
 
 \begin{table}[t]
 \centering
-\caption{Counterfactual analysis of the ranking strategy. The RS trigger frequency counts completed ranking-strategy contact switches per simulated second; $A$ is the paired discounted advantage for value-sensitive decisions.}
+\caption{Ranking-strategy counterfactual analysis.}
 \label{tab:ranking_advantage}
 \footnotesize
-\setlength{\tabcolsep}{2pt}
-\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}} lccc}
+\setlength{\tabcolsep}{1.5pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}l*{7}{c}@{}}
 \toprule
-\textbf{Task} & \shortstack{\textbf{RS trigger}\\\textbf{frequency (Hz)}} & \textbf{$A>0$ (\%)} & $\boldsymbol{A}$ \\
+\textbf{Task} & \textbf{CSC} & $\boldsymbol{P(p_{\text{near}})}$ & $\boldsymbol{P(p_r^*)}$ & \shortstack{$\boldsymbol{f_{\mathrm{near}}}$\\\textbf{(Hz)}} & \shortstack{$\boldsymbol{f_r^*}$\\\textbf{(Hz)}} & \shortstack{$\boldsymbol{P(A>0)}$\\\textbf{(\%)}} & $\boldsymbol{A}$ \\
 \midrule
-Rotation & 0.207 & -- & $0.055 \pm 0.236$ \\
-Flipping & 0.217 & 55.3 & $0.073 \pm 0.227$ \\
+Rotation & -- & -- & -- & -- & -- & -- & -- \\
+Flipping & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
-\end{tabular*}
+\end{tabular}%
+}
+\par\smallskip
+\parbox{\columnwidth}{\scriptsize CSC: total completed physical contact switches; $f_{\mathrm{near}}$: nearest-contact selections per second; $f_r^*$: CSO-guidance patch switches per second; $A$: paired advantage, mean $\pm$ sample standard deviation over all sampled decisions; \texttt{--}: pending measurements under the revised protocol.}
 \end{table}
 
 We also test the sensitivity to the sliding-window parameters $T_1$, $T_2$, and $T_3$. Each parameter is independently scaled by $\{0.5,0.75,1.0,1.25,1.5\}$, with the others fixed at their default values. We report the success rate and execution time under the same experimental conditions; the results are shown in Fig.~.
@@ -308,14 +317,14 @@ $\boldsymbol{K}_{\text{inc}}=0.01 \boldsymbol{I}_3$, $\boldsymbol{K}_x = \text{d
 & \shortstack{SR\\(\%)} & \shortstack{FO\\(\%)} & \shortstack{FSR\\(\%)} & \textbf{CSC}
 & \shortstack{SR\\(\%)} & \shortstack{FO\\(\%)} & \shortstack{FSR\\(\%)} & \textbf{CSC} \\
 \midrule
-Sampling & Smooth & 45 & -- & -- & -- & 35 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
-Sampling & Rough  & 25 & -- & -- & -- & 20 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
+\multirow{2}{*}{Sampling} & Smooth & 45 & -- & -- & -- & 35 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
+ & Rough  & 25 & -- & -- & -- & 20 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
 \midrule
-DyWA & Smooth & 30 & -- & -- & -- & 10 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
-DyWA & Rough  & 20 & -- & -- & -- & 5  & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
+\multirow{2}{*}{DyWA} & Smooth & 30 & -- & -- & -- & 10 & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
+ & Rough  & 20 & -- & -- & -- & 5  & -- & -- & -- & -- & -- & 0 & -- & -- & -- & 0 & -- & -- & -- & 0 & -- \\
 \midrule
-SCSP* & Smooth & \textbf{100} & -- & -- & -- & 25 & -- & -- & -- & -- & -- & \textbf{10} & -- & -- & -- & \textbf{15} & -- & -- & -- & \textbf{20} & -- \\
-SCSP* & Rough  & \textbf{95}  & -- & -- & -- & 25 & -- & -- & -- & -- & -- & \textbf{15} & -- & -- & -- & \textbf{20} & -- & -- & -- & \textbf{25} & -- \\
+\multirow{2}{*}{SCSP*} & Smooth & \textbf{100} & -- & -- & -- & 25 & -- & -- & -- & -- & -- & \textbf{10} & -- & -- & -- & \textbf{15} & -- & -- & -- & \textbf{20} & -- \\
+ & Rough  & \textbf{95}  & -- & -- & -- & 25 & -- & -- & -- & -- & -- & \textbf{15} & -- & -- & -- & \textbf{20} & -- & -- & -- & \textbf{25} & -- \\
 \bottomrule
 \end{tabular}
 }

@@ -2,9 +2,6 @@
 
 
 
-%========================================================
-% Lemma 3: Non-conflict between l_place and l_pose
-%========================================================
 \subsection{Proof of Closest Approximation}\label{proof:closest_approximation}
 Let $\boldsymbol{A}_{ii}=\boldsymbol{W}_{ii}-\boldsymbol{R}_{ii} \in \mathbb{R}^{n \times n}$ be the unregularized contact mobility matrix. We seek a diagonal matrix $D = \operatorname{diag}(d_1, \dots, d_n)$ 
 that minimizes the Frobenius norm of the approximation error:
@@ -21,52 +18,4 @@ The off-diagonal terms are not affected by choosing $D$, and so the minimization
 d_j^* = \arg \min_{d_j} |(\boldsymbol{A}_{ii})_{jj} - d_j|^2, \quad j = 1, \dots, n.
 \end{equation}
 It is immediate that the minimizer is $d_j^* = (\boldsymbol{A}_{ii})_{jj}$. 
-Hence $\operatorname{diag}(\boldsymbol{A}_{ii})$ is the closest diagonal approximation in the Frobenius norm. Equation~\eqref{eq:max_decomposition} adds $r\boldsymbol{I}$, matching the regularization in the coupled reference.
-
-\subsection{Proof of Motion Approximation and Task Consistency}
-\label{app:scm_task_consistency}
-
-Compare one-step predictions with identical state, geometry, gaps, inertia, and robot input. Write $\boldsymbol{J}=\tilde{\boldsymbol{J}}_{\mathrm{env}}$, $\boldsymbol{W}=\boldsymbol{J}\boldsymbol{M}_o^{-1}\boldsymbol{J}^\top+\boldsymbol{R}$, $\boldsymbol{D}=\boldsymbol{D}_{\mathrm{env}}$, and $\boldsymbol{E}=\boldsymbol{W}-\boldsymbol{D}$. Let $\boldsymbol{\beta}$ solve the coupled reference with offset $\boldsymbol{g}=\boldsymbol{J}\boldsymbol{v}_{\mathrm{free}}+\tilde{\boldsymbol{\phi}}/h$, and let $\hat{\boldsymbol{\beta}}$ solve the diagonal problem with offset $\boldsymbol{s}=a\boldsymbol{J}\boldsymbol{v}_{\mathrm{free}}+b\tilde{\boldsymbol{\phi}}/h$. Set $\boldsymbol{\delta}=\hat{\boldsymbol{\beta}}-\boldsymbol{\beta}$.
-
-Both problems are strictly convex quadratic programs on the nonnegative orthant. Their variational inequalities give
-\begin{equation}
-\begin{aligned}
-\boldsymbol{\delta}^{\top}(\boldsymbol{W}\boldsymbol{\beta}+\boldsymbol{g})&\geq0,\\
-\boldsymbol{\delta}^{\top}(\boldsymbol{D}\hat{\boldsymbol{\beta}}+\boldsymbol{s})&\leq0.
-\end{aligned}
-\end{equation}
-Consequently, with $\Delta\boldsymbol{g}=\boldsymbol{g}-\boldsymbol{s}$,
-\begin{equation}
-\begin{aligned}
-\|\boldsymbol{\delta}\|_{\boldsymbol{W}}^2
-&\leq\boldsymbol{\delta}^{\top}(\boldsymbol{E}\hat{\boldsymbol{\beta}}+\Delta\boldsymbol{g})\\
-&\leq\|\boldsymbol{\delta}\|_{\boldsymbol{W}}
-\|\boldsymbol{E}\hat{\boldsymbol{\beta}}+\Delta\boldsymbol{g}\|_{\boldsymbol{W}^{-1}}.
-\end{aligned}
-\end{equation}
-No agreement of active sets is required. Subtracting the impulse-based velocity updates gives
-\begin{equation}
-\boldsymbol{M}_o(\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+)
-=\boldsymbol{J}^{\top}\boldsymbol{\delta}.
-\label{eq:scm_wrench_consistency}
-\end{equation}
-Since $\boldsymbol{R}\succeq0$,
-\begin{equation}
-\begin{aligned}
-\|\hat{\boldsymbol{v}}^+-\boldsymbol{v}^+\|_{\boldsymbol{M}_o}^2
-&=\boldsymbol{\delta}^{\top}(\boldsymbol{W}-\boldsymbol{R})\boldsymbol{\delta}\\
-&\leq\|\boldsymbol{\delta}\|_{\boldsymbol{W}}^2,
-\end{aligned}
-\end{equation}
-which proves~\eqref{eq:scm_motion_error_bound}. Impulse units remove the former force-to-impulse scaling factor $1/h$.
-
-In local pose coordinates, weighted Cauchy--Schwarz gives
-\begin{equation}
-\boldsymbol{q}^{\top}\boldsymbol{v}^+
-\leq\boldsymbol{q}^{\top}\hat{\boldsymbol{v}}^+
-+\|\boldsymbol{q}\|_{\boldsymbol{M}_o^{-1}}\eta,
-\end{equation}
-which proves~\eqref{eq:scm_descent_condition}. This is a first-order descent statement on a differentiable objective branch; a decrease at a finite step also depends on step size and cost curvature. The Euler translation update additionally satisfies $\|\hat{\boldsymbol{p}}_{k+1}-\boldsymbol{p}_{k+1}\|_2=h\|\hat{\boldsymbol{v}}_{\mathrm{lin}}^+-\boldsymbol{v}_{\mathrm{lin}}^+\|_2$.
-
-The bound relative to the hard coupled reference can be loose even when motion error is small: positive inactive-row offsets contribute to $\Delta\boldsymbol{g}$ without generating impulses, and nearly dependent contact rows make $\boldsymbol{W}^{-1}$ large. Moreover, motion depends on $\boldsymbol{J}^{\top}\boldsymbol{\delta}$, allowing impulse differences to cancel in generalized-wrench space. Geometry and parameter mismatch, contact transitions, and differences from simulator dynamics are outside these matched one-step bounds and are assessed empirically in Section~\ref{sec:scm_evaluation}.
-
+Hence $\operatorname{diag}(\boldsymbol{A}_{ii})$ is the closest diagonal approximation in the Frobenius norm. Equation~\eqref{equ:max_decomposition} adds $r\boldsymbol{I}$, matching the regularization in the coupled reference.

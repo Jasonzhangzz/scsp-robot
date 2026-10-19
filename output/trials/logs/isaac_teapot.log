@@ -1,0 +1,59 @@
+Importing module 'gym_38' (/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.3.1+cu121
+Device count 1
+/home/zz/IsaacGym_Preview_4_Package/isaacgym/python/isaacgym/_bindings/src/gymtorch
+Using /home/zz/.cache/torch_extensions/py38_cu121 as PyTorch extensions root...
+Emitting ninja build file /home/zz/.cache/torch_extensions/py38_cu121/gymtorch/build.ninja...
+Building extension module gymtorch...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+ninja: no work to do.
+Loading extension module gymtorch...
+[mpc-startup] trial=0 building contact/MPC runtime
+/home/zz/zz_ws/acados/interfaces/acados_template/acados_template/acados_code_gen_options.py:404: UserWarning: CasADi codegen option force_canonical is not supported by this version of CasADi, removing it from casadi_code_gen_options.
+  warnings.warn(f"CasADi codegen option {k} is not supported by this version of CasADi, removing it from casadi_code_gen_options.")
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_6b97a67627_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=0 ready in 1.19s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=0 physics ready in 0.57s
+[mpc-startup] trial=1 building contact/MPC runtime
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_6b97a67627_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=1 ready in 1.33s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=1 physics ready in 0.52s
+[mpc-startup] trial=2 building contact/MPC runtime
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_6b97a67627_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=2 ready in 1.47s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=2 physics ready in 0.53s
+[mpc-startup] trial=3 building contact/MPC runtime
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_6b97a67627_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=3 ready in 1.38s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=3 physics ready in 0.55s
+[mpc-startup] trial=4 building contact/MPC runtime
+[acados] reusing solver: contact_lambda_soft_scm_v25_m4_f3000_u1600_qc33e1a0e89
+[acados] reusing solver: mpc_soft_scm_v3_4c102343d1_param_staged2_6b97a67627_current_terminal_motion1_lm2_h5_c10_x19_u3_floor_recovery_v1_jvp_v1_force0_v2_3000000
+[mpc-startup] trial=4 ready in 1.37s (contact=acados mpc=acados)
+Not connected to PVD
+Physics Engine: PhysX
+Physics Device: cpu
+GPU Pipeline: disabled
+[isaac-startup] trial=4 physics ready in 0.57s
+rollout_summary: {"physics_backend": "isaac", "solver_requested": "acados", "headless": true, "num_envs": 1, "async_planner": false, "trials": 5, "successes": 5, "success_rate": 1.0, "stable_flip_successes": 5, "stable_flip_rate": 1.0, "trial_start": 0, "wall_time_s": 175.1914864280261, "trials_per_second": 0.02854019965207698, "planner_solver_backends": ["acados"], "lambda_solver_backends": ["acados"], "mpc_fallbacks": 0, "lambda_fallbacks": 0, "timing_statistics": {"trials": 5, "successes": 5, "success_rate": 1.0, "success_seeds": [0, 1, 2, 3, 4], "stable_flip_successes": 5, "stable_flip_rate": 1.0, "stable_flip_seeds": [0, 1, 2, 3, 4], "first_stable_flip_s": {"n": 5, "mean": 10.660000506322831, "std": 5.102293844246954}, "completion_sim_s": {"n": 5, "mean": 20.53600097540766, "std": 6.4839713134593975}, "completion_wall_s": {"n": 5, "mean": 33.10508457059041, "std": 10.662809656751163}, "planning_cycle_ms": {"n": 5134, "mean": 20.573913418107118, "std": 6.359774925638514}, "planning_trial_mean_ms": {"n": 5, "mean": 20.43986535210163, "std": 1.3284807823278209}, "mpc_failures": 0, "lambda_failures": 0, "mpc_fallbacks": 0, "lambda_fallbacks": 0}}
