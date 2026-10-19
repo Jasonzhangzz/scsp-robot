@@ -1,0 +1,4218 @@
+[
+    {
+        "torus": [
+            {
+                "trial": 0,
+                "success": true,
+                "steps": 624,
+                "time": 11.547049760818481
+            },
+            {
+                "trial": 1,
+                "success": false,
+                "steps": 3000,
+                "time": 47.51091456413269
+            },
+            {
+                "trial": 2,
+                "success": true,
+                "steps": 1038,
+                "time": 17.841421604156494
+            },
+            {
+                "trial": 3,
+                "success": true,
+                "steps": 694,
+                "time": 14.26810359954834
+            },
+            {
+                "trial": 4,
+                "success": false,
+                "steps": 3000,
+                "time": 57.46290707588196
+            },
+            {
+                "trial": 5,
+                "success": false,
+                "steps": 3000,
+                "time": 48.799880266189575
+            },
+            {
+                "trial": 6,
+                "success": true,
+                "steps": 650,
+                "time": 12.768956422805786
+            },
+            {
+                "trial": 7,
+                "success": true,
+                "steps": 849,
+                "time": 16.8451144695282
+            },
+            {
+                "trial": 8,
+                "success": true,
+                "steps": 1014,
+                "time": 16.984557390213013
+            },
+            {
+                "trial": 9,
+                "success": true,
+                "steps": 482,
+                "time": 8.061148881912231
+            },
+            {
+                "trial": 10,
+                "success": true,
+                "steps": 358,
+                "time": 6.632503032684326
+            },
+            {
+                "trial": 11,
+                "success": true,
+                "steps": 634,
+                "time": 10.022382974624634
+            },
+            {
+                "trial": 12,
+                "success": false,
+                "steps": 3000,
+                "time": 58.41649913787842
+            },
+            {
+                "trial": 13,
+                "success": true,
+                "steps": 2187,
+                "time": 38.81634020805359
+            },
+            {
+                "trial": 14,
+                "success": false,
+                "steps": 3000,
+                "time": 56.924320220947266
+            },
+            {
+                "trial": 15,
+                "success": true,
+                "steps": 452,
+                "time": 8.578291893005371
+            },
+            {
+                "trial": 16,
+                "success": false,
+                "steps": 3000,
+                "time": 50.834736347198486
+            },
+            {
+                "trial": 17,
+                "success": false,
+                "steps": 3000,
+                "time": 45.29057836532593
+            },
+            {
+                "trial": 18,
+                "success": true,
+                "steps": 607,
+                "time": 13.471616744995117
+            },
+            {
+                "trial": 19,
+                "success": true,
+                "steps": 1452,
+                "time": 26.148610591888428
+            },
+            {
+                "trial": 20,
+                "success": true,
+                "steps": 2048,
+                "time": 28.975032806396484
+            },
+            {
+                "trial": 21,
+                "success": true,
+                "steps": 917,
+                "time": 15.007081985473633
+            },
+            {
+                "trial": 22,
+                "success": true,
+                "steps": 2031,
+                "time": 31.00045347213745
+            },
+            {
+                "trial": 23,
+                "success": true,
+                "steps": 541,
+                "time": 9.514604568481445
+            },
+            {
+                "trial": 24,
+                "success": true,
+                "steps": 912,
+                "time": 14.314043760299683
+            },
+            {
+                "trial": 25,
+                "success": true,
+                "steps": 977,
+                "time": 16.94126296043396
+            },
+            {
+                "trial": 26,
+                "success": false,
+                "steps": 3000,
+                "time": 55.79353380203247
+            },
+            {
+                "trial": 27,
+                "success": true,
+                "steps": 1273,
+                "time": 23.155473947525024
+            },
+            {
+                "trial": 28,
+                "success": true,
+                "steps": 413,
+                "time": 8.018418312072754
+            },
+            {
+                "trial": 29,
+                "success": true,
+                "steps": 701,
+                "time": 11.148732423782349
+            },
+            {
+                "trial": 30,
+                "success": true,
+                "steps": 834,
+                "time": 12.71034550666809
+            },
+            {
+                "trial": 31,
+                "success": true,
+                "steps": 733,
+                "time": 14.402820110321045
+            },
+            {
+                "trial": 32,
+                "success": true,
+                "steps": 223,
+                "time": 3.5444626808166504
+            },
+            {
+                "trial": 33,
+                "success": false,
+                "steps": 3000,
+                "time": 55.48005414009094
+            },
+            {
+                "trial": 34,
+                "success": true,
+                "steps": 336,
+                "time": 5.990908145904541
+            },
+            {
+                "trial": 35,
+                "success": true,
+                "steps": 838,
+                "time": 16.88977885246277
+            },
+            {
+                "trial": 36,
+                "success": true,
+                "steps": 870,
+                "time": 18.722673416137695
+            },
+            {
+                "trial": 37,
+                "success": true,
+                "steps": 365,
+                "time": 5.707013368606567
+            },
+            {
+                "trial": 38,
+                "success": true,
+                "steps": 591,
+                "time": 11.140506267547607
+            },
+            {
+                "trial": 39,
+                "success": false,
+                "steps": 3000,
+                "time": 66.00090885162354
+            },
+            {
+                "trial": 40,
+                "success": true,
+                "steps": 490,
+                "time": 9.998536348342896
+            },
+            {
+                "trial": 41,
+                "success": false,
+                "steps": 3000,
+                "time": 49.52045464515686
+            },
+            {
+                "trial": 42,
+                "success": true,
+                "steps": 353,
+                "time": 5.95319676399231
+            },
+            {
+                "trial": 43,
+                "success": true,
+                "steps": 529,
+                "time": 10.570117235183716
+            },
+            {
+                "trial": 44,
+                "success": true,
+                "steps": 1206,
+                "time": 23.267450094223022
+            },
+            {
+                "trial": 45,
+                "success": true,
+                "steps": 935,
+                "time": 15.612543821334839
+            },
+            {
+                "trial": 46,
+                "success": true,
+                "steps": 326,
+                "time": 6.448750257492065
+            },
+            {
+                "trial": 47,
+                "success": false,
+                "steps": 3000,
+                "time": 56.396464347839355
+            },
+            {
+                "trial": 48,
+                "success": true,
+                "steps": 789,
+                "time": 13.955644130706787
+            },
+            {
+                "trial": 49,
+                "success": false,
+                "steps": 3000,
+                "time": 50.49455237388611
+            },
+            {
+                "trial": 50,
+                "success": true,
+                "steps": 899,
+                "time": 17.267520666122437
+            },
+            {
+                "trial": 51,
+                "success": true,
+                "steps": 1360,
+                "time": 22.707041025161743
+            },
+            {
+                "trial": 52,
+                "success": true,
+                "steps": 1148,
+                "time": 17.379071712493896
+            },
+            {
+                "trial": 53,
+                "success": true,
+                "steps": 677,
+                "time": 11.439740896224976
+            },
+            {
+                "trial": 54,
+                "success": false,
+                "steps": 3000,
+                "time": 48.49001479148865
+            },
+            {
+                "trial": 55,
+                "success": true,
+                "steps": 621,
+                "time": 13.00049901008606
+            },
+            {
+                "trial": 56,
+                "success": true,
+                "steps": 320,
+                "time": 6.575897932052612
+            },
+            {
+                "trial": 57,
+                "success": true,
+                "steps": 580,
+                "time": 10.33590316772461
+            },
+            {
+                "trial": 58,
+                "success": true,
+                "steps": 559,
+                "time": 10.271810531616211
+            },
+            {
+                "trial": 59,
+                "success": true,
+                "steps": 854,
+                "time": 14.291509866714478
+            },
+            {
+                "trial": 60,
+                "success": true,
+                "steps": 410,
+                "time": 5.483884334564209
+            },
+            {
+                "trial": 61,
+                "success": true,
+                "steps": 817,
+                "time": 16.4557523727417
+            },
+            {
+                "trial": 62,
+                "success": false,
+                "steps": 3000,
+                "time": 51.71524739265442
+            },
+            {
+                "trial": 63,
+                "success": true,
+                "steps": 701,
+                "time": 10.090195655822754
+            },
+            {
+                "trial": 64,
+                "success": true,
+                "steps": 1426,
+                "time": 23.54336166381836
+            },
+            {
+                "trial": 65,
+                "success": true,
+                "steps": 691,
+                "time": 11.495617866516113
+            },
+            {
+                "trial": 66,
+                "success": false,
+                "steps": 3000,
+                "time": 53.751251220703125
+            },
+            {
+                "trial": 67,
+                "success": true,
+                "steps": 686,
+                "time": 16.94072937965393
+            },
+            {
+                "trial": 68,
+                "success": true,
+                "steps": 581,
+                "time": 12.280258893966675
+            },
+            {
+                "trial": 69,
+                "success": true,
+                "steps": 895,
+                "time": 13.715527296066284
+            },
+            {
+                "trial": 70,
+                "success": true,
+                "steps": 1359,
+                "time": 26.618791580200195
+            },
+            {
+                "trial": 71,
+                "success": false,
+                "steps": 3000,
+                "time": 58.31423091888428
+            },
+            {
+                "trial": 72,
+                "success": true,
+                "steps": 2627,
+                "time": 35.02299642562866
+            },
+            {
+                "trial": 73,
+                "success": true,
+                "steps": 851,
+                "time": 12.960737705230713
+            },
+            {
+                "trial": 74,
+                "success": true,
+                "steps": 765,
+                "time": 12.84655213356018
+            },
+            {
+                "trial": 75,
+                "success": true,
+                "steps": 1515,
+                "time": 24.54977774620056
+            },
+            {
+                "trial": 76,
+                "success": true,
+                "steps": 1747,
+                "time": 35.91292691230774
+            },
+            {
+                "trial": 77,
+                "success": true,
+                "steps": 522,
+                "time": 9.13755202293396
+            },
+            {
+                "trial": 78,
+                "success": true,
+                "steps": 851,
+                "time": 27.318594694137573
+            },
+            {
+                "trial": 79,
+                "success": true,
+                "steps": 784,
+                "time": 16.810721397399902
+            },
+            {
+                "trial": 80,
+                "success": true,
+                "steps": 1156,
+                "time": 21.129364728927612
+            },
+            {
+                "trial": 81,
+                "success": true,
+                "steps": 823,
+                "time": 14.55819582939148
+            },
+            {
+                "trial": 82,
+                "success": true,
+                "steps": 690,
+                "time": 11.018552303314209
+            },
+            {
+                "trial": 83,
+                "success": false,
+                "steps": 3000,
+                "time": 45.14587068557739
+            },
+            {
+                "trial": 84,
+                "success": false,
+                "steps": 3000,
+                "time": 56.76533269882202
+            },
+            {
+                "trial": 85,
+                "success": true,
+                "steps": 954,
+                "time": 14.76353120803833
+            },
+            {
+                "trial": 86,
+                "success": true,
+                "steps": 561,
+                "time": 9.86545729637146
+            },
+            {
+                "trial": 87,
+                "success": false,
+                "steps": 3000,
+                "time": 45.1143262386322
+            },
+            {
+                "trial": 88,
+                "success": true,
+                "steps": 985,
+                "time": 16.184006452560425
+            },
+            {
+                "trial": 89,
+                "success": false,
+                "steps": 3000,
+                "time": 42.527679443359375
+            },
+            {
+                "trial": 90,
+                "success": true,
+                "steps": 359,
+                "time": 6.013409852981567
+            },
+            {
+                "trial": 91,
+                "success": true,
+                "steps": 589,
+                "time": 8.73717474937439
+            },
+            {
+                "trial": 92,
+                "success": true,
+                "steps": 913,
+                "time": 14.345146894454956
+            },
+            {
+                "trial": 93,
+                "success": true,
+                "steps": 459,
+                "time": 7.170145034790039
+            },
+            {
+                "trial": 94,
+                "success": true,
+                "steps": 505,
+                "time": 7.594130992889404
+            },
+            {
+                "trial": 95,
+                "success": true,
+                "steps": 1323,
+                "time": 25.58815026283264
+            },
+            {
+                "trial": 96,
+                "success": true,
+                "steps": 476,
+                "time": 9.382280826568604
+            },
+            {
+                "trial": 97,
+                "success": true,
+                "steps": 664,
+                "time": 9.85131311416626
+            },
+            {
+                "trial": 98,
+                "success": true,
+                "steps": 651,
+                "time": 13.766512393951416
+            },
+            {
+                "trial": 99,
+                "success": true,
+                "steps": 666,
+                "time": 10.33573842048645
+            }
+        ],
+        "elephant": [
+            {
+                "trial": 0,
+                "success": false,
+                "steps": 3000,
+                "time": 125.5137345790863
+            },
+            {
+                "trial": 1,
+                "success": false,
+                "steps": 3000,
+                "time": 122.79950428009033
+            },
+            {
+                "trial": 2,
+                "success": true,
+                "steps": 2985,
+                "time": 120.42099928855896
+            },
+            {
+                "trial": 3,
+                "success": false,
+                "steps": 3000,
+                "time": 113.51761198043823
+            },
+            {
+                "trial": 4,
+                "success": false,
+                "steps": 3000,
+                "time": 59.37024450302124
+            },
+            {
+                "trial": 5,
+                "success": true,
+                "steps": 2623,
+                "time": 48.61012673377991
+            },
+            {
+                "trial": 6,
+                "success": true,
+                "steps": 1484,
+                "time": 29.970659732818604
+            },
+            {
+                "trial": 7,
+                "success": false,
+                "steps": 3000,
+                "time": 58.75432276725769
+            },
+            {
+                "trial": 8,
+                "success": false,
+                "steps": 3000,
+                "time": 63.65113353729248
+            },
+            {
+                "trial": 9,
+                "success": true,
+                "steps": 2355,
+                "time": 47.345690965652466
+            },
+            {
+                "trial": 10,
+                "success": true,
+                "steps": 832,
+                "time": 15.962323904037476
+            },
+            {
+                "trial": 11,
+                "success": true,
+                "steps": 1255,
+                "time": 24.958487033843994
+            },
+            {
+                "trial": 12,
+                "success": true,
+                "steps": 824,
+                "time": 15.87447190284729
+            },
+            {
+                "trial": 13,
+                "success": false,
+                "steps": 3000,
+                "time": 56.81947040557861
+            },
+            {
+                "trial": 14,
+                "success": true,
+                "steps": 1706,
+                "time": 38.06030631065369
+            },
+            {
+                "trial": 15,
+                "success": true,
+                "steps": 2627,
+                "time": 51.77377653121948
+            },
+            {
+                "trial": 16,
+                "success": false,
+                "steps": 3000,
+                "time": 55.45317316055298
+            },
+            {
+                "trial": 17,
+                "success": false,
+                "steps": 3000,
+                "time": 62.95580506324768
+            },
+            {
+                "trial": 18,
+                "success": false,
+                "steps": 3000,
+                "time": 60.021496057510376
+            },
+            {
+                "trial": 19,
+                "success": true,
+                "steps": 1635,
+                "time": 32.41050148010254
+            },
+            {
+                "trial": 20,
+                "success": false,
+                "steps": 3000,
+                "time": 51.02089262008667
+            },
+            {
+                "trial": 21,
+                "success": false,
+                "steps": 3000,
+                "time": 56.843214988708496
+            },
+            {
+                "trial": 22,
+                "success": true,
+                "steps": 2293,
+                "time": 46.027777433395386
+            },
+            {
+                "trial": 23,
+                "success": true,
+                "steps": 2229,
+                "time": 45.79964756965637
+            },
+            {
+                "trial": 24,
+                "success": false,
+                "steps": 3000,
+                "time": 56.71136713027954
+            },
+            {
+                "trial": 25,
+                "success": true,
+                "steps": 2964,
+                "time": 56.57385206222534
+            },
+            {
+                "trial": 26,
+                "success": false,
+                "steps": 3000,
+                "time": 59.75557065010071
+            },
+            {
+                "trial": 27,
+                "success": false,
+                "steps": 3000,
+                "time": 66.49455881118774
+            },
+            {
+                "trial": 28,
+                "success": true,
+                "steps": 2546,
+                "time": 51.80136322975159
+            },
+            {
+                "trial": 29,
+                "success": true,
+                "steps": 1274,
+                "time": 25.202168464660645
+            },
+            {
+                "trial": 30,
+                "success": true,
+                "steps": 550,
+                "time": 10.083187580108643
+            },
+            {
+                "trial": 31,
+                "success": false,
+                "steps": 3000,
+                "time": 66.03820276260376
+            },
+            {
+                "trial": 32,
+                "success": true,
+                "steps": 2633,
+                "time": 49.489184617996216
+            },
+            {
+                "trial": 33,
+                "success": false,
+                "steps": 3000,
+                "time": 61.57593393325806
+            },
+            {
+                "trial": 34,
+                "success": true,
+                "steps": 1695,
+                "time": 38.179479360580444
+            },
+            {
+                "trial": 35,
+                "success": true,
+                "steps": 2825,
+                "time": 66.55472874641418
+            },
+            {
+                "trial": 36,
+                "success": true,
+                "steps": 2496,
+                "time": 49.12230324745178
+            },
+            {
+                "trial": 37,
+                "success": false,
+                "steps": 3000,
+                "time": 66.81943488121033
+            },
+            {
+                "trial": 38,
+                "success": true,
+                "steps": 2365,
+                "time": 44.2111291885376
+            },
+            {
+                "trial": 39,
+                "success": false,
+                "steps": 3000,
+                "time": 67.1826479434967
+            },
+            {
+                "trial": 40,
+                "success": false,
+                "steps": 3000,
+                "time": 69.11032223701477
+            },
+            {
+                "trial": 41,
+                "success": true,
+                "steps": 772,
+                "time": 15.478724718093872
+            },
+            {
+                "trial": 42,
+                "success": false,
+                "steps": 3000,
+                "time": 56.56689190864563
+            },
+            {
+                "trial": 43,
+                "success": true,
+                "steps": 2255,
+                "time": 48.2184362411499
+            },
+            {
+                "trial": 44,
+                "success": true,
+                "steps": 1272,
+                "time": 31.575374364852905
+            },
+            {
+                "trial": 45,
+                "success": false,
+                "steps": 3000,
+                "time": 59.53420066833496
+            },
+            {
+                "trial": 46,
+                "success": true,
+                "steps": 2283,
+                "time": 52.22607421875
+            },
+            {
+                "trial": 47,
+                "success": true,
+                "steps": 2688,
+                "time": 60.259138345718384
+            },
+            {
+                "trial": 48,
+                "success": false,
+                "steps": 3000,
+                "time": 63.91371202468872
+            },
+            {
+                "trial": 49,
+                "success": true,
+                "steps": 1685,
+                "time": 30.32559299468994
+            },
+            {
+                "trial": 50,
+                "success": true,
+                "steps": 1306,
+                "time": 24.614583253860474
+            },
+            {
+                "trial": 51,
+                "success": true,
+                "steps": 913,
+                "time": 17.502456188201904
+            },
+            {
+                "trial": 52,
+                "success": true,
+                "steps": 2345,
+                "time": 41.62363243103027
+            },
+            {
+                "trial": 53,
+                "success": true,
+                "steps": 496,
+                "time": 9.932169198989868
+            },
+            {
+                "trial": 54,
+                "success": true,
+                "steps": 1625,
+                "time": 36.71713638305664
+            },
+            {
+                "trial": 55,
+                "success": true,
+                "steps": 1049,
+                "time": 19.200594663619995
+            },
+            {
+                "trial": 56,
+                "success": true,
+                "steps": 2262,
+                "time": 45.75011372566223
+            },
+            {
+                "trial": 57,
+                "success": false,
+                "steps": 3000,
+                "time": 69.0801477432251
+            },
+            {
+                "trial": 58,
+                "success": false,
+                "steps": 3000,
+                "time": 55.56707429885864
+            },
+            {
+                "trial": 59,
+                "success": false,
+                "steps": 3000,
+                "time": 71.59202742576599
+            },
+            {
+                "trial": 60,
+                "success": true,
+                "steps": 1424,
+                "time": 27.688188791275024
+            },
+            {
+                "trial": 61,
+                "success": true,
+                "steps": 2007,
+                "time": 41.05107498168945
+            },
+            {
+                "trial": 62,
+                "success": true,
+                "steps": 2167,
+                "time": 39.80887222290039
+            },
+            {
+                "trial": 63,
+                "success": true,
+                "steps": 2395,
+                "time": 51.02772045135498
+            },
+            {
+                "trial": 64,
+                "success": true,
+                "steps": 2198,
+                "time": 39.05042791366577
+            },
+            {
+                "trial": 65,
+                "success": false,
+                "steps": 3000,
+                "time": 62.22096300125122
+            },
+            {
+                "trial": 66,
+                "success": true,
+                "steps": 969,
+                "time": 19.173302173614502
+            },
+            {
+                "trial": 67,
+                "success": true,
+                "steps": 820,
+                "time": 14.200615882873535
+            },
+            {
+                "trial": 68,
+                "success": true,
+                "steps": 1941,
+                "time": 36.52971792221069
+            },
+            {
+                "trial": 69,
+                "success": false,
+                "steps": 3000,
+                "time": 57.04411053657532
+            },
+            {
+                "trial": 70,
+                "success": false,
+                "steps": 3000,
+                "time": 60.62782645225525
+            },
+            {
+                "trial": 71,
+                "success": true,
+                "steps": 2750,
+                "time": 66.33870530128479
+            },
+            {
+                "trial": 72,
+                "success": true,
+                "steps": 2831,
+                "time": 50.037731885910034
+            },
+            {
+                "trial": 73,
+                "success": false,
+                "steps": 3000,
+                "time": 62.613821506500244
+            },
+            {
+                "trial": 74,
+                "success": true,
+                "steps": 1470,
+                "time": 27.898781299591064
+            },
+            {
+                "trial": 75,
+                "success": false,
+                "steps": 3000,
+                "time": 55.96599006652832
+            },
+            {
+                "trial": 76,
+                "success": false,
+                "steps": 3000,
+                "time": 60.93439602851868
+            },
+            {
+                "trial": 77,
+                "success": true,
+                "steps": 827,
+                "time": 18.204073429107666
+            },
+            {
+                "trial": 78,
+                "success": true,
+                "steps": 1833,
+                "time": 36.384262800216675
+            },
+            {
+                "trial": 79,
+                "success": true,
+                "steps": 1549,
+                "time": 29.016674041748047
+            },
+            {
+                "trial": 80,
+                "success": false,
+                "steps": 3000,
+                "time": 56.10998296737671
+            },
+            {
+                "trial": 81,
+                "success": false,
+                "steps": 3000,
+                "time": 57.26595664024353
+            },
+            {
+                "trial": 82,
+                "success": true,
+                "steps": 1736,
+                "time": 33.48100161552429
+            },
+            {
+                "trial": 83,
+                "success": true,
+                "steps": 1750,
+                "time": 34.890944957733154
+            },
+            {
+                "trial": 84,
+                "success": true,
+                "steps": 1279,
+                "time": 25.27092719078064
+            },
+            {
+                "trial": 85,
+                "success": false,
+                "steps": 3000,
+                "time": 59.408764600753784
+            },
+            {
+                "trial": 86,
+                "success": false,
+                "steps": 3000,
+                "time": 60.279720306396484
+            },
+            {
+                "trial": 87,
+                "success": true,
+                "steps": 1009,
+                "time": 20.25889253616333
+            },
+            {
+                "trial": 88,
+                "success": true,
+                "steps": 1173,
+                "time": 22.355603218078613
+            },
+            {
+                "trial": 89,
+                "success": true,
+                "steps": 1929,
+                "time": 36.80485391616821
+            },
+            {
+                "trial": 90,
+                "success": false,
+                "steps": 3000,
+                "time": 53.694666385650635
+            },
+            {
+                "trial": 91,
+                "success": true,
+                "steps": 1884,
+                "time": 38.4972448348999
+            },
+            {
+                "trial": 92,
+                "success": false,
+                "steps": 3000,
+                "time": 60.93740725517273
+            },
+            {
+                "trial": 93,
+                "success": true,
+                "steps": 1359,
+                "time": 26.116194248199463
+            },
+            {
+                "trial": 94,
+                "success": false,
+                "steps": 3000,
+                "time": 56.850929498672485
+            },
+            {
+                "trial": 95,
+                "success": true,
+                "steps": 2574,
+                "time": 47.404969930648804
+            },
+            {
+                "trial": 96,
+                "success": false,
+                "steps": 3000,
+                "time": 58.91071057319641
+            },
+            {
+                "trial": 97,
+                "success": true,
+                "steps": 1789,
+                "time": 40.124427318573
+            },
+            {
+                "trial": 98,
+                "success": false,
+                "steps": 3000,
+                "time": 64.90246343612671
+            },
+            {
+                "trial": 99,
+                "success": true,
+                "steps": 1312,
+                "time": 25.830081701278687
+            }
+        ],
+        "foam_brick": [
+            {
+                "trial": 0,
+                "success": true,
+                "steps": 224,
+                "time": 3.2219064235687256
+            },
+            {
+                "trial": 1,
+                "success": true,
+                "steps": 475,
+                "time": 6.6600470542907715
+            },
+            {
+                "trial": 2,
+                "success": true,
+                "steps": 454,
+                "time": 10.012249946594238
+            },
+            {
+                "trial": 3,
+                "success": true,
+                "steps": 320,
+                "time": 6.442955732345581
+            },
+            {
+                "trial": 4,
+                "success": true,
+                "steps": 752,
+                "time": 11.738094568252563
+            },
+            {
+                "trial": 5,
+                "success": true,
+                "steps": 1174,
+                "time": 19.43933343887329
+            },
+            {
+                "trial": 6,
+                "success": true,
+                "steps": 440,
+                "time": 7.935017108917236
+            },
+            {
+                "trial": 7,
+                "success": true,
+                "steps": 431,
+                "time": 7.446437120437622
+            },
+            {
+                "trial": 8,
+                "success": true,
+                "steps": 444,
+                "time": 7.01506781578064
+            },
+            {
+                "trial": 9,
+                "success": true,
+                "steps": 1051,
+                "time": 22.366585731506348
+            },
+            {
+                "trial": 10,
+                "success": true,
+                "steps": 263,
+                "time": 3.9507813453674316
+            },
+            {
+                "trial": 11,
+                "success": true,
+                "steps": 458,
+                "time": 7.027125597000122
+            },
+            {
+                "trial": 12,
+                "success": true,
+                "steps": 754,
+                "time": 11.240027666091919
+            },
+            {
+                "trial": 13,
+                "success": true,
+                "steps": 405,
+                "time": 5.83490252494812
+            },
+            {
+                "trial": 14,
+                "success": true,
+                "steps": 710,
+                "time": 12.952447414398193
+            },
+            {
+                "trial": 15,
+                "success": true,
+                "steps": 387,
+                "time": 6.403254270553589
+            },
+            {
+                "trial": 16,
+                "success": true,
+                "steps": 661,
+                "time": 11.87790584564209
+            },
+            {
+                "trial": 17,
+                "success": true,
+                "steps": 478,
+                "time": 6.789134979248047
+            },
+            {
+                "trial": 18,
+                "success": true,
+                "steps": 318,
+                "time": 5.889291524887085
+            },
+            {
+                "trial": 19,
+                "success": true,
+                "steps": 435,
+                "time": 7.920493125915527
+            },
+            {
+                "trial": 20,
+                "success": true,
+                "steps": 1132,
+                "time": 16.856589317321777
+            },
+            {
+                "trial": 21,
+                "success": true,
+                "steps": 264,
+                "time": 3.8585622310638428
+            },
+            {
+                "trial": 22,
+                "success": true,
+                "steps": 368,
+                "time": 5.799011945724487
+            },
+            {
+                "trial": 23,
+                "success": true,
+                "steps": 467,
+                "time": 7.335850954055786
+            },
+            {
+                "trial": 24,
+                "success": true,
+                "steps": 531,
+                "time": 8.138431549072266
+            },
+            {
+                "trial": 25,
+                "success": true,
+                "steps": 411,
+                "time": 6.387357711791992
+            },
+            {
+                "trial": 26,
+                "success": true,
+                "steps": 658,
+                "time": 9.827598094940186
+            },
+            {
+                "trial": 27,
+                "success": true,
+                "steps": 273,
+                "time": 4.817866563796997
+            },
+            {
+                "trial": 28,
+                "success": true,
+                "steps": 306,
+                "time": 4.299481630325317
+            },
+            {
+                "trial": 29,
+                "success": true,
+                "steps": 469,
+                "time": 7.215204238891602
+            },
+            {
+                "trial": 30,
+                "success": true,
+                "steps": 291,
+                "time": 4.2483603954315186
+            },
+            {
+                "trial": 31,
+                "success": true,
+                "steps": 695,
+                "time": 10.552516222000122
+            },
+            {
+                "trial": 32,
+                "success": true,
+                "steps": 500,
+                "time": 7.858593702316284
+            },
+            {
+                "trial": 33,
+                "success": true,
+                "steps": 604,
+                "time": 9.419967412948608
+            },
+            {
+                "trial": 34,
+                "success": true,
+                "steps": 428,
+                "time": 7.219824552536011
+            },
+            {
+                "trial": 35,
+                "success": true,
+                "steps": 368,
+                "time": 5.488841772079468
+            },
+            {
+                "trial": 36,
+                "success": true,
+                "steps": 233,
+                "time": 4.7720723152160645
+            },
+            {
+                "trial": 37,
+                "success": true,
+                "steps": 1179,
+                "time": 19.344661951065063
+            },
+            {
+                "trial": 38,
+                "success": true,
+                "steps": 622,
+                "time": 8.986791372299194
+            },
+            {
+                "trial": 39,
+                "success": true,
+                "steps": 595,
+                "time": 9.18607759475708
+            },
+            {
+                "trial": 40,
+                "success": true,
+                "steps": 321,
+                "time": 4.967663526535034
+            },
+            {
+                "trial": 41,
+                "success": true,
+                "steps": 460,
+                "time": 7.185842990875244
+            },
+            {
+                "trial": 42,
+                "success": true,
+                "steps": 557,
+                "time": 8.251993417739868
+            },
+            {
+                "trial": 43,
+                "success": true,
+                "steps": 510,
+                "time": 7.572462558746338
+            },
+            {
+                "trial": 44,
+                "success": true,
+                "steps": 515,
+                "time": 10.19223141670227
+            },
+            {
+                "trial": 45,
+                "success": true,
+                "steps": 256,
+                "time": 6.918405294418335
+            },
+            {
+                "trial": 46,
+                "success": true,
+                "steps": 391,
+                "time": 6.677211761474609
+            },
+            {
+                "trial": 47,
+                "success": true,
+                "steps": 792,
+                "time": 11.925008296966553
+            },
+            {
+                "trial": 48,
+                "success": true,
+                "steps": 299,
+                "time": 4.443402051925659
+            },
+            {
+                "trial": 49,
+                "success": true,
+                "steps": 603,
+                "time": 9.133175134658813
+            },
+            {
+                "trial": 50,
+                "success": true,
+                "steps": 345,
+                "time": 5.081495761871338
+            },
+            {
+                "trial": 51,
+                "success": true,
+                "steps": 633,
+                "time": 11.112729549407959
+            },
+            {
+                "trial": 52,
+                "success": true,
+                "steps": 379,
+                "time": 6.473910093307495
+            },
+            {
+                "trial": 53,
+                "success": true,
+                "steps": 490,
+                "time": 8.792115688323975
+            },
+            {
+                "trial": 54,
+                "success": true,
+                "steps": 463,
+                "time": 8.25333023071289
+            },
+            {
+                "trial": 55,
+                "success": true,
+                "steps": 451,
+                "time": 7.621699810028076
+            },
+            {
+                "trial": 56,
+                "success": true,
+                "steps": 252,
+                "time": 3.6889357566833496
+            },
+            {
+                "trial": 57,
+                "success": true,
+                "steps": 389,
+                "time": 7.1671059131622314
+            },
+            {
+                "trial": 58,
+                "success": true,
+                "steps": 286,
+                "time": 4.625604629516602
+            },
+            {
+                "trial": 59,
+                "success": true,
+                "steps": 590,
+                "time": 9.082055568695068
+            },
+            {
+                "trial": 60,
+                "success": true,
+                "steps": 294,
+                "time": 4.499738454818726
+            },
+            {
+                "trial": 61,
+                "success": true,
+                "steps": 507,
+                "time": 7.413216829299927
+            },
+            {
+                "trial": 62,
+                "success": true,
+                "steps": 520,
+                "time": 7.147090911865234
+            },
+            {
+                "trial": 63,
+                "success": true,
+                "steps": 294,
+                "time": 4.934914588928223
+            },
+            {
+                "trial": 64,
+                "success": true,
+                "steps": 150,
+                "time": 2.1142191886901855
+            },
+            {
+                "trial": 65,
+                "success": true,
+                "steps": 624,
+                "time": 8.953027725219727
+            },
+            {
+                "trial": 66,
+                "success": true,
+                "steps": 418,
+                "time": 6.304013967514038
+            },
+            {
+                "trial": 67,
+                "success": true,
+                "steps": 694,
+                "time": 12.2826247215271
+            },
+            {
+                "trial": 68,
+                "success": true,
+                "steps": 363,
+                "time": 5.925423622131348
+            },
+            {
+                "trial": 69,
+                "success": true,
+                "steps": 713,
+                "time": 12.318440914154053
+            },
+            {
+                "trial": 70,
+                "success": true,
+                "steps": 189,
+                "time": 3.3551688194274902
+            },
+            {
+                "trial": 71,
+                "success": true,
+                "steps": 934,
+                "time": 14.975377798080444
+            },
+            {
+                "trial": 72,
+                "success": true,
+                "steps": 206,
+                "time": 3.556729316711426
+            },
+            {
+                "trial": 73,
+                "success": true,
+                "steps": 456,
+                "time": 6.608475208282471
+            },
+            {
+                "trial": 74,
+                "success": true,
+                "steps": 409,
+                "time": 6.3636956214904785
+            },
+            {
+                "trial": 75,
+                "success": true,
+                "steps": 1218,
+                "time": 21.250778436660767
+            },
+            {
+                "trial": 76,
+                "success": true,
+                "steps": 276,
+                "time": 4.938612699508667
+            },
+            {
+                "trial": 77,
+                "success": true,
+                "steps": 444,
+                "time": 6.87183690071106
+            },
+            {
+                "trial": 78,
+                "success": true,
+                "steps": 430,
+                "time": 6.841094255447388
+            },
+            {
+                "trial": 79,
+                "success": true,
+                "steps": 1040,
+                "time": 17.97101402282715
+            },
+            {
+                "trial": 80,
+                "success": true,
+                "steps": 285,
+                "time": 4.8337626457214355
+            },
+            {
+                "trial": 81,
+                "success": true,
+                "steps": 529,
+                "time": 8.013013362884521
+            },
+            {
+                "trial": 82,
+                "success": true,
+                "steps": 318,
+                "time": 4.605403423309326
+            },
+            {
+                "trial": 83,
+                "success": true,
+                "steps": 952,
+                "time": 13.266865491867065
+            },
+            {
+                "trial": 84,
+                "success": true,
+                "steps": 362,
+                "time": 5.900554895401001
+            },
+            {
+                "trial": 85,
+                "success": true,
+                "steps": 271,
+                "time": 4.137995481491089
+            },
+            {
+                "trial": 86,
+                "success": true,
+                "steps": 340,
+                "time": 5.20058536529541
+            },
+            {
+                "trial": 87,
+                "success": true,
+                "steps": 498,
+                "time": 8.858934164047241
+            },
+            {
+                "trial": 88,
+                "success": true,
+                "steps": 426,
+                "time": 6.338930606842041
+            },
+            {
+                "trial": 89,
+                "success": true,
+                "steps": 604,
+                "time": 8.938304662704468
+            },
+            {
+                "trial": 90,
+                "success": true,
+                "steps": 871,
+                "time": 12.979331731796265
+            },
+            {
+                "trial": 91,
+                "success": true,
+                "steps": 305,
+                "time": 5.449626445770264
+            },
+            {
+                "trial": 92,
+                "success": true,
+                "steps": 586,
+                "time": 9.232006311416626
+            },
+            {
+                "trial": 93,
+                "success": true,
+                "steps": 403,
+                "time": 6.218573570251465
+            },
+            {
+                "trial": 94,
+                "success": true,
+                "steps": 662,
+                "time": 10.086217164993286
+            },
+            {
+                "trial": 95,
+                "success": true,
+                "steps": 480,
+                "time": 10.3326575756073
+            },
+            {
+                "trial": 96,
+                "success": true,
+                "steps": 322,
+                "time": 6.414458751678467
+            },
+            {
+                "trial": 97,
+                "success": true,
+                "steps": 678,
+                "time": 11.891629457473755
+            },
+            {
+                "trial": 98,
+                "success": true,
+                "steps": 449,
+                "time": 9.053470611572266
+            },
+            {
+                "trial": 99,
+                "success": true,
+                "steps": 690,
+                "time": 10.493069648742676
+            }
+        ],
+        "teapot": [
+            {
+                "trial": 0,
+                "success": true,
+                "steps": 406,
+                "time": 6.972110986709595
+            },
+            {
+                "trial": 1,
+                "success": true,
+                "steps": 357,
+                "time": 7.61472487449646
+            },
+            {
+                "trial": 2,
+                "success": true,
+                "steps": 953,
+                "time": 16.493923902511597
+            },
+            {
+                "trial": 3,
+                "success": true,
+                "steps": 266,
+                "time": 4.464325189590454
+            },
+            {
+                "trial": 4,
+                "success": true,
+                "steps": 904,
+                "time": 17.234684228897095
+            },
+            {
+                "trial": 5,
+                "success": true,
+                "steps": 195,
+                "time": 2.9272732734680176
+            },
+            {
+                "trial": 6,
+                "success": true,
+                "steps": 799,
+                "time": 16.9326069355011
+            },
+            {
+                "trial": 7,
+                "success": true,
+                "steps": 240,
+                "time": 5.44870662689209
+            },
+            {
+                "trial": 8,
+                "success": true,
+                "steps": 980,
+                "time": 23.53600788116455
+            },
+            {
+                "trial": 9,
+                "success": true,
+                "steps": 233,
+                "time": 4.237031936645508
+            },
+            {
+                "trial": 10,
+                "success": true,
+                "steps": 604,
+                "time": 12.372833967208862
+            },
+            {
+                "trial": 11,
+                "success": true,
+                "steps": 280,
+                "time": 5.076643466949463
+            },
+            {
+                "trial": 12,
+                "success": true,
+                "steps": 228,
+                "time": 4.689810514450073
+            },
+            {
+                "trial": 13,
+                "success": true,
+                "steps": 254,
+                "time": 5.169614315032959
+            },
+            {
+                "trial": 14,
+                "success": true,
+                "steps": 279,
+                "time": 5.583443641662598
+            },
+            {
+                "trial": 15,
+                "success": true,
+                "steps": 497,
+                "time": 10.741398334503174
+            },
+            {
+                "trial": 16,
+                "success": true,
+                "steps": 377,
+                "time": 6.354666233062744
+            },
+            {
+                "trial": 17,
+                "success": true,
+                "steps": 1610,
+                "time": 27.745768070220947
+            },
+            {
+                "trial": 18,
+                "success": true,
+                "steps": 1555,
+                "time": 32.7616548538208
+            },
+            {
+                "trial": 19,
+                "success": true,
+                "steps": 161,
+                "time": 2.8779616355895996
+            },
+            {
+                "trial": 20,
+                "success": true,
+                "steps": 399,
+                "time": 9.006248950958252
+            },
+            {
+                "trial": 21,
+                "success": true,
+                "steps": 214,
+                "time": 3.9855237007141113
+            },
+            {
+                "trial": 22,
+                "success": true,
+                "steps": 149,
+                "time": 2.738976240158081
+            },
+            {
+                "trial": 23,
+                "success": true,
+                "steps": 161,
+                "time": 3.078784704208374
+            },
+            {
+                "trial": 24,
+                "success": true,
+                "steps": 876,
+                "time": 15.5339834690094
+            },
+            {
+                "trial": 25,
+                "success": true,
+                "steps": 507,
+                "time": 9.141589403152466
+            },
+            {
+                "trial": 26,
+                "success": true,
+                "steps": 471,
+                "time": 8.579854011535645
+            },
+            {
+                "trial": 27,
+                "success": true,
+                "steps": 1321,
+                "time": 24.44161343574524
+            },
+            {
+                "trial": 28,
+                "success": true,
+                "steps": 205,
+                "time": 4.084772109985352
+            },
+            {
+                "trial": 29,
+                "success": true,
+                "steps": 228,
+                "time": 4.046504974365234
+            },
+            {
+                "trial": 30,
+                "success": true,
+                "steps": 820,
+                "time": 13.591399192810059
+            },
+            {
+                "trial": 31,
+                "success": true,
+                "steps": 542,
+                "time": 9.94454050064087
+            },
+            {
+                "trial": 32,
+                "success": true,
+                "steps": 419,
+                "time": 6.989171266555786
+            },
+            {
+                "trial": 33,
+                "success": true,
+                "steps": 184,
+                "time": 3.3061025142669678
+            },
+            {
+                "trial": 34,
+                "success": true,
+                "steps": 296,
+                "time": 4.755853652954102
+            },
+            {
+                "trial": 35,
+                "success": true,
+                "steps": 358,
+                "time": 6.437317371368408
+            },
+            {
+                "trial": 36,
+                "success": true,
+                "steps": 160,
+                "time": 3.4565179347991943
+            },
+            {
+                "trial": 37,
+                "success": true,
+                "steps": 1295,
+                "time": 27.135038375854492
+            },
+            {
+                "trial": 38,
+                "success": true,
+                "steps": 650,
+                "time": 12.165093660354614
+            },
+            {
+                "trial": 39,
+                "success": true,
+                "steps": 249,
+                "time": 4.2800586223602295
+            },
+            {
+                "trial": 40,
+                "success": true,
+                "steps": 424,
+                "time": 7.444066524505615
+            },
+            {
+                "trial": 41,
+                "success": true,
+                "steps": 213,
+                "time": 3.50065016746521
+            },
+            {
+                "trial": 42,
+                "success": true,
+                "steps": 614,
+                "time": 12.582407236099243
+            },
+            {
+                "trial": 43,
+                "success": true,
+                "steps": 2388,
+                "time": 36.660640716552734
+            },
+            {
+                "trial": 44,
+                "success": true,
+                "steps": 683,
+                "time": 11.532766103744507
+            },
+            {
+                "trial": 45,
+                "success": true,
+                "steps": 149,
+                "time": 2.7676663398742676
+            },
+            {
+                "trial": 46,
+                "success": true,
+                "steps": 150,
+                "time": 3.497694969177246
+            },
+            {
+                "trial": 47,
+                "success": true,
+                "steps": 400,
+                "time": 6.955844402313232
+            },
+            {
+                "trial": 48,
+                "success": true,
+                "steps": 1592,
+                "time": 29.736557960510254
+            },
+            {
+                "trial": 49,
+                "success": true,
+                "steps": 1994,
+                "time": 35.85601544380188
+            },
+            {
+                "trial": 50,
+                "success": true,
+                "steps": 189,
+                "time": 3.477216958999634
+            },
+            {
+                "trial": 51,
+                "success": true,
+                "steps": 1469,
+                "time": 28.690000772476196
+            },
+            {
+                "trial": 52,
+                "success": true,
+                "steps": 894,
+                "time": 17.507961750030518
+            },
+            {
+                "trial": 53,
+                "success": true,
+                "steps": 449,
+                "time": 10.264955997467041
+            },
+            {
+                "trial": 54,
+                "success": true,
+                "steps": 319,
+                "time": 6.259504079818726
+            },
+            {
+                "trial": 55,
+                "success": true,
+                "steps": 287,
+                "time": 4.735448837280273
+            },
+            {
+                "trial": 56,
+                "success": true,
+                "steps": 101,
+                "time": 2.037930727005005
+            },
+            {
+                "trial": 57,
+                "success": true,
+                "steps": 575,
+                "time": 9.888867139816284
+            },
+            {
+                "trial": 58,
+                "success": true,
+                "steps": 1206,
+                "time": 21.176025867462158
+            },
+            {
+                "trial": 59,
+                "success": true,
+                "steps": 150,
+                "time": 3.478888750076294
+            },
+            {
+                "trial": 60,
+                "success": true,
+                "steps": 280,
+                "time": 5.102367401123047
+            },
+            {
+                "trial": 61,
+                "success": true,
+                "steps": 778,
+                "time": 13.783204078674316
+            },
+            {
+                "trial": 62,
+                "success": true,
+                "steps": 300,
+                "time": 6.929072618484497
+            },
+            {
+                "trial": 63,
+                "success": true,
+                "steps": 877,
+                "time": 15.059804677963257
+            },
+            {
+                "trial": 64,
+                "success": true,
+                "steps": 489,
+                "time": 9.861342191696167
+            },
+            {
+                "trial": 65,
+                "success": true,
+                "steps": 418,
+                "time": 7.109416723251343
+            },
+            {
+                "trial": 66,
+                "success": true,
+                "steps": 1785,
+                "time": 34.67643713951111
+            },
+            {
+                "trial": 67,
+                "success": true,
+                "steps": 297,
+                "time": 4.728391170501709
+            },
+            {
+                "trial": 68,
+                "success": true,
+                "steps": 135,
+                "time": 3.083570957183838
+            },
+            {
+                "trial": 69,
+                "success": true,
+                "steps": 478,
+                "time": 8.55467414855957
+            },
+            {
+                "trial": 70,
+                "success": true,
+                "steps": 562,
+                "time": 10.485143184661865
+            },
+            {
+                "trial": 71,
+                "success": true,
+                "steps": 451,
+                "time": 11.251637935638428
+            },
+            {
+                "trial": 72,
+                "success": true,
+                "steps": 309,
+                "time": 5.218057870864868
+            },
+            {
+                "trial": 73,
+                "success": true,
+                "steps": 768,
+                "time": 13.08457064628601
+            },
+            {
+                "trial": 74,
+                "success": true,
+                "steps": 2149,
+                "time": 37.42040276527405
+            },
+            {
+                "trial": 75,
+                "success": true,
+                "steps": 308,
+                "time": 5.048590421676636
+            },
+            {
+                "trial": 76,
+                "success": true,
+                "steps": 2018,
+                "time": 34.956254720687866
+            },
+            {
+                "trial": 77,
+                "success": true,
+                "steps": 1792,
+                "time": 28.95062780380249
+            },
+            {
+                "trial": 78,
+                "success": true,
+                "steps": 678,
+                "time": 11.947162866592407
+            },
+            {
+                "trial": 79,
+                "success": true,
+                "steps": 192,
+                "time": 3.6376395225524902
+            },
+            {
+                "trial": 80,
+                "success": true,
+                "steps": 719,
+                "time": 15.973414421081543
+            },
+            {
+                "trial": 81,
+                "success": true,
+                "steps": 902,
+                "time": 18.295686960220337
+            },
+            {
+                "trial": 82,
+                "success": true,
+                "steps": 208,
+                "time": 3.770087242126465
+            },
+            {
+                "trial": 83,
+                "success": true,
+                "steps": 1336,
+                "time": 22.206015825271606
+            },
+            {
+                "trial": 84,
+                "success": true,
+                "steps": 444,
+                "time": 8.038286209106445
+            },
+            {
+                "trial": 85,
+                "success": true,
+                "steps": 690,
+                "time": 12.576693296432495
+            },
+            {
+                "trial": 86,
+                "success": true,
+                "steps": 412,
+                "time": 9.3175687789917
+            },
+            {
+                "trial": 87,
+                "success": true,
+                "steps": 619,
+                "time": 13.174705028533936
+            },
+            {
+                "trial": 88,
+                "success": true,
+                "steps": 286,
+                "time": 6.8948891162872314
+            },
+            {
+                "trial": 89,
+                "success": true,
+                "steps": 299,
+                "time": 5.011203289031982
+            },
+            {
+                "trial": 90,
+                "success": true,
+                "steps": 1154,
+                "time": 22.106884002685547
+            },
+            {
+                "trial": 91,
+                "success": true,
+                "steps": 2150,
+                "time": 37.092918395996094
+            },
+            {
+                "trial": 92,
+                "success": true,
+                "steps": 2241,
+                "time": 41.34705352783203
+            },
+            {
+                "trial": 93,
+                "success": true,
+                "steps": 182,
+                "time": 4.236786842346191
+            },
+            {
+                "trial": 94,
+                "success": true,
+                "steps": 839,
+                "time": 15.690704822540283
+            },
+            {
+                "trial": 95,
+                "success": true,
+                "steps": 1075,
+                "time": 18.367586612701416
+            },
+            {
+                "trial": 96,
+                "success": true,
+                "steps": 480,
+                "time": 8.205304861068726
+            },
+            {
+                "trial": 97,
+                "success": true,
+                "steps": 557,
+                "time": 8.664810180664062
+            },
+            {
+                "trial": 98,
+                "success": true,
+                "steps": 195,
+                "time": 3.836674928665161
+            },
+            {
+                "trial": 99,
+                "success": true,
+                "steps": 1655,
+                "time": 32.43937540054321
+            }
+        ],
+        "stanford_bunny": [
+            {
+                "trial": 0,
+                "success": false,
+                "steps": 3000,
+                "time": 58.819464683532715
+            },
+            {
+                "trial": 1,
+                "success": true,
+                "steps": 493,
+                "time": 8.528718948364258
+            },
+            {
+                "trial": 2,
+                "success": true,
+                "steps": 800,
+                "time": 16.003246068954468
+            },
+            {
+                "trial": 3,
+                "success": true,
+                "steps": 438,
+                "time": 8.91838526725769
+            },
+            {
+                "trial": 4,
+                "success": true,
+                "steps": 1266,
+                "time": 24.237492084503174
+            },
+            {
+                "trial": 5,
+                "success": true,
+                "steps": 2872,
+                "time": 55.048134088516235
+            },
+            {
+                "trial": 6,
+                "success": true,
+                "steps": 727,
+                "time": 13.614824295043945
+            },
+            {
+                "trial": 7,
+                "success": false,
+                "steps": 3000,
+                "time": 61.307785987854004
+            },
+            {
+                "trial": 8,
+                "success": true,
+                "steps": 1837,
+                "time": 31.508885860443115
+            },
+            {
+                "trial": 9,
+                "success": true,
+                "steps": 1400,
+                "time": 26.010559797286987
+            },
+            {
+                "trial": 10,
+                "success": true,
+                "steps": 570,
+                "time": 10.555365085601807
+            },
+            {
+                "trial": 11,
+                "success": false,
+                "steps": 3000,
+                "time": 49.0066556930542
+            },
+            {
+                "trial": 12,
+                "success": true,
+                "steps": 873,
+                "time": 16.909789323806763
+            },
+            {
+                "trial": 13,
+                "success": true,
+                "steps": 748,
+                "time": 14.70345950126648
+            },
+            {
+                "trial": 14,
+                "success": true,
+                "steps": 366,
+                "time": 6.776533603668213
+            },
+            {
+                "trial": 15,
+                "success": true,
+                "steps": 1545,
+                "time": 35.012455701828
+            },
+            {
+                "trial": 16,
+                "success": true,
+                "steps": 1175,
+                "time": 20.989494800567627
+            },
+            {
+                "trial": 17,
+                "success": true,
+                "steps": 378,
+                "time": 9.143332481384277
+            },
+            {
+                "trial": 18,
+                "success": true,
+                "steps": 623,
+                "time": 11.689836025238037
+            },
+            {
+                "trial": 19,
+                "success": true,
+                "steps": 1721,
+                "time": 31.139586210250854
+            },
+            {
+                "trial": 20,
+                "success": true,
+                "steps": 962,
+                "time": 19.44787359237671
+            },
+            {
+                "trial": 21,
+                "success": true,
+                "steps": 194,
+                "time": 3.112091064453125
+            },
+            {
+                "trial": 22,
+                "success": true,
+                "steps": 2611,
+                "time": 50.92411255836487
+            },
+            {
+                "trial": 23,
+                "success": true,
+                "steps": 950,
+                "time": 16.656689882278442
+            },
+            {
+                "trial": 24,
+                "success": false,
+                "steps": 3000,
+                "time": 53.32817316055298
+            },
+            {
+                "trial": 25,
+                "success": false,
+                "steps": 3000,
+                "time": 51.78409194946289
+            },
+            {
+                "trial": 26,
+                "success": true,
+                "steps": 826,
+                "time": 16.39992380142212
+            },
+            {
+                "trial": 27,
+                "success": true,
+                "steps": 2807,
+                "time": 53.29337120056152
+            },
+            {
+                "trial": 28,
+                "success": true,
+                "steps": 483,
+                "time": 11.902072191238403
+            },
+            {
+                "trial": 29,
+                "success": true,
+                "steps": 1954,
+                "time": 37.32559871673584
+            },
+            {
+                "trial": 30,
+                "success": false,
+                "steps": 3000,
+                "time": 57.14526128768921
+            },
+            {
+                "trial": 31,
+                "success": true,
+                "steps": 727,
+                "time": 19.22329807281494
+            },
+            {
+                "trial": 32,
+                "success": false,
+                "steps": 3000,
+                "time": 52.979979515075684
+            },
+            {
+                "trial": 33,
+                "success": true,
+                "steps": 548,
+                "time": 10.53142237663269
+            },
+            {
+                "trial": 34,
+                "success": true,
+                "steps": 531,
+                "time": 9.209400177001953
+            },
+            {
+                "trial": 35,
+                "success": true,
+                "steps": 2106,
+                "time": 41.87618446350098
+            },
+            {
+                "trial": 36,
+                "success": true,
+                "steps": 1112,
+                "time": 24.419650554656982
+            },
+            {
+                "trial": 37,
+                "success": true,
+                "steps": 1637,
+                "time": 30.4266574382782
+            },
+            {
+                "trial": 38,
+                "success": true,
+                "steps": 2556,
+                "time": 46.305991411209106
+            },
+            {
+                "trial": 39,
+                "success": true,
+                "steps": 2008,
+                "time": 40.13235378265381
+            },
+            {
+                "trial": 40,
+                "success": true,
+                "steps": 461,
+                "time": 8.320723533630371
+            },
+            {
+                "trial": 41,
+                "success": true,
+                "steps": 311,
+                "time": 5.182679653167725
+            },
+            {
+                "trial": 42,
+                "success": true,
+                "steps": 951,
+                "time": 17.39953112602234
+            },
+            {
+                "trial": 43,
+                "success": false,
+                "steps": 3000,
+                "time": 51.29118013381958
+            },
+            {
+                "trial": 44,
+                "success": false,
+                "steps": 3000,
+                "time": 56.753533124923706
+            },
+            {
+                "trial": 45,
+                "success": true,
+                "steps": 1092,
+                "time": 18.54211163520813
+            },
+            {
+                "trial": 46,
+                "success": true,
+                "steps": 887,
+                "time": 19.50021481513977
+            },
+            {
+                "trial": 47,
+                "success": false,
+                "steps": 3000,
+                "time": 53.01051926612854
+            },
+            {
+                "trial": 48,
+                "success": true,
+                "steps": 1037,
+                "time": 20.67189598083496
+            },
+            {
+                "trial": 49,
+                "success": true,
+                "steps": 2375,
+                "time": 44.540303230285645
+            },
+            {
+                "trial": 50,
+                "success": true,
+                "steps": 305,
+                "time": 5.532396078109741
+            },
+            {
+                "trial": 51,
+                "success": true,
+                "steps": 2232,
+                "time": 41.193005084991455
+            },
+            {
+                "trial": 52,
+                "success": true,
+                "steps": 1274,
+                "time": 29.987006664276123
+            },
+            {
+                "trial": 53,
+                "success": true,
+                "steps": 270,
+                "time": 4.627071857452393
+            },
+            {
+                "trial": 54,
+                "success": true,
+                "steps": 1043,
+                "time": 23.032685041427612
+            },
+            {
+                "trial": 55,
+                "success": true,
+                "steps": 469,
+                "time": 8.089165210723877
+            },
+            {
+                "trial": 56,
+                "success": true,
+                "steps": 1178,
+                "time": 24.29909348487854
+            },
+            {
+                "trial": 57,
+                "success": true,
+                "steps": 554,
+                "time": 9.127284288406372
+            },
+            {
+                "trial": 58,
+                "success": false,
+                "steps": 3000,
+                "time": 51.52820611000061
+            },
+            {
+                "trial": 59,
+                "success": true,
+                "steps": 1083,
+                "time": 22.424581050872803
+            },
+            {
+                "trial": 60,
+                "success": true,
+                "steps": 638,
+                "time": 12.231303691864014
+            },
+            {
+                "trial": 61,
+                "success": true,
+                "steps": 2170,
+                "time": 41.44995903968811
+            },
+            {
+                "trial": 62,
+                "success": true,
+                "steps": 514,
+                "time": 12.417608261108398
+            },
+            {
+                "trial": 63,
+                "success": false,
+                "steps": 3000,
+                "time": 59.29822516441345
+            },
+            {
+                "trial": 64,
+                "success": true,
+                "steps": 215,
+                "time": 3.818997859954834
+            },
+            {
+                "trial": 65,
+                "success": true,
+                "steps": 1142,
+                "time": 23.97636604309082
+            },
+            {
+                "trial": 66,
+                "success": true,
+                "steps": 782,
+                "time": 14.086103677749634
+            },
+            {
+                "trial": 67,
+                "success": true,
+                "steps": 2831,
+                "time": 47.52877116203308
+            },
+            {
+                "trial": 68,
+                "success": true,
+                "steps": 1653,
+                "time": 28.956721544265747
+            },
+            {
+                "trial": 69,
+                "success": true,
+                "steps": 1207,
+                "time": 26.935583353042603
+            },
+            {
+                "trial": 70,
+                "success": true,
+                "steps": 603,
+                "time": 11.193119525909424
+            },
+            {
+                "trial": 71,
+                "success": true,
+                "steps": 717,
+                "time": 12.235872507095337
+            },
+            {
+                "trial": 72,
+                "success": true,
+                "steps": 267,
+                "time": 5.035703420639038
+            },
+            {
+                "trial": 73,
+                "success": true,
+                "steps": 1991,
+                "time": 36.096723556518555
+            },
+            {
+                "trial": 74,
+                "success": true,
+                "steps": 1030,
+                "time": 17.116450548171997
+            },
+            {
+                "trial": 75,
+                "success": false,
+                "steps": 3000,
+                "time": 55.39787840843201
+            },
+            {
+                "trial": 76,
+                "success": true,
+                "steps": 1735,
+                "time": 30.587828159332275
+            },
+            {
+                "trial": 77,
+                "success": false,
+                "steps": 3000,
+                "time": 56.4703574180603
+            },
+            {
+                "trial": 78,
+                "success": false,
+                "steps": 3000,
+                "time": 61.46633195877075
+            },
+            {
+                "trial": 79,
+                "success": true,
+                "steps": 545,
+                "time": 9.753002166748047
+            },
+            {
+                "trial": 80,
+                "success": true,
+                "steps": 392,
+                "time": 9.039563179016113
+            },
+            {
+                "trial": 81,
+                "success": true,
+                "steps": 1240,
+                "time": 26.153340101242065
+            },
+            {
+                "trial": 82,
+                "success": true,
+                "steps": 765,
+                "time": 15.327444076538086
+            },
+            {
+                "trial": 83,
+                "success": true,
+                "steps": 371,
+                "time": 6.541863918304443
+            },
+            {
+                "trial": 84,
+                "success": false,
+                "steps": 3000,
+                "time": 60.60366129875183
+            },
+            {
+                "trial": 85,
+                "success": false,
+                "steps": 3000,
+                "time": 56.21448755264282
+            },
+            {
+                "trial": 86,
+                "success": true,
+                "steps": 713,
+                "time": 13.00342059135437
+            },
+            {
+                "trial": 87,
+                "success": true,
+                "steps": 1506,
+                "time": 26.635634183883667
+            },
+            {
+                "trial": 88,
+                "success": true,
+                "steps": 719,
+                "time": 15.334665775299072
+            },
+            {
+                "trial": 89,
+                "success": false,
+                "steps": 3000,
+                "time": 53.80562496185303
+            },
+            {
+                "trial": 90,
+                "success": true,
+                "steps": 820,
+                "time": 14.485662460327148
+            },
+            {
+                "trial": 91,
+                "success": false,
+                "steps": 3000,
+                "time": 57.22193646430969
+            },
+            {
+                "trial": 92,
+                "success": true,
+                "steps": 2174,
+                "time": 48.21603536605835
+            },
+            {
+                "trial": 93,
+                "success": true,
+                "steps": 746,
+                "time": 13.4931640625
+            },
+            {
+                "trial": 94,
+                "success": true,
+                "steps": 1076,
+                "time": 23.560791730880737
+            },
+            {
+                "trial": 95,
+                "success": true,
+                "steps": 663,
+                "time": 13.02423095703125
+            },
+            {
+                "trial": 96,
+                "success": true,
+                "steps": 611,
+                "time": 11.391379356384277
+            },
+            {
+                "trial": 97,
+                "success": true,
+                "steps": 750,
+                "time": 13.230706453323364
+            },
+            {
+                "trial": 98,
+                "success": true,
+                "steps": 2902,
+                "time": 50.5337553024292
+            },
+            {
+                "trial": 99,
+                "success": true,
+                "steps": 842,
+                "time": 20.530981302261353
+            }
+        ],
+        "mug": [
+            {
+                "trial": 0,
+                "success": true,
+                "steps": 1056,
+                "time": 19.258353233337402
+            },
+            {
+                "trial": 1,
+                "success": true,
+                "steps": 2114,
+                "time": 36.32990837097168
+            },
+            {
+                "trial": 2,
+                "success": true,
+                "steps": 459,
+                "time": 8.603138446807861
+            },
+            {
+                "trial": 3,
+                "success": true,
+                "steps": 2064,
+                "time": 39.119713306427
+            },
+            {
+                "trial": 4,
+                "success": true,
+                "steps": 1143,
+                "time": 20.6268572807312
+            },
+            {
+                "trial": 5,
+                "success": true,
+                "steps": 310,
+                "time": 5.361145496368408
+            },
+            {
+                "trial": 6,
+                "success": true,
+                "steps": 1417,
+                "time": 26.074753999710083
+            },
+            {
+                "trial": 7,
+                "success": true,
+                "steps": 1323,
+                "time": 49.48133206367493
+            },
+            {
+                "trial": 8,
+                "success": true,
+                "steps": 841,
+                "time": 34.13911747932434
+            },
+            {
+                "trial": 9,
+                "success": true,
+                "steps": 1200,
+                "time": 45.95508122444153
+            },
+            {
+                "trial": 10,
+                "success": true,
+                "steps": 1747,
+                "time": 66.63993906974792
+            },
+            {
+                "trial": 11,
+                "success": true,
+                "steps": 1048,
+                "time": 41.5901563167572
+            },
+            {
+                "trial": 12,
+                "success": true,
+                "steps": 275,
+                "time": 10.28288722038269
+            },
+            {
+                "trial": 13,
+                "success": true,
+                "steps": 1703,
+                "time": 63.23412489891052
+            },
+            {
+                "trial": 14,
+                "success": true,
+                "steps": 825,
+                "time": 30.19342851638794
+            },
+            {
+                "trial": 15,
+                "success": true,
+                "steps": 1384,
+                "time": 54.91547656059265
+            },
+            {
+                "trial": 16,
+                "success": true,
+                "steps": 1467,
+                "time": 56.005138874053955
+            },
+            {
+                "trial": 17,
+                "success": true,
+                "steps": 779,
+                "time": 17.324753999710083
+            },
+            {
+                "trial": 18,
+                "success": false,
+                "steps": 3000,
+                "time": 58.04943346977234
+            },
+            {
+                "trial": 19,
+                "success": true,
+                "steps": 1640,
+                "time": 35.073755741119385
+            },
+            {
+                "trial": 20,
+                "success": true,
+                "steps": 1032,
+                "time": 19.25938081741333
+            },
+            {
+                "trial": 21,
+                "success": true,
+                "steps": 1059,
+                "time": 21.01272749900818
+            },
+            {
+                "trial": 22,
+                "success": true,
+                "steps": 2530,
+                "time": 47.95887207984924
+            },
+            {
+                "trial": 23,
+                "success": true,
+                "steps": 806,
+                "time": 14.308300018310547
+            },
+            {
+                "trial": 24,
+                "success": true,
+                "steps": 809,
+                "time": 14.30884051322937
+            },
+            {
+                "trial": 25,
+                "success": true,
+                "steps": 1124,
+                "time": 24.889167070388794
+            },
+            {
+                "trial": 26,
+                "success": true,
+                "steps": 1531,
+                "time": 29.8753821849823
+            },
+            {
+                "trial": 27,
+                "success": true,
+                "steps": 262,
+                "time": 4.784965515136719
+            },
+            {
+                "trial": 28,
+                "success": true,
+                "steps": 1274,
+                "time": 25.264883279800415
+            },
+            {
+                "trial": 29,
+                "success": true,
+                "steps": 2953,
+                "time": 61.23828434944153
+            },
+            {
+                "trial": 30,
+                "success": true,
+                "steps": 2054,
+                "time": 42.260565996170044
+            },
+            {
+                "trial": 31,
+                "success": false,
+                "steps": 3000,
+                "time": 61.269877910614014
+            },
+            {
+                "trial": 32,
+                "success": true,
+                "steps": 2912,
+                "time": 51.239999532699585
+            },
+            {
+                "trial": 33,
+                "success": true,
+                "steps": 2539,
+                "time": 51.39570355415344
+            },
+            {
+                "trial": 34,
+                "success": true,
+                "steps": 1239,
+                "time": 26.750400066375732
+            },
+            {
+                "trial": 35,
+                "success": true,
+                "steps": 424,
+                "time": 7.517810821533203
+            },
+            {
+                "trial": 36,
+                "success": true,
+                "steps": 1988,
+                "time": 42.929917097091675
+            },
+            {
+                "trial": 37,
+                "success": true,
+                "steps": 489,
+                "time": 11.355236053466797
+            },
+            {
+                "trial": 38,
+                "success": true,
+                "steps": 1284,
+                "time": 23.980565071105957
+            },
+            {
+                "trial": 39,
+                "success": true,
+                "steps": 1350,
+                "time": 24.140274047851562
+            },
+            {
+                "trial": 40,
+                "success": true,
+                "steps": 2550,
+                "time": 49.10018968582153
+            },
+            {
+                "trial": 41,
+                "success": true,
+                "steps": 1685,
+                "time": 32.50653529167175
+            },
+            {
+                "trial": 42,
+                "success": true,
+                "steps": 1530,
+                "time": 30.396430015563965
+            },
+            {
+                "trial": 43,
+                "success": true,
+                "steps": 1802,
+                "time": 32.64613199234009
+            },
+            {
+                "trial": 44,
+                "success": true,
+                "steps": 1083,
+                "time": 19.598771572113037
+            },
+            {
+                "trial": 45,
+                "success": true,
+                "steps": 1118,
+                "time": 18.93989658355713
+            },
+            {
+                "trial": 46,
+                "success": true,
+                "steps": 505,
+                "time": 9.14389157295227
+            },
+            {
+                "trial": 47,
+                "success": true,
+                "steps": 1096,
+                "time": 18.72724223136902
+            },
+            {
+                "trial": 48,
+                "success": true,
+                "steps": 451,
+                "time": 8.535053491592407
+            },
+            {
+                "trial": 49,
+                "success": false,
+                "steps": 3000,
+                "time": 64.46958684921265
+            },
+            {
+                "trial": 50,
+                "success": true,
+                "steps": 2645,
+                "time": 53.96945643424988
+            },
+            {
+                "trial": 51,
+                "success": true,
+                "steps": 1262,
+                "time": 23.232152223587036
+            },
+            {
+                "trial": 52,
+                "success": true,
+                "steps": 2258,
+                "time": 43.31953310966492
+            },
+            {
+                "trial": 53,
+                "success": true,
+                "steps": 1734,
+                "time": 33.73465919494629
+            },
+            {
+                "trial": 54,
+                "success": true,
+                "steps": 1386,
+                "time": 24.67262864112854
+            },
+            {
+                "trial": 55,
+                "success": true,
+                "steps": 795,
+                "time": 16.10168194770813
+            },
+            {
+                "trial": 56,
+                "success": true,
+                "steps": 2251,
+                "time": 47.902491092681885
+            },
+            {
+                "trial": 57,
+                "success": false,
+                "steps": 3000,
+                "time": 57.29458022117615
+            },
+            {
+                "trial": 58,
+                "success": true,
+                "steps": 1725,
+                "time": 33.466578006744385
+            },
+            {
+                "trial": 59,
+                "success": true,
+                "steps": 2659,
+                "time": 56.07157897949219
+            },
+            {
+                "trial": 60,
+                "success": true,
+                "steps": 1457,
+                "time": 25.44018006324768
+            },
+            {
+                "trial": 61,
+                "success": false,
+                "steps": 3000,
+                "time": 69.8016905784607
+            },
+            {
+                "trial": 62,
+                "success": true,
+                "steps": 1296,
+                "time": 24.164965629577637
+            },
+            {
+                "trial": 63,
+                "success": false,
+                "steps": 3000,
+                "time": 62.1570348739624
+            },
+            {
+                "trial": 64,
+                "success": true,
+                "steps": 330,
+                "time": 6.0597052574157715
+            },
+            {
+                "trial": 65,
+                "success": true,
+                "steps": 1032,
+                "time": 20.25282335281372
+            },
+            {
+                "trial": 66,
+                "success": true,
+                "steps": 2221,
+                "time": 45.18767189979553
+            },
+            {
+                "trial": 67,
+                "success": true,
+                "steps": 863,
+                "time": 16.382408142089844
+            },
+            {
+                "trial": 68,
+                "success": false,
+                "steps": 3000,
+                "time": 58.03031945228577
+            },
+            {
+                "trial": 69,
+                "success": true,
+                "steps": 1687,
+                "time": 31.67842745780945
+            },
+            {
+                "trial": 70,
+                "success": true,
+                "steps": 1825,
+                "time": 35.913482666015625
+            },
+            {
+                "trial": 71,
+                "success": true,
+                "steps": 1057,
+                "time": 20.70732569694519
+            },
+            {
+                "trial": 72,
+                "success": false,
+                "steps": 3000,
+                "time": 50.70494508743286
+            },
+            {
+                "trial": 73,
+                "success": true,
+                "steps": 949,
+                "time": 17.840964794158936
+            },
+            {
+                "trial": 74,
+                "success": true,
+                "steps": 1437,
+                "time": 24.08087992668152
+            },
+            {
+                "trial": 75,
+                "success": true,
+                "steps": 1722,
+                "time": 36.697802782058716
+            },
+            {
+                "trial": 76,
+                "success": true,
+                "steps": 285,
+                "time": 6.418889760971069
+            },
+            {
+                "trial": 77,
+                "success": true,
+                "steps": 1827,
+                "time": 37.744099378585815
+            },
+            {
+                "trial": 78,
+                "success": true,
+                "steps": 1787,
+                "time": 34.40266966819763
+            },
+            {
+                "trial": 79,
+                "success": false,
+                "steps": 3000,
+                "time": 58.719027042388916
+            },
+            {
+                "trial": 80,
+                "success": true,
+                "steps": 1420,
+                "time": 26.561428785324097
+            },
+            {
+                "trial": 81,
+                "success": false,
+                "steps": 3000,
+                "time": 60.166592597961426
+            },
+            {
+                "trial": 82,
+                "success": true,
+                "steps": 407,
+                "time": 8.395661115646362
+            },
+            {
+                "trial": 83,
+                "success": true,
+                "steps": 1233,
+                "time": 22.793296813964844
+            },
+            {
+                "trial": 84,
+                "success": true,
+                "steps": 559,
+                "time": 10.699428796768188
+            },
+            {
+                "trial": 85,
+                "success": true,
+                "steps": 446,
+                "time": 8.35958218574524
+            },
+            {
+                "trial": 86,
+                "success": true,
+                "steps": 396,
+                "time": 9.357674360275269
+            },
+            {
+                "trial": 87,
+                "success": true,
+                "steps": 1578,
+                "time": 32.397210359573364
+            },
+            {
+                "trial": 88,
+                "success": true,
+                "steps": 1273,
+                "time": 25.594005584716797
+            },
+            {
+                "trial": 89,
+                "success": true,
+                "steps": 1401,
+                "time": 29.203891038894653
+            },
+            {
+                "trial": 90,
+                "success": true,
+                "steps": 2760,
+                "time": 57.02175951004028
+            },
+            {
+                "trial": 91,
+                "success": true,
+                "steps": 248,
+                "time": 4.549146413803101
+            },
+            {
+                "trial": 92,
+                "success": true,
+                "steps": 565,
+                "time": 10.688218593597412
+            },
+            {
+                "trial": 93,
+                "success": true,
+                "steps": 1793,
+                "time": 36.22968578338623
+            },
+            {
+                "trial": 94,
+                "success": true,
+                "steps": 2051,
+                "time": 39.03734540939331
+            },
+            {
+                "trial": 95,
+                "success": true,
+                "steps": 321,
+                "time": 5.197327375411987
+            },
+            {
+                "trial": 96,
+                "success": true,
+                "steps": 1183,
+                "time": 22.2710542678833
+            },
+            {
+                "trial": 97,
+                "success": true,
+                "steps": 486,
+                "time": 9.310716390609741
+            },
+            {
+                "trial": 98,
+                "success": true,
+                "steps": 1295,
+                "time": 24.483884811401367
+            },
+            {
+                "trial": 99,
+                "success": true,
+                "steps": 2250,
+                "time": 40.243836402893066
+            }
+        ],
+        "piggy_bank": [
+            {
+                "trial": 0,
+                "success": false,
+                "steps": 3000,
+                "time": 55.78943467140198
+            },
+            {
+                "trial": 1,
+                "success": false,
+                "steps": 3000,
+                "time": 52.066967487335205
+            },
+            {
+                "trial": 2,
+                "success": true,
+                "steps": 2289,
+                "time": 33.35762166976929
+            },
+            {
+                "trial": 3,
+                "success": false,
+                "steps": 3000,
+                "time": 60.566067695617676
+            },
+            {
+                "trial": 4,
+                "success": true,
+                "steps": 2742,
+                "time": 48.89495229721069
+            },
+            {
+                "trial": 5,
+                "success": true,
+                "steps": 614,
+                "time": 10.901213645935059
+            },
+            {
+                "trial": 6,
+                "success": true,
+                "steps": 537,
+                "time": 8.97352147102356
+            },
+            {
+                "trial": 7,
+                "success": true,
+                "steps": 1799,
+                "time": 30.504786729812622
+            },
+            {
+                "trial": 8,
+                "success": true,
+                "steps": 349,
+                "time": 6.434999704360962
+            },
+            {
+                "trial": 9,
+                "success": true,
+                "steps": 2199,
+                "time": 45.790252923965454
+            },
+            {
+                "trial": 10,
+                "success": true,
+                "steps": 1330,
+                "time": 24.89530086517334
+            },
+            {
+                "trial": 11,
+                "success": false,
+                "steps": 3000,
+                "time": 53.854955434799194
+            },
+            {
+                "trial": 12,
+                "success": true,
+                "steps": 2466,
+                "time": 41.98785328865051
+            },
+            {
+                "trial": 13,
+                "success": true,
+                "steps": 512,
+                "time": 7.727357864379883
+            },
+            {
+                "trial": 14,
+                "success": false,
+                "steps": 3000,
+                "time": 57.378942251205444
+            },
+            {
+                "trial": 15,
+                "success": true,
+                "steps": 1648,
+                "time": 33.49684453010559
+            },
+            {
+                "trial": 16,
+                "success": true,
+                "steps": 424,
+                "time": 8.24772596359253
+            },
+            {
+                "trial": 17,
+                "success": true,
+                "steps": 1670,
+                "time": 27.451727390289307
+            },
+            {
+                "trial": 18,
+                "success": true,
+                "steps": 1831,
+                "time": 29.446255445480347
+            },
+            {
+                "trial": 19,
+                "success": false,
+                "steps": 3000,
+                "time": 49.49521827697754
+            },
+            {
+                "trial": 20,
+                "success": true,
+                "steps": 1783,
+                "time": 32.45793795585632
+            },
+            {
+                "trial": 21,
+                "success": true,
+                "steps": 2910,
+                "time": 52.84759497642517
+            },
+            {
+                "trial": 22,
+                "success": false,
+                "steps": 3000,
+                "time": 54.0011830329895
+            },
+            {
+                "trial": 23,
+                "success": false,
+                "steps": 3000,
+                "time": 49.46705174446106
+            },
+            {
+                "trial": 24,
+                "success": false,
+                "steps": 3000,
+                "time": 55.876795291900635
+            },
+            {
+                "trial": 25,
+                "success": false,
+                "steps": 3000,
+                "time": 52.36417627334595
+            },
+            {
+                "trial": 26,
+                "success": true,
+                "steps": 1909,
+                "time": 38.81233263015747
+            },
+            {
+                "trial": 27,
+                "success": true,
+                "steps": 656,
+                "time": 12.552268505096436
+            },
+            {
+                "trial": 28,
+                "success": true,
+                "steps": 250,
+                "time": 4.3540143966674805
+            },
+            {
+                "trial": 29,
+                "success": true,
+                "steps": 1115,
+                "time": 19.486549139022827
+            },
+            {
+                "trial": 30,
+                "success": true,
+                "steps": 1886,
+                "time": 38.43407607078552
+            },
+            {
+                "trial": 31,
+                "success": false,
+                "steps": 3000,
+                "time": 52.09023976325989
+            },
+            {
+                "trial": 32,
+                "success": false,
+                "steps": 3000,
+                "time": 55.21984553337097
+            },
+            {
+                "trial": 33,
+                "success": true,
+                "steps": 1044,
+                "time": 20.119807720184326
+            },
+            {
+                "trial": 34,
+                "success": false,
+                "steps": 3000,
+                "time": 59.56594681739807
+            },
+            {
+                "trial": 35,
+                "success": false,
+                "steps": 3000,
+                "time": 53.78157877922058
+            },
+            {
+                "trial": 36,
+                "success": true,
+                "steps": 1636,
+                "time": 29.181689023971558
+            },
+            {
+                "trial": 37,
+                "success": true,
+                "steps": 1453,
+                "time": 26.806921005249023
+            },
+            {
+                "trial": 38,
+                "success": true,
+                "steps": 2677,
+                "time": 51.627514362335205
+            },
+            {
+                "trial": 39,
+                "success": false,
+                "steps": 3000,
+                "time": 59.81878471374512
+            },
+            {
+                "trial": 40,
+                "success": false,
+                "steps": 3000,
+                "time": 49.572818756103516
+            },
+            {
+                "trial": 41,
+                "success": false,
+                "steps": 3000,
+                "time": 60.93387007713318
+            },
+            {
+                "trial": 42,
+                "success": true,
+                "steps": 581,
+                "time": 9.795423746109009
+            },
+            {
+                "trial": 43,
+                "success": true,
+                "steps": 1662,
+                "time": 33.58190155029297
+            },
+            {
+                "trial": 44,
+                "success": false,
+                "steps": 3000,
+                "time": 54.6566960811615
+            },
+            {
+                "trial": 45,
+                "success": true,
+                "steps": 1425,
+                "time": 29.860887050628662
+            },
+            {
+                "trial": 46,
+                "success": true,
+                "steps": 2067,
+                "time": 41.42315483093262
+            },
+            {
+                "trial": 47,
+                "success": true,
+                "steps": 2013,
+                "time": 40.037273645401
+            },
+            {
+                "trial": 48,
+                "success": true,
+                "steps": 2989,
+                "time": 57.88362002372742
+            },
+            {
+                "trial": 49,
+                "success": true,
+                "steps": 2902,
+                "time": 58.12620139122009
+            },
+            {
+                "trial": 50,
+                "success": true,
+                "steps": 2465,
+                "time": 44.88348937034607
+            },
+            {
+                "trial": 51,
+                "success": false,
+                "steps": 3000,
+                "time": 55.214043855667114
+            },
+            {
+                "trial": 52,
+                "success": true,
+                "steps": 575,
+                "time": 10.409097671508789
+            },
+            {
+                "trial": 53,
+                "success": true,
+                "steps": 1081,
+                "time": 18.71104407310486
+            },
+            {
+                "trial": 54,
+                "success": false,
+                "steps": 3000,
+                "time": 56.64461278915405
+            },
+            {
+                "trial": 55,
+                "success": false,
+                "steps": 3000,
+                "time": 50.08022952079773
+            },
+            {
+                "trial": 56,
+                "success": false,
+                "steps": 3000,
+                "time": 49.89251756668091
+            },
+            {
+                "trial": 57,
+                "success": true,
+                "steps": 258,
+                "time": 6.015460252761841
+            },
+            {
+                "trial": 58,
+                "success": true,
+                "steps": 1600,
+                "time": 26.985597133636475
+            },
+            {
+                "trial": 59,
+                "success": false,
+                "steps": 3000,
+                "time": 61.68087577819824
+            },
+            {
+                "trial": 60,
+                "success": true,
+                "steps": 2184,
+                "time": 36.83692646026611
+            },
+            {
+                "trial": 61,
+                "success": true,
+                "steps": 1176,
+                "time": 22.608875036239624
+            },
+            {
+                "trial": 62,
+                "success": true,
+                "steps": 2490,
+                "time": 44.32590889930725
+            },
+            {
+                "trial": 63,
+                "success": true,
+                "steps": 1242,
+                "time": 21.1163547039032
+            },
+            {
+                "trial": 64,
+                "success": false,
+                "steps": 3000,
+                "time": 55.57102990150452
+            },
+            {
+                "trial": 65,
+                "success": true,
+                "steps": 635,
+                "time": 11.493243217468262
+            },
+            {
+                "trial": 66,
+                "success": true,
+                "steps": 1981,
+                "time": 36.50077509880066
+            },
+            {
+                "trial": 67,
+                "success": true,
+                "steps": 2932,
+                "time": 51.571141719818115
+            },
+            {
+                "trial": 68,
+                "success": true,
+                "steps": 1273,
+                "time": 21.761613845825195
+            },
+            {
+                "trial": 69,
+                "success": true,
+                "steps": 831,
+                "time": 13.07959508895874
+            },
+            {
+                "trial": 70,
+                "success": true,
+                "steps": 373,
+                "time": 7.376073360443115
+            },
+            {
+                "trial": 71,
+                "success": true,
+                "steps": 1506,
+                "time": 26.68947434425354
+            },
+            {
+                "trial": 72,
+                "success": false,
+                "steps": 3000,
+                "time": 54.69638633728027
+            },
+            {
+                "trial": 73,
+                "success": false,
+                "steps": 3000,
+                "time": 51.41785907745361
+            },
+            {
+                "trial": 74,
+                "success": true,
+                "steps": 593,
+                "time": 11.41014289855957
+            },
+            {
+                "trial": 75,
+                "success": true,
+                "steps": 1350,
+                "time": 24.747374773025513
+            },
+            {
+                "trial": 76,
+                "success": false,
+                "steps": 3000,
+                "time": 59.051714181900024
+            },
+            {
+                "trial": 77,
+                "success": false,
+                "steps": 3000,
+                "time": 61.931025981903076
+            },
+            {
+                "trial": 78,
+                "success": true,
+                "steps": 388,
+                "time": 8.095633745193481
+            },
+            {
+                "trial": 79,
+                "success": true,
+                "steps": 1793,
+                "time": 33.33087706565857
+            },
+            {
+                "trial": 80,
+                "success": true,
+                "steps": 1927,
+                "time": 36.67745542526245
+            },
+            {
+                "trial": 81,
+                "success": true,
+                "steps": 537,
+                "time": 15.337952852249146
+            },
+            {
+                "trial": 82,
+                "success": true,
+                "steps": 2300,
+                "time": 42.918702840805054
+            },
+            {
+                "trial": 83,
+                "success": true,
+                "steps": 2065,
+                "time": 35.683414936065674
+            },
+            {
+                "trial": 84,
+                "success": true,
+                "steps": 306,
+                "time": 5.079130172729492
+            },
+            {
+                "trial": 85,
+                "success": true,
+                "steps": 1711,
+                "time": 28.22750473022461
+            },
+            {
+                "trial": 86,
+                "success": false,
+                "steps": 3000,
+                "time": 62.997480154037476
+            },
+            {
+                "trial": 87,
+                "success": true,
+                "steps": 1948,
+                "time": 37.51253604888916
+            },
+            {
+                "trial": 88,
+                "success": true,
+                "steps": 2618,
+                "time": 53.52542304992676
+            },
+            {
+                "trial": 89,
+                "success": false,
+                "steps": 3000,
+                "time": 55.40381741523743
+            },
+            {
+                "trial": 90,
+                "success": true,
+                "steps": 1502,
+                "time": 25.88186478614807
+            },
+            {
+                "trial": 91,
+                "success": true,
+                "steps": 674,
+                "time": 13.354108095169067
+            },
+            {
+                "trial": 92,
+                "success": true,
+                "steps": 1360,
+                "time": 25.659523248672485
+            },
+            {
+                "trial": 93,
+                "success": false,
+                "steps": 3000,
+                "time": 49.21301054954529
+            },
+            {
+                "trial": 94,
+                "success": true,
+                "steps": 2413,
+                "time": 43.92580723762512
+            },
+            {
+                "trial": 95,
+                "success": true,
+                "steps": 2782,
+                "time": 49.5365309715271
+            },
+            {
+                "trial": 96,
+                "success": true,
+                "steps": 2839,
+                "time": 48.47159552574158
+            },
+            {
+                "trial": 97,
+                "success": true,
+                "steps": 1414,
+                "time": 28.045060634613037
+            },
+            {
+                "trial": 98,
+                "success": true,
+                "steps": 1974,
+                "time": 40.764825105667114
+            },
+            {
+                "trial": 99,
+                "success": false,
+                "steps": 3000,
+                "time": 55.6843843460083
+            }
+        ]
+    }
+]
