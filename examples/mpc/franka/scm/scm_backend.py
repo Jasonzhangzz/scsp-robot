@@ -4,8 +4,11 @@ The benchmark uses impulse units:
   v_free = v + h M^-1 f_smooth,
   p = max(-(J v_free + phi/h) / (diag(J M^-1 J.T) + r), 0),
   v_next = v_free + M^-1 J.T p.
-The original and amplitude-corrected SCM add no contact damping. Soft SCM
-uses a finite response time and damping ratio in the same diagonal row law.
+The amplitude-corrected SCM adds no contact damping. Its softplus variant
+replaces max(x, 0) with T*log(1+exp(x/T)), in impulse units, before the same
+global amplitude correction. The separate, uncorrected soft SCM uses a finite
+response time and damping ratio; that spring-damper law is never combined
+with amplitude correction.
 Coefficients are frozen for ONE step
 and recomputed at the next state. This is the full-dynamic extension of the
 SCM contact approximation in method.tex, not the CSO optimizer itself.
@@ -26,6 +29,14 @@ from comfree_warp.mujoco_warp._src import collision_driver, smooth
 from comfree_warp.mujoco_warp._src.forward import euler, fwd_acceleration, fwd_actuation, fwd_velocity
 
 
+@wp.func
+def softplus_impulse(value: float, temperature: float):
+    # Branches avoid overflow and have the same value/derivative at zero.
+    if value > 0.0:
+        return value + temperature * wp.log(1.0 + wp.exp(-value / temperature))
+    return temperature * wp.log(1.0 + wp.exp(value / temperature))
+
+
 @wp.kernel
 def diagonal_contact(
     nv: int, timestep: wp.array(dtype=float), nefc: wp.array(dtype=int),
@@ -33,7 +44,7 @@ def diagonal_contact(
     vfree: wp.array2d(dtype=float), v: wp.array2d(dtype=float),
     inverse_diagonal: wp.array(dtype=float), inverse_dense: wp.array2d(dtype=float),
     use_diagonal: bool, increment: bool, regularization: float,
-    response_time: float, damping_ratio: float,
+    response_time: float, damping_ratio: float, softplus_temperature: float,
     force: wp.array2d(dtype=float), generalized_force: wp.array2d(dtype=float),
 ):
     world, row = wp.tid()
@@ -61,7 +72,10 @@ def diagonal_contact(
         denominator = 1.0 + 2.0 * damping_ratio * x + x * x
         velocity_gain = (2.0 * damping_ratio * x + x * x) / denominator
         gap_gain = x * x / denominator
-    impulse = wp.max(-(velocity_gain * velocity + gap_gain * gap[world, row] / h) / (mobility + regularization), 0.0)
+    trial = -(velocity_gain * velocity + gap_gain * gap[world, row] / h) / (mobility + regularization)
+    impulse = wp.max(trial, 0.0)
+    if softplus_temperature > 0.0:
+        impulse = softplus_impulse(trial, softplus_temperature)
     reaction = impulse / h
     force[world, row] = reaction
     for i in range(nv):
@@ -75,7 +89,6 @@ def correct_amplitude(
     vfree: wp.array2d(dtype=float), v: wp.array2d(dtype=float),
     inverse_diagonal: wp.array(dtype=float), inverse_dense: wp.array2d(dtype=float),
     use_diagonal: bool, increment: bool, regularization: float,
-    response_time: float, damping_ratio: float,
     force: wp.array2d(dtype=float), generalized_force: wp.array2d(dtype=float),
     amplitude: wp.array(dtype=float),
 ):
@@ -83,13 +96,6 @@ def correct_amplitude(
     # below are converted to impulse units before the scalar line search.
     world = wp.tid()
     h = timestep[world % timestep.shape[0]]
-    a = float(1.0)
-    b = float(1.0)
-    if response_time > 0.0:
-        x = h / response_time
-        divisor = 1.0 + 2.0 * damping_ratio * x + x*x
-        a = (2.0 * damping_ratio * x + x*x) / divisor
-        b = x*x / divisor
     numerator = float(0.0)
     denominator = float(0.0)
     for row in range(nefc[world]):
@@ -100,7 +106,7 @@ def correct_amplitude(
             if increment:
                 predicted -= v[world, i]
             velocity += J[world, row, i] * predicted
-        numerator += (a * velocity + b * gap[world, row] / h) * impulse
+        numerator += (velocity + gap[world, row] / h) * impulse
         denominator += regularization * impulse * impulse
     for i in range(nv):
         q_i = h * generalized_force[world, i]
@@ -125,7 +131,7 @@ class ScmEngine:
     """Independent bodies for the fidelity suite; exact current mass mobility."""
 
     def __init__(self, model, initial_data, *, regularization=1e-8, motion="dynamic", friction="point", amplitude_correction=True,
-                 response_time=0.0, damping_ratio=1.0):
+                 response_time=0.0, damping_ratio=1.0, softplus_temperature=0.0):
         if regularization <= 0:
             raise ValueError("SCM r must be positive (R=rI, in inverse-mass units).")
         if type(self) is ScmEngine and not amplitude_correction and response_time == 0.:
@@ -139,7 +145,14 @@ class ScmEngine:
         self.amplitude_correction = amplitude_correction
         if response_time < 0 or damping_ratio <= 0:
             raise ValueError("Use positive damping ratio and nonnegative response time.")
+        if not np.isfinite(softplus_temperature) or softplus_temperature < 0:
+            raise ValueError("Softplus temperature must be finite and nonnegative (N s).")
+        if response_time > 0 and amplitude_correction:
+            raise ValueError("Spring-damper amplitude-corrected SCM was removed; use softplus_temperature with response_time=0.")
+        if softplus_temperature > 0 and (response_time > 0 or not amplitude_correction):
+            raise ValueError("Softplus SCM requires amplitude correction and response_time=0.")
         self.response_time, self.damping_ratio = response_time, damping_ratio
+        self.softplus_temperature = softplus_temperature
         M = np.zeros((model.nv, model.nv))
         mujoco.mj_fullM(model, M, initial_data.qM)
         self.use_diagonal = np.allclose(M, np.diag(np.diag(M)), rtol=0, atol=1e-12)
@@ -206,14 +219,13 @@ class ScmEngine:
                   inputs=[m.nv, m.opt.timestep, d.nefc, d.efc.J, d.efc.efc_dist,
                           d.qvel_smooth_pred, d.qvel, self.inverse_diagonal, self.inverse_dense,
                           self.use_diagonal, self.motion == "increment", self.regularization,
-                          self.response_time, self.damping_ratio],
+                          self.response_time, self.damping_ratio, self.softplus_temperature],
                   outputs=[d.efc.force, d.qfrc_constraint])
         if self.amplitude_correction:
             wp.launch(correct_amplitude, dim=d.nworld,
                       inputs=[m.nv, m.opt.timestep, d.nefc, d.efc.J, d.efc.efc_dist,
                               d.qvel_smooth_pred, d.qvel, self.inverse_diagonal, self.inverse_dense,
-                              self.use_diagonal, self.motion == "increment", self.regularization,
-                              self.response_time, self.damping_ratio],
+                              self.use_diagonal, self.motion == "increment", self.regularization],
                       outputs=[d.efc.force, d.qfrc_constraint, self.amplitude])
         self.finish_step(m, d)
 

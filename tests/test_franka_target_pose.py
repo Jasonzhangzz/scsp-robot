@@ -5,13 +5,15 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from examples.mpc.franka.ik2.params import (
+from examples.mpc.franka.runtime.params import (
     ExplicitMPCParams, _supported_mesh_height, _xml_obj_geom_quat_wxyz,
+    _sample_task_target_xy, TASK_PLANAR_DISTANCE_RANGES,
+    TARGET_XY_LOWER, TARGET_XY_UPPER,
 )
-from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
+from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args
 from planning.object_pose_cost import ObjectCostStages, rotate_axis_np
 from utils import rotations
-import examples.mpc.franka.ik2.params as param_module
+import examples.mpc.franka.runtime.params as param_module
 
 OBJECTS = ['elephant', 'stanford_bunny2', 'piggy_bank', 'mug',
            'teapot', 'rubber_duck', 'foam_brick']
@@ -116,6 +118,42 @@ def test_conflicting_task_flags_are_rejected(flags):
         parser.parse_args(flags)
 
 
+@pytest.mark.parametrize('task', ['rotation', 'ground-rotation'])
+def test_target_translation_is_nontrivial_reachable_and_repeatable(task):
+    lower, upper = TASK_PLANAR_DISTANCE_RANGES[task]
+    for seed in range(500):
+        initial = np.random.default_rng(seed).uniform([.30, 0.], [.40, .10])
+        target = _sample_task_target_xy(initial, task, seed)
+        distance = np.linalg.norm(target - initial)
+        assert lower <= distance <= upper
+        assert np.all(target >= TARGET_XY_LOWER)
+        assert np.all(target <= TARGET_XY_UPPER)
+        np.testing.assert_array_equal(target, _sample_task_target_xy(initial, task, seed))
+
+
+def test_target_translation_does_not_change_the_pose_random_stream():
+    saved = np.random.get_state()
+    try:
+        np.random.seed(123)
+        expected = np.random.rand(8)
+        np.random.seed(123)
+        _sample_task_target_xy([.35, .05], 'rotation', 0)
+        _sample_task_target_xy([.35, .05], 'ground-rotation', 0)
+        np.testing.assert_array_equal(np.random.rand(8), expected)
+    finally:
+        np.random.set_state(saved)
+
+
+@pytest.mark.parametrize('task', ['rotation', 'ground-rotation'])
+@pytest.mark.parametrize('seed', [0, 4, 19])
+def test_real_object_target_has_the_requested_translation(task, seed):
+    _, param = make_params('elephant', target=task, seed=seed)
+    distance = np.linalg.norm(param.target_p_[:2] - param.init_obj_qpos_[:2])
+    lower, upper = TASK_PLANAR_DISTANCE_RANGES[task]
+    assert lower <= distance <= upper
+    assert np.linalg.norm(param.target_p_ - param.init_obj_qpos_[:3]) >= lower
+
+
 @pytest.mark.parametrize('obj', OBJECTS)
 @pytest.mark.parametrize('hull', [True, False])
 @pytest.mark.parametrize('random_tilt', [True, False])
@@ -134,7 +172,7 @@ def test_flip_starts_on_its_side_above_the_table(obj, hull, random_tilt):
 
 
 def test_custom_tilt_means_actual_inclination():
-    from examples.mpc.franka.ik2.params import _tilted_init_quaternion
+    from examples.mpc.franka.runtime.params import _tilted_init_quaternion
     from types import SimpleNamespace
     a = SimpleNamespace(random_init_tilt=True, init_tilt_min_deg=65., init_tilt_deg=65.)
     for seed in range(20):

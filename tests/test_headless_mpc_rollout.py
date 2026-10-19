@@ -6,16 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from examples.mpc.franka.ik2.headless_rollout import trial_ranges, report, PipeBus
+from examples.mpc.franka.runtime.rollout import trial_ranges, report, PipeBus
 
 
 @pytest.mark.parametrize('flags, entry', [
-    (['--headless'], 'headless_rollout.py'),
-    (['--headless', '--async-planner'], 'headless_rollout.py'),
-    (['--headless', '--sync-planner'], 'headless_rollout.py'),
-    (['--physics-backend', 'mjwarp', '--headless'], 'headless_rollout.py'),
-    (['--headless', '--viewer'], 'run.py'),
-    (['--viewer', '--headless'], 'headless_rollout.py'),
+    (['--headless'], 'rollout.py'),
+    (['--headless', '--async-planner'], 'rollout.py'),
+    (['--headless', '--sync-planner'], 'rollout.py'),
+    (['--physics-backend', 'mjwarp', '--headless'], 'rollout.py'),
+    (['--headless', '--viewer'], 'isaac.py'),
+    (['--viewer', '--headless'], 'rollout.py'),
 ])
 def test_headless_keeps_developer_async_default_and_sync_is_explicit(monkeypatch, flags, entry):
     import argparse
@@ -28,7 +28,7 @@ def test_headless_keeps_developer_async_default_and_sync_is_explicit(monkeypatch
     monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
     launches = []
     monkeypatch.setattr(os, 'execv', lambda exe, argv: launches.append(argv))
-    scope = dict(argparse=argparse, os=os, sys=sys, __file__=str(source))
+    scope = dict(argparse=argparse, os=os, sys=sys, Path=Path, __file__=str(source))
     exec(compile(ast.Module(body=[main], type_ignores=[]), str(source), 'exec'), scope)
     scope['main']()
     assert Path(launches[0][2]).name == entry
@@ -37,7 +37,7 @@ def test_headless_keeps_developer_async_default_and_sync_is_explicit(monkeypatch
 
 @pytest.mark.parametrize('lanes, async_planner', [(1, True), (5, True), (5, False)])
 def test_parallel_isaac_dispatch_preserves_requested_cadence(lanes, async_planner):
-    source = Path('examples/mpc/franka/ik2/headless_rollout.py')
+    source = Path('examples/mpc/franka/runtime/rollout.py')
     tree = ast.parse(source.read_text())
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_isaac_headless')
     calls = []
@@ -96,7 +96,7 @@ def test_pipe_bus_preserves_every_action_and_summary():
 def test_headless_synchronous_bus_has_no_render_or_realtime_wait(monkeypatch):
     # Load only this dependency-free class, with a fake physics executor.
     # The test verifies action admission and exactly ten 2 ms frames.
-    tree = ast.parse(Path('examples/mpc/franka/ik2/run.py').read_text())
+    tree = ast.parse(Path('examples/mpc/franka/runtime/isaac.py').read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'SynchronousMPCBus')
     calls = []
     env = SimpleNamespace(sim_dt_=.002, break_out_signal_=False,
@@ -122,8 +122,8 @@ def test_real_mjwarp_fixed_step_and_isolated_reset(monkeypatch):
     import argparse
     import numpy as np
     import time
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
-    from examples.mpc.franka.ik2.mjwarp_rollout import MJWarpBatch
+    from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args
+    from examples.mpc.franka.runtime.mjwarp import MJWarpBatch
     args = _add_rollout_policy_args(argparse.ArgumentParser()).parse_args(
         ['--physics-backend', 'mjwarp', '--obj', 'foam_brick', '--sample_num', '8', '--headless'])
     batch = MJWarpBatch(args, [3, 4])
@@ -170,8 +170,8 @@ def test_mjwarp_scene_matches_exported_inertias_and_franka_kinematics(monkeypatc
     pytest.importorskip('mujoco_warp')
     import argparse
     import numpy as np
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args, _franka_fk_T_np
-    from examples.mpc.franka.ik2.mjwarp_rollout import build_param, scene_xml, isaac_robot_dynamics
+    from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args, _franka_fk_T_np
+    from examples.mpc.franka.runtime.mjwarp import build_param, scene_xml, isaac_robot_dynamics
     args = _add_rollout_policy_args(argparse.ArgumentParser()).parse_args(
         ['--physics-backend', 'mjwarp', '--obj', 'foam_brick', '--sample_num', '8', '--headless'])
     model = mj.MjModel.from_xml_string(scene_xml(build_param(args, 0), args))

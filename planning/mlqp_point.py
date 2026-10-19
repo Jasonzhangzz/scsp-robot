@@ -1597,6 +1597,8 @@ class LambdaContactControlOptimizer:
             try:
                 self._acados_fallbacks_this_cycle += 1
                 self.acados_fallback_count += 1
+                print('[lambda] acados failed; starting IPOPT fallback #%d: %s' %
+                      (self.acados_fallback_count, self.last_acados_failure_reason), flush=True)
                 result = self._ipopt_optimization(**kwargs)
                 self.last_solver_status = 'ipopt-fallback'
                 return result

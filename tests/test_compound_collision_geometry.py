@@ -8,7 +8,7 @@ import pytest
 import trimesh
 
 from examples.mpc.fingertips.test.params import canonical_object_meshes, _xml_obj_geom_transform
-from examples.mpc.franka.ik2.test_mppi_isaac import IsaacFrankaSimulator
+from examples.mpc.franka.runtime.simulator import IsaacFrankaSimulator
 from models.object_collision_mesh import decomposed_collision_mesh
 from planning.project_point import ProjectionPoint
 
@@ -33,11 +33,29 @@ def test_mug_cavity_is_open_in_collision_parts():
         for path in paths:
             mesh = trimesh.load_mesh(path)
             hits, _, _ = mesh.ray.intersects_location(origin[None], direction[None])
-            distances.extend(np.linalg.norm(hits-origin, axis=1))
+            if len(hits):
+                distances.extend(np.linalg.norm(hits-origin, axis=1))
         return min(distances)
 
     assert ray_distance(parts)-ray_distance([hull]) > .06
     assert abs(ray_distance(parts)-ray_distance([visual])) < .001
+
+
+def test_mug_collision_solids_cover_rendered_bevels_and_rim():
+    _, visual = canonical_object_meshes(str(ROOT/'envs/assets/objects/mug.stl'),
+                                      str(ROOT/'envs/xmls/env_fingertips_mug.xml'))
+    _, paths = decomposed_collision_mesh(visual, object_name='mug')
+    mesh = trimesh.load_mesh(visual)
+    # Test vertices and face interiors of the actual rendered surface, rather
+    # than sampling from the collision model (which cannot expose missing faces).
+    probes = np.vstack([mesh.vertices, mesh.triangles_center])
+    outside = np.full(len(probes), np.inf)
+    for path in paths:
+        part = trimesh.load_mesh(path)
+        normals = part.face_normals
+        offsets = np.sum(normals * part.triangles_center, axis=1)
+        outside = np.minimum(outside, np.max(probes @ normals.T - offsets, axis=1))
+    assert np.max(outside) < 1e-6
 
 
 def test_compound_urdf_and_planner_use_identical_convex_parts():

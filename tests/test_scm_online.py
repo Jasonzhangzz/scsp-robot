@@ -137,7 +137,7 @@ def test_checkpoint_round_trip_rejects_configuration_mismatch(tmp_path):
 
 
 def test_angular_coordinate_conversion_preserves_physical_contact_speed():
-    from examples.mpc.franka.ik2.contact_frames import contact_jacobian_angular_body_frame
+    from examples.mpc.franka.runtime.contact import contact_jacobian_angular_body_frame
     from scipy.spatial.transform import Rotation
     rotation=Rotation.from_euler('xyz',[.7,-.4,1.2]).as_matrix()
     rng=np.random.RandomState(40);jac=rng.randn(8,9)

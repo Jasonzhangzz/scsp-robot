@@ -24,7 +24,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from examples.mpc.franka.ik2.params_curobo import ExplicitMPCParamsCurobo
-from examples.mpc.franka.ik2.test_mppi_isaac import (
+from examples.mpc.franka.runtime.simulator import (
     ContactIsaac,
     IsaacFrankaSimulator,
     _extract_quat_xyzw,

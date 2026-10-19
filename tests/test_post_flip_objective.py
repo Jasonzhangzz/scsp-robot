@@ -30,7 +30,7 @@ def test_pose_retains_target_up_penalty_without_penalizing_yaw_twice(target_q):
 @pytest.mark.parametrize('backend', ['portable', 'acados'])
 def test_runtime_mpc_matches_lambda_osc_and_reduces_position_error(monkeypatch, backend):
     monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args, ISAAC_TASK_KP
+    from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args, ISAAC_TASK_KP
     from planning.mpc_explicit import _build_mpc_planner_runtime
     a = _add_rollout_policy_args(argparse.ArgumentParser()).parse_args(
         ['--obj', 'foam_brick', '--sample_num', '12', '--solver-backend', backend, '--no-online-scm'])
@@ -162,7 +162,7 @@ def test_contact_solver_explores_pressure_across_disengaged_branch(tmp_path, mon
     if backend == 'torch-lbfgs':
         import torch
         monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
-    from examples.mpc.franka.ik2.contact_frames import support_patch_jacobians
+    from examples.mpc.franka.runtime.contact import support_patch_jacobians
     mesh = tmp_path/'box.stl'
     trimesh.creation.box(extents=[.08]*3).export(str(mesh))
     opt = LambdaContactControlOptimizer(str(mesh), solver=backend, sample_num=8,

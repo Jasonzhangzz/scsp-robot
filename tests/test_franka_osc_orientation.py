@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from examples.mpc.franka.ik2 import test_mpc_isaac as entry
+from examples.mpc.franka.runtime import mpc as entry
 from tests.test_franka_contact_motion import osc_stub
-from examples.mpc.franka.ik2.contact_frames import slew_tool_rotation, downward_tool_frame
+from examples.mpc.franka.runtime.contact import slew_tool_rotation, downward_tool_frame
 
 
 @pytest.mark.parametrize('q', [
@@ -87,7 +87,7 @@ def test_pose_stage_keeps_existing_executor_and_flip_restores_attitude(monkeypat
 
 def test_stage_metadata_changes_only_when_the_queued_action_is_admitted():
     sim = osc_stub()
-    from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule
+    from examples.mpc.franka.runtime.bus import PolicyActionSchedule
     sim._policy_schedule = PolicyActionSchedule()
     sim._object_cost_stage = 'flip'
     sim.set_via_action([.405, 0., .4], action=[.005, 0., 0.], object_cost_stage='pose')
@@ -189,7 +189,7 @@ def test_mpc_rotation_increment_drives_wrist_without_changing_xyz(monkeypatch,an
 
 
 def test_mpc_rotation_is_admitted_with_xyz_at_policy_boundary():
-    from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule
+    from examples.mpc.franka.runtime.bus import PolicyActionSchedule
     sim=osc_stub();sim._policy_schedule=PolicyActionSchedule()
     angular=np.array([.01,-.02,.005]);xyz=np.array([.005,0.,0.])
     sim.set_via_action([.405,0.,.4],action=xyz,tool_rotation_action=angular)
@@ -209,7 +209,7 @@ def test_mpc_rotation_is_admitted_with_xyz_at_policy_boundary():
 ])
 def test_passive_wrist_default_and_explicit_posture_override(obj,backend,explicit,expected):
     import argparse
-    from examples.mpc.franka.ik2.contact_frames import resolve_nullspace_stiffness
+    from examples.mpc.franka.runtime.contact import resolve_nullspace_stiffness
     args=entry._add_rollout_policy_args(argparse.ArgumentParser()).parse_args(
         ['--obj',obj,'--physics-backend',backend]+
         ([] if explicit is None else ['--nullspace-stiffness',str(explicit)]))
@@ -218,7 +218,7 @@ def test_passive_wrist_default_and_explicit_posture_override(obj,backend,explici
 
 
 def test_inertia_scaled_posture_damping_is_dissipative_and_task_free():
-    from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque
+    from examples.mpc.franka.runtime.contact import franka_nullspace_posture_torque
     rng=np.random.default_rng(42)
     jac=rng.normal(size=(3,7));a=rng.normal(size=(7,7));mass=a@a.T+.01*np.eye(7)
     for _ in range(20):
@@ -229,7 +229,7 @@ def test_inertia_scaled_posture_damping_is_dissipative_and_task_free():
 
 
 def test_lighter_wrist_gets_less_damping_and_zero_regularization_releases_it():
-    from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque
+    from examples.mpc.franka.runtime.contact import franka_nullspace_posture_torque
     jac=np.c_[np.eye(3),np.zeros((3,4))];velocity=np.r_[np.zeros(3),np.ones(4)]
     mass=np.diag([1.,1.,1.,1.,.01,.01,.001])
     torque=franka_nullspace_posture_torque(jac,np.zeros(7),velocity,np.zeros(7),.03,mass_matrix=mass)
@@ -241,7 +241,7 @@ def test_lighter_wrist_gets_less_damping_and_zero_regularization_releases_it():
 
 
 def test_inertia_damping_does_not_brake_a_pure_position_task_velocity():
-    from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque
+    from examples.mpc.franka.runtime.contact import franka_nullspace_posture_torque
     rng=np.random.default_rng(12);jac=rng.normal(size=(3,7));a=rng.normal(size=(7,7))
     mass=a@a.T+.001*np.eye(7);velocity=jac.T@np.array([1.,-.5,.7])
     torque=franka_nullspace_posture_torque(jac,np.zeros(7),velocity,np.zeros(7),.03,mass_matrix=mass)

@@ -1,0 +1,2 @@
+# Optional dependency for the Isaac rigid-object C3MIQP projection.
+pyscipopt>=5.2,<6

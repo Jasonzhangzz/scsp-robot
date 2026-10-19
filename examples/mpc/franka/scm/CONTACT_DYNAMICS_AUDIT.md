@@ -61,7 +61,11 @@ ComFree 的系数和阻抗在本数据上起到了更强的幅值正则化作用
 `compare_prediction.py` 的默认 `tau,zeta` 由 `.05,1` 改为既有 2 ms 物理基准校准值 `.008,.25`。
 `.05,1` 是较长 MPC 步长的保守初值。此次没有改生产 MPC 的默认参数，也没有用本次新种子重新拟合参数。
 
-### 保留直接取对角的最小可选改进
+### 历史实现：弹簧阻尼加幅值修正（已移除）
+
+以下记录旧实验的实现。2026-10-19 起，`scm_soft_corrected` 已替换为基于
+`scm_corrected` 的 softplus 平滑版本，不再使用这里的 `a,b,tau,zeta`。
+当前公式和 `clip` 平滑讨论见 [SOFTPLUS_SCM.md](SOFTPLUS_SCM.md)。
 
 新增独立选项 `scm_soft_corrected`，先按原式得到 `p0`，再只加一个标量：
 

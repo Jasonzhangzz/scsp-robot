@@ -12,6 +12,11 @@ Videos, generated figures, unused object meshes, and unused third-party trees we
 
 Current tree: 38 entry points, ~317 files, ~91MB. `python tests/test_smoke.py` is the migration completeness check.
 
+Franka IK2 MPC uses a single entry: `examples/mpc/franka/ik2/test_mpc_isaac.py`.
+Use `--sync-planner` or `--async-planner` to select scheduling. Shared implementation
+lives in `examples/mpc/franka/runtime/`; standalone experiments live in
+`examples/mpc/franka/experiments/ik2/`. See the [IK2 guide](docs/franka_ik2/README.md).
+
 ## Entry points
 
 - `examples/mpc/fingertips/football/param_detect.py`
@@ -32,7 +37,7 @@ Current tree: 38 entry points, ~317 files, ~91MB. `python tests/test_smoke.py` i
 - `examples/mpc/franka/ik2/test_mpc_isaac1.py`
 - `examples/mpc/franka/ik2/test_mppi_cabinet.py`
 - `examples/mpc/franka/ik2/test_mppi_isaac copy.py`
-- `examples/mpc/franka/ik2/test_mppi_isaac.py`
+- `examples/mpc/franka/experiments/ik2/test_mppi_isaac.py`
 - `examples/mpc/franka/ik2/test_mppi_isaac_for_cimpc.py`
 - `examples/mpc/franka/mppi/test.py`
 - `examples/mpc/franka/mppi2/test_mppi.py`
@@ -61,7 +66,7 @@ Entry points walk up to the `scsp-robot` directory and put it on `sys.path`. You
 
 ```bash
 python examples/mpc/fingertips/test/test_0902.py --headless --trial_num 1
-python examples/mpc/franka/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-device cuda:0
+python examples/mpc/franka/experiments/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-device cuda:0
 ```
 
 acados is located in-process (`planning/acados_env.py`): `$ACADOS_SOURCE_DIR` if already set, then the local installation `/home/lab423/push_ws/acados`, `../thirdparty/acados`, and `./thirdparty/acados`.

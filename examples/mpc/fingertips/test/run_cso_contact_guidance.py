@@ -24,7 +24,7 @@ MODELS = ('scm','qp','lcp')
 SOURCE_FILES = (
     'planning/point_contact_baselines.py','planning/direct_contact_force.py',
     'planning/mlqp_point.py','planning/object_pose_cost.py','planning/rollout_timing.py',
-    'models/soft_scm_contact.py','examples/mpc/franka/ik2/params.py',
+    'models/soft_scm_contact.py','examples/mpc/franka/runtime/params.py',
     'examples/mpc/fingertips/test/params.py',
     'examples/mpc/fingertips/test/test_scm_mujoco.py',
     'examples/mpc/fingertips/test/benchmark_contact_models.py',

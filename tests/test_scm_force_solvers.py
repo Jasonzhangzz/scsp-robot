@@ -73,7 +73,7 @@ def test_population_search_improves_known_objective_and_repeats(backend, monkeyp
 
 def test_population_evaluator_matches_shared_prediction_and_ipopt_objective():
     from examples.mpc.fingertips.test.test_0902 import build_parser
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams, build_lambda_optimizer
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams, build_lambda_optimizer
     args = build_parser().parse_args([])
     args.solver = 'cem'
     source = ExplicitMPCParams(args, rand_seed=0, build_optimizer=False)

@@ -1202,13 +1202,13 @@ def _build_mpc_planner_runtime(init, param=None):
     import argparse
     from planning.acados_env import ensure_acados_env
     ensure_acados_env()
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
     from examples.mpc.fingertips.test.test_0902 import (
         ContactValueTracker,
         ModelCostConfidence,
         SmoothedApproachVia,
     )
-    from examples.mpc.franka.ik2.test_mpc_isaac import (
+    from examples.mpc.franka.runtime.mpc import (
         adapt_param_for_cartesian_solver, _configure_rollout_param,
     )
 
@@ -1260,6 +1260,11 @@ def _build_mpc_planner_runtime(init, param=None):
                       else FrankaApproachVia)
     approach_options = (dict(floor_z=float(param.table_height)+float(args.table_clearance))
                         if approach_class is SurfaceNormalApproachVia else {})
+    if getattr(args, 'obj', '') == 'mug' and getattr(param.lambda_optimizer.pp, 'collision_parts', []):
+        from planning.compound_contact_path import CompoundApproachVia
+        approach_class = CompoundApproachVia
+        approach_options = dict(parts=param.lambda_optimizer.pp.collision_parts, tool_aware=True,
+            tool_rotation=getattr(param, 'cavity_tool_rotation_', None), table_z=float(param.table_height), floor_z=float(param.table_height)+float(args.table_clearance))
     trackers = {
         "value_tracker": ContactValueTracker(
             tau=float(args.value_tau),
@@ -1290,6 +1295,12 @@ def _build_mpc_planner_runtime(init, param=None):
         "sol_guess": None,
         "last_verify_cost": None,
     }
+    if hasattr(trackers['approach_via'], 'prepare_lattice'):
+        path = trackers['approach_via']
+        path.radius = max(1e-4, .01 + float(args.ideal_contact_surface_margin) - .0003)
+        started = time.perf_counter()
+        path.prepare_lattice()
+        print('[contact-path] cached collision lattice in %.3fs' % (time.perf_counter()-started), flush=True)
     trackers['object_cost_stages'] = stages
     if param.contact_model == 'soft-scm' and (getattr(args, 'online_scm', False) or getattr(args, 'scm_record_data', False) or getattr(args, 'scm_parameters', '')):
         from models.scm_online import OnlineSCMIdentifier
@@ -1342,7 +1353,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         compute_rollout_contact_via,
         _verify_is_chatter,
     )
-    from examples.mpc.franka.ik2.contact_frames import gravity_wrench_object_frame
+    from examples.mpc.franka.runtime.contact import gravity_wrench_object_frame
     from planning.MPPIWarp import (
         _apply_dwell_payload,
         _opt_snapshot,
@@ -1422,7 +1433,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     if msg.get("jac_mat_env") is not None:
         jac_mat_env = np.asarray(msg["jac_mat_env"])
     else:
-        from examples.mpc.franka.ik2.contact_frames import table_jac_mat_env
+        from examples.mpc.franka.runtime.contact import table_jac_mat_env
         jac_mat_env = table_jac_mat_env(
             curr_q[:3], curr_q[3:7], float(param.table_height),
             nv=nv, mu=float(getattr(param, "mu_object_", 0.5)), max_ncon=max_ncon,
@@ -1446,6 +1457,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
             r_obj_to_world.T @ np.asarray(msg.get('object_angular_velocity', np.zeros(3)))]
         param.lambda_optimizer.rank_tip_velocity = r_obj_to_world.T @ np.asarray(
             msg.get('fingertip_linear_velocity', np.zeros(3)))
+    param.lambda_actual_velocity_ = np.r_[
+        np.asarray(msg.get('object_linear_velocity', np.zeros(3))),
+        np.asarray(msg.get('object_angular_velocity', np.zeros(3)))]
     param.lambda_env_phi_ = msg.get('env_phi')
     # PhysX reports speculative patches before their signed gap reaches zero.
     # Keep that measured geometry: the dynamics must decide whether a bounded
@@ -1547,7 +1561,10 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         # problem. The geometric lift/place path is the phase potential
         # this variant removes.
         approach_action = False
-    execution_mode = 'approach' if approach_action else 'contact'
+    unloading = bool(getattr(args, 'obj', '') == 'mug' and msg.get('osc_upright_guard_active', False))
+    if unloading:
+        approach_action = True
+    execution_mode = 'unload' if unloading else ('approach' if approach_action else 'contact')
     mpc.first_action_bounds = None
     trackers['mpc_slew_rebased'] = False
     if (getattr(mpc, 'velocity_state', False) and msg.get('executed_action') is not None
@@ -1572,7 +1589,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     if (align_executor
             and getattr(mpc, 'velocity_state', False) and not approach_action):
         from planning.execution_constraints import table_edge_command_bounds
-        from examples.mpc.franka.ik2.test_mpc_isaac import (
+        from examples.mpc.franka.runtime.mpc import (
             _table_edge_gap_and_normal, ISAAC_TABLE_EDGE_GUARD_DISTANCE)
         gap, outward = _table_edge_gap_and_normal(curr_q, param)
         guard_active = bool(msg.get('if_contact', False) or (
@@ -1581,6 +1598,15 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         command_lower, command_upper, edge_applied = table_edge_command_bounds(
             command_lower, command_upper, gap, outward, ISAAC_TABLE_EDGE_GUARD_DISTANCE, guard_active)
         trackers['mpc_executor_edge'] = edge_applied
+    trackers['mpc_support_recovery'] = False
+    if (flip_stage and getattr(args, 'obj', '') == 'mug' and not approach_action
+            and value_info.get('object_support_gap') is not None):
+        from planning.execution_constraints import supported_flip_command_bounds
+        force_cap = getattr(mpc, 'contact_force_limit', None)
+        radius = (contact_bound if force_cap is None else
+                  min(contact_bound, force_cap / np.linalg.norm(param.robot_stiff_, 2)))
+        command_lower, command_upper, trackers['mpc_support_recovery'] = supported_flip_command_bounds(
+            value_info['object_support_gap'], command_lower, command_upper, radius)
     trackers['mpc_executor_floor'] = dict(applied=False, rebased=False, emergency=False)
     if (align_executor
             and getattr(mpc, 'velocity_state', False) and not approach_action):
@@ -1638,7 +1664,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
             contact_point=policy["mpc_contact_point"],
             sol_guess=trackers["sol_guess"],
             **(dict(u_lb=command_lower, u_ub=command_upper)
-               if trackers['mpc_executor_edge'] or getattr(mpc,'tool_pose_control',False) else {}),
+               if trackers['mpc_executor_edge'] or trackers['mpc_support_recovery'] or getattr(mpc,'tool_pose_control',False) else {}),
         )
         # Lambda supplies initial guesses only. Every executed contact action
         # comes from optimization under the original objective and constraints.
@@ -1749,6 +1775,15 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         mpc_instances.append(root_mpc.position_mpc)
     def mpc_count(name):
         return sum(int(getattr(instance, name, 0)) for instance in mpc_instances)
+    total_dt = time.perf_counter() - request_started
+    if total_dt > .2:
+        print('[planner-slow] total=%.1fms rank=%.1fms path=%.1fms mpc=%.1fms '
+              'backend=%s lambda=%s mpc_fallbacks=%d lambda_fallbacks=%d' % (
+            1000*total_dt, 1000*rank_dt, float(value_info.get('approach_path_ms', 0.)),
+            1000*plan_dt, sol.get('solver_backend'),
+            getattr(param.lambda_optimizer, 'last_solver_status', 'unknown'),
+            mpc_count('acados_fallback_count'),
+            int(getattr(param.lambda_optimizer, 'acados_fallback_count', 0))), flush=True)
     return {
         "object_cost_diagnostics": dict({} if stages is None else stages.diagnostics(),
             pressure_releases=0, upright_action_rejections=0),
@@ -1768,6 +1803,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "online_dt": float(online_dt),
         "total_dt": float(time.perf_counter() - request_started),
         "mpc_skipped": bool(approach_action),
+        "mpc_support_recovery": bool(trackers['mpc_support_recovery']),
         "mpc_executor_floor": dict(trackers['mpc_executor_floor']),
         "mpc_executor_edge": bool(trackers['mpc_executor_edge']),
         "mpc_fallbacks": mpc_count("acados_fallback_count"),
@@ -1782,6 +1818,9 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "solver_backend": str(sol.get("solver_backend", getattr(mpc, "planner_solver_", "ipopt"))),
         "lambda_failures": int(getattr(param.lambda_optimizer, "acados_failure_count", 0)),
         "mpc_failures": mpc_count("acados_failure_count"),
+        "lambda_fallbacks": int(getattr(param.lambda_optimizer, "acados_fallback_count", 0)),
+        "lambda_solver_status": str(getattr(param.lambda_optimizer, "last_solver_status", "unknown")),
+        "approach_path_ms": float(value_info.get('approach_path_ms', 0.)),
         "lambda_solves": int(getattr(param.lambda_optimizer, "acados_solve_count", 0)),
         "mpc_solves": mpc_count("acados_solve_count"),
         "mpc_init_error": str(getattr(mpc, "_acados_init_error", "") or ""),

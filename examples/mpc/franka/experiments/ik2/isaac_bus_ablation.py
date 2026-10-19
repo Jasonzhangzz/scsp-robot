@@ -277,21 +277,21 @@ def make_queues():
 
 def isaac_entry(cmd_q, obs_q, ready_q, init):
     os.environ.pop("SCSP_PLANNER_ONLY", None)
-    from examples.mpc.franka.ik2.run_isaac_ablation import isaac_worker
+    from examples.mpc.franka.experiments.ik2.run_isaac_ablation import isaac_worker
 
     isaac_worker(cmd_q, obs_q, ready_q, init, announce=True)
 
 
 def mppi_planner_entry(cmd_q, obs_q, ready_q, init):
     os.environ["SCSP_PLANNER_ONLY"] = "1"
-    from examples.mpc.franka.ik2.test_mppi_isaac import planner_worker
+    from examples.mpc.franka.experiments.ik2.test_mppi_isaac import planner_worker
 
     planner_worker(cmd_q, obs_q, ready_q, init)
 
 
 def mpc_planner_entry(cmd_q, obs_q, ready_q, init):
     os.environ["SCSP_PLANNER_ONLY"] = "1"
-    from examples.mpc.franka.ik2.test_mpc_isaac_ablation import planner_worker
+    from examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation import planner_worker
 
     planner_worker(cmd_q, obs_q, ready_q, init)
 

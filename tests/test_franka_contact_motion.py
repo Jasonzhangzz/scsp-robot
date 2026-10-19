@@ -97,7 +97,7 @@ def osc_stub():
     # Skip the native Isaac import. These stubs never step PhysX, and a
     # prior test may already have imported torch.
     os.environ["SCSP_PLANNER_ONLY"] = "1"
-    from examples.mpc.franka.ik2.test_mpc_isaac import IsaacFrankaOSCSimulator
+    from examples.mpc.franka.runtime.mpc import IsaacFrankaOSCSimulator
     sim = IsaacFrankaOSCSimulator.__new__(IsaacFrankaOSCSimulator)
     sim._refresh_osc_tensors = lambda: None
     sim.get_current_joint_position = lambda: np.zeros(7)
@@ -261,8 +261,8 @@ def test_pose_approach_does_not_brake_before_physical_touch():
 
 
 def test_sphere_contact_gap_derivative_predicts_press_and_release_correctly():
-    from examples.mpc.franka.ik2.physx_contact import object_outward_normal
-    from examples.mpc.franka.ik2.contact_frames import _contact_jacobian_np, tangent_basis_from_normal
+    from examples.mpc.franka.runtime.contact import object_outward_normal
+    from examples.mpc.franka.runtime.contact import _contact_jacobian_np, tangent_basis_from_normal
     tip, point = np.array([.05,0,0]), np.array([.04,0,0])
     for raw in [[1,0,0],[-1,0,0]]:
         n_out = object_outward_normal(raw, tip, point)

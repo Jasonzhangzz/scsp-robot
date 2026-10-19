@@ -24,7 +24,7 @@ from planning.acados_env import ensure_acados_env
 ensure_acados_env()
 
 from examples.mpc.franka.test_benchmark.sampling.params_sampling import ExplicitMPCParams
-from examples.mpc.franka.ik2.test_mppi_isaac import (
+from examples.mpc.franka.runtime.simulator import (
     IsaacFrankaSimulator,
     _parse_bool_arg,
     _extract_quat_xyzw,

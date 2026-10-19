@@ -87,7 +87,7 @@ def main():
         for obj in OBJECTS:
             cell = out/task/obj
             cell.mkdir()
-            commands[task+'/'+obj] = [sys.executable, '-u', str(ROOT/'examples/mpc/franka/ik2/run_ablation.py'),
+            commands[task+'/'+obj] = [sys.executable, '-u', str(ROOT/'examples/mpc/franka/experiments/ik2/run_ablation.py'),
                 '--a7', '--task', task, '--obj', obj, '--headless', '--sync-planner',
                 '--no-headless-realtime', '--physics-backend', 'isaac', '--solver-backend', 'ipopt',
                 '--trial-start', '0', '--trial_num', '3', '--max_rollout_length', '2500',
@@ -101,9 +101,10 @@ def main():
         Path('planning/franka_mppi_ablation.py'), Path('planning/mpc_explicit_ablation.py'),
         Path('planning/object_pose_cost.py'), Path('models/cartesian_rigid_contact.py'),
         Path('models/contact_geometry.py'), Path('models/soft_scm_contact.py')]
-    source_files += [Path('examples/mpc/franka/ik2')/name for name in (
+    source_files += [Path('examples/mpc/franka/experiments/ik2')/name for name in (
         'run_ablation.py', 'params_ablation.py', 'test_mpc_isaac_ablation.py',
-        'run_isaac_ablation.py', 'contact_policy_ablation.py', 'scene_friction.py', 'contact_frames.py')]
+        'run_isaac_ablation.py', 'contact_policy_ablation.py')]
+    source_files += [Path('examples/mpc/franka/runtime')/name for name in ('contact.py', 'simulator.py')]
     hashes = {}
     for relative in source_files:
         data = (ROOT/relative).read_bytes()

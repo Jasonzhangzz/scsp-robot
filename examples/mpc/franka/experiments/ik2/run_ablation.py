@@ -12,13 +12,13 @@ surface-point tracking, lift/place potentials or repulsion cost.
 Sensitivity uses the full, unchanged RS policy and matched trial seeds.
 
 Examples:
-  python examples/mpc/franka/ik2/run_ablation.py --a1 --task flipping --headless
-  python examples/mpc/franka/ik2/run_ablation.py --a3 --trial_num 5 --headless
-  python examples/mpc/franka/ik2/run_ablation.py --a4 --rotation --headless
-  python examples/mpc/franka/ik2/run_ablation.py --a5 --flipping --headless
-  python examples/mpc/franka/ik2/run_ablation.py --a7 --flip --headless
-  python examples/mpc/franka/ik2/run_ablation.py --sensitive --dry-run
-  python examples/mpc/franka/ik2/run_ablation.py --sensitive --trial_num 100 \
+  python examples/mpc/franka/experiments/ik2/run_ablation.py --a1 --task flipping --headless
+  python examples/mpc/franka/experiments/ik2/run_ablation.py --a3 --trial_num 5 --headless
+  python examples/mpc/franka/experiments/ik2/run_ablation.py --a4 --rotation --headless
+  python examples/mpc/franka/experiments/ik2/run_ablation.py --a5 --flipping --headless
+  python examples/mpc/franka/experiments/ik2/run_ablation.py --a7 --flip --headless
+  python examples/mpc/franka/experiments/ik2/run_ablation.py --sensitive --dry-run
+  python examples/mpc/franka/experiments/ik2/run_ablation.py --sensitive --trial_num 100 \
       --sensitivity-axis model_cost_error_threshold=3,6,12 \
       --sensitivity-axis verify_beta=0.09,0.18,0.36 --headless
 """

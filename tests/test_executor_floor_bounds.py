@@ -9,7 +9,7 @@ from planning.execution_constraints import floor_command_bounds, table_edge_comm
 
 def test_user_test_default_and_baseline_override(monkeypatch):
     monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
+    from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args
     parser = _add_rollout_policy_args(argparse.ArgumentParser())
     assert parser.parse_args(['--obj', 'stanford_bunny2']).pose_executor_constraints
     assert parser.parse_args(['--obj', 'stanford_bunny2']).flip_executor_constraints
@@ -106,7 +106,7 @@ def test_emergency_floor_recovery_still_respects_active_edge_guard():
 def test_flip_execution_constraints_can_be_disabled_independently(monkeypatch):
     monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
     from planning.mpc_explicit import _build_mpc_planner_runtime, handle_mpc_request
-    from examples.mpc.franka.ik2 import test_mpc_isaac as policy
+    from examples.mpc.franka.runtime import mpc as policy
     record = json.loads((Path(__file__).parent/'fixtures/bunny_pose_contact.json').read_text())
     record['args']['pose_executor_constraints'] = True
     record['args']['flip_executor_constraints'] = False

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from examples.mpc.franka.ik2.scene_friction import configure_scene_friction
+from examples.mpc.franka.runtime.contact import configure_scene_friction
 
 
 @pytest.mark.parametrize('suffix', ['', '_ablation'])
@@ -20,8 +20,8 @@ def test_cso_receives_scene_pair_friction_at_initial_construction(
     if suffix == '' and backend == 'isaac':
         arm_mu = 1.6
         materials = (.2, 1.2, 2.)
-    entry=importlib.import_module('examples.mpc.franka.ik2.test_mpc_isaac'+suffix)
-    params=importlib.import_module('examples.mpc.franka.ik2.params'+suffix)
+    entry=importlib.import_module(('examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation' if suffix else 'examples.mpc.franka.runtime.mpc'))
+    params=importlib.import_module(('examples.mpc.franka.experiments.ik2.params_ablation' if suffix else 'examples.mpc.franka.runtime.params'))
     args=entry._add_rollout_policy_args(argparse.ArgumentParser()).parse_args([
         '--obj','foam_brick','--physics-backend',backend,'--mjwarp-scene',scene])
     captured=[]
@@ -43,7 +43,7 @@ def test_cso_receives_scene_pair_friction_at_initial_construction(
 
 @pytest.mark.parametrize('suffix', ['', '_ablation'])
 def test_tangent_penalty_cli_override_is_preserved(suffix):
-    entry=importlib.import_module('examples.mpc.franka.ik2.test_mpc_isaac'+suffix)
+    entry=importlib.import_module(('examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation' if suffix else 'examples.mpc.franka.runtime.mpc'))
     parser=entry._add_rollout_policy_args(argparse.ArgumentParser())
     assert parser.parse_args([]).friction_reg_coef==pytest.approx(.03)
     assert parser.parse_args(['--friction_reg_coef','1']).friction_reg_coef==1.

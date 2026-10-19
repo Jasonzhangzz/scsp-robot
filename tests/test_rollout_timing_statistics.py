@@ -1,6 +1,6 @@
 import pytest
 
-from examples.mpc.franka.ik2.summarize_rollouts import aggregate
+from examples.mpc.franka.runtime.rollout_statistics import aggregate
 
 
 def record(seed, times, success):

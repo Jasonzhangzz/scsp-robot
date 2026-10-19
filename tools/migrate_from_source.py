@@ -567,7 +567,7 @@ export PYTHONPATH="$(pwd):$PYTHONPATH"
 export ACADOS_SOURCE_DIR="/home/lab423/push_ws/acados"
 export LD_LIBRARY_PATH="/home/lab423/push_ws/acados/lib:${{LD_LIBRARY_PATH}}"
 python examples/mpc/fingertips/test/test_0902.py --headless --trial_num 1
-python examples/mpc/franka/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-device cuda:0
+python examples/mpc/franka/experiments/ik2/test_mppi_isaac.py --sim-device cuda:0 --mppi-device cuda:0
 ```
 
 Isaac Gym, MuJoCo, acados, cuRobo, and `/home/lab423/scsp/thirdparty/spider` stay as external dependencies.
@@ -760,8 +760,8 @@ def main() -> int:
 
     # Import params modules that do not construct a simulator at import time.
     try:
-        import examples.mpc.franka.ik2.params  # noqa: F401
-        print("[smoke] imported examples.mpc.franka.ik2.params")
+        import examples.mpc.franka.runtime.params  # noqa: F401
+        print("[smoke] imported examples.mpc.franka.runtime.params")
     except ModuleNotFoundError as exc:
         print(f"[smoke] skip ik2.params (optional dep missing): {exc}")
     except Exception as exc:

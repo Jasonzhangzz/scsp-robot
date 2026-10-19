@@ -53,7 +53,7 @@ from planning.mppi_bigrasp_ee import BimanualEEMPPI
 from planning.bigrasp_ee_cost import numpy_pose_state
 from planning.planner_mode import resolve_planner_backend, resolve_planner_mode
 from planning.contact_pair import ContactPair
-from examples.mpc.franka.ik2.scene_friction import DEFAULT_TANGENTIAL_FORCE_PENALTY
+from examples.mpc.franka.runtime.contact import DEFAULT_TANGENTIAL_FORCE_PENALTY
 from planning.physical_bimanual_mppi import (
     MujocoBimanualRolloutBackend,
     PhysicalBimanualMPPI,
@@ -4884,7 +4884,7 @@ class BimanualPandaGrasper:
 
     def _compute_arm_osc_torque(self, arm, remain, velocity, v_ref=None, k_task=600.0, d_task=40.0, force_limit=12.0,
                                approach_direction=None, orientation_reference=None):
-        from examples.mpc.franka.ik2.contact_frames import franka_nullspace_posture_torque, isaac_task_force
+        from examples.mpc.franka.runtime.contact import franka_nullspace_posture_torque, isaac_task_force
 
         q = self.get_current_joint_position(arm)
         dq = self.get_current_joint_velocity(arm)
@@ -4937,7 +4937,7 @@ class BimanualPandaGrasper:
 
     def step_osc_tip_delta(self, left_cmd, right_cmd, object_force_world=None, object_torque_world=None):
         """Track dual-arm 3D fingertip increments with position-only OSC."""
-        from examples.mpc.franka.ik2.contact_frames import mpc_ball_trajectory, remaining_along_action
+        from examples.mpc.franka.runtime.contact import mpc_ball_trajectory, remaining_along_action
 
         left_cmd = np.asarray(left_cmd, dtype=np.float64).reshape(3)
         right_cmd = np.asarray(right_cmd, dtype=np.float64).reshape(3)

@@ -156,7 +156,7 @@ def test_invalid_soft_parameters_are_rejected(name, value):
 
 
 def test_ik2_parameter_factory_passes_contact_model_to_ranking(monkeypatch):
-    from examples.mpc.franka.ik2 import params
+    from examples.mpc.franka.runtime import params
     captured = {}
     def capture(**kwargs):
         captured.update(kwargs)
@@ -177,7 +177,7 @@ def test_ik2_parameter_factory_passes_contact_model_to_ranking(monkeypatch):
 
 @pytest.mark.parametrize('mode', ['soft-scm', 'comfree'])
 def test_ik2_real_parameters_keep_displacement_units_and_shared_contact_settings(mode, monkeypatch):
-    from examples.mpc.franka.ik2 import params
+    from examples.mpc.franka.runtime import params
     monkeypatch.setattr(params, 'LambdaContactControlOptimizer', lambda **kwargs: SimpleNamespace(**kwargs))
     args = SimpleNamespace(contact_cost_param=1., attract_coef=.5, reject_coef=.001,
         contact_coef=.7, reject_dis=.02, obj='foam_brick', collision_hull=False,

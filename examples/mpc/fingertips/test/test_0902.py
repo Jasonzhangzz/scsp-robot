@@ -1362,6 +1362,10 @@ def compute_rollout_contact_via(
     object sits on a ramp; omit them (or pass None) for a flat table.
     """
     current_tip_local = r_obj_to_world.T @ (curr_q[7:10] - curr_q[:3])
+    compound_path = callable(getattr(approach_via, 'path_obstructed', None))
+    if compound_path:
+        approach_via.set_geometry_context(curr_q[:3], r_obj_to_world,
+            max(1e-4, float(fingertip_radius) + float(args.ideal_contact_surface_margin) - .0003))
     target_quat_local = rotations.quaternion_multiply(
         rotations.quaternion_conjugate(curr_q[3:7]), param.target_q_)
     target_pose_eval = np.hstack(
@@ -1371,6 +1375,8 @@ def compute_rollout_contact_via(
     param.lambda_optimizer.update_Jacobian(jac_mat_env, phi=getattr(param, 'lambda_env_phi_', None))
     actual_contact = getattr(param, 'lambda_actual_contact_', None)
     object_cost_stage = getattr(param, 'object_cost_stage_', None)
+    reacquire = (approach_via.reacquire_contact(curr_q[7:10])
+        if compound_path and object_cost_stage == 'flip' and actual_contact is None else None)
     post_flip_pose = object_cost_stage == 'pose'
     staged_object_cost = object_cost_stage in ('flip', 'pose')
     visible_point_idx = param.lambda_optimizer.get_availble_point_idx(
@@ -1379,6 +1385,12 @@ def compute_rollout_contact_via(
         support_point=support_point, support_normal=support_normal)
     visible_point_idx = param.lambda_optimizer.filter_rankable_indices(
         visible_point_idx)
+    if compound_path and getattr(approach_via,'tool_aware',False):
+        ids = np.asarray(visible_point_idx,dtype=int)
+        centers = (param.lambda_optimizer.sample_point[ids]
+            - max(1e-4,float(fingertip_radius)+float(args.ideal_contact_surface_margin))
+            *param.lambda_optimizer.normal[ids])
+        visible_point_idx = ids[approach_via.free(centers)]
 
     last_idx = getattr(param.lambda_optimizer, 'last_selected_idx', None)
     last_exec_idx = getattr(param.lambda_optimizer, 'last_executed_idx', None)
@@ -1446,6 +1458,12 @@ def compute_rollout_contact_via(
     guide_idx = param.lambda_optimizer.choose_nearby_topk_idx(current_tip_local)
     if guide_idx is None:
         guide_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
+    if compound_path and getattr(approach_via, 'blocked', False):
+        destination_idx = getattr(approach_via, 'destination_idx', None)
+        if destination_idx is not None and destination_idx in visible_point_idx and destination_idx not in blocked:
+            guide_idx = int(destination_idx)
+        else:
+            approach_via.reset()
     if guide_idx is not None:
         guide_idx = int(guide_idx)
         best_contact_point = param.lambda_optimizer.sample_point[guide_idx]
@@ -1462,6 +1480,8 @@ def compute_rollout_contact_via(
     best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
         curr_q[:3], r_obj_to_world, best_contact_point, normal,
         fingertip_radius, args.ideal_contact_surface_margin)
+    if compound_path and not post_flip_pose:
+        approach_via.destination_idx = guide_idx
     p_arm_local, p_arm_normal_out, x_plus_opt, error, info = param.lambda_optimizer.resolve_executed_contact(
         current_tip_local, visible_point_idx,
         target_pose_eval, current_pose_eval, gravity,
@@ -1568,6 +1588,11 @@ def compute_rollout_contact_via(
     arrived_at_best = _arrived_at_best_contact(
         curr_q[7:10], best_contact_world, best_contact_track_world,
         occupied_idx, best_idx, param.lambda_optimizer)
+    obstructed_destination = bool(compound_path and approach_via.path_obstructed(
+        curr_q[7:10], best_contact_track_world))
+    if obstructed_destination:
+        arrived_at_best = arrived_hold = False
+        arrived_dest_idx = None
     dist_best_now = min(
         float(np.linalg.norm(curr_q[7:10] - best_contact_world)),
         float(np.linalg.norm(curr_q[7:10] - best_contact_track_world)))
@@ -1630,6 +1655,13 @@ def compute_rollout_contact_via(
     # sample's cached gain. Arrival within 3 cm can describe different normals
     # and lever arms; it must not turn an unhelpful contact into the winner.
     measured_gain = None
+    flip_contact_protected = False
+    if (compound_path and object_cost_stage == 'flip' and actual_contact is not None
+            and not getattr(approach_via, 'blocked', False)):
+        flip_contact_protected = approach_via.protect_flip_contact(
+            getattr(param, 'lambda_actual_velocity_', np.zeros(6)), floor_z)
+    elif compound_path:
+        approach_via._settled_frames = 0
     switch_observed_contact = False
     if staged_object_cost and actual_contact is not None:
         if solver_ok:
@@ -1642,7 +1674,33 @@ def compute_rollout_contact_via(
         # Ordinary relocation uses the ranked target and the existing via;
         # an explicitly supplied transition predictor can still request travel.
         switch_observed_contact = bool(transition is not None and transition['switch'])
-        if switch_observed_contact:
+        if compound_path and transition is None:
+            # Exterior contact cannot count as arrival at a cavity point.
+            # Preserve a useful near-tie; a better cavity target needs real
+            # withdrawal and a collision-clear approach through the opening.
+            travelling = bool(getattr(approach_via, 'blocked', False))
+            best_gain = param.lambda_optimizer.pose_delta_for_sample(best_idx)
+            better = (best_gain is not None and best_gain > 1e-9
+                and not _predicted_gain_near_best(param.lambda_optimizer, measured_gain, best_idx))
+            # Measured progress, rather than a single hypothetical gain,
+            # decides when a supporting exterior contact is exhausted.
+            # In pose mode a useful measured contact also supersedes an old
+            # transit. A transit flag alone must not force that contact away.
+            retain_pose_contact = (post_flip_pose and solver_ok and near_arm
+                and param.lambda_optimizer.contact_switch_confidence > .05
+                and int(actual_contact_idx) not in blocked)
+            switch_observed_contact = bool((travelling and not retain_pose_contact)
+                or (obstructed_destination and better
+                and param.lambda_optimizer.contact_switch_confidence <= .05))
+        if flip_contact_protected:
+            # Dwell confidence cannot authorize unloading an airborne or
+            # moving cup. Keep the measured manifold, even if its sparse
+            # sample was blacklisted by the stagnation tracker.
+            switch_observed_contact = False
+            hold_occupied = True
+            value_info['accept_p_arm'] = value_info['cost_ok'] = True
+            value_tracker._holding_p_arm = True
+        elif switch_observed_contact:
             hold_occupied = False
             value_info['accept_p_arm'] = value_info['cost_ok'] = False
             value_tracker._holding_p_arm = False
@@ -1656,18 +1714,35 @@ def compute_rollout_contact_via(
             value_tracker._holding_p_arm = useful
     value_info['measured_contact_gain'] = measured_gain
     value_info['switch_observed_contact'] = switch_observed_contact
+    if compound_path:
+        value_info['compound_path_obstructed'] = obstructed_destination
+        value_info['contact_relocation_requested'] = switch_observed_contact
+        value_info['flip_contact_protected'] = bool(flip_contact_protected)
+        value_info['object_support_gap'] = getattr(approach_via, 'support_gap', None)
     # Evaluate RS immediately before committing its contact target, so a
     # counterfactual also runs the normal CPO and MPC for the chosen branch.
     rs_hook = getattr(param, 'rs_decision_hook', None)
     if rs_hook is not None:
         from utils.ranking_cdr import contact_decision_context
+        global_idx = getattr(param.lambda_optimizer, 'last_global_idx', None)
+        optimal_target_world = None
+        if global_idx is not None:
+            optimal_target_world, _, _ = _sphere_center_on_patch(
+                curr_q[:3], r_obj_to_world,
+                param.lambda_optimizer.sample_point[global_idx],
+                param.lambda_optimizer.normal[global_idx],
+                fingertip_radius, args.ideal_contact_surface_margin)
         rs_context = contact_decision_context(
             param.lambda_optimizer, curr_q, p_arm_idx, best_idx,
             near_arm=near_arm, observed=actual_contact is not None,
             accept=bool(value_info['accept_p_arm']), hold=bool(hold_occupied),
             switch_observed=switch_observed_contact,
             stage=object_cost_stage,
+            near_target_world=p_arm_track_world,
+            guide_target_world=best_contact_track_world,
+            optimal_target_world=optimal_target_world,
         )
+        rs_context['in_transit'] = bool(getattr(approach_via, 'blocked', False))
         forced = rs_hook(rs_context)
         if forced is not None:
             if forced not in ('switch', 'stay') or not rs_context['eligible']:
@@ -1714,6 +1789,11 @@ def compute_rollout_contact_via(
         exec_quality = 1.0
     else:
         exec_quality = 1.0
+    if compound_path and post_flip_pose:
+        # The route belongs to the chosen execution patch, which can be the
+        # accepted local/observed p_arm rather than the ranked global guide.
+        approach_via.destination_idx = (best_idx if np.linalg.norm(
+            p_arm_surface_world - best_contact_world) < 1e-6 else p_arm_idx)
     dist_surface = float(np.linalg.norm(curr_q[7:10] - best_contact_world))
     dist_track = float(np.linalg.norm(curr_q[7:10] - best_contact_track_world))
     dist_to_exec = float(np.linalg.norm(curr_q[7:10] - p_arm_world))
@@ -1721,7 +1801,7 @@ def compute_rollout_contact_via(
         curr_q[7:10], p_arm_world, p_arm_surface_world, best_normal_world,
         mu=float(getattr(param.lambda_optimizer, 'mu_arm_obj', 0.9)))
     near_patch = _patch_proximity(dist_surface, dist_track, dist_to_exec) <= 0.03
-    if (align_info['ok'] and near_patch and
+    if (not obstructed_destination and align_info['ok'] and near_patch and
             not _on_opposite_sides(curr_q[7:10], curr_q[:3], best_contact_world) and
             not _floor_slide_away_from_patch(
                 curr_q[7:10], best_contact_world, ground=floor_ground)):
@@ -1803,9 +1883,35 @@ def compute_rollout_contact_via(
             approach_via.set_force_context(force_world, outward,
                 active=object_cost_stage == 'flip',
                 touching=bool(actual_contact is not None and actual_contact.get('dist', 0.) <= 0.))
-    use_via, via_pos, via_phase = approach_via.update(
-        curr_q[7:10], curr_q[:3], p_arm_surface_world, p_arm_track_world,
-        top_z, keepout, bool(value_info.get('arrived_at_best', False)), exec_press)
+    if reacquire is not None:
+        p_arm_surface_world, p_arm_track_world = reacquire
+        p_arm_world = p_arm_track_world
+        exec_press = p_arm_track_world.copy()
+        use_via, via_pos, via_phase = approach_via.hold_contact(curr_q[7:10], p_arm_track_world)
+        via_phase = 'reacquire'
+        value_info['accept_p_arm'] = value_info['cost_ok'] = False
+        value_info['switch_observed_contact'] = value_info['contact_relocation_requested'] = False
+    elif flip_contact_protected:
+        use_via, via_pos, via_phase = approach_via.hold_contact(curr_q[7:10], exec_press)
+    else:
+        use_via, via_pos, via_phase = approach_via.update(
+            curr_q[7:10], curr_q[:3], p_arm_surface_world, p_arm_track_world,
+            top_z, keepout, bool(value_info.get('arrived_at_best', False)), exec_press,
+            **({'retarget': post_flip_pose} if compound_path else {}))
+    if compound_path:
+        value_info['approach_path_ms'] = 1000 * approach_via.last_plan_seconds
+        value_info['approach_destination_idx'] = approach_via.destination_idx
+        destination = approach_via.destination_local
+        value_info['approach_destination_world'] = (None if destination is None
+            else (curr_q[:3] + r_obj_to_world @ destination).tolist())
+        value_info['flip_contact_reacquiring'] = reacquire is not None
+        if actual_contact is not None and not use_via:
+            approach_via.remember_contact(p_arm_surface_world, p_arm_track_world)
+    if compound_path and getattr(approach_via, 'route_failed', False):
+        # A blocked opening/target cannot be solved by pressing harder.
+        param.lambda_optimizer.block_contact_patch(best_idx, cycles=40, radius=0.)
+        approach_via.reset()
+        approach_via.blocked = True
     travel, escape_on = _blend_travel_to_press(
         via_pos, exec_press, model_cost_conf.tightness(), use_via,
         via_phase=via_phase, opposite=opposite)

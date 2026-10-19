@@ -49,7 +49,7 @@ from examples.mpc.fingertips.test.test_0902 import (
     _verify_is_chatter,
     _x_plus_is_usable,
 )
-from examples.mpc.franka.ik2.test_mpc_isaac import ContactIsaacCartesian
+from examples.mpc.franka.runtime.mpc import ContactIsaacCartesian
 from planning.mpc_explicit import MPCExplicit
 from utils import metrics
 

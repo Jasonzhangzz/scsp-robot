@@ -10,7 +10,7 @@ import os
 import time
 import traceback
 
-from examples.mpc.franka.ik2.isaac_bus_ablation import IsaacBus
+from examples.mpc.franka.experiments.ik2.isaac_bus_ablation import IsaacBus
 
 
 def planner_entry(cmd_q, obs_q, events, values):
@@ -18,8 +18,8 @@ def planner_entry(cmd_q, obs_q, events, values):
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
     for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
         os.environ[name] = '1'
-    from examples.mpc.franka.ik2.headless_rollout_ablation import rollout_output
-    from examples.mpc.franka.ik2.test_mpc_isaac_ablation import run_mpc_planner
+    from examples.mpc.franka.experiments.ik2.headless_rollout_ablation import rollout_output
+    from examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation import run_mpc_planner
 
     class Bus(IsaacBus):
         def record_summary(self, summary):
@@ -40,8 +40,8 @@ def planner_entry(cmd_q, obs_q, events, values):
 def run_mjwarp_async_headless(args):
     import json
     from pathlib import Path
-    from examples.mpc.franka.ik2.headless_rollout_ablation import trial_ranges, report
-    from examples.mpc.franka.ik2.mjwarp_rollout_ablation import MJWarpBatch
+    from examples.mpc.franka.experiments.ik2.headless_rollout_ablation import trial_ranges, report
+    from examples.mpc.franka.experiments.ik2.mjwarp_rollout_ablation import MJWarpBatch
     if args.floating_fingertip or args.sampling_c3:
         raise ValueError('MJWarp evaluation requires Franka OSC + MPC')
     args.headless, args.rollout = True, True

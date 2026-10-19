@@ -149,3 +149,68 @@ def test_velocity_benchmark_modes_and_rollout_cover_the_full_window():
     assert next_qvel[2] == pytest.approx(-9.81*.002)
     assert next_qpos[0]-qpos[0] == pytest.approx(.001)
     np.testing.assert_allclose(final[:3], next_qvel[:3], atol=1e-14)
+
+
+def test_velocity_benchmark_uses_mjwarp_coupled_lcp_reference():
+    import importlib.util
+    path = Path(__file__).resolve().parents[3] / "fingertips/test/benchmark_velocity_error.py"
+    spec = importlib.util.spec_from_file_location("velocity_lcp_benchmark", path)
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    model = benchmark.make_model("foam_brick", .5, .002, .15)
+    settled = benchmark.settle(model)
+    backends = benchmark.make_backends(model, settled)
+    reference = backends["reference_lcp"]
+    assert reference.engine == "lcp"
+    assert reference.model.opt.timestep == pytest.approx(.001)
+    assert model.opt.timestep == pytest.approx(.002)
+    assert backends["scm_corrected"].api.response_time == 0
+    assert backends["scm_corrected"].api.amplitude_correction
+    assert backends["scm_soft_corrected"].api.response_time == 0
+    assert backends["scm_soft_corrected"].api.softplus_temperature == 1e-4
+
+    qpos = settled.qpos.copy()
+    qpos[2] += .5
+    velocity = np.array([.5, 0, 0, 0, 0, 0])
+    final, (next_pos, next_vel), certificates = benchmark.reference_window(
+        reference, qpos, velocity, np.zeros(6))
+    assert next_vel[2] == pytest.approx(-9.81*.002, abs=1e-7)
+    assert next_pos[0]-qpos[0] == pytest.approx(.001, abs=1e-7)
+    np.testing.assert_allclose(final[:3], next_vel[:3], atol=1e-7)
+    assert len(certificates) == 2
+    assert all(c["residual"] <= 1e-8 for c in certificates)
+
+    _, _, certificates = benchmark.reference_window(
+        reference, settled.qpos, velocity, np.zeros(6), steps=1)
+    matrix = reference.api.last_problem["W"]
+    assert np.linalg.norm(matrix-np.diag(np.diag(matrix))) > 0
+    assert all(c["residual"] <= 1e-8 for c in certificates)
+
+
+@pytest.mark.parametrize("law", ["dart", "lcp"])
+def test_multistep_reference_angular_velocity_uses_final_body_frame(law):
+    import importlib.util
+    path = Path(__file__).resolve().parents[3] / "fingertips/test/benchmark_velocity_error.py"
+    spec = importlib.util.spec_from_file_location("velocity_frame_benchmark", path)
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    from benchmark_utils import Backend
+    model = benchmark.make_model("mug", .5, .001, .15)
+    initial = mujoco.MjData(model)
+    initial.qpos[2] = .5
+    initial.qvel[:] = [.1, .2, .3, 12., 15., -8.]
+    mujoco.mj_forward(model, initial)
+    initial_rotation = initial.xmat[1].reshape(3, 3).copy()
+    wrench = np.array([0., 0., 0., .01, -.02, .03])
+    if law == "lcp":
+        backend = Backend("lcp", model, initial, nconmax=128, njmax=2048, lcp_solver="active-set")
+        velocity, nxt, _ = benchmark.reference_window(
+            backend, initial.qpos, initial.qvel, wrench, steps=10)
+    else:
+        velocity, nxt = benchmark.dart_window(
+            model, initial.qpos, initial.qvel, wrench, .5, .001, 10)
+    final = mujoco.MjData(model)
+    benchmark.set_state(model, final, *nxt, wrench)
+    expected = final.xmat[1].reshape(3, 3) @ final.qvel[3:]
+    np.testing.assert_allclose(velocity[3:], expected, atol=1e-12)
+    assert np.linalg.norm(expected - initial_rotation @ final.qvel[3:]) > 1e-3

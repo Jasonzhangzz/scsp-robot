@@ -10,7 +10,7 @@ import mujoco
 
 
 def add_direct_force_args(parser):
-    from examples.mpc.franka.ik2.params import add_lambda_predictor_args
+    from examples.mpc.franka.runtime.params import add_lambda_predictor_args
     add_lambda_predictor_args(parser)
     parser.add_argument('--execution-force-cap', type=float, default=0.0,
                         help='Optional applied force cap in N; 0 executes the full optimized force.')
@@ -95,7 +95,7 @@ def gravity_wrench_body(env):
 
 def configure_direct_force_optimizer(param, env, args):
     """Reuse the Isaac parameter object and factory, without physical retuning."""
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams, build_lambda_optimizer
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams, build_lambda_optimizer
 
     model = env.model_
     tip = model.geom('fingertip0').id

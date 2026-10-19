@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation
 
 from models.contact_geometry import contact_geometry_cs
 from models.explicit_model import ExplicitModel
-from examples.mpc.franka.ik2.contact_frames import (
+from examples.mpc.franka.runtime.contact import (
     contact_jacobian_angular_body_frame, support_patch_jacobians,
 )
 from planning.object_pose_cost import cost_config, object_cost_np, target_up_axis

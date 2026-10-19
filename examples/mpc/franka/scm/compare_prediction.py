@@ -136,6 +136,7 @@ def backend_for(engine, model, initial, args):
                    scm_regularization=args.scm_regularization, scm_motion=args.scm_motion,
                    scm_response_time=getattr(args, "scm_response_time", .05),
                    scm_damping_ratio=getattr(args, "scm_damping_ratio", 1.),
+                   scm_softplus_temperature=getattr(args, "scm_softplus_temperature", 1e-4),
                    lcp_regularization=getattr(args, "lcp_regularization", 1e-8),
                    lcp_tolerance=getattr(args, "lcp_tolerance", 1e-8),
                    lcp_max_iterations=getattr(args, "lcp_max_iterations", 2000),
@@ -446,10 +447,13 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                             "law": "x=h/tau; a=(2*zeta*x+x*x)/(1+2*zeta*x+x*x); b=x*x/(1+2*zeta*x+x*x); p=max(-(a*J*v_projected+b*gap/h)/D,0)",
                             "interpretation": "per-row implicit spring-damper, effective mass=1/D; full contact coupling still approximated"}
     metadata["scm_soft_corrected"] = {
-        "law": "p0=max(-(a*J*v_free+b*gap/h)/D,0); p=alpha*p0",
-        "alpha": "clip(-g_soft.T*p0 / (||J.T*p0||_Minv^2+r*||p0||^2),0,1)",
-        "interpretation": "single global amplitude correction; direct diagonal Delassus retained; no new fit parameters",
-        "limitation": "reduces the coupled soft quadratic along p0, not guaranteed to reduce reference velocity errors"}
+        "law_version": "softplus_impulse_v1",
+        "law": "g=J*v_projected+gap/h; p0=T*log(1+exp((-g/D)/T)); p=alpha*p0",
+        "temperature_N_s": getattr(args, "scm_softplus_temperature", 1e-4),
+        "response_time_s": 0.,
+        "alpha": "clip(-g.T*p0 / (||J.T*p0||_Minv^2+r*||p0||^2),0,1)",
+        "interpretation": "SCM with LogSumExp smoothed positive-part impulses and the same global line search",
+        "limitation": "smooths row activation only; global clipping and collision remain piecewise smooth"}
     metadata["dart"] = {
         "source": "DART v6.16.0 ContactConstraint/PgsBoxedLcpSolver equations, deterministic NumPy port",
         "collision": "MuJoCo CPU active contacts (touching or penetrating only)",
@@ -631,6 +635,8 @@ def argument_parser():
                         help="Soft SCM relaxation time [s]; default calibrated for the 2 ms physics benchmark")
     parser.add_argument("--scm-damping-ratio", type=positive_float, default=.25,
                         help="Soft SCM damping ratio; benchmark default .25 (MPC model defaults are separate)")
+    parser.add_argument("--scm-softplus-temperature", type=positive_float, default=1e-4,
+                        help="scm_soft_corrected LogSumExp temperature in N s; independent of spring-damper gains")
     parser.add_argument("--contactsdf-sigma", type=positive_float, default=120.,
                         help="LSE sharpness for the dynamic ContactSDF extension (Q=M/h^2)")
     parser.add_argument("--lcp-regularization", type=positive_float, default=1e-8)

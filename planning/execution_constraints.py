@@ -2,6 +2,22 @@
 import numpy as np
 
 
+def supported_flip_command_bounds(gap, lower, upper, max_norm, tolerance=.003):
+    """Return a contact command ceiling when a tabletop pivot loses support.
+
+    Keep horizontal torque authority while recovering at most half the
+    command radius vertically. The floor/slew intersection is resolved by
+    ``floor_command_bounds`` afterwards, before optimization.
+    """
+    lower, upper = [np.broadcast_to(np.asarray(x, dtype=float), (3,)).copy()
+                    for x in (lower, upper)]
+    active = bool(np.isfinite(gap) and gap > tolerance)
+    if active:
+        recovery = min(.25*(float(gap)-tolerance), .5*float(max_norm))
+        upper[2] = min(upper[2], -recovery)
+    return lower, upper, active
+
+
 def table_edge_command_bounds(lower, upper, gap, outward, guard_distance, active):
     """Match the axis-aligned tabletop's outward-command projection."""
     lower, upper = [np.broadcast_to(np.asarray(x, dtype=float), (3,)).copy() for x in (lower, upper)]

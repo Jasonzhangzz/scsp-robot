@@ -13,7 +13,8 @@ import pytest
 import trimesh
 from scipy.spatial.transform import Rotation
 
-from examples.mpc.franka.ik2 import contact_frames as cf, physx_contact as pc
+from examples.mpc.franka.runtime import contact as cf
+from examples.mpc.franka.runtime import contact as pc
 from examples.mpc.franka.test_tilted_push.params import ExplicitMPCParams
 from examples.mpc.franka.test_tilted_push.ramp_support import (
     prepare_object_geometry, configure_support_objective, fit_mesh_center_on_ramp,
@@ -50,7 +51,7 @@ def ramp_scope():
     scope.update(_tangent_basis_from_normal=cf.tangent_basis_from_normal,
         _contact_jacobian=cf._contact_jacobian_np,
         contact_jacobian_angular_body_frame=cf.contact_jacobian_angular_body_frame)
-    extract('examples/mpc/franka/ik2/test_mpc_isaac.py', {'ContactIsaacCartesian'}, scope)
+    extract('examples/mpc/franka/runtime/mpc.py', {'ContactIsaacCartesian'}, scope)
     source = ROOT / 'examples/mpc/franka/test_tilted_push/test_tiltedpush.py'
     tree = ast.parse(source.read_text())
     constants = [n for n in tree.body if isinstance(n, ast.Assign)
@@ -66,7 +67,7 @@ def ramp_scope():
         '_build_goal_pose_on_tilted_ramp', '_apply_tilted_ramp_scene_to_param',
         '_apply_dywa_physics_to_param', '_allocate_trial_record_dir', 'ContactIsaacRamp'}
     extract('examples/mpc/franka/test_tilted_push/test_tiltedpush.py', names, scope)
-    extract('examples/mpc/franka/ik2/params.py', {'_box_inertia_diag'}, scope)
+    extract('examples/mpc/franka/runtime/params.py', {'_box_inertia_diag'}, scope)
     return scope
 
 
@@ -129,11 +130,15 @@ def test_lambda_and_mpc_use_same_contact_interval_force_units_and_material(confi
     from planning.contact_limits import contact_force_limit, contact_command_force_limit
     from planning.runtime_compat import resolve_solver_backend
     param, args = configured
+    from examples.mpc.franka.runtime.contact import DEFAULT_TANGENTIAL_FORCE_PENALTY
+    from planning.contact_limits import CARTESIAN_TASK_STIFFNESS
     scope = dict(np=np, LambdaContactControlOptimizer=lambda **kw: SimpleNamespace(**kw),
+        DEFAULT_TANGENTIAL_FORCE_PENALTY=DEFAULT_TANGENTIAL_FORCE_PENALTY,
+        CARTESIAN_TASK_STIFFNESS=CARTESIAN_TASK_STIFFNESS,
         SOFT_SCM_RESPONSE_TIME=SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO=SOFT_SCM_DAMPING_RATIO,
         SOFT_SCM_REGULARIZATION=SOFT_SCM_REGULARIZATION, resolve_solver_backend=resolve_solver_backend,
         contact_force_limit=contact_force_limit, contact_command_force_limit=contact_command_force_limit)
-    extract('examples/mpc/franka/ik2/params.py', {'build_lambda_optimizer'}, scope)
+    extract('examples/mpc/franka/runtime/params.py', {'build_lambda_optimizer'}, scope)
     assert param.lambda_optimizer is None
     opt = scope['build_lambda_optimizer'](param, args)
     assert opt.time_step == param.h_ == .02

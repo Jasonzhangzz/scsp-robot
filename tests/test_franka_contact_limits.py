@@ -5,7 +5,7 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from planning.contact_limits import contact_force_limit, contact_command_force_limit
-from examples.mpc.franka.ik2.contact_frames import mesh_table_contact_points, support_patch_jacobians
+from examples.mpc.franka.runtime.contact import mesh_table_contact_points, support_patch_jacobians
 
 
 @pytest.mark.parametrize('cap,step,expected', [(10., .005, 3.), (.8, .005, .8), (10., .02, 10.)])

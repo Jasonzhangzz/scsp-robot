@@ -128,7 +128,7 @@ def test_missing_or_nonfinite_physical_observation_cannot_be_stable():
 
 def test_feedback_and_payload_use_active_object_cost(monkeypatch):
     monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
-    from examples.mpc.franka.ik2.test_mppi_isaac import _dwell_payload, _plan_from_obs, _pred_reduction_from_policy
+    from examples.mpc.franka.runtime.simulator import _dwell_payload, _plan_from_obs, _pred_reduction_from_policy
     config = cost_config(0, 0, 20)
     current = np.r_[[.3, .1, .4], quat([20, 0, 80]), [.2, .1, .4]]
     p = SimpleNamespace(target_p_=np.zeros(3), target_q_=quat([0, 0, -120]))
@@ -151,7 +151,7 @@ def test_feedback_and_payload_use_active_object_cost(monkeypatch):
 
 def test_confidence_scores_executed_mpc_prediction_instead_of_ideal_lambda(monkeypatch):
     monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
-    from examples.mpc.franka.ik2.test_mppi_isaac import _pred_reduction_from_policy
+    from examples.mpc.franka.runtime.simulator import _pred_reduction_from_policy
     config = cost_config(500, 0, 20)
     current = np.r_[[.3, .1, .4], quat([60, 0, 0]), [.2, .1, .4]]
     target = np.r_[[.4, .1, .4], quat([0, 0, 0])]
@@ -166,7 +166,7 @@ def test_confidence_scores_executed_mpc_prediction_instead_of_ideal_lambda(monke
 
 
 def test_mpc_runtime_parameters_and_disabled_signature():
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
     from planning.mpc_costs import pack_cost_params
     p = ExplicitMPCParams.__new__(ExplicitMPCParams)
     p.__dict__.update(n_qpos_=10, n_qvel_=9, n_cmd_=3, max_ncon_=10,
@@ -228,7 +228,7 @@ def test_lambda_solver_switches_without_rebuild(tmp_path, backend, monkeypatch):
 def test_mpc_solver_uses_runtime_cost_without_rebuild(backend):
     import argparse
     from examples.mpc.fingertips.test.test_0902 import add_rollout_via_args
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
     from planning.mpc_explicit import MPCExplicit
     parser = argparse.ArgumentParser()
     add_rollout_via_args(parser)
@@ -360,7 +360,7 @@ def test_runtime_force_cap_and_quasi_prediction_match_mpc(tmp_path, backend, mon
     j = np.zeros((40, 6))
     tau = np.zeros(6)
     if grouped:
-        from examples.mpc.franka.ik2.contact_frames import planar_table_jacobians
+        from examples.mpc.franka.runtime.contact import planar_table_jacobians
         _, j[:4], _ = planar_table_jacobians([0,0,.04], np.eye(3), 0., 6, .5)
         tau[2] = -.098
     opt.update_Jacobian(j)

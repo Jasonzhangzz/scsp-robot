@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from examples.mpc.franka.ik2.contact_frames import remaining_along_action
+from examples.mpc.franka.runtime.contact import remaining_along_action
 
 
 def test_press_drops_lateral_drift():

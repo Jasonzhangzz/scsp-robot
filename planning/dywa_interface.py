@@ -242,8 +242,8 @@ def build_experiment(args, trial_count):
     os.environ.setdefault("SCSP_PLANNER_ONLY", "1")
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
-    from examples.mpc.franka.ik2.test_mpc_isaac import (
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.mpc import (
         DYWA_PHYSX_POSITION_ITERATIONS,
         DYWA_PHYSX_VELOCITY_ITERATIONS,
         DYWA_SIM_DT,

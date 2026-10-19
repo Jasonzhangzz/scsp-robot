@@ -1,6 +1,6 @@
 import numpy as np
 
-from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule
+from examples.mpc.franka.runtime.bus import PolicyActionSchedule
 
 
 def _run(delay_frame):

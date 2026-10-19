@@ -24,7 +24,7 @@ def main():
     ensure_acc_runtime()
 
     os.environ.setdefault("SCSP_PLANNER_ONLY", "1")
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
+    from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args
     from planning.dywa_interface import DEFAULT_CKPT_DIR
 
     parser = argparse.ArgumentParser(

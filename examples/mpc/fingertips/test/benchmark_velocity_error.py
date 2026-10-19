@@ -1,12 +1,17 @@
-"""Object velocity error versus DART contact dynamics + MuJoCo collision.
+"""Object velocity error versus coupled LCP contact dynamics in MJWarp.
 
-LCP uses a deterministic NumPy port of DART's ContactConstraint and boxed PGS
-at h=0.001 s, with MuJoCo collision. softSCM, M1, comfree and ContactSDF step at
-h=0.002 s and are compared with two GT substeps. The hard diagonal SCM is omitted.
+The reference uses MJWarp collision, smooth dynamics and integration, replacing
+the native contact solve with a certified, coupled friction-pyramid LCP at
+h=0.001 s. Predictors step at h=0.002 s against two reference substeps. SCM uses
+scm_corrected: one diagonal response and global amplitude correction, no soft response.
+softSCM_corrected replaces only its positive-part impulse with LogSumExp
+(softplus); it does not use a spring-damper response time.
 """
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 import json
 import sys
 import xml.etree.ElementTree as ET
@@ -27,8 +32,7 @@ activate_dependencies()
 import mujoco
 import numpy as np
 
-from contact_dynamics import (CpuContactEngine, dart_pgs_solve,
-                              DART_ERP, DART_MAX_ERV, DART_CFM)
+from contact_dynamics import CpuContactEngine
 
 OBJECTS = (
     "foam_brick", "mug", "rubber_duck", "elephant", "piggy_bank",
@@ -91,7 +95,7 @@ def set_state(model, data, qpos, qvel, wrench):
 
 
 def world_velocity(data, rotation):
-    """Angular velocity in the pre-step world frame."""
+    """World velocity using the body rotation associated with local qvel."""
     return np.r_[data.qvel[:3], rotation @ data.qvel[3:6]]
 
 
@@ -116,7 +120,6 @@ def dart_window(model, qpos, qvel, wrench, friction, h, steps):
     """Integrate DART LCP for ``steps`` and return velocity in the initial world frame."""
     data = mujoco.MjData(model)
     set_state(model, data, qpos, qvel, wrench)
-    rotation0 = data.xmat[1].reshape(3, 3).copy()
     nxt = None
     for i in range(steps):
         world = dart_lcp_velocity(model, data, friction, h)
@@ -127,8 +130,23 @@ def dart_window(model, qpos, qvel, wrench, friction, h, steps):
         data.xfrc_applied[1] = wrench
         mujoco.mj_forward(model, data)
         nxt = (data.qpos.copy(), data.qvel.copy())
-    final = np.r_[data.qvel[:3], rotation0 @ data.qvel[3:6]]
+    final = world_velocity(data, data.xmat[1].reshape(3, 3))
     return final, nxt
+
+
+def reference_window(backend, qpos, qvel, wrench, steps=GT_SUBSTEPS):
+    """Advance the coupled LCP in MJWarp, certifying every reference substep."""
+    model = backend.model
+    data = mujoco.MjData(model)
+    set_state(model, data, qpos, qvel, wrench)
+    backend.reset(data)
+    certificates = []
+    for _ in range(steps):
+        backend.step(data)
+        certificates.append(dict(backend.api.last_lcp))
+    # qvel angular coordinates belong to the final body frame after substeps.
+    return (world_velocity(data, data.xmat[1].reshape(3, 3)), (data.qpos.copy(), data.qvel.copy()),
+            certificates)
 
 
 def lse_velocity(model, data, friction, h, sigma=120.0):
@@ -221,12 +239,14 @@ def predict_all(model, qpos, qvel, wrench, friction, backends):
     probe = mujoco.MjData(model)
     set_state(model, probe, qpos, qvel, wrench)
     pre = probe.xmat[1].reshape(3, 3).copy()
-    reference, nxt = dart_window(model, qpos, qvel, wrench, friction, H_LCP, GT_SUBSTEPS)
+    reference, nxt, certificates = reference_window(
+        backends["reference_lcp"], qpos, qvel, wrench)
     out = {"LCP": reference, "GT": reference, "next": nxt,
-           "measured_mode": contact_mode(model, probe)}
+           "measured_mode": contact_mode(model, probe),
+           "reference_certificates": certificates}
     m1 = step_mujoco(model, qpos, qvel, wrench, 1)
     out["M1"] = world_velocity(m1, pre)
-    for name, engine in (("softSCM", "scm_soft"), ("softSCM_corrected", "scm_soft_corrected"), ("comfree", "comfree"), ("diagonalContact", "diagonal_contact")):
+    for name, engine in (("SCM", "scm_corrected"), ("softSCM", "scm_soft"), ("softSCM_corrected", "scm_soft_corrected"), ("comfree", "comfree"), ("diagonalContact", "diagonal_contact")):
         backend = backends.get(engine)
         if backend is None:
             out[name] = None
@@ -260,25 +280,38 @@ def settle(model, steps=400):
 def stats(values):
     values = np.asarray([v for v in values if v is not None and np.isfinite(v)], dtype=float)
     if not len(values):
-        return {"n": 0, "mean": None, "std": None}
-    return {"n": int(len(values)), "mean": float(values.mean()), "std": float(values.std())}
+        return {"n": 0, "mean": None, "std": None, "p95": None, "max": None}
+    return {"n": int(len(values)), "mean": float(values.mean()), "std": float(values.std()),
+            "p95": float(np.percentile(values, 95, method="linear")), "max": float(values.max())}
 
 
 def fmt(block):
     if not block or block["n"] == 0 or block["mean"] is None:
         return "--"
-    return "%.4f ± %.4f (n=%d)" % (block["mean"], block["std"], block["n"])
+    return "%.4f ± %.4f [P95=%.4f] (n=%d)" % (block["mean"], block["std"], block["p95"], block["n"])
 
 
-def make_backends(model, settled):
+def make_backends(model, settled, lcp_solver="active-set", softplus_temperature=1e-4):
     from benchmark_utils import Backend
     common = dict(device="cuda:0", nconmax=512, njmax=4096, stiffness=0.2, damping=0.001,
-                  scm_response_time=SOFT_TAU, scm_damping_ratio=SOFT_ZETA)
+                  scm_response_time=SOFT_TAU, scm_damping_ratio=SOFT_ZETA,
+                  scm_softplus_temperature=softplus_temperature)
     backends = {}
-    for engine in ("scm_soft", "scm_soft_corrected", "comfree", "diagonal_contact"):
+    reference_model = copy.copy(model)
+    reference_model.opt.timestep = H_LCP
+    reference_data = mujoco.MjData(reference_model)
+    set_state(reference_model, reference_data, settled.qpos, settled.qvel, np.zeros(6))
+    # Reference failures abort the run; no substitute contact law or dropped samples.
+    backends["reference_lcp"] = Backend(
+        "lcp", reference_model, reference_data, lcp_solver=lcp_solver,
+        lcp_regularization=1e-8, lcp_tolerance=1e-8, lcp_max_iterations=2000,
+        **common)
+    for engine in ("scm_corrected", "scm_soft", "scm_soft_corrected", "comfree", "diagonal_contact"):
         try:
             backends[engine] = Backend(engine, model, settled, **common)
         except Exception as exc:
+            if engine in ("scm_corrected", "scm_soft_corrected", "comfree"):
+                raise
             print(engine, "unavailable:", exc, flush=True)
     return backends
 
@@ -293,18 +326,21 @@ def run(args):
     log_path = out / "velocity_error.log"
     rows = []
     rng = np.random.default_rng(args.seed)
-    models = ("LCP", "M1", "softSCM", "softSCM_corrected", "comfree", "diagonalContact", "ContactSDF")
+    models = ("LCP", "M1", "SCM", "softSCM", "softSCM_corrected", "comfree", "diagonalContact", "ContactSDF")
     with log_path.open("w") as log:
-        log.write("Reference is the deterministic DART boxed PGS NumPy port with MuJoCo collision, %d steps of h=0.001 s.\n" % GT_SUBSTEPS)
-        log.write("M1, softSCM, comfree and ContactSDF use one step of h=0.002 s.\n")
+        log.write("Reference: MJWarp collision/smooth dynamics/integration + coupled friction-pyramid LCP, %d steps of h=0.001 s.\n" % GT_SUBSTEPS)
+        log.write("LCP solver: %s; r=1e-8; original-scale residual tolerance=1e-8.\n" % args.lcp_solver)
+        log.write("M1, SCM, softSCM, comfree and ContactSDF use one step of h=0.002 s.\n")
         log.write("LCP error is zero because it is the reference.\n")
         log.write("Error is ||v_model - v_GT|| in the pre-step world frame. Linear m/s, angular rad/s.\n")
-        log.write("softSCM: tau=%.3f s, zeta=%.2f. Hard diagonal SCM is omitted.\n" % (SOFT_TAU, SOFT_ZETA))
+        log.write("SCM: scm_corrected, r=1e-8, response_time=0, one global amplitude correction.\n")
+        log.write("softSCM: tau=%.3f s, zeta=%.2f.\n" % (SOFT_TAU, SOFT_ZETA))
+        log.write("softSCM_corrected: softplus_impulse_v1, T=%.8g N s, response_time=0, same hard-clipped global amplitude correction.\n" % args.softplus_temperature)
         for shape in args.objects:
             print("object", shape, flush=True)
             model_h = make_model(shape, args.friction, H_MODEL, args.mass)
             settled = settle(model_h)
-            backends = make_backends(model_h, settled)
+            backends = make_backends(model_h, settled, args.lcp_solver, args.softplus_temperature)
             for condition in CONDITIONS:
                 for index in range(args.samples):
                     qpos, qvel, wrench = sample_state(settled, condition, rng, args.friction, args.mass)
@@ -312,9 +348,17 @@ def run(args):
                     for step in range(horizon):
                         pred = predict_all(model_h, qpos, qvel, wrench, args.friction, backends)
                         record = {"object": shape, "condition": condition, "sample": index, "step": step,
-                                  "measured_mode": pred["measured_mode"]}
+                                  "measured_mode": pred["measured_mode"],
+                                  "reference_certificates": pred["reference_certificates"],
+                                  "qpos_initial": qpos.tolist(), "qvel_initial": qvel.tolist(),
+                                  "wrench_world_N_Nm": wrench.tolist(),
+                                  "reference_velocity_world": pred["GT"].tolist(),
+                                  "prediction_velocity_world": {name: pred[name].tolist() for name in models
+                                                                if pred[name] is not None}}
                         for name in models:
                             lin, ang = errors(pred[name], pred["GT"])
+                            if lin is None and name in ("M1", "SCM", "softSCM_corrected", "comfree", "ContactSDF"):
+                                raise RuntimeError(f"Required predictor {name} failed: {shape}/{condition}/{index}/{step}")
                             record[name + "_linear"] = lin
                             record[name + "_angular"] = ang
                         rows.append(record)
@@ -335,14 +379,30 @@ def run(args):
     payload = {"objects": list(args.objects), "samples": args.samples, "seed": args.seed,
                "rollout_steps": args.rollout_steps, "h_model": H_MODEL,
                "h_lcp": H_LCP, "h_gt": H_GT, "friction": args.friction, "mass": args.mass,
-               "reference": "dart_pgs_lcp_2x0.001",
-               "lcp": "DART v6.16 deterministic NumPy boxed PGS port; MuJoCo collision",
+               "reference": "mjwarp_coupled_pyramid_lcp_2x0.001",
+               "lcp": {"backend": "lcp_backend.LcpEngine", "solver": args.lcp_solver,
+                       "regularization": 1e-8, "residual_tolerance": 1e-8,
+                       "collision_and_integration": "vendored MJWarp",
+                       "contact_law": "0 <= p _|_ (J Minv J.T + r I) p + J v_free + gap/h >= 0"},
                "soft_scm": {"tau": SOFT_TAU, "zeta": SOFT_ZETA},
+               "scm": {"backend": "scm_corrected", "regularization": 1e-8,
+                       "response_time": 0.0, "motion": "dynamic", "amplitude_correction": True},
+               "percentile_method": "numpy.percentile(method='linear')",
                "contact_dimensions": 3,
                "diagonal_contact": "one ordered normal/tangent pass; physical diagonal Delassus; box friction; no fitted gains or history",
-               "soft_scm_corrected": "same diag Delassus; one global quadratic amplitude correction",
+               "soft_scm_corrected": {"backend": "scm_soft_corrected", "law_version": "softplus_impulse_v1",
+                                      "temperature_N_s": args.softplus_temperature,
+                                      "law": "p0=T*log(1+exp((-g/D)/T)); g=J*v_free+gap/h; p=alpha*p0",
+                                      "response_time": 0., "regularization": 1e-8,
+                                      "amplitude_correction": "alpha=clip(-g.T*p0/(p0.T*W*p0),0,1)",
+                                      "amplitude_clip": "hard"},
+               "angular_frame": "world; reference uses final body rotation after both substeps",
+               "initialization": "native MuJoCo soft-contact settling; residual penetration retained for all models",
+               "source_sha256": {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                  for path in (Path(__file__), SCM / "scm_backend.py", SCM / "benchmark_utils.py",
+                                               SCM / "lcp_backend.py", SCM / "contact_dynamics.py")},
                "contact_sdf": "dynamic extension of upstream LSE; Q=M/h^2; sigma=120",
-               "collision": "MuJoCo CPU for DART/ContactSDF; vendored MuJoCo Warp for GPU models",
+               "collision": "MuJoCo CPU for MuJoCo QP/ContactSDF; vendored MJWarp for reference/SCM/ComFree",
                "summary": aggregate(rows, models, None),
                "rows": rows}
     (out / "velocity_error.json").write_text(json.dumps(payload) + "\n")
@@ -382,10 +442,16 @@ def main():
     parser.add_argument("--friction", type=float, default=0.5)
     parser.add_argument("--mass", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--lcp-solver", choices=("active-set", "lemke"), default="active-set",
+                        help="Certified solver for the coupled LCP; no DART contact law")
+    parser.add_argument("--softplus-temperature", type=float, default=1e-4,
+                        help="LogSumExp smoothing temperature in impulse units (N s); no spring-damper gains")
     parser.add_argument("--output-dir", default="output/diagnostics")
     args = parser.parse_args()
     if args.samples < 1 or any(name not in OBJECTS for name in args.objects):
         parser.error("samples >= 1 and objects must be the seven manipulation meshes")
+    if not np.isfinite(args.softplus_temperature) or args.softplus_temperature <= 0:
+        parser.error("softplus-temperature must be finite and positive")
     run(args)
 
 

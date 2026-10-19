@@ -172,8 +172,8 @@ def test_direct_rollout_uses_corrected_scm_and_continuous_physical_force(monkeyp
 def shared_predictors():
     from examples.mpc.fingertips.test.test_0902 import build_parser
     from examples.mpc.fingertips.test.params import ExplicitMPCParams as MjParams
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams as IsaacParams, build_lambda_optimizer
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams as IsaacParams, build_lambda_optimizer
+    from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args
     from planning.direct_contact_force import configure_direct_force_optimizer
     from envs.fingertips_env import MjSimulator
     import os

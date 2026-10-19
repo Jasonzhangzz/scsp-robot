@@ -8,7 +8,7 @@ from examples.mpc.fingertips.test.test_0902 import (
     _should_hold_occupied_contact,
     _travel_verify_cost,
 )
-from examples.mpc.franka.ik2.contact_frames import (
+from examples.mpc.franka.runtime.contact import (
     FRANKA_QD_NULLSPACE,
     _contact_jacobian_np,
     clip_via_target,
@@ -29,7 +29,7 @@ from examples.mpc.franka.ik2.contact_frames import (
     tangent_basis_from_normal,
     wrap_joint_error,
 )
-from examples.mpc.franka.ik2.params import (
+from examples.mpc.franka.runtime.params import (
     _actor_quat_from_body,
     _actor_standing_quat_wxyz,
     _box_inertia_diag,

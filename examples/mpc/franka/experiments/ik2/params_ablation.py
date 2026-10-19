@@ -15,7 +15,7 @@ from examples.mpc.fingertips.test.params import canonical_object_meshes
 from models.object_collision_mesh import decomposed_collision_mesh
 from planning.runtime_compat import resolve_solver_backend
 from planning.contact_limits import contact_force_limit, contact_command_force_limit
-from examples.mpc.franka.ik2.scene_friction import (
+from examples.mpc.franka.runtime.contact import (
     DEFAULT_TANGENTIAL_FORCE_PENALTY, configure_scene_friction,
 )
 
@@ -307,7 +307,9 @@ class ExplicitMPCParams:
             self._collision_mesh_extracted = True
             if use_parts:
                 self.mesh_path_, self.collision_mesh_paths_ = decomposed_collision_mesh(
-                    self.visual_mesh_path_, manifest_path=getattr(args, 'collision_manifest', None))
+                    self.visual_mesh_path_,
+                    manifest_path=getattr(args, 'collision_manifest', None),
+                    object_name=args.obj)
             elif getattr(args, 'collision_manifest', None):
                 raise ValueError('--collision-manifest requires decomposed collision geometry')
         self.collision_geometry_ = 'decomposed' if self.collision_mesh_paths_ else 'hull'
@@ -372,7 +374,7 @@ class ExplicitMPCParams:
             target_xy = np.array([0.40, 0.10], dtype=np.float64)
         elif target_type == "rotation":
             target_xy_rand = 0.1 * np.random.rand(2)
-            target_xy_rand[0] += 0.35
+            target_xy_rand[0] += 0.40
             target_yaw = np.pi * np.random.rand(1) - np.pi / 2
             target_yaw_q = rotations.rpy_to_quaternion(np.hstack([target_yaw, 0, 0]))
             self.target_q_ = rotations.quaternion_multiply(target_yaw_q, self.standing_q_)

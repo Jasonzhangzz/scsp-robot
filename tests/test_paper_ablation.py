@@ -9,9 +9,9 @@ import casadi as cs
 import numpy as np
 import pytest
 
-from examples.mpc.franka.ik2 import contact_policy_ablation as policy_module
-from examples.mpc.franka.ik2.params_ablation import ExplicitMPCParams
-from examples.mpc.franka.ik2.run_ablation import (
+from examples.mpc.franka.experiments.ik2 import contact_policy_ablation as policy_module
+from examples.mpc.franka.experiments.ik2.params_ablation import ExplicitMPCParams
+from examples.mpc.franka.experiments.ik2.run_ablation import (
     experiment_argv, sensitivity_grid, summarize_grid_cell,
 )
 from planning.mpc_costs import pack_cost_params
@@ -212,7 +212,7 @@ def test_a7_samples_forward_contact_trajectories_without_constructing_an_nlp(mon
 
 
 def test_full_keeps_baseline_symbolic_cost_and_a3_keeps_terminal_objective():
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams as BaselineParams
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams as BaselineParams
     full = cost_param('full')
     path, final = full.init_cost_fns()
     baseline_path, baseline_final = BaselineParams.init_cost_fns(full)
@@ -301,7 +301,7 @@ def test_direct_modes_reach_mpc_without_target_clamp_via_or_lambda_seed(monkeypa
 @pytest.mark.parametrize('task_flag, target', [('--push', 'rotation'), ('--flip', 'ground-rotation')])
 def test_mppi_cli_dispatches_existing_mpc_with_center_mode(capsys, task_flag, target):
     import json
-    from examples.mpc.franka.ik2 import run_ablation as runner
+    from examples.mpc.franka.experiments.ik2 import run_ablation as runner
     assert runner.main(['--a7', task_flag, '--dry-run', '--headless',
                         '--ablation-mode', 'a3', '--trial-start', '10']) == 0
     command = json.loads(capsys.readouterr().out)
@@ -316,7 +316,7 @@ def test_mppi_cli_dispatches_existing_mpc_with_center_mode(capsys, task_flag, ta
 @pytest.mark.parametrize('mode', ['a4', 'a5'])
 def test_cso_ablation_dispatch_keeps_full_cpo_and_named_backend(capsys, mode):
     import json
-    from examples.mpc.franka.ik2 import run_ablation as runner
+    from examples.mpc.franka.experiments.ik2 import run_ablation as runner
     assert runner.main(['--'+mode, '--flipping', '--dry-run',
                         '--sync-planner', '--no-headless-realtime']) == 0
     command = json.loads(capsys.readouterr().out)
@@ -327,7 +327,7 @@ def test_cso_ablation_dispatch_keeps_full_cpo_and_named_backend(capsys, mode):
 
 def test_a6_dispatch_uses_existing_direct_motion_planning(capsys):
     import json
-    from examples.mpc.franka.ik2 import run_ablation as runner
+    from examples.mpc.franka.experiments.ik2 import run_ablation as runner
     assert runner.main(['--a6', '--rotation', '--dry-run']) == 0
     command = json.loads(capsys.readouterr().out)
     assert command[-10:] == ['--async-planner', '--headless-realtime',
@@ -440,7 +440,7 @@ def test_sensitivity_aggregation_includes_failures_in_error_and_success_metrics(
 
 def test_sensitivity_saves_separate_results_with_matched_seed_ranges(tmp_path, monkeypatch):
     import json
-    from examples.mpc.franka.ik2 import run_ablation as runner
+    from examples.mpc.franka.experiments.ik2 import run_ablation as runner
     def simulate(command, stdout, stderr, check):
         destination = Path(command[command.index('--ranking-metrics-jsonl')+1])
         assert command[command.index('--trial-start')+1] == '10'

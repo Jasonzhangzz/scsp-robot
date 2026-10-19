@@ -13,7 +13,7 @@ from planning.mpc_explicit import handle_mpc_request
 
 @pytest.mark.parametrize('runtime', [True, False])
 def test_margin_patch_survives_isaac_observation_transport(runtime):
-    source = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/ik2/test_mppi_isaac.py'
+    source = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/runtime/simulator.py'
     tree = ast.parse(source.read_text())
     funcs = [n for n in tree.body if isinstance(n, ast.FunctionDef)
              and n.name in ('_plan_payload', '_plan_from_obs')]

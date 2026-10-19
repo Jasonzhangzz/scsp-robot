@@ -8,7 +8,7 @@ import time
 def main():
     """Dispatch before importing the planner, which the child loads separately."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.abspath(os.path.join(script_dir, "../../../.."))
+    repo_root = os.path.abspath(os.path.join(script_dir, "../../../../.."))
     sys.path.insert(0, repo_root)
     from planning.cpu_runtime import configure_compute_threads
     configure_compute_threads()
@@ -26,7 +26,7 @@ def main():
         argv = [sys.executable, '-u', script, *sys.argv[1:]]
     elif "--floating-fingertip" in sys.argv:
         script = os.path.abspath(os.path.join(
-            script_dir, "..", "..", "fingertips", "test", "test_0902_isaac.py"))
+            script_dir, "..", "..", "..", "fingertips", "test", "test_0902_isaac.py"))
         argv = [sys.executable, "-u", script] + [
             arg for arg in sys.argv[1:] if arg != "--floating-fingertip"]
     else:
@@ -62,12 +62,12 @@ if parent_dir not in sys.path:
 from planning.acados_env import ensure_acados_env
 ensure_acados_env()
 
-from examples.mpc.franka.ik2.params_ablation import (
+from examples.mpc.franka.experiments.ik2.params_ablation import (
     ExplicitMPCParams,
     build_lambda_optimizer,
     _box_inertia_diag,
 )
-from examples.mpc.franka.ik2.test_mppi_isaac import (
+from examples.mpc.franka.runtime.simulator import (
     IsaacFrankaSimulator,
     _apply_plan_result,
     _dwell_payload,
@@ -88,7 +88,7 @@ from examples.mpc.fingertips.test.test_0902 import (
     _travel_orbit_radius,
 )
 from planning.screenshot import create_isaacgym_svg_screenshot_recorder
-from examples.mpc.franka.ik2.contact_frames import (
+from examples.mpc.franka.runtime.contact import (
     FRANKA_QD_NULLSPACE,
     clip_mpc_action as _clip_mpc_action,
     clip_via_target as _clip_via_target,
@@ -108,17 +108,17 @@ from examples.mpc.franka.ik2.contact_frames import (
     tangent_basis_from_normal as _tangent_basis_from_normal,
     _contact_jacobian_np as _contact_jacobian,
 )
-from examples.mpc.franka.ik2.isaac_bus_ablation import PolicyActionSchedule, joint_hold_target
+from examples.mpc.franka.experiments.ik2.isaac_bus_ablation import PolicyActionSchedule, joint_hold_target
 from planning.runtime_compat import make_runtime_profile, print_runtime_profile, resolve_solver_backend
 from planning.contact_limits import DEFAULT_CONTACT_FORCE_LIMIT, contact_force_limit, contact_command_force_limit
-from examples.mpc.franka.ik2.scene_friction import (
+from examples.mpc.franka.runtime.contact import (
     DEFAULT_TANGENTIAL_FORCE_PENALTY, ROLLOUT_TABLE_FRICTION,
     ROLLOUT_OBJECT_FRICTION, ROLLOUT_FINGERTIP_FRICTION, configure_scene_friction,
 )
 from models.soft_scm_contact import (
     SOFT_SCM_RESPONSE_TIME, SOFT_SCM_DAMPING_RATIO, SOFT_SCM_REGULARIZATION,
 )
-from examples.mpc.franka.ik2.physx_contact import (
+from examples.mpc.franka.runtime.contact import (
     DEFAULT_CONTACT_OFFSET,
     contact_impulse,
     contact_overlap,
@@ -1627,7 +1627,7 @@ class ContactIsaacCartesian:
                     cpos = np.asarray(tip_pos, dtype=np.float32) - radius * np.asarray(n_raw, dtype=np.float32)
                 else:
                     cpos = np.asarray(cpos, dtype=np.float32)
-                from examples.mpc.franka.ik2.physx_contact import object_outward_normal
+                from examples.mpc.franka.runtime.contact import object_outward_normal
                 n_raw = object_outward_normal(n_raw, tip_pos, cpos)
                 dist = physx_signed_gap(overlap, cpos, tip_pos, n_raw, radius)
                 if contact_impulse(c) > 1e-6:
@@ -1677,7 +1677,7 @@ class ContactIsaacCartesian:
             dist_table = float(obj_pos[2] - table_height)
         self.env_phi = np.ones(max_ncon * 4, dtype=np.float64)
         if table_seen or dist_table < 0.02:
-            from examples.mpc.franka.ik2.contact_frames import (
+            from examples.mpc.franka.runtime.contact import (
                 mesh_table_contact_points, support_patch_jacobians,
             )
             if vertices is None:
@@ -2549,7 +2549,7 @@ def _add_rollout_policy_args(parser):
 
 
 def run_mpc_planner(bus, args):
-    from examples.mpc.franka.ik2.isaac_bus_ablation import wait_trial_obs
+    from examples.mpc.franka.experiments.ik2.isaac_bus_ablation import wait_trial_obs
     from planning.mpc_explicit_ablation import (
         _build_mpc_planner_runtime,
         handle_mpc_request,
@@ -2674,6 +2674,10 @@ def run_mpc_planner(bus, args):
                 viewer_quit = True
                 break
             curr_q = np.asarray(obs["policy_q"], dtype=np.float32)
+            if trace_path:
+                with open(trace_path, 'a') as trace:
+                    trace.write(json.dumps(dict(event='pose', trial=trial_count, step=int(rollout_step),
+                        policy_q=np.asarray(curr_q, dtype=float).reshape(-1).tolist()), allow_nan=False)+'\n')
             pos_err_now = float(metrics.comp_pos_error(curr_q[0:3], param.target_p_))
             quat_err_now = float(metrics.comp_quat_error(curr_q[3:7], param.target_q_))
             min_pos_err = min(min_pos_err, pos_err_now)
@@ -3053,13 +3057,13 @@ def run_mpc_planner(bus, args):
             and not hasattr(bus, 'record_summary')):
         # The original async Isaac bus keeps its latest-only command/obs
         # protocol. Write statistics in the planner without adding barriers.
-        from examples.mpc.franka.ik2.headless_rollout_ablation import report
+        from examples.mpc.franka.experiments.ik2.headless_rollout_ablation import report
         report(args, trial_summaries, rollout_started)
     return viewer_quit
 
 
 def planner_worker(cmd_q, obs_q, ready_q, init):
-    from examples.mpc.franka.ik2.isaac_bus_ablation import IsaacBus, args_from_init
+    from examples.mpc.franka.experiments.ik2.isaac_bus_ablation import IsaacBus, args_from_init
 
     if ready_q is not None:
         ready_q.put({"ok": True, "pid": os.getpid()})

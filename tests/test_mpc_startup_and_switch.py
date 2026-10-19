@@ -10,7 +10,7 @@ import pytest
 
 
 def args():
-    from examples.mpc.franka.ik2.test_mpc_isaac import _add_rollout_policy_args
+    from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args
     return _add_rollout_policy_args(argparse.ArgumentParser()).parse_args(
         ['--obj', 'foam_brick', '--sample_num', '70', '--solver-backend', 'acados'])
 
@@ -58,8 +58,8 @@ def test_acados_startup_reuses_local_param_and_does_not_build_ipopt(monkeypatch)
     from planning.acados_env import ensure_acados_env
     ensure_acados_env()
     pytest.importorskip('acados_template')
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
-    from examples.mpc.franka.ik2.test_mpc_isaac import adapt_param_for_cartesian_solver, _configure_rollout_param
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.mpc import adapt_param_for_cartesian_solver, _configure_rollout_param
     from planning.mpc_explicit import _build_mpc_planner_runtime, planner_init_payload
     monkeypatch.setattr(cs, 'nlpsol', lambda *a, **kw: pytest.fail('eager IPOPT construction in acados startup'))
     a = args()

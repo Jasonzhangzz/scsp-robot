@@ -7,6 +7,7 @@ Both policies use the reference's existing synchronous Isaac bus.
 import argparse
 import concurrent.futures
 import contextlib
+import importlib
 import importlib.util
 import json
 import os
@@ -33,8 +34,14 @@ def worker(args):
     reference_loader.build_cached_solver = loader.build_cached_solver
     reference_loader.quiet_acados_stderr = loader.quiet_acados_stderr
     import planning.mpc_explicit as planning
-    from examples.mpc.franka.ik2 import test_mpc_isaac as policy
-    from examples.mpc.franka.ik2.run import SynchronousMPCBus
+    # Reference checkouts can predate the runtime package extraction.
+    if (root/'examples/mpc/franka/runtime/mpc.py').is_file():
+        policy = importlib.import_module('examples.mpc.franka.runtime.mpc')
+        physics = importlib.import_module('examples.mpc.franka.runtime.isaac')
+    else:
+        policy = importlib.import_module('examples.mpc.franka.ik2.test_mpc_isaac')
+        physics = importlib.import_module('examples.mpc.franka.ik2.run')
+    SynchronousMPCBus = physics.SynchronousMPCBus
     options = policy._add_rollout_policy_args(argparse.ArgumentParser()).parse_args([
         '--obj', args.object, '--headless', '--sync-planner', '--solver-backend', 'acados',
         '--trial-start', str(args.trial_start), '--trial_num', str(args.trials),

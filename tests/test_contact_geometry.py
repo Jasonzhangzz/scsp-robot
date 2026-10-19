@@ -90,7 +90,7 @@ def test_rti_publishes_executed_prediction_without_a_nonlinear_gate():
 @pytest.mark.parametrize('sign', [-1., 1.])
 def test_transported_contact_geometry_matches_rigid_patches_and_torch(sign):
     from models.contact_geometry import contact_geometry_cs, contact_geometry_torch
-    from examples.mpc.franka.ik2.contact_frames import (
+    from examples.mpc.franka.runtime.contact import (
         support_patch_jacobians, contact_jacobian_angular_body_frame,
     )
     torch = pytest.importorskip('torch')

@@ -60,7 +60,7 @@ def report(args, summaries, started):
                    mpc_fallbacks=sum(s.get('mpc_fallbacks', 0) for s in summaries),
                    lambda_fallbacks=sum(s.get('lambda_fallbacks', 0) for s in summaries))
     if all('planning_wall_count' in s for s in summaries):
-        from examples.mpc.franka.ik2.summarize_rollouts import aggregate
+        from examples.mpc.franka.runtime.rollout_statistics import aggregate
         summary['timing_statistics'] = aggregate(summaries, range(args.trial_start, args.trial_start + args.trial_num))
     print('rollout_summary: ' + json.dumps(summary, allow_nan=False), flush=True)
     if args.rollout_summary_json:
@@ -82,8 +82,8 @@ def rollout_output(verbose):
 def run_isaac_headless(args):
     if args.num_envs > 1 or args.async_planner:
         return run_isaac_parallel(args)
-    from examples.mpc.franka.ik2.run_isaac_ablation import SynchronousMPCBus
-    from examples.mpc.franka.ik2.test_mpc_isaac_ablation import run_mpc_planner
+    from examples.mpc.franka.experiments.ik2.run_isaac_ablation import SynchronousMPCBus
+    from examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation import run_mpc_planner
     trial_ranges(args.trial_start, args.trial_num, args.num_envs)
     args.headless, args.async_planner, args.rollout = True, False, True
     summaries = []
@@ -105,9 +105,9 @@ def isaac_worker_entry(conn, values):
                               if values.get('compute_threads') is not None else [])
     try:
         from isaacgym import gymapi, gymtorch  # Must precede Torch.
-        from examples.mpc.franka.ik2.run_isaac_ablation import SynchronousMPCBus, isaac_loop
-        from examples.mpc.franka.ik2.test_mpc_isaac_ablation import run_mpc_planner
-        from examples.mpc.franka.ik2.isaac_bus_ablation import start_planner, stop_peer
+        from examples.mpc.franka.experiments.ik2.run_isaac_ablation import SynchronousMPCBus, isaac_loop
+        from examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation import run_mpc_planner
+        from examples.mpc.franka.experiments.ik2.isaac_bus_ablation import start_planner, stop_peer
         from planning.runtime_compat import resolve_solver_backend
         args = argparse.Namespace(**values)
         args.solver = resolve_solver_backend(args.solver_backend)
@@ -254,7 +254,7 @@ def planner_entry(conn, values):
     args = argparse.Namespace(**values)
     args.ranking_metrics_jsonl = ''  # Only the GPU coordinator writes metrics.
     try:
-        from examples.mpc.franka.ik2.test_mpc_isaac_ablation import run_mpc_planner
+        from examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation import run_mpc_planner
         with rollout_output(args.rollout_verbose):
             run_mpc_planner(PipeBus(conn), args)
         conn.send(('done', None))
@@ -266,10 +266,10 @@ def planner_entry(conn, values):
 
 def run_mjwarp_headless(args):
     if args.async_planner:
-        from examples.mpc.franka.ik2.async_mjwarp_rollout_ablation import run_mjwarp_async_headless
+        from examples.mpc.franka.experiments.ik2.async_mjwarp_rollout_ablation import run_mjwarp_async_headless
         return run_mjwarp_async_headless(args)
     os.environ['SCSP_PLANNER_ONLY'] = '1'
-    from examples.mpc.franka.ik2.mjwarp_rollout_ablation import MJWarpBatch
+    from examples.mpc.franka.experiments.ik2.mjwarp_rollout_ablation import MJWarpBatch
     ranges = trial_ranges(args.trial_start, args.trial_num, args.num_envs)
     if args.floating_fingertip or args.sampling_c3:
         raise ValueError('MJWarp evaluation runs Franka OSC + MPC; floating-fingertip/SamplingC3 are unsupported')
@@ -362,7 +362,7 @@ def main():
     else:
         os.environ.pop('SCSP_PLANNER_ONLY', None)
         from isaacgym import gymapi, gymtorch  # Must precede Torch.
-    from examples.mpc.franka.ik2.test_mpc_isaac_ablation import _add_rollout_policy_args
+    from examples.mpc.franka.experiments.ik2.test_mpc_isaac_ablation import _add_rollout_policy_args
     parser = _add_rollout_policy_args(argparse.ArgumentParser(description=__doc__))
     args = parser.parse_args()
     run = run_mjwarp_headless if args.physics_backend == 'mjwarp' else run_isaac_headless

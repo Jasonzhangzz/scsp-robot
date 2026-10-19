@@ -147,12 +147,17 @@ def test_gpu_scm_matches_numpy_diagonal_formula_and_reset(motion, engine, shape)
     incoming = np.asarray(state.qvel, dtype=np.float32).astype(float)
     projected = vf if motion == "dynamic" else vf - incoming
     g = J @ projected + gap / .002
-    if engine in ("scm_soft", "scm_soft_corrected"):
+    if engine == "scm_soft":
         x = .002 / .05
         denominator = 1 + 2 * x + x * x
         a, b = (2 * x + x * x) / denominator, x * x / denominator
         g = a * (J @ projected) + b * gap / .002
     p = np.maximum(-g / (diagonal + 1e-8), 0)
+    if engine == "scm_soft_corrected":
+        temperature = 1e-4
+        p = temperature * np.logaddexp(0., -g / ((diagonal + 1e-8) * temperature))
+        assert backend.api.response_time == 0.
+        assert backend.api.softplus_temperature == temperature
     if engine in ("scm_corrected", "scm_soft_corrected"):
         W = J @ inverse @ J.T + 1e-8 * np.eye(count)
         denominator = p @ W @ p
@@ -282,7 +287,7 @@ def test_amplitude_kernel_uses_full_mass_coupling():
             wp.array(J[None], dtype=wp.float32), wp.array(gap[None], dtype=wp.float32),
             wp.array(vf[None], dtype=wp.float32), wp.zeros((1, 2), dtype=wp.float32),
             wp.array(np.diag(inverse), dtype=wp.float32), wp.array(inverse, dtype=wp.float32),
-            False, False, r, 0., 1.], outputs=[force, reaction, alpha])
+            False, False, r], outputs=[force, reaction, alpha])
         np.testing.assert_allclose(alpha.numpy(), expected_alpha, rtol=3e-6)
         np.testing.assert_allclose(force.numpy()[0] * h, expected_alpha * p, rtol=3e-6)
         np.testing.assert_allclose(reaction.numpy()[0] * h, expected_alpha * J.T @ p, rtol=3e-6)

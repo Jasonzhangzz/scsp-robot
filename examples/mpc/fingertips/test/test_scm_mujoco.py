@@ -310,7 +310,7 @@ def _solve_step(param, args, env, contact, mode, coupling_scale=1.0,
     if direct:
         source = param.lambda_source_param_
         jac_mat_env, phi = environment_contacts_body(env, source.mu_table_object_)
-        from examples.mpc.franka.ik2.contact_frames import gravity_wrench_object_frame
+        from examples.mpc.franka.runtime.contact import gravity_wrench_object_frame
         gravity = gravity_wrench_object_frame(source.gravity_[:3], source.lambda_obj_mass_, r_obj)
         # Isaac's default quasi-dynamic ranking starts each prediction at
         # rest. Only shared-response variants carry measured velocity.

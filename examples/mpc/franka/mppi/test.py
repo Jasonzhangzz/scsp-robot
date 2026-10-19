@@ -16,7 +16,7 @@ while os.path.basename(parent_dir) != "scsp-robot":
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from examples.mpc.franka.ik2.test_mppi_isaac import (  # noqa: E402
+from examples.mpc.franka.runtime.simulator import (  # noqa: E402
     IsaacFrankaSimulator,
     _parse_bool_arg,
     _extract_vec3,

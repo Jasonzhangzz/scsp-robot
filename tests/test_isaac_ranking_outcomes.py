@@ -12,6 +12,9 @@ import numpy as np
 import pytest
 
 from utils.ranking_metrics import discounted_terminal_reward
+from examples.mpc.franka.runtime.contact import (
+    resolve_nullspace_stiffness, resolve_nullspace_damping_model,
+)
 
 
 @pytest.mark.parametrize("initial_error,final_observation,success,steps,aborted", [
@@ -24,7 +27,7 @@ from utils.ranking_metrics import discounted_terminal_reward
 def test_trial_reward_uses_observed_success(
         monkeypatch, tmp_path, initial_error, final_observation, success, steps, aborted):
     # Load the actual function without importing the simulator's heavy dependencies.
-    source = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/ik2/test_mpc_isaac.py'
+    source = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/runtime/mpc.py'
     tree = ast.parse(source.read_text())
     run = next(node for node in tree.body
                if isinstance(node, ast.FunctionDef) and node.name == 'run_mpc_planner')
@@ -45,7 +48,7 @@ def test_trial_reward_uses_observed_success(
             return observation(**final_observation)
 
     bus = Bus()
-    bus_module = ModuleType('examples.mpc.franka.ik2.isaac_bus')
+    bus_module = ModuleType('examples.mpc.franka.runtime.bus')
     bus_module.wait_trial_obs = lambda *_: observation(initial_error)
     planner_module = ModuleType('planning.mpc_explicit')
     planner_module.planner_init_payload = lambda *_: None
@@ -59,6 +62,7 @@ def test_trial_reward_uses_observed_success(
         target_p_=np.zeros(3), target_q_=np.array([1, 0, 0, 0]),
         lambda_optimizer=SimpleNamespace(contact_switch_confidence=1, sample_point=np.zeros((1, 3))), table_height=0,
         mu_fingertip_object_=1.2, mu_table_object_=0.7,
+        mpc_horizon_=5, nullspace_inertia_damping_=True,
     )
     policy = {
         'value_info': {}, 'escape_on': False,
@@ -78,6 +82,8 @@ def test_trial_reward_uses_observed_success(
             comp_quat_error=lambda q, goal: 1 - np.dot(q, goal)**2,
         ),
         'resolve_solver_backend': lambda *_: 'portable',
+        'resolve_nullspace_stiffness': resolve_nullspace_stiffness,
+        'resolve_nullspace_damping_model': resolve_nullspace_damping_model,
         'print_runtime_profile': lambda *a, **kw: None,
         'make_runtime_profile': lambda *a, **kw: None,
         'ExplicitMPCParams': lambda *a, **kw: param,

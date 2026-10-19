@@ -5,8 +5,8 @@ import queue
 
 import numpy as np
 
-from examples.mpc.franka.ik2.contact_frames import table_jac_mat_env
-from examples.mpc.franka.ik2.isaac_bus import (
+from examples.mpc.franka.runtime.contact import table_jac_mat_env
+from examples.mpc.franka.runtime.bus import (
     IsaacBus,
     joint_hold_target,
     pickle_args,
@@ -52,7 +52,7 @@ def test_joint_hold_target_finishes_then_holds():
 
 
 def test_table_jac_mat_env_matches_planar_table():
-    from examples.mpc.franka.ik2.contact_frames import planar_table_jacobians
+    from examples.mpc.franka.runtime.contact import planar_table_jacobians
 
     obj_pos = np.array([0.4, 0.05, 0.375], dtype=np.float64)
     quat = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)

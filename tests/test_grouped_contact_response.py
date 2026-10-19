@@ -76,7 +76,7 @@ def test_tangential_response_is_limited_by_single_normal_impulse():
 
 
 def test_downward_press_couples_to_off_center_table_reaction():
-    from examples.mpc.franka.ik2.contact_frames import support_patch_jacobians
+    from examples.mpc.franka.runtime.contact import support_patch_jacobians
     h = .02; a, b = soft_scm_coefficients(h)
     qi = np.diag([.02]*3 + [20.]*3 + [1/600.]*3)
     support, _ = support_patch_jacobians(np.zeros(3), np.eye(3), [.02, 0, -.04], 9, 0.)

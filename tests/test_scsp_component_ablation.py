@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from examples.mpc.franka.ik2.run_ablation import VARIANTS, ablation_forward_argv
+from examples.mpc.franka.experiments.ik2.run_ablation import VARIANTS, ablation_forward_argv
 from planning.mlqp_point import LambdaContactControlOptimizer
 from planning.mpc_costs import cpo_stage_weights
 from planning.object_pose_cost import cost_config, object_cost_np, pose_only_config
@@ -98,7 +98,7 @@ def test_cost_guidance_still_uses_the_argmin():
 
 
 def _cost_param(variant):
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
     param = ExplicitMPCParams.__new__(ExplicitMPCParams)
     param.__dict__.update(
         n_qpos_=10, n_qvel_=9, n_cmd_=3, max_ncon_=10,

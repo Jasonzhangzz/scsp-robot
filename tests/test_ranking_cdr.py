@@ -8,8 +8,9 @@ import pytest
 from utils.ranking_cdr import (
     DecisionSampler, assert_matched, contact_decision_context, continuation_outcome,
     evaluate_state, select_events, summarize_cdr,
+    select_decision_points, source_decision_statistics, table_vi_statistics,
 )
-from examples.mpc.franka.ik2.test_rs import MatchedRolloutBus, run
+from examples.mpc.franka.experiments.ik2.test_rs import MatchedRolloutBus, run
 
 
 def context(best=.1, decision='stay', eligible=True):
@@ -21,6 +22,7 @@ def context(best=.1, decision='stay', eligible=True):
 
 def feed(sampler, step, **kw):
     sampler.step, sampler.sim_time = step, .02*step
+    sampler.in_physical_contact = True
     return sampler(context(**kw))
 
 
@@ -148,6 +150,8 @@ def test_bus_checks_observations_and_predecision_actions_but_allows_branch_actio
 
 def args(tmp_path):
     return SimpleNamespace(ranking_metric_gamma=.9, trial_start=0, trial_num=2,
+        rs_samples_per_trajectory=1, rs_successful_trajectories=1,
+        rs_sampling='decisions', rs_event_stage='all',
         rs_repeats=2, rs_max_per_kind=0, rs_best_change_distance=.01,
         rs_match_atol=1e-7, num_envs=1, async_planner=False, floating_fingertip=False,
         sampling_c3=False, online_scm=False, scm_record_data=False, cso_guidance='cso',
@@ -166,13 +170,14 @@ def test_orchestration_samples_only_successful_sources_and_restores_normal_polic
                                observations=[], commands=[])
     result = run(args(tmp_path), trial_runner=runner)
     state = json.loads((tmp_path/'states.jsonl').read_text())
-    assert state['step'] == 1 and state['remaining_budget'] == 9
-    assert state['q']['stay'] == pytest.approx(.9**2)
+    assert state['step'] == 2 and state['remaining_budget'] == 8
+    assert state['q']['stay'] == pytest.approx(.9)
     assert state['q']['switch'] == 0 and state['cdr'] == 0
-    assert state['advantage_rs'] == pytest.approx(.9**2)
+    assert state['advantage_rs'] == pytest.approx(.9)
     assert all(len(x) == 2 for x in state['rollouts'].values())
-    assert calls == [(0,None,None,False), (0,1,'switch',True),
-                     (0,1,None,True), (0,1,'switch',True), (1,None,None,False)]
+    # Uniform decision sampling can include stable near selections, too.
+    assert calls == [(0,None,None,False), (0,2,'switch',True),
+                     (0,2,None,True), (0,2,'switch',True)]
     assert result['successful_source_trials'] == 1
     assert result['n_states'] == 1
     assert json.loads((tmp_path/'summary.json').read_text()) == result
@@ -203,9 +208,69 @@ def test_resume_reuses_pairs_after_verifying_configuration_and_source(tmp_path):
     calls.clear()
     values.rs_resume = True
     assert run(values, trial_runner=runner) == first
-    assert calls == [(0, None), (1, None)]
+    assert calls == [(0, None)]
     assert (tmp_path/'states.jsonl').read_text() == original_states
     values.ranking_metric_gamma = .99
     with pytest.raises(ValueError, match='configuration differs'):
         run(values, trial_runner=runner)
     assert (tmp_path/'states.jsonl').read_text() == original_states
+
+
+def test_uniform_fifty_points_include_stable_decisions_and_require_full_sample():
+    sampler = DecisionSampler()
+    for step in range(120):
+        feed(sampler, step, eligible=step >= 10)
+    assert sampler.events == []
+    points = select_decision_points(sampler.decisions, count=50, seed=7)
+    assert len(points) == len({p['step'] for p in points}) == 50
+    assert points == select_decision_points(sampler.decisions, count=50, seed=7)
+    assert min(p['step'] for p in points) >= 10
+    with pytest.raises(ValueError, match='found 110'):
+        select_decision_points(sampler.decisions, count=111)
+
+
+def test_contact_sampling_excludes_detached_nearby_states_and_transit():
+    decisions = [dict(context(), step=i, in_physical_contact=i >= 20,
+                      in_transit=20 <= i < 40) for i in range(60)]
+    points = select_decision_points(decisions, count=5, seed=3)
+    assert len(points) == 5
+    assert all(p['step'] >= 40 for p in points)
+    with pytest.raises(ValueError, match='found 20'):
+        select_decision_points(decisions, count=21)
+
+
+def test_seven_table_metrics_use_sources_and_keep_zero_advantage():
+    decisions = [dict(context(decision=branch), step=i,
+                      optimal_local=[best, 0, 0], optimal_world=[i, 0, 0])
+                 for i, (branch, best) in enumerate([
+                     ('stay', .1), ('stay', .1), ('switch', .2), ('stay', .2)])]
+    source = dict(success=True, steps=4, policy_interval_s=.02, mpc_contact_switches=2)
+    source.update(source_decision_statistics(decisions, source))
+    excluded = dict(source, rs_source_selected=False, mpc_contact_switches=100)
+    states = [dict(advantage_rs=a) for a in [0, .2, -.1, .3]]
+    result = table_vi_statistics(states, [source, excluded])
+    assert result['contact_switch_count'] == 2
+    assert result['p_near'] == .75 and result['p_optimal'] == .25
+    assert result['f_near_hz'] == 37.5
+    assert result['f_p_star_hz'] == 12.5  # Ignore rigid world-frame motion.
+    assert result['p_advantage_positive'] == .5
+    assert result['advantage']['mean'] == pytest.approx(.1)
+    assert result['advantage']['std'] == pytest.approx(np.std([0,.2,-.1,.3], ddof=1))
+
+
+def test_failed_sources_are_skipped_before_selecting_one_success(tmp_path):
+    seen = []
+    def runner(args, trial, sampler, reference=None):
+        seen.append((trial, sampler.target))
+        for step in range(55):
+            feed(sampler, step)
+        return SimpleNamespace(summaries=[dict(success=trial == 1, steps=60)],
+                               observations=[], commands=[])
+    values = args(tmp_path)
+    values.rs_samples_per_trajectory = 50
+    values.rs_repeats = 1
+    result = run(values, trial_runner=runner)
+    assert seen[:2] == [(0, None), (1, None)]
+    assert len(seen) == 52
+    assert result['n_states'] == 50
+    assert result['table_vi']['source_trajectories'] == 1

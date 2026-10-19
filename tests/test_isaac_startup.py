@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from examples.mpc.franka.ik2 import isaac_bus
+from examples.mpc.franka.runtime import bus as isaac_bus
 
 
 @pytest.mark.parametrize('previous', [None, 'custom'])
@@ -46,9 +46,10 @@ def test_failed_spawn_restores_simulator_environment(monkeypatch):
 def test_entry_dispatches_before_loading_numpy_or_planner(floating):
     path = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/ik2/test_mpc_isaac.py'
     tree = ast.parse(path.read_text())
-    numpy_index = next(i for i, node in enumerate(tree.body) if isinstance(node, ast.Import)
-                       and any(alias.name == 'numpy' for alias in node.names))
-    prefix = tree.body[:numpy_index]
+    assert not any(isinstance(node, ast.Import) and
+                   any(alias.name in ('numpy', 'torch', 'isaacgym') for alias in node.names)
+                   for node in tree.body)
+    prefix = tree.body
     calls = []
     fake_os = SimpleNamespace(path=os.path, environ={'SCSP_PLANNER_ONLY': '1'},
                               execv=lambda exe, argv: calls.append((exe, argv)))
@@ -59,12 +60,12 @@ def test_entry_dispatches_before_loading_numpy_or_planner(floating):
     # imports are allowed before the process is handed to its real entry point.
     declarations = [node for node in prefix if isinstance(node, (ast.FunctionDef, ast.If))]
     scope = dict(__name__='__main__', __file__=str(path), os=fake_os, argparse=argparse,
-                 sys=SimpleNamespace(executable='/python', argv=argv, path=[]))
+                 Path=Path, sys=SimpleNamespace(executable='/python', argv=argv, path=[]))
     exec(compile(ast.Module(body=declarations, type_ignores=[]), str(path), 'exec'), scope)
     assert len(calls) == 1
     executable, dispatched = calls[0]
     assert executable == '/python' and dispatched[:2] == ['/python', '-u']
-    assert dispatched[2].endswith('test_0902_isaac.py' if floating else 'run.py')
+    assert dispatched[2].endswith('test_0902_isaac.py' if floating else 'isaac.py')
     assert '--floating-fingertip' not in dispatched
     if not floating:
         assert dispatched[3:] == ['--planner', 'mpc', '--obj', 'elephant']

@@ -111,10 +111,11 @@ def main():
     if jobs < 1:
         raise ValueError('--jobs must be positive')
     files = [Path(__file__).resolve().relative_to(ROOT)]
-    files += [Path('examples/mpc/franka/ik2')/name for name in (
+    files += [Path('examples/mpc/franka/experiments/ik2')/name for name in (
         'params_ablation.py', 'contact_policy_ablation.py', 'run_ablation.py',
         'test_mpc_isaac_ablation.py', 'test_mppi_isaac.py', 'run_isaac_ablation.py',
-        'headless_rollout_ablation.py', 'scene_friction.py', 'contact_frames.py')]
+        'headless_rollout_ablation.py')]
+    files += [Path('examples/mpc/franka/runtime')/name for name in ('contact.py', 'simulator.py')]
     files += [Path('planning')/name for name in ('franka_cso_ablation.py',
         'point_contact_baselines.py', 'contact_force_sampling.py', 'mlqp_point.py',
         'mpc_explicit_ablation.py', 'object_pose_cost.py')]
@@ -159,7 +160,7 @@ def main():
                 return
             except (AssertionError, ValueError):
                 raise RuntimeError('Partial or invalid trial cell must be audited before a retry: '+str(cell))
-        command = [sys.executable, '-u', str(ROOT/'examples/mpc/franka/ik2/run_ablation.py'),
+        command = [sys.executable, '-u', str(ROOT/'examples/mpc/franka/experiments/ik2/run_ablation.py'),
             '--'+variant, '--task', task, '--obj', obj, '--headless', '--async-planner',
             '--headless-realtime', '--physics-backend', 'isaac', '--solver-backend', 'acados',
             '--trial-start', '0', '--trial_num', '3', '--max_rollout_length', '2500',

@@ -36,6 +36,7 @@ class Backend:
                  stiffness=0.2, damping=0.001, nconmax=2048, njmax=16384,
                  scm_regularization=1e-8, scm_motion="dynamic", scm_friction="point",
                  scm_response_time=.05, scm_damping_ratio=1.0,
+                 scm_softplus_temperature=1e-4,
                  lcp_regularization=1e-8, lcp_tolerance=1e-8, lcp_max_iterations=2000,
                  lcp_solver="lemke", contactsdf_sigma=120.,
                  collect_contacts=False):
@@ -76,6 +77,9 @@ class Backend:
         with wp.ScopedDevice(self.device):
             self.api = comfree_warp if engine == "comfree" else mujoco_warp
             if engine in ("scm_corrected", "scm_soft", "scm_soft_corrected"):
+                if engine == "scm_soft_corrected" and (
+                        not np.isfinite(scm_softplus_temperature) or scm_softplus_temperature <= 0):
+                    raise ValueError("scm_soft_corrected requires positive finite scm_softplus_temperature (N s)")
                 if __package__:
                     from .scm_backend import ScmEngine
                 else:
@@ -83,7 +87,8 @@ class Backend:
                 self.api = ScmEngine(model, initial_data, regularization=scm_regularization,
                                      motion=scm_motion, friction=scm_friction,
                                      amplitude_correction=engine in ("scm_corrected", "scm_soft_corrected"),
-                                     response_time=scm_response_time if engine in ("scm_soft", "scm_soft_corrected") else 0.,
+                                     response_time=scm_response_time if engine == "scm_soft" else 0.,
+                                     softplus_temperature=scm_softplus_temperature if engine == "scm_soft_corrected" else 0.,
                                      damping_ratio=scm_damping_ratio)
             if engine == "lcp":
                 if __package__:

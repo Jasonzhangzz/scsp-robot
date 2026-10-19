@@ -65,7 +65,7 @@ def test_zero_pressure_retains_support_but_withdrawal_removes_it(support_case):
 
 
 def test_batched_support_matches_contact_frame_geometry(support_case):
-    from examples.mpc.franka.ik2.contact_frames import mesh_table_contact_points, support_patch_jacobians
+    from examples.mpc.franka.runtime.contact import mesh_table_contact_points, support_patch_jacobians
     opt,predictor,state,contact,common = support_case
     rot = Rotation.from_quat(state[[4,5,6,3]]).as_matrix()
     jac,phi = predictor._support_batch(state[None,:3],rot[None,:,:],0.,.5)

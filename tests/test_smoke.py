@@ -140,7 +140,7 @@ def check_default_assets() -> list[str]:
         "envs/assets/objects/elephant.stl",
         "envs/assets/objects/teapot.stl",
         "examples/mpc/fingertips/test/test_0902.py",
-        "examples/mpc/franka/ik2/test_mppi_isaac.py",
+        "examples/mpc/franka/runtime/simulator.py",
         "thirdparty/spider/spider/assets/robots/allegro/right.xml",
         "thirdparty/spider/spider/assets/robots/allegro/assets/base_link.stl",
     ]
@@ -198,8 +198,8 @@ def main() -> int:
 
     # Import params modules that do not construct a simulator at import time.
     try:
-        import examples.mpc.franka.ik2.params  # noqa: F401
-        print("[smoke] imported examples.mpc.franka.ik2.params")
+        import examples.mpc.franka.runtime.params  # noqa: F401
+        print("[smoke] imported examples.mpc.franka.runtime.params")
     except ModuleNotFoundError as exc:
         print(f"[smoke] skip ik2.params (optional dep missing): {exc}")
     except Exception as exc:

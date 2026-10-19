@@ -29,7 +29,7 @@ def _build_mpc_planner_runtime(init):
     import argparse
     from planning.acados_env import ensure_acados_env
     ensure_acados_env()
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
     from examples.mpc.fingertips.test.test_0902 import (
         ContactValueTracker,
         ModelCostConfidence,
@@ -119,7 +119,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         compute_rollout_contact_via,
         _verify_is_chatter,
     )
-    from examples.mpc.franka.ik2.contact_frames import gravity_wrench_object_frame
+    from examples.mpc.franka.runtime.contact import gravity_wrench_object_frame
     from planning.MPPIWarp import (
         _apply_dwell_payload,
         _opt_snapshot,
@@ -165,7 +165,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     if msg.get("jac_mat_env") is not None:
         jac_mat_env = np.asarray(msg["jac_mat_env"])
     else:
-        from examples.mpc.franka.ik2.contact_frames import table_jac_mat_env
+        from examples.mpc.franka.runtime.contact import table_jac_mat_env
         jac_mat_env = table_jac_mat_env(
             curr_q[:3], curr_q[3:7], float(param.table_height),
             nv=nv, mu=float(getattr(param, "mu_object_", 0.5)), max_ncon=max_ncon,

@@ -8,7 +8,7 @@ import numpy as np
 
 
 def _osc_contact_methods():
-    source = Path(__file__).resolve().parents[1] / "examples/mpc/franka/ik2/test_mpc_isaac.py"
+    source = Path(__file__).resolve().parents[1] / "examples/mpc/franka/runtime/mpc.py"
     tree = ast.parse(source.read_text())
     simulator = next(node for node in tree.body
                      if isinstance(node, ast.ClassDef)
@@ -27,8 +27,8 @@ def _osc_contact_methods():
 
 
 def test_osc_restores_object_pose_and_velocity_after_tensor_warmup():
-    root = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/ik2'
-    base_source = root / 'test_mppi_isaac.py'
+    root = Path(__file__).resolve().parents[1] / 'examples/mpc/franka/runtime'
+    base_source = root / 'simulator.py'
     base_tree = ast.parse(base_source.read_text())
     base = next(n for n in base_tree.body if isinstance(n, ast.ClassDef)
                 and n.name == 'IsaacFrankaSimulator')
@@ -50,7 +50,7 @@ def test_osc_restores_object_pose_and_velocity_after_tensor_warmup():
             states['vel']['linear'][0] = (1., 2., 3.)
             states['vel']['angular'][0] = (4., 5., 6.)
 
-    source = root / 'test_mpc_isaac.py'
+    source = root / 'mpc.py'
     tree = ast.parse(source.read_text())
     osc = next(n for n in tree.body if isinstance(n, ast.ClassDef)
                and n.name == 'IsaacFrankaOSCSimulator')
@@ -107,8 +107,8 @@ def test_osc_observes_contact_entry_and_exit_between_physics_frames(draw):
 
 @pytest.mark.parametrize("clearance,expected_z", [(None, -0.002), (0.012, 0.002)])
 def test_default_contact_press_keeps_downward_pd_command(clearance, expected_z):
-    from examples.mpc.franka.ik2.contact_frames import clip_via_target, slew_mpc_action, mpc_ball_trajectory
-    from examples.mpc.franka.ik2.isaac_bus import PolicyActionSchedule
+    from examples.mpc.franka.runtime.contact import clip_via_target, slew_mpc_action, mpc_ball_trajectory
+    from examples.mpc.franka.runtime.bus import PolicyActionSchedule
 
     methods = _osc_contact_methods()
     methods.update(np=np, _clip_via_target=clip_via_target,
@@ -132,7 +132,7 @@ def test_default_contact_press_keeps_downward_pd_command(clearance, expected_z):
 @pytest.mark.parametrize("draw_stride", [1, 8, 17])
 @pytest.mark.parametrize("startup_waits", [0, 5])
 def test_async_observations_share_pose_contact_frame_and_physics_cadence(draw_stride, startup_waits):
-    source = Path(__file__).resolve().parents[1] / "examples/mpc/franka/ik2/run.py"
+    source = Path(__file__).resolve().parents[1] / "examples/mpc/franka/runtime/isaac.py"
     tree = ast.parse(source.read_text())
     loop = next(node for node in tree.body
                 if isinstance(node, ast.FunctionDef) and node.name == "isaac_loop")
@@ -176,7 +176,7 @@ def test_async_observations_share_pose_contact_frame_and_physics_cadence(draw_st
 
 
 def test_sync_bus_executes_one_interval_and_advances_trials_without_a_peer():
-    source = Path(__file__).resolve().parents[1] / "examples/mpc/franka/ik2/run.py"
+    source = Path(__file__).resolve().parents[1] / "examples/mpc/franka/runtime/isaac.py"
     tree = ast.parse(source.read_text())
     bus_class = next(node for node in tree.body if isinstance(node, ast.ClassDef)
                      and node.name == "SynchronousMPCBus")
@@ -218,7 +218,7 @@ def test_sync_bus_executes_one_interval_and_advances_trials_without_a_peer():
 
 @pytest.mark.parametrize('headless', [False, True])
 def test_async_realtime_clock_excludes_startup_and_matches_display_modes(headless):
-    source = Path(__file__).resolve().parents[1]/'examples/mpc/franka/ik2/run.py'
+    source = Path(__file__).resolve().parents[1]/'examples/mpc/franka/runtime/isaac.py'
     loop = next(n for n in ast.parse(source.read_text()).body
                 if isinstance(n, ast.FunctionDef) and n.name == 'isaac_loop')
     clock, waits, observations = [0.], [], []
@@ -252,7 +252,7 @@ def test_async_realtime_clock_excludes_startup_and_matches_display_modes(headles
 def test_episode_end_is_delivered_after_an_occupied_action_queue():
     import queue
     import threading
-    from examples.mpc.franka.ik2.isaac_bus import IsaacBus
+    from examples.mpc.franka.runtime.bus import IsaacBus
 
     attempted = threading.Event()
 
@@ -286,9 +286,11 @@ def test_episode_end_is_delivered_after_an_occupied_action_queue():
 @pytest.mark.parametrize('entry', ['test_mpc_isaac', 'test_mpc_isaac_ablation'])
 def test_contact_observation_uses_surface_gap_and_inward_object_jacobian(gap, physical, reverse, entry):
     from scipy.spatial.transform import Rotation
-    from examples.mpc.franka.ik2 import physx_contact as pc
-    from examples.mpc.franka.ik2 import contact_frames as cf
-    source = Path(__file__).resolve().parents[1]/('examples/mpc/franka/ik2/'+entry+'.py')
+    from examples.mpc.franka.runtime import contact as pc
+    from examples.mpc.franka.runtime import contact as cf
+    source = Path(__file__).resolve().parents[1] / (
+        'examples/mpc/franka/runtime/mpc.py' if entry == 'test_mpc_isaac' else
+        'examples/mpc/franka/experiments/ik2/test_mpc_isaac_ablation.py')
     tree = ast.parse(source.read_text())
     cls = next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='ContactIsaacCartesian')
     ns = dict(np=np, Rotation=Rotation, **{k:getattr(pc,k) for k in

@@ -184,7 +184,7 @@ def test_rollout_via_forwards_support_plane_to_ranking():
 def test_handle_mpc_request_survives_old_via(monkeypatch):
     """Execute the planner entry that Isaac spawns, with the old helper."""
     import planning.mpc_explicit as mpc_explicit
-    from examples.mpc.franka.ik2 import contact_frames
+    from examples.mpc.franka.runtime import contact as contact_frames
 
     captured = {}
 
@@ -294,7 +294,7 @@ def test_handle_mpc_request_survives_old_via(monkeypatch):
 def test_two_stage_cost_does_not_shrink_cartesian_step(monkeypatch):
     """Object cost may limit contact force. It must not box the arm step under 1 mm."""
     import planning.mpc_explicit as mpc_explicit
-    from examples.mpc.franka.ik2 import contact_frames
+    from examples.mpc.franka.runtime import contact as contact_frames
 
     captured = {}
 

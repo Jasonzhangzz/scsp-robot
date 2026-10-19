@@ -466,7 +466,7 @@ def clamp_via_to_tip(tip, via, max_lead):
 
 def adapt_param_for_cartesian_ranking(param, args):
     """Same 3-DoF ranking dims as OSC / ``test_0902`` ``plan_once``."""
-    from examples.mpc.franka.ik2.params import build_lambda_optimizer
+    from examples.mpc.franka.runtime.params import build_lambda_optimizer
 
     table_height = float(param.table_height)
     param.n_cmd_ = 3
@@ -511,7 +511,7 @@ def configure_mppi_rollout_param(param, args):
 
 def adapt_param_for_joint_mppi(param, args):
     """7-DoF MPPI model.  Does not overwrite cartesian ranking dims."""
-    from examples.mpc.franka.ik2.params import build_lambda_optimizer
+    from examples.mpc.franka.runtime.params import build_lambda_optimizer
     from planning.runtime_compat import resolve_solver_backend
 
     param.mppi_tabletop_lock_ = True
@@ -989,7 +989,7 @@ def _apply_dwell_payload(param, args, dwell):
 def _build_planner_runtime(init):
     from planning.acados_env import ensure_acados_env
     ensure_acados_env()
-    from examples.mpc.franka.ik2.params import ExplicitMPCParams
+    from examples.mpc.franka.runtime.params import ExplicitMPCParams
     from examples.mpc.fingertips.test.test_0902 import (
         ContactValueTracker,
         ModelCostConfidence,
@@ -1069,7 +1069,7 @@ def handle_planner_request(args, param, mpc, trackers, msg):
     if msg.get("jac_mat_env") is not None:
         jac_mat_env = np.asarray(msg["jac_mat_env"])
     else:
-        from examples.mpc.franka.ik2.contact_frames import table_jac_mat_env
+        from examples.mpc.franka.runtime.contact import table_jac_mat_env
         jac_mat_env = table_jac_mat_env(
             curr_q[:3], curr_q[3:7], float(param.table_height),
             nv=int(getattr(param, "n_qvel_", 9)),
