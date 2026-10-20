@@ -7,7 +7,7 @@
 \section{Contact Selection Optimization}
 \label{sec:cso}
 
-In this section, we present the detailed design of CSO.
+In this section, we present the design of CSO.
 We begin by analyzing the key challenges of integrating contact selection into CIMPC, which limit the diversity of existing methods.
 \textcolor{blue}{
 We then formulate the contact selection problem and discuss the main difficulties in solving it.
@@ -254,7 +254,7 @@ The environment contact force $\boldsymbol{\lambda}_{\text{env}}$ is a piecewise
     \renewcommand{\qedsymbol}{}
     Based on Assumption 1, we can obtain that $\phi \equiv 0$, leading to \eqref{eq:quasi-closed_form_solution}. Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \eqref{eq:quasi-closed_form_solution} is piecewise linear.
 \end{proof}
-Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified}, we obtain a lightweight explicit model:
+Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified}, we obtain a lightweight model:
 \begin{equation}
     f_{\text{SCM}}:\begin{cases}
     \boldsymbol{\hat{v}}^+ =
@@ -295,7 +295,7 @@ Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified}, w
 \end{equation}
 \textcolor{red}{The coefficient $\alpha$ is shared by all environment contacts and is set to one when $\boldsymbol{\beta}^{(0)}_{\mathrm{env}}=\boldsymbol{0}$. The environment impulse in \eqref{equ:scm} is replaced by $\hat{\boldsymbol{\beta}}_{\mathrm{env}}$, with the factors $1/h$ converting impulse to force units. We use $r=10^{-8}$ and evaluate the denominator as $\boldsymbol{z}^{\top}\boldsymbol{M}_o^{-1}\boldsymbol{z}+r\|\boldsymbol{\beta}^{(0)}_{\mathrm{env}}\|_2^2$, where $\boldsymbol{z}=\boldsymbol{\tilde{J}}_{\mathrm{env}}^{\top}\boldsymbol{\beta}^{(0)}_{\mathrm{env}}$, without forming or inverting the full Delassus matrix. The projection is evaluated once per prediction step and does not introduce an additional inner iteration. Away from activation, clipping, and zero-impulse boundaries, the resulting map is piecewise rational.}
 
-This Surrogate Contact Model converts the original contact dynamics into a computationally efficient formulation, enabling \eqref{equ:inner_loop} to be solved efficiently using gradient-based solvers.
+This Surrogate Contact Model converts the original contact dynamics into a computationally efficient formulation, enabling \eqref{equ:inner_loop} to be solved using gradient-based solvers.
 
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/surrogate_contact_model.pdf}}
@@ -340,7 +340,7 @@ The design of \eqref{equ:objectice_obj} effectively guides the gradient descent 
 
  
 \subsubsection{Solving CSO over Sampled Candidates}
-The original contact dynamics in \eqref{equ:inner_loop} are non-differentiable because of the complementarity constraints and the non-smooth temporal evolution of the contact set, rendering the constraints non-differentiable. With the SCM, \eqref{equ:csqp} becomes a finite candidate search with a continuous force-optimization subproblem for each candidate. The SCM gradients on each fixed active set are
+The contact dynamics in \eqref{equ:inner_loop} are non-differentiable because of the complementarity constraints and the non-smooth temporal evolution of the contact set, rendering the constraints non-differentiable. With the SCM, \eqref{equ:csqp} becomes a finite candidate search with a continuous force-optimization subproblem for each candidate. The SCM gradients on each fixed active set are
 \begin{equation}
 \frac{\partial\boldsymbol{x}_{k+1}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}
 =h\boldsymbol{M}_o^{-1}\!\left(
@@ -374,7 +374,7 @@ Compared to CIMPC methods, CPO must additionally consider the guidance from the 
 \end{equation}
 Here $\boldsymbol{\hat{p}}^*_{\text{r}}$ is explicitly included in the objective function. We next investigate two key questions: in what form should contact prior guide contact planning, and how should a feasible approach and contact trajectory be defined mathematically?
 \subsubsection{\textcolor{red}{Role of Contact Guidance}}
-In the previous section, we discussed how CIMPC methods suffer from gradient sparsity and proposed CSO, which serves as a pointwise global search on the object and provide contact guidance. But this raises another open question: in what form should the guidance affect contact execution? The most straightforward approach is full coupling, where the contact planning strictly follows and executes the guidance from the CSO. \textcolor{red}{However, such a fully coupled scheme may compromise control robustness because the upper-level surrogate abstracts away detailed contact interactions. The object-centric search performed by CSO does not explicitly account for robot morphology, resulting in an inherent gap between contact selection and execution. Moreover, contact-rich manipulation is inherently underdetermined, as numerous contact-wrench and contact-location trajectories can accomplish the same task. Strictly executing the CSO-optimal trajectory would therefore restrict this intrinsic solution diversity in robot–object interaction. To address this limitation, we introduce an objective-based contact planning module named CPO. Through the ranking strategy, the CPO balances the CSO-optimal contact against nearby and other candidate contacts, establishing a loose coupling between high-level contact selection and low-level contact planning. This design benefits from global-search guidance to escape local optima while preserving the flexibility of contact planning for robust execution.}
+In the previous section, we discussed how CIMPC methods suffer from gradient sparsity and proposed CSO, which serves as a pointwise global search on the object and provide contact guidance. But this raises another open question: in what form should the guidance affect contact execution? The most straightforward approach is full coupling, where the contact planning strictly follows and executes the guidance from the CSO. \textcolor{red}{However, such a fully coupled scheme may compromise control robustness because the upper-level surrogate abstracts away detailed contact interactions. The object-centric search performed by CSO does not explicitly account for robot morphology, resulting in an inherent gap between contact selection and execution. Moreover, contact-rich manipulation is inherently underdetermined, as numerous contact-wrench and contact-location trajectories can accomplish the same task. Strictly executing the CSO-optimal trajectory would therefore restrict this intrinsic solution diversity in robot–object interaction. To address this limitation, we introduce an objective-based contact planning module named CPO. Through the ranking strategy, the CPO balances the CSO-optimal contact against nearby and other candidate contacts, establishing a loose coupling between high-level contact selection and low-level contact planning. This design benefits from global-search guidance to escape local optima while preserving the flexibility of contact planning for execution.}
 
 
 
@@ -643,7 +643,7 @@ and the final control torque is
 $\boldsymbol{\tau} =
 \boldsymbol{\tau}_{\text{task}}
 + \boldsymbol{\tau}_{\text{null}}
-+ g(\boldsymbol{q})$. This controller is used in all simulations and real-world experiments in Section \ref{sec:experiment}, and is particularly suitable for tasks such as tabletop manipulation, where high orientation diversity is not critical.
++ g(\boldsymbol{q})$. This controller is used in all simulations and real-world experiments in Section \ref{sec:experiment}, and is suitable for tasks such as tabletop manipulation, where high orientation diversity is not critical.
 
 \subsubsection{Sampling-based Motion Planner}
 
