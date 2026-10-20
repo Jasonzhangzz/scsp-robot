@@ -89,6 +89,10 @@ def add_rollout_via_args(parser):
                         help='Polyak rate for the V_best target network.')
     parser.add_argument('--value_alpha', type=float, default=0.25,
                         help='Online EMA rate for V_arm.')
+    parser.add_argument('--verify-quality-threshold', type=float, default=None,
+                        help='Optional final p_arm gate on 1-tightness in [0,1]: '
+                             '0 accepts all p_arm, 1 always selects best contact. '
+                             'Unset preserves the baseline contact policy.')
     parser.add_argument('--verify_beta', type=float, default=0.18,
                         help='Soft update rate for verify_cost in [0, 1].')
     parser.add_argument('--verify_window', '--verify_window_size',
@@ -1657,6 +1661,7 @@ def compute_rollout_contact_via(
             param.lambda_optimizer, p_arm_idx if staged_object_cost
             else (best_idx if best_idx is not None else p_arm_idx))
     model_tightness = model_cost_conf.tightness()
+    quality_holding = value_tracker._holding_p_arm
     value_info = value_tracker.update_values(
         reference_error, error, solver_ok=solver_ok,
         candidate_costs=candidate_costs, same_patch=same_patch,
@@ -1735,6 +1740,26 @@ def compute_rollout_contact_via(
         value_info['contact_relocation_requested'] = switch_observed_contact
         value_info['flip_contact_protected'] = bool(flip_contact_protected)
         value_info['object_support_gap'] = getattr(approach_via, 'support_gap', None)
+    # This optional experiment gate acts AFTER observed-contact retention.
+    # The baseline bypasses tightness there; sweeping only the tracker would
+    # silently leave that branch unchanged. Unset preserves all baseline logic.
+    quality_threshold = getattr(args, 'verify_quality_threshold', None)
+    if quality_threshold is not None:
+        from planning.verify_control import acceptance_decision
+        accepted = acceptance_decision(quality_threshold, model_tightness,
+            same_patch=same_patch, near_arm=near_arm, is_best_sample=is_best_sample,
+            holding=quality_holding)
+        value_info.update(accept_p_arm=accepted, cost_ok=accepted,
+            acceptance_threshold=float(quality_threshold),
+            acceptance_quality=1.0-model_tightness,
+            acceptance_gate_applied=True)
+        value_tracker._holding_p_arm = accepted
+        hold_occupied = accepted
+        switch_observed_contact = False
+        value_info['switch_observed_contact'] = False
+        if not accepted:
+            flip_contact_protected = False
+            reacquire = None
     # Evaluate RS immediately before committing its contact target, so a
     # counterfactual also runs the normal CPO and MPC for the chosen branch.
     rs_hook = getattr(param, 'rs_decision_hook', None)

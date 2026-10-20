@@ -3239,6 +3239,7 @@ def run_mpc_planner(bus, args):
         solve_mean_s = float(np.mean(choose_arr + plan_arr))
         trial_summary = {
             **verify_stats.summary(),
+            "verify_quality_threshold": getattr(args, "verify_quality_threshold", None),
             "verify_beta": float(getattr(args, "verify_beta", .18)),
             "trial": trial_count,
             "seed": trial_count,

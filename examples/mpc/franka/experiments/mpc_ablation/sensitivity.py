@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -20,6 +21,10 @@ def add_sensitivity_args(parser):
                        help='Sweep verify_cost EMA beta with matched trial seeds (headless).')
     modes.add_argument('--threshold', action='store_true',
                        help='Sweep p_arm acceptance tightness; keep release threshold fixed (headless).')
+    modes.add_argument('--acceptance', action='store_true',
+                       help='Sweep final verify quality threshold: 0 accepts all, 1 selects best only.')
+    parser.add_argument('--acceptance-grid', default=None, metavar='T1,T2,...')
+    parser.add_argument('--acceptance-offsets', default='0.02,0.05,0.10,0.25', metavar='D1,D2,...')
     grid = parser.add_mutually_exclusive_group()
     grid.add_argument('--ema-grid', default=None, metavar='B1,B2,...',
                       help='Explicit beta values; default: expand around the current --verify_beta.')
@@ -28,13 +33,15 @@ def add_sensitivity_args(parser):
     parser.add_argument('--sensitivity-cohort', choices=('mixed', 'range'), default=None,
                         help='mixed: reuse 4 saved successes and 1 failure across four objects; '
                              'range: use the forwarded object and trial range. '
-                             'Default: mixed for EMA, range for threshold sweeps.')
+                             'Default: mixed for EMA/acceptance, range for legacy threshold sweeps.')
     parser.add_argument('--baseline-results', action='append', default=[], metavar='FILE_OR_DIR',
                         help='Saved baseline JSONL/JSON file or directory; repeat in priority order. '
                              'Default: existing baseline/RS results in this repository. Never rerun baseline.')
     parser.add_argument('--threshold-grid', default='0.15,0.30,0.45,0.60', metavar='T1,T2,...')
     parser.add_argument('--sensitivity-output', default='', metavar='DIR',
                         help='Empty output directory; default output/mpc_sensitivity/<mode>_<timestamp>.')
+    parser.add_argument('--sensitivity-workers', type=int, default=1,
+                        help='Independent synchronous simulations per mixed-cohort cell (default 1).')
     parser.add_argument('--plot', action='store_true',
                         help='Save success_rate.svg and success_rate.png after the sweep (Matplotlib).')
     parser.add_argument('--dry-run', action='store_true',
@@ -99,7 +106,8 @@ def plot_results(rows, output):
         ax.scatter([row['value'] for row in rows], [row['success_rate'] for row in rows])
         if len(rows) <= 12:
             ax.set_xticks([row['value'] for row in rows])
-        ax.set_xlabel('EMA beta' if rows[0]['mode'] == 'ema' else 'Acceptance tightness threshold')
+        ax.set_xlabel({'ema': 'EMA beta', 'threshold': 'Acceptance tightness threshold',
+                       'acceptance': 'Verify acceptance quality threshold'}[rows[0]['mode']])
         ax.set_ylabel('Success rate')
         ax.set_ylim(-.03, 1.03)
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1))
@@ -136,7 +144,7 @@ MIXED_CASES = (
 
 
 def _experiment_script(args):
-    if args.ema:
+    if args.ema or args.acceptance:
         return Path(__file__).resolve().parents[2] / 'ik2' / 'test_mpc_isaac.py'
     return Path(__file__).resolve().parents[1] / 'test_mpc_ablation.py'
 
@@ -144,7 +152,7 @@ def _experiment_script(args):
 def _threshold_flags(args):
     # EMA must use the actual baseline runtime, whose acceptance thresholds
     # are internal defaults. Only threshold sweeps need the ablation hooks.
-    if args.ema:
+    if args.ema or args.acceptance:
         return []
     return ['--verify-accept-threshold', str(args.verify_accept_threshold),
             '--verify-release-threshold', str(args.verify_release_threshold)]
@@ -190,14 +198,26 @@ def validate_ema_trials(rows, beta):
                              % row.get('trial'))
 
 
-def _mixed_trial(command, directory, obj, trial, expected_beta=None):
+def _mixed_trial(command, directory, obj, trial, expected_beta=None, expected_acceptance=None):
     rows = _execute(command, directory)
     summarize_trials(rows, [trial])
     if rows[0].get('object') != obj:
         raise ValueError('Unexpected object in %s: expected %s' % (directory, obj))
     if expected_beta is not None:
         validate_ema_trials(rows, expected_beta)
+    if expected_acceptance is not None:
+        validate_acceptance_trials(rows, expected_acceptance)
     return rows[0]
+
+
+def validate_acceptance_trials(rows, threshold):
+    for row in rows:
+        if (row.get('acceptance_gate_version') != 'quality_gate_v1'
+                or row.get('acceptance_threshold') != threshold
+                or row.get('verify_quality_threshold') != threshold
+                or row.get('acceptance_gate_steps', 0) <= 0
+                or row.get('acceptance_endpoint_violations') != 0):
+            raise ValueError('Unverified acceptance gate for trial %s' % row.get('trial'))
 
 
 def summarize_mixed(rows, cases):
@@ -314,13 +334,18 @@ def _run_mixed(args, rest, cohort, output, manifest, option, values):
                                    required=[dict(object=obj, baseline_success=success)
                                              for obj, success in MIXED_CASES]),
                     cells=[dict(index=i, value=value) for i, value in enumerate(values)])
+    if args.acceptance:
+        manifest.update(baseline_source_role='cohort_selection_only',
+                        center_rerun=True, acceptance_gate_version='quality_gate_v1',
+                        acceptance_hysteresis_width=.20,
+                        endpoint_semantics={'0': 'always accept p_arm', '1': 'always select best contact'})
     manifest['cases'] = [{k: v for k, v in case.items() if k != 'row'} for case in cases]
     for cell in manifest['cells']:
         directory = output / ('cell_%03d' % cell['index'])
         cell['directory'] = str(directory)
         cell['runs'] = [dict(case_id=case['id'], command=_trial_command(
             args, rest, directory / case['id'], case['object'], case['trial'],
-            option, cell['value'], cohort.verify_beta)) for case in cases] if cell['index'] else []
+            option, cell['value'], cohort.verify_beta)) for case in cases] if cell['index'] or args.acceptance else []
         if not cell['index']:
             cell['baseline_sources'] = [case['source'] for case in cases]
     if args.dry_run:
@@ -339,13 +364,24 @@ def _run_mixed(args, rest, cohort, output, manifest, option, values):
         directory = Path(cell['directory'])
         directory.mkdir()
         rows = []
+        parallel_rows = None
+        if cell['runs'] and args.sensitivity_workers > 1:
+            def evaluate(entry):
+                case, run = entry
+                return _mixed_trial(run['command'], directory / case['id'],
+                    case['object'], case['trial'],
+                    expected_beta=cell['value'] if args.ema else None,
+                    expected_acceptance=cell['value'] if args.acceptance else None)
+            with ThreadPoolExecutor(max_workers=args.sensitivity_workers) as pool:
+                parallel_rows = list(pool.map(evaluate, zip(cases, cell['runs'])))
         for case, run in zip(cases, cell['runs'] or [None] * len(cases)):
             print('[%s] %d/%d %s=%g %s trial=%d' % (
                 manifest['mode'], cell['index'] + 1, len(values), manifest['parameter'], cell['value'],
                 case['object'], case['trial']), flush=True)
-            row = case['row'] if run is None else _mixed_trial(
+            row = parallel_rows[len(rows)] if parallel_rows is not None else case['row'] if run is None else _mixed_trial(
                 run['command'], directory / case['id'], case['object'], case['trial'],
-                expected_beta=cell['value'] if args.ema else None)
+                expected_beta=cell['value'] if args.ema else None,
+                expected_acceptance=cell['value'] if args.acceptance else None)
             rows.append(dict(row, cohort_id=case['id'], baseline_success=case['baseline_success'],
                              verify_control_version=(case['verify_control_version'] if run is None
                                                      else row.get('verify_control_version'))))
@@ -371,8 +407,12 @@ def _run_mixed(args, rest, cohort, output, manifest, option, values):
 def run_sensitivity(args, rest):
     from .config import configure_ablation
     configure_ablation(args)
+    if args.sensitivity_workers < 1:
+        raise ValueError('--sensitivity-workers must be positive')
     if args.ablation_mode != 'full':
         raise ValueError('--ema / --threshold require the full baseline; remove --a1 ... --a8')
+    if args.ema and args.verify_quality_threshold is not None:
+        raise ValueError('--ema cannot change the final acceptance gate')
     if args.ema and (args.verify_accept_threshold != .45 or args.verify_release_threshold != .65):
         raise ValueError('--ema only perturbs --verify_beta in test_mpc_isaac.py; '
                          'use --threshold to vary acceptance thresholds')
@@ -395,13 +435,25 @@ def run_sensitivity(args, rest):
     if args.ema and (cohort.cpo_variant == 'direct' or cohort.ideal_contact_pose):
         raise ValueError('--ema requires an objective that uses the continuous verify weight; '
                          'remove --cpo-variant direct / --ideal_contact_pose')
-    mode = 'ema' if args.ema else 'threshold'
+    mode = 'ema' if args.ema else 'acceptance' if args.acceptance else 'threshold'
     parameter = 'verify_beta' if args.ema else 'verify_accept_threshold'
     option = '--verify_beta' if args.ema else '--verify-accept-threshold'
     baseline_value = cohort.verify_beta if args.ema else args.verify_accept_threshold
     values = (ema_grid(baseline_value, args.ema_offsets) if args.ema and args.ema_grid is None
               else parse_grid(args.ema_grid if args.ema else args.threshold_grid,
                               ema=args.ema, release=args.verify_release_threshold))
+    if args.acceptance:
+        parameter, option = 'verify_quality_threshold', '--verify-quality-threshold'
+        baseline_value = .55 if args.verify_quality_threshold is None else args.verify_quality_threshold
+        if not math.isfinite(baseline_value) or not 0 <= baseline_value <= 1:
+            raise ValueError('verify quality threshold must be finite and in [0, 1]')
+        if args.acceptance_grid is None:
+            values = ema_grid(baseline_value, args.acceptance_offsets)
+            values += [v for v in (0., 1.) if v not in values]
+        else:
+            values = parse_grid(args.acceptance_grid, ema=True)
+            values = [baseline_value, *sorted((v for v in values if v != baseline_value),
+                      key=lambda v: (abs(v-baseline_value), v))]
     # Use the client timezone for automatically named experiment folders.
     stamp = datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S_%f')
     output = Path(args.sensitivity_output or f'output/mpc_sensitivity/{mode}_{stamp}').resolve()
@@ -412,8 +464,8 @@ def run_sensitivity(args, rest):
                     verify_accept_threshold=args.verify_accept_threshold,
                     verify_release_threshold=args.verify_release_threshold,
                     trial_start=cohort.trial_start, trial_num=cohort.trial_num,
-                    output=str(output), cells=[])
-    if args.sensitivity_cohort == 'mixed' or (args.ema and args.sensitivity_cohort is None):
+                    sensitivity_workers=args.sensitivity_workers, output=str(output), cells=[])
+    if args.sensitivity_cohort == 'mixed' or ((args.ema or args.acceptance) and args.sensitivity_cohort is None):
         return _run_mixed(args, rest, cohort, output, manifest, option, values)
     script = _experiment_script(args)
     cells = []
@@ -456,6 +508,8 @@ def run_sensitivity(args, rest):
         rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
         if args.ema:
             validate_ema_trials(rows, cell['value'])
+        if args.acceptance:
+            validate_acceptance_trials(rows, cell['value'])
         record = dict(mode=mode, parameter=parameter, value=cell['value'],
                       baseline_value=baseline_value, trial_start=cohort.trial_start,
                       verify_control_version=VERIFY_CONTROL_VERSION if args.ema else None,

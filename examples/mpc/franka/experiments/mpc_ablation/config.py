@@ -41,6 +41,9 @@ def add_ablation_args(parser):
                         help='Accept a nearby same-patch p_arm when tightness is below this value.')
     parser.add_argument('--verify-release-threshold', type=float, default=.65,
                         help='Release tightness for an already accepted p_arm (default .65).')
+    # The runtime parser also exposes this flag for direct baseline rollouts.
+    if '--verify-quality-threshold' not in parser._option_string_actions:
+        parser.add_argument('--verify-quality-threshold', type=float, default=None)
     from .sensitivity import add_sensitivity_args
     add_sensitivity_args(parser)
     return parser

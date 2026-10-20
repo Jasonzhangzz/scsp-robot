@@ -1271,6 +1271,10 @@ def _build_mpc_planner_runtime(init, param=None):
         approach_class = CompoundApproachVia
         approach_options = dict(parts=param.lambda_optimizer.pp.collision_parts, tool_aware=True,
             tool_rotation=getattr(param, 'cavity_tool_rotation_', None), table_z=float(param.table_height), floor_z=float(param.table_height)+float(args.table_clearance))
+    quality_threshold = getattr(args, 'verify_quality_threshold', None)
+    if quality_threshold is not None:
+        from planning.verify_control import acceptance_decision
+        acceptance_decision(quality_threshold, 0.)  # validate before simulation
     trackers = {
         "value_tracker": ContactValueTracker(
             tau=float(args.value_tau),

@@ -18,12 +18,13 @@ def main():
     # Validate selections before loading Gym, Torch, MuJoCo or solver libraries.
     select_parser = selection_parser()
     selection, rest = select_parser.parse_known_args()
-    if not (selection.ema or selection.threshold) and any(
+    if not (selection.ema or selection.threshold or selection.acceptance) and any(
             flag.split('=')[0] in ('--ema-grid', '--ema-offsets', '--threshold-grid',
-                                 '--sensitivity-output', '--sensitivity-cohort', '--baseline-results',
+                                 '--acceptance-grid', '--acceptance-offsets',
+                                 '--sensitivity-output', '--sensitivity-cohort', '--sensitivity-workers', '--baseline-results',
                                  '--plot', '--dry-run') for flag in sys.argv[1:]):
         select_parser.error('sensitivity options require --ema or --threshold')
-    if (selection.ema or selection.threshold) and not any(
+    if (selection.ema or selection.threshold or selection.acceptance) and not any(
             flag in sys.argv[1:] for flag in ('--help', '-h')):
         from examples.mpc.franka.experiments.mpc_ablation.sensitivity import run_sensitivity
         try:
