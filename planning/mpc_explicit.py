@@ -154,6 +154,8 @@ class MPCExplicit:
         return int(np.asarray(self.param_.robot_stiff_).shape[1])
 
     def __init__(self, param, cost_kind=None, model=None):
+        if getattr(param, 'contact_model', '') == 'contactsdf':
+            raise ValueError('Use FrankaContactSDF; the official MPC does not use MPCExplicit')
         self.param_ = param
         self.contact_force_limit = (float(getattr(param, 'contact_command_force_limit_', param.contact_force_limit_))
             if getattr(param, 'runtime_object_cost_', False) and hasattr(param, 'contact_force_limit_') else None)
@@ -381,6 +383,8 @@ class MPCExplicit:
                      str(getattr(self, "_acados_init_error", "") or "acados_unavailable"))
             attempt_errors.append(error)
             reason = "acados_failed: " + error
+            if getattr(self.param_, 'rs_require_acados_', False):
+                raise RuntimeError('RS acados MPC solve failed: ' + error)
             if not getattr(self.param_, "mpc_ipopt_fallback_", True):
                 # Real-time callers implement their own bounded fallback.
                 # A failed iterate is labeled explicitly and never presented
@@ -1107,6 +1111,8 @@ class MPCExplicit:
                 self.acados_solver_ = self._build_acados_solver()
             except Exception as exc:
                 self._acados_init_error = exc
+                if getattr(self.param_, 'rs_require_acados_', False):
+                    raise RuntimeError('RS acados MPC initialization failed') from exc
                 _warn_acados_ipopt_fallback(str(exc))
                 print(f"acados initialization failed; IPOPT fallback remains available: {exc}")
                 # Initialization failure is a backend change.  Publish the
@@ -1628,6 +1634,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         command_lower = np.r_[np.broadcast_to(command_lower,3),angular_bounds[0]]
         command_upper = np.r_[np.broadcast_to(command_upper,3),angular_bounds[1]]
     t1 = time.perf_counter()
+    verify_cost_applied = None
     if approach_action:
         # The geometric approach replaces MPC's command. Solving that discarded
         # horizon can trigger a slow IPOPT fallback at contact-mode changes.
@@ -1655,17 +1662,20 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
                 states.append(state); rows.append(np.r_[command, state])
             trackers['sol_guess'] = dict(x0=np.concatenate(rows),
                 u_traj=np.tile(command, (param.mpc_horizon_, 1)), x_traj=np.array(states))
+        # Preserve the EMA critic as the CPO blend weight. Reachability and
+        # path geometry already select approach/contact; they must not replace
+        # this continuous score with a binary gate.
         plan_kwargs = dict(
             target_p=param.target_p_, target_q=param.target_q_, curr_x=planner_state,
             phi_vec=phi_vec, jac_mat=jac_mat,
-            verify_cost_param=(float(not value_info.get('path_blocked', False))
-                if getattr(param, 'runtime_object_cost_', False) and reachable_contact else verify_cost),
+            verify_cost_param=verify_cost,
             virtual_point=policy["mpc_virtual_point"],
             contact_point=policy["mpc_contact_point"],
             sol_guess=trackers["sol_guess"],
             **(dict(u_lb=command_lower, u_ub=command_upper)
                if trackers['mpc_executor_edge'] or trackers['mpc_support_recovery'] or getattr(mpc,'tool_pose_control',False) else {}),
         )
+        verify_cost_applied = float(plan_kwargs['verify_cost_param'])
         # Lambda supplies initial guesses only. Every executed contact action
         # comes from optimization under the original objective and constraints.
         reseed = (getattr(args, 'mpc_contact_multistart', False)
@@ -1793,6 +1803,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
         "cost_opt": sol.get("cost_opt"),
         "policy": _pickle_safe(policy),
         "verify_cost": float(verify_cost),
+        "verify_cost_applied": verify_cost_applied,
         "verify_chatter": bool(verify_chatter),
         "if_contact": bool(msg.get("if_contact", False)),
         "opt_snapshot": _opt_snapshot(param.lambda_optimizer),

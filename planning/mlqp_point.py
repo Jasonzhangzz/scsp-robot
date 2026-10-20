@@ -1917,14 +1917,11 @@ class LambdaContactControlOptimizer:
 
     @staticmethod
     def compute_contact_jacobian(p):
-        """优化后的接触雅可比计算 - MX 版本"""
-        J_c = cs.MX.zeros(3, 6)  # 改为 MX 类型
-        J_c[:3, :3] = cs.MX.eye(3)
-        # 使用 CasADi 构建斜对称矩阵
-        J_c[0, 4], J_c[0, 5] = p[2], -p[1]
-        J_c[1, 3], J_c[1, 5] = -p[2], p[0]
-        J_c[2, 3], J_c[2, 4] = p[1], -p[0]
-        return J_c
+        """Point velocity Jacobian, preserving SX/MX symbolic graph types."""
+        angular = cs.vertcat(cs.horzcat(0, p[2], -p[1]),
+                             cs.horzcat(-p[2], 0, p[0]),
+                             cs.horzcat(p[1], -p[0], 0))
+        return cs.horzcat(cs.DM.eye(3), angular)
     
     def optimize_control_input(self, x_d, current_x, tau_o, p_arm=None, v_last=None,
                                sample_idx=None, candidate_idx=None,

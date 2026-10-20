@@ -78,6 +78,7 @@ def test_trial_reward_uses_observed_success(
         'POLICY_INTERVAL': 0.02, 'DYWA_SIM_DT': 0.002, 'ISAAC_TABLE_CLEARANCE': 0,
         'discounted_terminal_reward': discounted_terminal_reward,
         'metrics': SimpleNamespace(
+            open_trial_recorder=lambda *a, **kw: None,
             comp_pos_error=lambda p, goal: np.linalg.norm(p - goal),
             comp_quat_error=lambda q, goal: 1 - np.dot(q, goal)**2,
         ),

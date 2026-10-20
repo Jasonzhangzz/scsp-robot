@@ -33,6 +33,12 @@ A1/A2 让 MPC 直接优化指定接触点的跟踪轨迹，屏蔽 lift/place via
 
 基线参数继续有效，包括 `--obj`、`--rotation`、`--flipping`、`--trial-start`、`--trial_num`、`--max_rollout_length`、`--sync-planner`、`--async-planner`/`--trial`、`--headless`、`--viewer`、`--num-envs`、`--physics-backend mjwarp` 和 `--solver-backend`。A6 固定使用 Isaac Gym/PhysX 执行，传入 `--physics-backend mjwarp` 会报错；其 `--solver-backend` 不影响 AdamW。其他模式继续支持上述后端。这些消融使用 Franka OSC；`--floating-fingertip` 和替换整个规划器的 `--sampling-c3` 不适用于消融模式。
 
+`--contactsdf` 分发到独立的 `examples/mpc/franka/contactsdf_run.py`：使用官方
+ContactSDF 的 SDF 接触检测、`LseDynamic`、IPOPT MPC 和目标公式，仅适配 Franka
+单指维度与执行接口。不创建 Lambda，不运行 verify、CSO、approach、分阶段目标或
+多初值搜索，不能与 A1–A8 等本地消融组合。固定同步规划、原生 Isaac、每进程一个场景。
+来源、适配范围和测试说明见 [ContactSDF 复现说明](../../../../../docs/franka_ik2/CONTACTSDF.md)。
+
 可选消融参数：
 
 - `--a4-qp-maxiter 12`
@@ -69,38 +75,52 @@ python examples/mpc/franka/experiments/test_mpc_ablation.py --a6 \
 
 ## Verify 敏感性分析
 
-`--ema` 和 `--threshold` 分别执行一维网格扫描，使用 full 基线、headless 仿真；不能与 `--a1` 等消融同时使用。每个网格点运行相同的 `--trial-start` / `--trial_num`，保持任务、物体和初始状态 seeds 一致；默认同步规划，仍可显式指定 `--async-planner`。每个点的成功率为成功次数除以完整试验次数，任务失败也计入分母；缺失、重复、中止的试验或子进程异常会停止扫描，已完成点的日志和汇总保留。
+`--ema` 和 `--threshold` 分别执行一维网格扫描，使用 full 基线、headless 仿真；不能与 `--a1` 等消融同时使用。`--ema` 默认 `--sensitivity-cohort mixed`（`--threshold` 仍默认单物体 `range`，也可显式选择 `mixed`）：从已有基线结果中固定以下 5 条轨迹（4 success、1 failed）：`stanford_bunny2` 成功和失败各 1 条，以及 `elephant`、`piggy_bank`、`rubber_duck` 各 1 条成功轨迹。物体名称使用代码中的标准名称（bunny2 / elpahnt / duck 分别对应上述名称）。筛选使用最终任务 `success`，不使用中间翻转完成标记。基线成功率为 4/5；后续每个网格点始终运行相同的 5 个物体/seed，不再按扰动后的成功与否重新抽样。失败也计入分母，缺失、重复、中止的试验或子进程异常会停止扫描，已完成点的日志和汇总保留。
+
+混合队列固定使用同步规划、每个子进程 1 条轨迹。基线只读取保存的结果，不运行仿真。`--baseline-results FILE_OR_DIR` 可重复传入，按顺序优先复用对应 JSONL、JSON，或目录中的 `trials.jsonl` / `baseline_summary.json`；旧结果缺少 beta 时从同目录 `config.json` / `source_config.json` 或所属扫描的 `grid.json` 读取。默认查找仓库已有的 `output/ablation/ema_baseline_full_*/selection`、`outputs/rs_table_vi_contact5_*/flipping`、`outputs/rs_current_*/baseline`。只使用对应 beta、任务、后端的完整同步 full 结果；若缺少所需成功/失败案例则报错，不补跑基线。不要同时传入 `--obj` / `--trial_num` / `--async-planner` / `--trial`。若需要原先单物体连续 seeds 的行为，显式使用 `--sensitivity-cohort range`，此时这些运行参数仍可使用。
 
 ```bash
-# EMA 系数 beta，默认网格 0.045,0.09,0.18,0.36,0.72；基线 0.18
+# 默认：以当前 beta=0.18 为中心，按 +/-0.02、0.04、0.08、0.16 逐圈扩大
+# 顺序：0.18,0.16,0.20,0.14,0.22,0.10,0.26,0.02,0.34
 python examples/mpc/franka/ik2/test_mpc_ablation.py --ema \
-  --ema-grid 0.045,0.09,0.18,0.36,0.72 \
-  --obj elephant --trial-start 0 --trial_num 100 \
-  --sensitivity-output output/ablation/ema_elephant --plot
+  --sensitivity-output output/ablation/ema_mixed --plot
 
-# 接受阈值，默认网格 0.15,0.30,0.45,0.60；基线 0.45
-python examples/mpc/franka/ik2/test_mpc_ablation.py --threshold \
+# 自定义扰动半径和已有基线结果来源；越界的 beta 自动跳过
+python examples/mpc/franka/ik2/test_mpc_ablation.py --ema \
+  --ema-offsets 0.02,0.04,0.08,0.16,0.32 \
+  --baseline-results outputs/rs_current_20261013_162818/baseline --dry-run
+
+# 接受阈值，默认网格 0.15,0.30,0.45,0.60；基线 0.45；显式使用混合队列
+python examples/mpc/franka/ik2/test_mpc_ablation.py --threshold --sensitivity-cohort mixed \
   --threshold-grid 0.15,0.30,0.45,0.60 \
-  --obj elephant --trial-start 0 --trial_num 100 \
-  --sensitivity-output output/ablation/threshold_elephant --plot
+  --sensitivity-output output/ablation/threshold_mixed --plot
 ```
 
-`--ema` 只改变实际 `verify_cost` 更新系数 `verify_beta`：上升时 `v ← (1−β)v + β·tightness`，下降时沿用基线 `0.35β`。β 必须在 `(0, 1]`；诊断用的 `value_alpha/value_rho` 和旧 window 参数保持不变。
+`--ema` 的每个扰动点直接调用 `examples/mpc/franka/ik2/test_mpc_isaac.py`，使用该入口的仿真、规划器、求解器和默认参数；不经过消融规划器副本。只改变实际 `verify_cost` 更新系数 `verify_beta`：上升时 `v ← (1−β)v + β·tightness`，下降时沿用基线 `0.35β`。β 必须在 `[0, 1]`；诊断用的 `value_alpha/value_rho` 和旧 window 参数保持不变。EMA 模式不接受修改接受/释放阈值；阈值扫描仍通过消融入口的对应参数实现。
+
+EMA 控制链路修复（`verify_control_version=ema_mpc_v1`）：普通接触 MPC 直接使用 tracker 的连续 `verify`，不再根据接触可达性 / `path_blocked` 覆盖为 0/1；接近路径仍使用原几何控制。β=0 冻结评分（初始化为 0），β=1 上升立即响应、下降仍使用 0.35 的更新率。`--cpo-variant direct` 和 `--ideal_contact_pose` 的目标函数不使用这项混合权重，不能用于此 EMA 扫描。
+
+每条新轨迹记录 `verify_beta`、控制版本、`verify_mpc_steps`、实际权重的最小/最大/均值，以及 `verify_mpc_max_abs_error`。扫描器要求实际运行过接触 MPC，且实际权重等于 EMA 评分；否则报错。旧的二值覆盖版本结果可用于选取固定物体/seed，但不能作为修复后控制器的性能基线：汇总中标为 `historical_reference`、`baseline_comparable=false`，相对基线差值为空，绘图不使用这个历史点。不自动重测基线。
+
+旧扫描得到的平坦成功率曲线不能用于说明 EMA 鲁棒性。请将新结果输出到独立目录；旧结果和 SVG 保留以便追溯。重新绘图时应使用新扫描目录。
+
+`--ema-offsets` 为相对当前 `--verify_beta` 的绝对正负偏移，先基线再按半径递增运行，不会因为修改中心而继续扫描旧网格。也可用互斥的 `--ema-grid` 明确列出 beta 值。混合队列下始终补入基线，直接写入已有的 5 条基线结果，不启动子进程。默认 9 个网格点只有 8 个扰动点需要运行，共 40 次仿真；可以修改 `--verify_beta`，但必须提供对应中心值的已有基线记录。
 
 `--threshold` 改变当前有效的 `accept_enter_tightness`，通过新参数 `--verify-accept-threshold` 传入 tracker：同一 patch、靠近 p_arm 时，`tightness < threshold` 才接受，阈值越大越宽松。已接受后的释放阈值固定为 `--verify-release-threshold 0.65`；网格需满足 `0 ≤ threshold ≤ release ≤ 1`。best sample 的直接接受分支沿用基线。这里扫描的不是成功判定阈值，也不是已经不参与接受判定的历史 window/cost 阈值。模型置信度的尺度参数 `--model_cost_error_threshold` 保持原值。
 
 输出目录必须为空；省略 `--sensitivity-output` 时自动创建 `output/mpc_sensitivity/<模式>_<香港时间戳>`。文件包括：
 
-- `grid.json`：网格、固定参数、trial 范围和每个点的完整执行命令。
-- `cell_000/run.log` 等：每个点独立的 stdout/stderr；`trials.jsonl` 保存逐次试验结果，`rollout_summary.json` 保存该点的运行汇总。
-- `sensitivity.log`：JSONL 格式的网格成功率；`sensitivity_summary.csv` / `.json` 保存参数值、试验数、成功数、成功率和相对基线的成功率差值（0–1 单位）。自定义网格不含基线时差值为空。
+- `grid.json`：网格、固定参数、已有结果来源、选定队列和各扰动点的执行命令；基线点的 `runs` 为空。
+- `cohort.json`：固定的 5 个物体/seed、基线成功/失败标签、来源文件及记录下标。已有源文件保持原样，不再生成或运行 `selection/`。
+- `cell_*/trials.jsonl`：该点完整 5 条结果，保留 `cohort_id` / `baseline_success`，以物体和 trial 联合标识轨迹；不同物体允许使用相同 seed。扰动点的 `cell_*/<cohort_id>/run.log`、`trials.jsonl`、`rollout_summary.json` 保存每条轨迹的原始输出，基线原始输出由 `cohort.json` 的来源路径定位，`cell_000/trials.jsonl` 保存复用记录的副本。
+- `sensitivity.log`、`sensitivity_summary.csv` / `.json`：参数值、试验数、成功数、成功率、相对基线成功率差值（0–1 单位），以及相对所选历史轨迹标签的成功变失败 / 失败变成功条数；这些标签变化在基线版本不一致时不能作为单一参数的因果效应。`range` 模式维持原有 `cell_*/run.log` 等目录布局；自定义网格不含基线时差值为空。
 - 加 `--plot` 后生成 `success_rate.svg` / `.png`：横轴为 EMA β 或接受阈值，纵轴为成功率。
 
 先加 `--dry-run` 可以检查命令，不导入仿真器、不创建文件。绘图可在已有结果上单独执行，无需重新仿真：
 
 ```bash
 python -m examples.mpc.franka.experiments.mpc_ablation.sensitivity \
-  output/ablation/ema_elephant/sensitivity_summary.json
+  output/ablation/ema_mixed/sensitivity_summary.json
 ```
 
 ```bash

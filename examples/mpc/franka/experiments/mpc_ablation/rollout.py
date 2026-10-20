@@ -370,6 +370,8 @@ def run_mjwarp_headless(args):
 
 
 def main():
+    from models.contactsdf import dispatch_standalone
+    dispatch_standalone(ROOT, sys.argv[1:])
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument('--physics-backend', choices=('isaac', 'mjwarp'), default='isaac')
     backend, _ = pre.parse_known_args()

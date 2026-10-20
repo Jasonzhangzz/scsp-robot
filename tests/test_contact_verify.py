@@ -63,3 +63,18 @@ def test_switch_discards_old_patch_evidence():
     assert tracker.verify == 0.0
     assert not tracker.contact_active
     assert not tracker._target_window
+
+
+def test_zero_beta_freezes_the_score_until_explicit_reset():
+    tracker = ContactValueTracker(beta=0.)
+    tracker.verify = .4
+    for target in (0., 1., .2):
+        assert tracker.update_verify(tightness=target)[0] == .4
+    tracker.reset_contact()
+    assert tracker.update_verify(tightness=1.)[0] == 0.
+
+
+@pytest.mark.parametrize('beta', [-.1, 1.1, float('nan'), float('inf')])
+def test_invalid_beta_is_rejected(beta):
+    with pytest.raises(ValueError, match='verify beta'):
+        ContactValueTracker(beta=beta)

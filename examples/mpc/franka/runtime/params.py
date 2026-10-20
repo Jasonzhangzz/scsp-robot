@@ -205,7 +205,12 @@ def add_lambda_predictor_args(parser):
     parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
     parser.add_argument('--no-two-stage-object-cost', dest='two_stage_object_cost', action='store_false')
     parser.add_argument('--cso-guidance', choices=('cso', 'pose', 'random', 'nearest'), default='cso')
-    parser.add_argument('--contact-model', choices=('soft-scm', 'comfree', 'diagonal-contact'), default='soft-scm')
+    parser.add_argument('--contact-model', choices=('soft-scm', 'comfree', 'diagonal-contact', 'contactsdf'),
+                        default='soft-scm')
+    parser.add_argument('--contactsdf', action='store_true',
+                        help='Run the independent official ContactSDF MPC through the single-tip Franka adapter.')
+    parser.add_argument('--contactsdf-sigma', type=float, default=120.,
+                        help='ContactSDF log-sum-exp sharpness. The cube checkpoint uses about 120.4.')
     parser.add_argument('--soft-scm-response-time', '--force-response-time',
                         dest='soft_scm_response_time', type=float, default=SOFT_SCM_RESPONSE_TIME)
     parser.add_argument('--soft-scm-damping-ratio', type=float, default=SOFT_SCM_DAMPING_RATIO)
@@ -215,6 +220,8 @@ def add_lambda_predictor_args(parser):
 
 def build_lambda_optimizer(param, args):
     """Same acados contact NLP as examples/mpc/fingertips/test/params.py."""
+    if getattr(param, 'contact_model', '') == 'contactsdf':
+        raise ValueError('ContactSDF uses the independent official MPC, without Lambda/CSO')
     runtime_cost = bool(getattr(param, 'runtime_object_cost_', False))
     grouped_response = bool(getattr(param, 'grouped_contact_response_', False))
     extracted = bool(getattr(param, "_collision_mesh_extracted", False))
@@ -281,6 +288,8 @@ def build_lambda_optimizer(param, args):
 class ExplicitMPCParams:
     def __init__(self, args, rand_seed=1, target_type="ground-rotation", mpc_model="explicit",
                  build_optimizer=True):
+        from models.contactsdf import apply_contactsdf_args
+        apply_contactsdf_args(args)
         self.contact_cost_param = float(args.contact_cost_param)
         self.cpo_variant = str(getattr(args, "cpo_variant", "full"))
         if self.cpo_variant not in ("full", "no_object_center", "direct"):
@@ -492,11 +501,14 @@ class ExplicitMPCParams:
         # at h=.02) and makes the approaching arm crawl.
         self.contact_dynamics = 'quasi-dynamic'
         self.contact_model = normalize_contact_model(getattr(args, 'contact_model', 'soft-scm'))
+        if self.contact_model == 'contactsdf':
+            self.contactsdf_theta_ = np.asarray(args.contactsdf_theta, dtype=float).copy()
+            self.contactsdf_theta_source_ = str(args.contactsdf_theta_source)
         self.online_scm_ = bool(getattr(args, 'online_scm', False) or getattr(args, 'scm_parameters', '') or getattr(args, 'scm_record_data', False)) and self.contact_model == 'soft-scm'
         self.soft_scm_response_time = float(getattr(args, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME))
         self.soft_scm_damping_ratio = float(getattr(args, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO))
         self.soft_scm_regularization = float(getattr(args, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION))
-        if self.contact_model != 'diagonal-contact':
+        if self.contact_model not in ('diagonal-contact', 'contactsdf'):
             soft_scm_coefficients(self.h_, self.soft_scm_response_time,
                                   self.soft_scm_damping_ratio, self.soft_scm_regularization)
 
@@ -525,7 +537,8 @@ class ExplicitMPCParams:
         self.mpc_q_ub_ = np.hstack((1e7 * np.ones(7), fts_q_ub))
         self.sol_guess_ = None
         self.max_env_contacts_ = 4
-        self.lambda_optimizer = build_lambda_optimizer(self, args) if build_optimizer else None
+        self.lambda_optimizer = (build_lambda_optimizer(self, args)
+            if build_optimizer and self.contact_model != 'contactsdf' else None)
 
     @staticmethod
     def calculate_rotation_quaternion(x, target_position):

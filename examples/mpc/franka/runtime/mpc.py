@@ -2028,6 +2028,14 @@ def _free_space_air_mode(if_contact, tip, press, path_blocked):
 
 
 def _configure_rollout_param(param, args):
+    if getattr(args, 'rs_require_acados', False):
+        param.rs_require_acados_ = True
+        param.mpc_ipopt_fallback_ = False
+        opt = param.lambda_optimizer
+        if opt is not None:
+            if opt.acados_solver is None:
+                raise RuntimeError(f'RS requires contact acados: {opt.acados_error}')
+            opt.acados_max_fallbacks_per_cycle = 0
     param.tool_orientation_control_ = getattr(args,'tool_orientation_control','free')
     param.nullspace_inertia_damping_ = resolve_nullspace_damping_model(args) == 'projected-inertia'
     param.rollout_press_patch = True
@@ -2806,6 +2814,9 @@ def _apply_execution_mode(args):
 
 
 def run_mpc_planner(bus, args):
+    from planning.verify_control import VerifyControlStats
+    if getattr(args, 'contactsdf', False) or getattr(args, 'contact_model', '') == 'contactsdf':
+        raise ValueError('Use contactsdf_run.py for the independent official ContactSDF controller')
     from examples.mpc.franka.runtime.bus import wait_trial_obs
     from planning.mpc_explicit import (
         _build_mpc_planner_runtime,
@@ -2916,6 +2927,7 @@ def run_mpc_planner(bus, args):
         previous_trace_pose = None
         pose_snapshot_saved = False
         rollout_step = 0
+        verify_stats = VerifyControlStats()
         trial_success = False
         consecutive_success_time = 0
         min_pos_err = float("inf")
@@ -2995,6 +3007,7 @@ def run_mpc_planner(bus, args):
                     sampling_controller, args, plan_param, mpc, trackers, payload,
                     exec_step, pos_err_now, quat_err_now,
                 )
+            verify_stats.observe(result)
             planning_wall_times.append(time.perf_counter() - planning_started)
             if trial_record is not None:
                 trial_record.note_planning(planning_wall_times[-1])
@@ -3044,6 +3057,8 @@ def run_mpc_planner(bus, args):
                         osc_force=(None if obs.get('osc_force') is None else np.asarray(obs['osc_force']).tolist()),
                         ranking_ms=1000*float(result.get('rank_dt', 0.)),
                         mpc_ms=1000*float(result.get('plan_dt', 0.)),
+                        verify_score=result.get('verify_cost'),
+                        verify_cost_applied=result.get('verify_cost_applied'),
                         approach_path_ms=float(result.get('approach_path_ms', 0.)),
                         solver_backend=result.get('solver_backend'),
                         lambda_solver_status=result.get('lambda_solver_status'),
@@ -3223,6 +3238,8 @@ def run_mpc_planner(bus, args):
         plan_arr = np.asarray(plan_times, dtype=np.float64) if plan_times else np.array([0.0])
         solve_mean_s = float(np.mean(choose_arr + plan_arr))
         trial_summary = {
+            **verify_stats.summary(),
+            "verify_beta": float(getattr(args, "verify_beta", .18)),
             "trial": trial_count,
             "seed": trial_count,
             "numpy_seed": 100 + trial_count,

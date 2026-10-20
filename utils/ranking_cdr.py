@@ -52,12 +52,12 @@ def contact_decision_context(opt, curr_q, near_idx, guide_idx, *, near_arm,
 
     relocating = bool((not accept or switch_observed) and not hold)
     decision = 'switch' if relocating and distinct(near_idx, guide_idx) else 'stay'
-    switch_idx = guide_idx if decision == 'switch' else best_idx
+    switch_idx = guide_idx if distinct(near_idx, guide_idx) else best_idx
     candidate_ids = np.asarray(getattr(opt, 'last_candidate_ids', []), dtype=int)
     costs = np.asarray(getattr(opt, 'last_candidate_costs', []), dtype=float)
     hits = np.flatnonzero(candidate_ids == switch_idx) if switch_idx is not None else []
     feasible = bool(len(hits) and np.isfinite(costs[int(hits[0])]))
-    eligible = bool((near_arm or observed) and (decision == 'switch' or accept or hold)
+    eligible = bool((decision == 'switch' or accept or hold)
                     and distinct(near_idx, switch_idx) and feasible)
     best_world = (_local_to_world(point(guide_idx), curr_q) if guide_target_world is None
                   else np.asarray(guide_target_world).tolist())
@@ -65,7 +65,7 @@ def contact_decision_context(opt, curr_q, near_idx, guide_idx, *, near_arm,
                   else np.asarray(near_target_world).tolist())
     optimal_world = (_local_to_world(point(best_idx), curr_q) if optimal_target_world is None
                      else np.asarray(optimal_target_world).tolist())
-    switch_world = best_world if decision == 'switch' else optimal_world
+    switch_world = best_world if switch_idx == guide_idx else optimal_world
     return dict(decision=decision, eligible=eligible, near_idx=near_idx,
                 optimal_idx=best_idx, guide_idx=guide_idx, switch_idx=switch_idx,
                 best_contact_idx=guide_idx, best_contact_local=point(guide_idx),
@@ -108,12 +108,48 @@ def assert_matched(actual, expected, *, atol, path='prefix'):
         raise RuntimeError(f'{path}: replay decision/value mismatch')
 
 
+class ContactCommitment:
+    """Protect one object-local surface target until measured contact there."""
+    def __init__(self, idx, local_point, inward_normal, branch, *, tolerance=.01):
+        self.idx, self.branch = int(idx), branch
+        self.local_point = np.asarray(local_point, dtype=float).copy()
+        self.inward_normal = np.asarray(inward_normal, dtype=float).copy()
+        self.tolerance = tolerance
+        self.record = dict(target_idx=self.idx, target_local=self.local_point.tolist(),
+                           forced_decision=branch, reached=False, release_step=None)
+        self.verify_state = None
+
+    def freeze_verify(self, tracker):
+        self.verify_state = {key: copy.deepcopy(getattr(tracker, key)) for key in
+            ('verify', 'contact_active', '_target_window', '_last_verify_target',
+             'good_streak', 'bad_streak', 'contact_phase_steps')}
+        self.record['original_verify'] = float(tracker.verify)
+        self.record['frozen_verify'] = float(self.branch == 'switch')
+        self.restore_verify(tracker)
+
+    def restore_verify(self, tracker, *, forced=True):
+        if self.verify_state is not None:
+            for key, value in self.verify_state.items():
+                setattr(tracker, key, copy.deepcopy(value))
+            if forced:
+                tracker.verify = self.record['frozen_verify']
+                tracker.contact_active = tracker.verify >= tracker.exit_threshold
+
+    def reached(self, actual_contact, position, rotation):
+        if actual_contact is None or not float(actual_contact.get('dist', np.inf)) <= 0:
+            return False
+        measured = np.asarray(rotation).T @ (
+            np.asarray(actual_contact['point_world']) - np.asarray(position))
+        return bool(np.linalg.norm(measured-self.local_point) <= self.tolerance)
+
+
 class DecisionSampler:
     """Record switching onsets and best-change + accepted-near timestamps.
 
     Near sample jitter does not create an event. Consecutive commands pursuing
     the same destination are one switching event. Initial ranking is not a
-    best-change event. Travel without a nearby/observed patch is not eligible.
+    best-change event. Mixed sampling also admits detached approach decisions
+    when there are distinct feasible nearby and guided targets.
     """
     def __init__(self, *, best_change_distance=.01, target=None, expected=None,
                  forced=None, match_atol=1e-7):
@@ -129,6 +165,7 @@ class DecisionSampler:
         self.switch_count = self.evaluations = 0
         self.applied = False
         self.in_physical_contact = False
+        self.commitments = []
 
     def __call__(self, context):
         context = copy.deepcopy(context)
@@ -178,18 +215,46 @@ def select_events(events, *, max_per_kind=10, seed=0):
     return sorted(selected, key=lambda e: e['step'])
 
 
-def select_decision_points(decisions, *, count=5, seed=0, stage='all'):
-    """Sample made-contact decisions, excluding travel; never condition on A."""
+def select_decision_points(decisions, *, count=5, seed=0, stage='all',
+                           mixed_contact=False, min_distance=.03):
+    """Sample contact-only or mixed states; never condition on branch outcomes."""
     if count <= 0:
         raise ValueError('samples-per-trajectory must be positive')
+    if not np.isfinite(min_distance) or min_distance <= 0:
+        raise ValueError('Minimum contact separation must be positive')
     pool = [d for d in decisions if d['eligible']
-            and d.get('in_physical_contact', False) and not d.get('in_transit', False)
+            and (mixed_contact or (d.get('in_physical_contact', False)
+                                   and not d.get('in_transit', False)))
             and (stage == 'all' or d.get('stage') == stage)]
+    if mixed_contact:
+        pool = [d for d in pool
+                if d.get('p_arm_world') is not None
+                and d.get('best_contact_point_world') is not None
+                and np.linalg.norm(np.asarray(d['p_arm_world'])
+                    - np.asarray(d['best_contact_point_world'])) >= min_distance]
     if len({d['step'] for d in pool}) != len(pool):
         raise ValueError('Multiple ranking decisions at one control step')
     if len(pool) < count:
-        raise ValueError(f'Need {count} distinct eligible physical-contact decisions, found {len(pool)}')
-    indices = sorted(np.random.default_rng(seed).choice(len(pool), count, replace=False))
+        raise ValueError(f'Need {count} distinct eligible decisions, found {len(pool)}')
+    rng = np.random.default_rng(seed)
+    if mixed_contact:
+        if count < 2 or not any(d.get('in_physical_contact', False) for d in pool) or not any(
+                not d.get('in_physical_contact', False) for d in pool):
+            raise ValueError('Mixed sampling requires both touching and detached decisions')
+        # Sample uniformly conditional on both strata being represented. Draw
+        # the contact count from the conditional hypergeometric distribution,
+        # then sample uniformly within each stratum (no rejection-loop bias).
+        from math import comb
+        touching = [i for i, d in enumerate(pool) if d.get('in_physical_contact', False)]
+        detached = [i for i, d in enumerate(pool) if not d.get('in_physical_contact', False)]
+        counts = list(range(max(1, count-len(detached)), min(count-1, len(touching))+1))
+        weights = [comb(len(touching), k)*comb(len(detached), count-k) for k in counts]
+        total = sum(weights)
+        k = int(rng.choice(counts, p=[w/total for w in weights]))
+        indices = sorted([*rng.choice(touching, k, replace=False),
+                          *rng.choice(detached, count-k, replace=False)])
+    else:
+        indices = sorted(rng.choice(len(pool), count, replace=False))
     return [dict(pool[i], event_kind=pool[i].get('event_kind', 'decision')) for i in indices]
 
 
@@ -221,8 +286,8 @@ def source_decision_statistics(decisions, summary, *, change_distance=.01):
 
 
 def table_vi_statistics(states, trials, *, policy_dt=.02):
-    """Seven Table VI quantities, using original successful sources only."""
-    sources = [t for t in trials if t['success'] and not t.get('aborted')
+    """Seven Table VI quantities, using all selected original sources."""
+    sources = [t for t in trials if not t.get('aborted')
                and t.get('rs_source_selected', True)]
     measured = [t for t in sources if t.get('mpc_contact_switches') is not None]
     seconds = sum(t['steps']*float(t.get('policy_interval_s', policy_dt)) for t in sources)
@@ -231,7 +296,7 @@ def table_vi_statistics(states, trials, *, policy_dt=.02):
     near = sum(t.get('rs_near_selections', 0) for t in sources)
     optimal = sum(t.get('rs_optimal_selections', 0) for t in sources)
     star_complete = bool(sources) and all(t.get('p_star_patch_switches') is not None for t in sources)
-    advantages = [s['advantage_rs'] for s in states]
+    advantages = [s.get('normalized_advantage', s['advantage_rs']) for s in states]
     return dict(
         contact_switch_count=(sum(t['mpc_contact_switches'] for t in measured)
                               if sources and len(measured) == len(sources) else None),
@@ -247,13 +312,13 @@ def table_vi_statistics(states, trials, *, policy_dt=.02):
         binary_decisions=binary, near_selections=near, optimal_selections=optimal,
         total_source_seconds=seconds,
         definitions=dict(
-            contact_switch_count='completed physical relocations summed over original successful trajectories',
+            contact_switch_count='completed physical relocations summed over all selected original trajectories',
             p_near='near selections / eligible binary contact decisions, over complete source trajectories',
             p_optimal='optimal selections / eligible binary contact decisions, over complete source trajectories',
             f_near_hz='near selections / total synchronous source simulated seconds',
             f_p_star_hz='object-local CSO argmin patch changes / total synchronous source simulated seconds; first point excluded',
             p_advantage_positive='count(A > 0) / all sampled points, including A = 0',
-            advantage='V_RS - V_opposite; sample std (ddof=1), including A = 0'))
+            advantage='(V_RS - V_opposite) / max(V_RS, V_opposite), zero if both fail; sample std (ddof=1), including A = 0'))
 
 
 def continuation_outcome(summary, start_step, *, gamma, policy_dt=.02):
@@ -273,7 +338,7 @@ def evaluate_state(event, rollouts, *, gamma):
     """Estimate each Q by averaging rewards BEFORE taking max and regret."""
     if not 0 < gamma < 1:
         raise ValueError('CDR gamma must be in (0, 1)')
-    q = {}
+    q, log_q = {}, {}
     for branch in ('switch', 'stay'):
         outcomes = rollouts[branch]
         if not outcomes:
@@ -281,13 +346,25 @@ def evaluate_state(event, rollouts, *, gamma):
         rewards = [discounted_terminal_reward(o['success'], o['steps'], gamma=gamma)
                    for o in outcomes]
         q[branch] = float(np.mean(rewards))
+        logs = [o['steps']*np.log(gamma) for o in outcomes if o['success']]
+        if logs:
+            anchor = max(logs)
+            log_q[branch] = anchor + np.log(sum(np.exp(x-anchor) for x in logs)) - np.log(len(outcomes))
+        else:
+            log_q[branch] = -np.inf
     rs = event['decision']
     opposite = 'stay' if rs == 'switch' else 'switch'
     advantage = q[rs] - q[opposite]
+    # Normalize in log space, also when averaging repeated continuations.
+    # Long successful suffixes must not become indistinguishable from failure.
+    anchor = max(log_q.values())
+    normalized = (float(np.exp(log_q[rs]-anchor) - np.exp(log_q[opposite]-anchor))
+                  if np.isfinite(anchor) else 0.)
     return dict(**event, rollouts=rollouts, q=q, q_rs=q[rs],
                 value_original=q[rs], value_perturbed=q[opposite],
                 value_delta=q[opposite] - q[rs],
-                advantage_rs=advantage, advantage_switch=q['switch']-q['stay'],
+                advantage_rs=advantage, normalized_advantage=float(normalized),
+                advantage_switch=q['switch']-q['stay'],
                 cdr=max(q.values())-q[rs])
 
 
@@ -311,6 +388,16 @@ def summarize_cdr(states, trials, *, gamma, policy_dt=.02):
         source_trials=len(trials), successful_source_trials=len(successful),
         cdr=_mean_std([s['cdr'] for s in states]),
         advantage_rs=_mean_std([s['advantage_rs'] for s in states]),
+        normalized_advantage=_mean_std([s.get('normalized_advantage', s['advantage_rs']) for s in states]),
+        by_contact_state={name: dict(n_states=len(group),
+            normalized_advantage=_mean_std([s.get('normalized_advantage', s['advantage_rs']) for s in group]))
+            for name, group in ((name, [s for s in states
+                if s.get('in_physical_contact') is touching])
+                for name, touching in [('touching', True), ('detached', False)])},
+        by_source_outcome={name: dict(n_states=len(group),
+            normalized_advantage=_mean_std([s.get('normalized_advantage', s['advantage_rs']) for s in group]))
+            for name, group in ((name, [s for s in states if s.get('source_success') is success])
+                for name, success in [('success', True), ('failure', False)])},
         by_event={kind: dict(cdr=_mean_std([s['cdr'] for s in states if s['event_kind']==kind]),
             advantage_rs=_mean_std([s['advantage_rs'] for s in states if s['event_kind']==kind]))
             for kind in ('switch', 'best_changed_stay', 'decision')},

@@ -1193,6 +1193,8 @@ class ContactValueTracker:
         self.rho = float(rho)
         self.alpha = float(alpha)
         self.beta = float(beta)
+        if not np.isfinite(self.beta) or not 0 <= self.beta <= 1:
+            raise ValueError('verify beta must be finite and in [0, 1]')
         self.dist_mid = float(dist_mid)
         self.dist_width = float(dist_width)
         self.window_size = max(1, int(window_size))
@@ -1374,6 +1376,20 @@ def compute_rollout_contact_via(
 
     param.lambda_optimizer.update_Jacobian(jac_mat_env, phi=getattr(param, 'lambda_env_phi_', None))
     actual_contact = getattr(param, 'lambda_actual_contact_', None)
+    rs_commitment = getattr(param, 'rs_contact_commitment_', None)
+    rs_hook = getattr(param, 'rs_decision_hook', None)
+    if (getattr(rs_hook, 'require_acados', False)
+            and getattr(param.lambda_optimizer, 'acados_solver', None) is None):
+        raise RuntimeError('Matched RS rollout requires contact acados; initialization failed: '
+                           + str(getattr(param.lambda_optimizer, 'acados_error', None)))
+    if rs_commitment is not None:
+        # A flip -> pose stage transition can reset the ordinary tracker.
+        # Retain the frozen evidence across that transition as well.
+        rs_commitment.restore_verify(value_tracker)
+    if rs_commitment is not None and rs_commitment.reached(actual_contact, curr_q[:3], r_obj_to_world):
+        rs_commitment.record.update(reached=True, release_step=getattr(rs_hook, 'step', None))
+        rs_commitment.restore_verify(value_tracker, forced=False)
+        param.rs_contact_commitment_ = rs_commitment = None
     object_cost_stage = getattr(param, 'object_cost_stage_', None)
     reacquire = (approach_via.reacquire_contact(curr_q[7:10])
         if compound_path and object_cost_stage == 'flip' and actual_contact is None else None)
@@ -1743,34 +1759,74 @@ def compute_rollout_contact_via(
             optimal_target_world=optimal_target_world,
         )
         rs_context['in_transit'] = bool(getattr(approach_via, 'blocked', False))
-        forced = rs_hook(rs_context)
+        rs_context['near_surface_local'] = np.asarray(p_arm_local).tolist()
+        rs_context['near_inward_local'] = p_arm_inward_local.tolist()
+        rs_context['verify_score'] = float(value_tracker.verify)
+        rs_context['verify_selects'] = ('p_arm_world' if rs_context['decision'] == 'stay'
+                                        else 'best_contact_point_world')
+        rs_context['target_separation_m'] = float(np.linalg.norm(p_arm_track_world-best_contact_track_world))
+        # An active commitment bypasses further ranking decisions. CSO/CPO
+        # still replan; only the contact destination and verify are frozen.
+        forced = None if rs_commitment is not None else rs_hook(rs_context)
         if forced is not None:
             if forced not in ('switch', 'stay') or not rs_context['eligible']:
                 raise ValueError('Counterfactual requires a distinct reachable switch/stay pair')
+            from utils.ranking_cdr import ContactCommitment
             do_switch = forced == 'switch'
-            best_idx = int(rs_context['switch_idx'] if do_switch else p_arm_idx)
-            if do_switch:
-                best_contact_point = param.lambda_optimizer.sample_point[best_idx]
-                normal = param.lambda_optimizer.normal[best_idx]
-                cached_x_plus, cached_force, cached_cost = _candidate_solution(
-                    param.lambda_optimizer, best_idx)
-                best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
-                    curr_q[:3], r_obj_to_world, best_contact_point, normal,
-                    fingertip_radius, args.ideal_contact_surface_margin)
-            else:
-                best_contact_track_world, best_contact_world = p_arm_track_world, p_arm_surface_world
-                best_normal_world = -r_obj_to_world @ p_arm_normal_out
+            idx = int(rs_context['switch_idx'] if do_switch else p_arm_idx)
+            point = param.lambda_optimizer.sample_point[idx] if do_switch else p_arm_local
+            inward = param.lambda_optimizer.normal[idx] if do_switch else p_arm_inward_local
+            rs_commitment = ContactCommitment(idx, point, inward, forced,
+                tolerance=float(getattr(args, 'rs_contact_tolerance', .01)))
+            rs_commitment.freeze_verify(value_tracker)
+            rs_commitment.record['start_step'] = getattr(rs_hook, 'step', None)
+            if hasattr(rs_hook, 'commitments'):
+                rs_hook.commitments.append(rs_commitment.record)
+            param.rs_contact_commitment_ = rs_commitment
+            # Reset the old route once; keep the new detour's history while
+            # approaching this fixed surface point on the moving object.
+            approach_via.reset()
+        if rs_commitment is not None:
+            best_idx = rs_commitment.idx
+            best_contact_point = rs_commitment.local_point
+            normal = rs_commitment.inward_normal
+            best_contact_track_world, best_contact_world, best_normal_world = _sphere_center_on_patch(
+                curr_q[:3], r_obj_to_world, best_contact_point, normal,
+                fingertip_radius, args.ideal_contact_surface_margin)
+            # Re-solve the protected geometry at the current state; a new CSO
+            # ranking need not contain this old target in its candidate cache.
+            if forced == 'stay':
                 cached_x_plus, cached_force, cached_cost = x_plus_opt, info['control_input'], error
+            else:
+                _, _, cached_x_plus, cached_cost, locked_info = param.lambda_optimizer.optimize_control_input(
+                    target_pose_eval, current_pose_eval, gravity,
+                    p_arm=best_contact_point, sample_idx=best_idx,
+                    contact_point_local=best_contact_point, contact_normal_inward=normal)
+                cached_force = locked_info.get('control_input', np.zeros(3))
             param.lambda_optimizer.last_selected_idx = best_idx
+            do_switch = rs_commitment.branch == 'switch'
             value_info['accept_p_arm'] = value_info['cost_ok'] = not do_switch
             value_tracker._holding_p_arm = not do_switch
             hold_occupied = not do_switch
             switch_observed_contact = do_switch
             value_info['switch_observed_contact'] = do_switch
-            value_info['rs_forced_decision'] = forced
-            arrived_at_best = arrived_hold = not do_switch
-            arrived_dest_idx = None if do_switch else best_idx
-            approach_via.reset()
+            # Write the chosen geometry for both decisions, including a
+            # detached p_arm target whose normal projection can drift later.
+            p_arm_world = p_arm_track_world = best_contact_track_world
+            p_arm_surface_world = best_contact_world
+            x_plus_opt, error = cached_x_plus, float(cached_cost) if cached_cost is not None else float(min_error)
+            info = dict(control_input=cached_force if cached_force is not None else np.zeros(3),
+                        solver_failed=cached_x_plus is None)
+            value_info['rs_forced_decision'] = rs_commitment.branch
+            value_info['rs_commitment_active'] = True
+            arrived_at_best = arrived_hold = False
+            arrived_dest_idx = None
+            # Recovery and airborne-contact guards must not replace the
+            # committed point with the old measured patch.
+            reacquire = None
+            flip_contact_protected = False
+            if compound_path:
+                approach_via.destination_idx = best_idx
     if transition is not None:
         value_info.update(contact_transition_stay_cost=transition['stay_cost'],
             contact_transition_switch_cost=transition['switch_cost'],
@@ -1811,8 +1867,12 @@ def compute_rollout_contact_via(
     on_verify_target = bool(
         arrived_at_best or dist_to_exec <= 0.03
         or (align_info['ok'] and near_patch))
-    verify_now, q_dist = value_tracker.update_verify(
-        dist_exec=dist_to_exec, tightness=model_tightness)
+    if rs_commitment is None:
+        verify_now, q_dist = value_tracker.update_verify(
+            dist_exec=dist_to_exec, tightness=model_tightness)
+    else:
+        verify_now, q_dist = float(value_tracker.verify), 0.
+
     value_info['using_observed_contact'] = actual_contact is not None
     value_info['actual_contact_idx'] = actual_contact_idx
     value_info['contact_patch_locked'] = bool(param.lambda_optimizer.lock_contact_patch)

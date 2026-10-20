@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/asu-iris/ContactSDF",
+  "commit": "3a21edf8e51788f72a7d77259af4dd584d5ec43f",
+  "original_sha256": {
+    "planning/ball_mpc_lse.py": "53d47489fd56300b12b3d2a9b917a4cf509a2a38c263e4be62c02945c9390975",
+    "contact/ball_lse_contact_detection.py": "ac40c536d4ecff171772ff261ff4c62235c3292132c4c7a0b4a0f6048826ad60",
+    "utils/rotations.py": "d6b864ab22290a7281b5d20498c69715e3521f8d6866e238bcd39f8ab434144a",
+    "utils/pointcloudMap.py": "8bfbf781f755d10f5ab38a673aeb910db837c96509d1f51426d94e8bce56528a",
+    "cost/ball_cube/cost_three_ball_cube.py": "2aa0cdea1a98b6cc5cdbee7b509f7fcbb40b86aa161eda9b7a9f4870b7e0c261",
+    "cost/ball_foambrick/cost_three_ball_foambrick.py": "0647251862a02e04083f2c2c843eadbd782d5089decac7b43ea720f3e100d6ec",
+    "cost/ball_stick/cost_three_ball_stick.py": "2f7d980bf04a4b42c361face7b74da4f97c083c91c46e5ab217e18c647d01042",
+    "learning/cases/cube/cube_param.py": "42542cc3388165b3ca62cd96b02947e68c7df2fb169b0c1f33cb64e0d96304e3",
+    "learning/cases/foambrick/foam_param.py": "0a84f43afc0270411bb51483ada69f6129c03b99e81d856bd4bf1f73d7e63517",
+    "learning/cases/stick/stick_param.py": "1170633e75992da2807c603bba472d2a425f5c5f7a55a4637c09b313041c42f2",
+    "dynamics/lse_dynamics.py": "cbdf37f79747de0eb5893663f472357736261135e4a1a2c318bcf0c157ef582c",
+    "test_cube.py": "c51ec27aedd50e7d28c8da23c0fdde47797c88c624a24cdf60da425303b959cc",
+    "test_foambrick.py": "63b2ef2836c51be033bada0fa8badb27d8e27966b3de35b8e5fb8d8d69481aa1",
+    "test_stick.py": "8ece341852a8b7750260eb9d23d40f29d76d27cff88e43264d60ae17dbb6eca2"
+  },
+  "adaptations": {
+    "ball_mpc_lse.py": "Relative import only; optimization, initialization, options and warm starts unchanged.",
+    "ball_lse_contact_detection.py": "Relative imports; remove unused simulator type annotation; reshape fingertip state by dimension instead of hard-coding three tips. All SDF/contact calculations unchanged.",
+    "single_ball_cost.py": "Generalize the existing contact-distance and grasp-closure sums to the actual fingertip count; retain all active weights and terminal scaling."
+  }
+}

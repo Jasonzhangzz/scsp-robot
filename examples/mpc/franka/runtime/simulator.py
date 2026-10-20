@@ -1422,6 +1422,8 @@ def _plan_payload(env, contact, table_ground, dwell=None):
         "full_q": np.asarray(full_q, dtype=np.float32),
         "phi_vec": np.asarray(phi_vec, dtype=np.float64),
         "jac_mat": np.asarray(jac_mat, dtype=np.float64),
+        "jac_n": None if getattr(contact, 'jac_n', None) is None else np.asarray(contact.jac_n, dtype=np.float64),
+        "jac_f": None if getattr(contact, 'jac_f', None) is None else np.asarray(contact.jac_f, dtype=np.float64),
         "jac_mat_env": np.asarray(jac_mat_env, dtype=np.float64),
         "env_phi": np.asarray(getattr(contact, 'env_phi', np.zeros(jac_mat_env.shape[0])), dtype=np.float64),
         "if_contact": bool(if_contact),
@@ -1498,7 +1500,7 @@ def _plan_from_obs(obs, dwell=None):
     for key in ('sim_time', 'object_linear_velocity', 'object_angular_velocity', 'seq', 'osc_upright_guard_active', 'actual_contact', 'fingertip_linear_velocity', 'executed_action', 'tool_quaternion_world', 'tool_angular_velocity'):
         if key in obs:
             payload[key] = obs[key]
-    for key in ("phi_vec", "jac_mat", "jac_mat_env", "env_phi"):
+    for key in ("phi_vec", "jac_mat", "jac_n", "jac_f", "jac_mat_env", "env_phi"):
         if obs.get(key) is not None:
             payload[key] = np.asarray(obs[key], dtype=np.float64)
     if obs.get("scm_transitions") is not None:

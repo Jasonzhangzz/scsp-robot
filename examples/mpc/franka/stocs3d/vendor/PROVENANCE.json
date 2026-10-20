@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/zmccmzty/STOCS-3D",
+  "commit": "1bb8739f18cc63103de76e40466433c05b860e2e",
+  "note": "Python sources copied unmodified. Contact selection is STOCS.oracle; CITO is MPCC solved by Drake SnoptSolver.",
+  "sha256": {
+    "MPCC.py": "ea354b02912d3e25dcf07c33c04cab3f5e2e4388e00010fbde37f55ad35f8c04",
+    "STOCS.py": "3d5d27c542521c04aed47d3b54e1d767adc6d169d5c48f74e5bdec96751f22b1",
+    "plot_result.py": "f1f911046ae4bacd610a1dc869770cf4e5dd4aa07bfbd555bed62ee6dbe23005",
+    "semiinfinite/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "semiinfinite/constraint.py": "69bb584262752414c78a9540883a2b7bd2b8a0b74cbfad4039d1f7b1a7017141",
+    "semiinfinite/geometryopt.py": "3a34736565eb284fdb9b3a70ad898a1e214286b58d57554aa9753ac62e54897f",
+    "semiinfinite/objective.py": "cbb4e0fb317e2c84276b7c9e22062131bace9e53d63dc37df58a0998b7b2e3a8",
+    "semiinfinite/planopt.py": "cf0777b9ebe18e73c78deb7eb7c433e827d61488dcaa5a232e2f15ea9933d373",
+    "semiinfinite/sip.py": "1751321e8fe30a9e8be564dc99dec13bd303df1e9178a5ab2e4f0463b7f5f303",
+    "semiinfinite/utils.py": "9125108d4355d35443461a635668d60680df66b3d8d525d066ea8144aea44ccf",
+    "utils.py": "c415b57d5fe8edb51310d07d8f5303125ddb1713edbff0007b680f14cd2bbee4"
+  }
+}

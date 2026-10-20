@@ -14,6 +14,8 @@ def test_csv_candidates_filter_task_success_and_duplicate_seed(tmp_path):
     assert [c['trial'] for c in rotation] == [0]
     flipping = csv_source_candidates([recent, old], obj='mug', task='flipping', seed=0)
     assert sorted(c['trial'] for c in flipping) == [2, 4]
+    failed = csv_source_candidates([recent, old], obj='mug', task='rotation', seed=0, success=False)
+    assert [c['trial'] for c in failed] == [1]
 
 
 def test_cohort_exports_complete_cases_only_and_updates_target_table(tmp_path):

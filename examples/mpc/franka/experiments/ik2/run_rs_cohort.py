@@ -134,6 +134,7 @@ def main():
             case.update(status='failed', error='No historical successful CSV seed for this case')
             continue
         command = [sys.executable, '-u', str(ROOT/'test_rs.py'), '--obj', case['object'],
+                   '--rs-cohort', 'single', '--rs-contact-sampling', 'touching',
                    '--'+case['task'], '--rs-output', str(directory),
                    '--rs-source-csv', *paths,
                    '--rs-samples-per-trajectory', str(args.samples),

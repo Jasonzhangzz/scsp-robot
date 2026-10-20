@@ -8,6 +8,10 @@ import sys
 def main():
     root = Path(__file__).resolve().parents[4]
     sys.path.insert(0, str(root))
+    from models.contactsdf import dispatch_standalone
+    from examples.mpc.franka.stocs3d.dispatch import dispatch_offline
+    dispatch_offline(root, sys.argv[1:])
+    dispatch_standalone(root, sys.argv[1:])
     from planning.cpu_runtime import configure_compute_threads
     configure_compute_threads()
     from examples.mpc.franka.experiments.mpc_ablation.config import selection_parser
@@ -15,7 +19,8 @@ def main():
     select_parser = selection_parser()
     selection, rest = select_parser.parse_known_args()
     if not (selection.ema or selection.threshold) and any(
-            flag.split('=')[0] in ('--ema-grid', '--threshold-grid', '--sensitivity-output',
+            flag.split('=')[0] in ('--ema-grid', '--ema-offsets', '--threshold-grid',
+                                 '--sensitivity-output', '--sensitivity-cohort', '--baseline-results',
                                  '--plot', '--dry-run') for flag in sys.argv[1:]):
         select_parser.error('sensitivity options require --ema or --threshold')
     if (selection.ema or selection.threshold) and not any(

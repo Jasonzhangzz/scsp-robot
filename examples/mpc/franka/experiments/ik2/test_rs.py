@@ -1,17 +1,18 @@
-"""Run matched IsaacGym switch/stay rollouts for ranking Value differences.
+"""Matched ranking counterfactuals: four successful sources and one failure.
 
-Examples (run from the repository root, using the simulation environment):
-  python test_rs.py --obj foam_brick --rotation --trial_num 10 \
-      --rs-samples-per-trajectory 5 --rs-output outputs/rs_rotation
-  python test_rs.py --obj foam_brick --flipping --trial_num 1 \
-      --headless --sync-planner --no-adaptive --solver-backend acados \
-      --rs-event-stage flip --rs-output outputs/rs_flip
+Default cohort (flipping): bunny2 success + failure, elephant, piggy_bank,
+and rubber_duck success. Each source contributes six distinct random states,
+including both measured-contact and detached states, with >=3 cm separation
+between p_arm_world and best_contact_point_world.
 
-The original successful suffix supplies the factual Q sample. The opposite
-branch reconstructs the complete prefix and changes ONLY the sampled decision;
-subsequent SCSP replanning remains enabled. Extra repetitions replay both
-branches. With deterministic physics these are identical, not independent
-noise samples. T is remaining 20 ms control steps, including the chosen action.
+  python test_rs.py --rs-output outputs/rs_five
+  python test_rs.py --rs-cohort single --obj stanford_bunny2 --flipping \
+      --trial_num 5 --rs-source-outcome failure --rs-output outputs/rs_bunny_fail
+
+Reconstruct and verify the complete prefix. Invert one ranking decision and
+freeze its object-local contact destination and verify until measured contact
+there (or trial termination), while CPO continues closed-loop replanning.
+Report both raw value differences and the paper's normalized advantage.
 """
 from __future__ import annotations
 
@@ -48,11 +49,16 @@ class MatchedRolloutBus:
             return obs
         self.sampler.step = int(obs['seq'])
         self.sampler.sim_time = float(obs['sim_time'])
+        if self.sampler.step and self.sampler.step % 500 == 0:
+            print(f'[rs-progress] target={self.sampler.target} '
+                  f'step={self.sampler.step} sim_time={self.sampler.sim_time:.2f}s',
+                  file=sys.__stdout__, flush=True)
         contact = obs.get('actual_contact')
         distance = (contact.get('dist', obs.get('contact_distance', np.inf))
                     if contact else np.inf)
-        self.sampler.in_physical_contact = bool(
-            obs.get('if_contact', False) or (contact is not None and float(distance) <= 0))
+        # PhysX also reports speculative patches with a positive gap. The
+        # policy's if_contact flag alone is not evidence of touching.
+        self.sampler.in_physical_contact = bool(contact is not None and float(distance) <= 0)
         # Includes configuration, velocities and measured contact Jacobians,
         # rather than only the ten-dimensional policy pose.
         fields = ('seq', 'sim_time', 'policy_q', 'full_q', 'object_linear_velocity',
@@ -125,6 +131,7 @@ class MJWarpSingleBus:
 def run_trial(args, trial, sampler, *, reference=None):
     from examples.mpc.franka.runtime.rollout import rollout_output
     from examples.mpc.franka.runtime.mpc import run_mpc_planner
+    sampler.require_acados = True
     # Rebuild planners and execution state, including their histories/warm
     # starts. This avoids incomplete pose-only checkpoints of a contact sim.
     random.seed(100 + trial)
@@ -139,6 +146,7 @@ def run_trial(args, trial, sampler, *, reference=None):
                   ranking_metrics_jsonl='', rollout_summary_json='',
                   rollout_trace_jsonl='', rollout_planner_snapshots='',
                   rollout_cache_dir='', trial_output='')
+    values['rs_require_acados'] = True
     local = argparse.Namespace(**values)
     if args.physics_backend == 'isaac':
         from examples.mpc.franka.runtime.isaac import SynchronousMPCBus
@@ -153,8 +161,13 @@ def run_trial(args, trial, sampler, *, reference=None):
         bus.close()
     if len(bus.summaries) != 1 or bus.summaries[0].get('aborted'):
         raise RuntimeError('Expected one complete, non-aborted rollout')
+    for key in ('planner_solver_backend', 'lambda_solver_backend'):
+        if bus.summaries[0].get(key) != 'acados':
+            raise RuntimeError(f'RS experiment requires acados: {key}={bus.summaries[0].get(key)}')
     if sampler.target is not None and not sampler.applied:
         raise RuntimeError('Rollout did not reach the sampled decision')
+    for commitment in sampler.commitments:
+        commitment['termination_step'] = int(bus.summaries[0]['steps'])
     return bus
 
 
@@ -173,16 +186,18 @@ def write_json(path, data):
     temp.replace(path)
 
 
-def csv_source_candidates(paths, *, obj, task, seed):
-    """CSV summaries identify successful seeds; they are not simulator snapshots."""
+def csv_source_candidates(paths, *, obj, task, seed, success=True):
+    """CSV summaries identify outcome-specific seeds, not simulator snapshots."""
     candidates = {}
     for path in paths:
         with Path(path).open(newline='', encoding='utf-8') as stream:
             for row in csv.DictReader(stream):
                 # Historical Isaac five-trial CSV has only the flipping task.
                 row_task = row.get('task', 'flipping')
+                outcome = row.get('success', '').strip().lower()
                 if (row.get('object') != obj or row_task != task
-                        or row.get('success', '').lower() not in ('1', 'true')):
+                        or outcome not in ('0', '1', 'false', 'true')
+                        or (outcome in ('1', 'true')) != success):
                     continue
                 trial = int(row.get('seed', row.get('trial')))
                 candidates.setdefault(trial, dict(trial=trial, csv=str(Path(path).resolve()), row=row))
@@ -205,7 +220,8 @@ def write_statistics(output, result, states):
     fields = ('state_id', 'object', 'trial', 'step', 'sim_time', 'decision',
               'in_physical_contact', 'in_transit',
               'original_contact_world', 'opposite_contact_world', 'remaining_budget',
-              'value_original', 'value_perturbed', 'advantage_rs', 'cdr')
+              'value_original', 'value_perturbed', 'advantage_rs', 'normalized_advantage',
+              'source_success', 'original_target_name', 'opposite_target_name', 'cdr')
     with (output/'states.csv').open('w', newline='') as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction='ignore')
         writer.writeheader()
@@ -225,6 +241,13 @@ def run(args, *, trial_runner=run_trial):
         raise ValueError('trial-start must be nonnegative; trial_num and rs-repeats positive')
     if args.rs_samples_per_trajectory <= 0 or args.rs_successful_trajectories <= 0:
         raise ValueError('Sample and successful-trajectory counts must be positive')
+    for key in ('rs_min_contact_distance', 'rs_contact_tolerance'):
+        value = getattr(args, key, .01)
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError(f'{key} must be finite and positive')
+    if getattr(args, 'rs_contact_sampling', 'touching') == 'mixed':
+        if args.rs_sampling != 'decisions' or args.rs_samples_per_trajectory < 2:
+            raise ValueError('Mixed sampling requires decisions mode and at least two points')
     if (args.rs_max_per_kind < 0 or not np.isfinite(args.rs_best_change_distance)
             or args.rs_best_change_distance <= 0 or not np.isfinite(args.rs_match_atol)
             or args.rs_match_atol < 0):
@@ -253,17 +276,20 @@ def run(args, *, trial_runner=run_trial):
         reward_definition='gamma**remaining_control_steps * success',
         replay_method='complete prefix, verified observations, commands and ranking decisions',
         switching_definition='completed physical relocation, derived offline from execution contact trace',
-        sampling_definition='uniform without replacement over eligible physical-contact decisions, excluding transit; includes A=0',
-        csv_source_definition='successful seed selection only; reconstruct and re-evaluate a synchronous factual source before sampling',
+        sampling_definition='uniform without replacement conditional on touching and detached samples; separated p_arm/best targets; includes A=0',
+        csv_source_definition='outcome-specific seed selection only; reconstruct and re-evaluate each synchronous source before sampling',
+        advantage_definition='(J_RS-J_cf)/max(J_RS,J_cf), zero if both fail',
+        solver_policy='contact and MPC use acados only; IPOPT fallback disabled',
         rs_trigger_definition='nearby-to-guide RS decision onset; not a physical contact switch'))
     states, trials = [], []
     paths = getattr(args, 'rs_source_csv', [])
+    desired_success = getattr(args, 'rs_source_outcome', 'success') == 'success'
     candidates = (csv_source_candidates(paths, obj=args.obj,
         task='rotation' if args.target_type == 'rotation' else 'flipping',
-        seed=args.rs_sample_seed) if paths else
+        seed=args.rs_sample_seed, success=desired_success) if paths else
         [dict(trial=trial) for trial in range(args.trial_start, args.trial_start+args.trial_num)])
     if not candidates:
-        raise RuntimeError(f'No successful CSV source for {args.obj}/{args.target_type}')
+        raise RuntimeError(f'No requested-outcome CSV source for {args.obj}/{args.target_type}')
     selected_sources = 0
     # Resume retains completed pairs, after checking the regenerated source.
     with (output/'states.jsonl').open('a' if resume else 'w', encoding='utf-8') as state_file, \
@@ -285,13 +311,15 @@ def run(args, *, trial_runner=run_trial):
             summary['rs_source_provenance'] = candidate
             events = []
             summary['rs_source_selected'] = False
-            if summary['success']:
+            if bool(summary['success']) == desired_success:
                 stage = args.rs_event_stage
                 if args.rs_sampling == 'decisions':
                     try:
                         events = select_decision_points(sampler.decisions,
                             count=args.rs_samples_per_trajectory,
-                            seed=args.rs_sample_seed+trial, stage=stage)
+                            seed=args.rs_sample_seed+trial, stage=stage,
+                            mixed_contact=getattr(args, 'rs_contact_sampling', 'touching') == 'mixed',
+                            min_distance=getattr(args, 'rs_min_contact_distance', .03))
                     except ValueError as error:
                         summary['rs_source_excluded_reason'] = str(error)
                         print(f'[rs] trial={trial}: {error}; trying next source', flush=True)
@@ -334,13 +362,18 @@ def run(args, *, trial_runner=run_trial):
             trial_file.flush()
             if summary['rs_source_selected']:
                 selected_sources += 1
-                valid_ids = {f'trial_{trial}_step_{e["step"]}' for e in events}
+                prefix = getattr(args, 'rs_case_id', '')
+                prefix = prefix+'_' if prefix else ''
+                valid_ids = {f'{prefix}trial_{trial}_step_{e["step"]}' for e in events}
                 if any(s['trial'] == trial and key not in valid_ids
                        for key, s in saved_states.items()):
                     raise RuntimeError('Regenerated source has different sampled timestamps')
                 for event in events:
-                    event = dict(event, state_id=f'trial_{trial}_step_{event["step"]}', trial=trial,
-                                 remaining_budget=args.max_rollout_length-event['step'])
+                    event = dict(event, state_id=f'{prefix}trial_{trial}_step_{event["step"]}', trial=trial,
+                                 remaining_budget=args.max_rollout_length-event['step'],
+                                 source_success=bool(summary['success']),
+                                 original_target_name='p_arm_world' if event['decision'] == 'stay' else 'best_contact_point_world',
+                                 opposite_target_name='best_contact_point_world' if event['decision'] == 'stay' else 'p_arm_world')
                     rs = event['decision']
                     opposite = 'stay' if rs == 'switch' else 'switch'
                     rollouts = {'switch': [], 'stay': []}
@@ -367,8 +400,10 @@ def run(args, *, trial_runner=run_trial):
                                 forced=branch if branch != rs else None,
                                 match_atol=args.rs_match_atol)
                             replay = trial_runner(args, trial, replay_sampler, reference=baseline)
-                            rollouts[branch].append(continuation_outcome(replay.summaries[0],
-                                event['step'], gamma=args.ranking_metric_gamma))
+                            outcome = continuation_outcome(replay.summaries[0],
+                                event['step'], gamma=args.ranking_metric_gamma)
+                            outcome['contact_commitments'] = replay_sampler.commitments
+                            rollouts[branch].append(outcome)
                     state = evaluate_state(event, rollouts, gamma=args.ranking_metric_gamma)
                     state['object'] = str(getattr(args, 'obj', ''))
                     state['original_contact_world'] = event.get(
@@ -381,17 +416,72 @@ def run(args, *, trial_runner=run_trial):
                     write_statistics(output, summarize_cdr(states, trials,
                         gamma=args.ranking_metric_gamma), states)
                     print(f'[rs] {event["state_id"]}: Q={state["q"]}, '
-                          f'A_RS={state["advantage_rs"]:.6g}, CDR={state["cdr"]:.6g}', flush=True)
+                          f'A_normalized={state["normalized_advantage"]:.6g}, '
+                          f'A_raw={state["advantage_rs"]:.6g}', flush=True)
             elif any(s['trial'] == trial for s in saved_states.values()):
-                raise RuntimeError('Previously successful source failed during resume')
+                raise RuntimeError('Previously selected source changed outcome or sampling eligibility during resume')
             result = summarize_cdr(states, trials, gamma=args.ranking_metric_gamma)
             write_statistics(output, result, states)
             if selected_sources >= args.rs_successful_trajectories:
                 break
     if selected_sources < args.rs_successful_trajectories:
-        raise RuntimeError(f'Only {selected_sources} usable successful sources; '
+        raise RuntimeError(f'Only {selected_sources} usable requested-outcome sources; '
                            f'need {args.rs_successful_trajectories}. See trials.jsonl.')
     print(json.dumps(result, indent=2, allow_nan=False))
+    return result
+
+
+FIVE_SOURCES = [('stanford_bunny2', 'success'), ('stanford_bunny2', 'failure'),
+                ('elephant', 'success'), ('piggy_bank', 'success'),
+                ('rubber_duck', 'success')]
+
+
+def run_five_trajectory_cohort(args, *, trial_runner=run_trial):
+    """Select outcomes from fresh synchronous sources, then evaluate 30 pairs."""
+    if args.target_type != 'ground-rotation':
+        raise ValueError('The five-trajectory cohort is defined for flipping')
+    if args.rs_samples_per_trajectory != 6 or args.rs_contact_sampling != 'mixed':
+        raise ValueError('The five-trajectory cohort requires six mixed-contact samples per source')
+    if args.rs_source_cache:
+        raise ValueError('Use single mode for a per-object source cache')
+    output = Path(args.rs_output)
+    output.mkdir(parents=True, exist_ok=True)
+    states, trials, cases = [], [], []
+    for obj, outcome in FIVE_SOURCES:
+        case_id = f'{obj}_{outcome}'
+        directory = output/case_id
+        local = argparse.Namespace(**dict(vars(args), obj=obj,
+            rs_cohort='single', rs_case_id=case_id, rs_source_outcome=outcome,
+            rs_output=str(directory), rs_successful_trajectories=1))
+        case = dict(object=obj, source_outcome=outcome, output=str(directory), status='running')
+        cases.append(case)
+        write_json(output/'manifest.json', dict(status='running', cases=cases,
+            expected_sources=5, expected_successes=4, expected_failures=1,
+            samples_per_source=6, expected_pairs=30))
+        try:
+            run(local, trial_runner=trial_runner)
+        except Exception as error:
+            case.update(status='failed', error=str(error))
+            write_json(output/'manifest.json', dict(status='incomplete', cases=cases))
+            raise
+        case['status'] = 'complete'
+        states.extend(json.loads(line) for line in (directory/'states.jsonl').read_text().splitlines())
+        trials.extend(json.loads(line) for line in (directory/'trials.jsonl').read_text().splitlines())
+        result = summarize_cdr(states, trials, gamma=args.ranking_metric_gamma)
+        write_statistics(output, result, states)
+    selected = [t for t in trials if t.get('rs_source_selected')]
+    if len(states) != 30 or len(selected) != 5 or sum(bool(t['success']) for t in selected) != 4:
+        raise RuntimeError('Cohort does not match 5 sources / 4 successes / 1 failure / 30 pairs')
+    # Preserve identifiers and every per-pair outcome in the combined output.
+    for name, records in (('states', states), ('trials', trials)):
+        with (output/f'{name}.jsonl').open('w', encoding='utf-8') as stream:
+            for record in records:
+                stream.write(json.dumps(record, default=json_value, allow_nan=False)+'\n')
+    result['cohort'] = dict(selected_sources=5, successful_sources=4, failed_sources=1,
+        touching_samples=sum(s['in_physical_contact'] for s in states),
+        detached_samples=sum(not s['in_physical_contact'] for s in states))
+    write_statistics(output, result, states)
+    write_json(output/'manifest.json', dict(status='complete', cases=cases, **result['cohort']))
     return result
 
 
@@ -410,13 +500,23 @@ def main():
     from examples.mpc.franka.runtime.mpc import _add_rollout_policy_args
     parser = _add_rollout_policy_args(argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter))
+    parser.add_argument('--rs-cohort', choices=('five', 'single'), default='five',
+                        help='Default: 5 flipping sources (4 successes, 1 failure); single runs one object/outcome.')
+    parser.add_argument('--rs-source-outcome', choices=('success', 'failure'), default='success')
+    parser.add_argument('--rs-contact-sampling', choices=('mixed', 'touching'), default='mixed')
+    parser.add_argument('--rs-min-contact-distance', type=float, default=.03,
+                        help='Minimum p_arm / best target separation in metres.')
+    parser.add_argument('--rs-contact-tolerance', type=float, default=.01,
+                        help='Measured surface contact must be within this object-local distance to release verify.')
     parser.add_argument('--rs-output', default='outputs/ranking_cdr')
     parser.add_argument('--rs-source-cache', default='',
                         help='Trusted local source cache generated by test_mpc_isaac --rollout-cache-dir; original success is not re-estimated.')
     parser.add_argument('--rs-source-csv', nargs='+', default=[], metavar='CSV',
-                        help='Randomly order successful seeds from these CSV summaries; reconstruct a matched synchronous source.')
-    parser.add_argument('--rs-samples-per-trajectory', type=int, default=5)
-    parser.add_argument('--rs-successful-trajectories', type=int, default=1)
+                        help='Randomly order outcome-specific seeds from CSV summaries; reconstruct a matched synchronous source.')
+    parser.add_argument('--rs-samples-per-trajectory', type=int, default=6)
+    parser.add_argument('--rs-source-trajectories', '--rs-successful-trajectories',
+                        dest='rs_successful_trajectories', type=int, default=1,
+                        help='Number of sources matching --rs-source-outcome in single mode.')
     parser.add_argument('--rs-sampling', choices=('decisions', 'events'), default='decisions',
                         help='Default: uniformly sample all eligible decision timestamps; events retains the older event-stratified analysis.')
     parser.add_argument('--rs-resume', action='store_true',
@@ -438,8 +538,12 @@ def main():
                         contact_model='soft-scm', two_stage_object_cost=True,
                         ranking_metric_gamma=.99, ranking_metric_eta=1.0,
                         no_adaptive=True)
+    parser.set_defaults(trial_num=5)
     args = parser.parse_args()
-    run(args)
+    if args.rs_cohort == 'five':
+        run_five_trajectory_cohort(args)
+    else:
+        run(args)
 
 
 if __name__ == '__main__':

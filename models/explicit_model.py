@@ -8,6 +8,7 @@ displacement: v_free = Q^-1 [external; K_robot cmd] / h. These units must
 not be replaced by a force integration when Q_robot = K_robot.
 Collision supplies active phi/J rows; padding rows must have a zero Jacobian.
 soft-SCM is the default; param.contact_model='comfree' restores ComFree.
+ContactSDF uses its own vendored dynamics and independent MPC entry point.
 The historical sigma input controls ComFree stiffness only. soft-SCM uses
 param.soft_scm_response_time, soft_scm_damping_ratio and regularization.
 With online_scm_=True, prediction_fn accepts [sigma; theta(6)] as its last
@@ -34,7 +35,7 @@ class ExplicitModel:
         self.soft_scm_response_time = float(getattr(param, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME))
         self.soft_scm_damping_ratio = float(getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO))
         self.soft_scm_regularization = float(getattr(param, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION))
-        if self.contact_model == 'diagonal-contact':
+        if self.contact_model in ('diagonal-contact', 'contactsdf'):
             self.soft_scm_a, self.soft_scm_b = 1., 0.
         else:
             self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
@@ -100,6 +101,8 @@ class ExplicitModel:
             raise ValueError("ComFree timestep must be positive and damping nonnegative")
         v_smooth = curr_v + self.force_velocity_scale * inverse @ force
         speed = jac_mat @ v_smooth
+        if self.contact_model == 'contactsdf':
+            raise ValueError('ContactSDF uses the upstream LseDynamic, not this reduced model')
         if self.contact_model == 'diagonal-contact':
             from models.diagonal_contact import diagonal_contact_velocity_cs
             v = diagonal_contact_velocity_cs(v_smooth, jac_mat, phi_vec, inverse, h,

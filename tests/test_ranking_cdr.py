@@ -1,5 +1,6 @@
 """Binary decision regret, event sampling, and matched-prefix orchestration."""
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -11,6 +12,7 @@ from utils.ranking_cdr import (
     select_decision_points, source_decision_statistics, table_vi_statistics,
 )
 from examples.mpc.franka.experiments.ik2.test_rs import MatchedRolloutBus, run
+from examples.mpc.franka.experiments.ik2.test_rs import run_five_trajectory_cohort
 
 
 def context(best=.1, decision='stay', eligible=True):
@@ -148,6 +150,20 @@ def test_bus_checks_observations_and_predecision_actions_but_allows_branch_actio
         bad_action.publish_cmd({'action': [1,0,0]})
 
 
+def test_speculative_patch_does_not_count_as_physical_contact():
+    physics = FakePhysics()
+    physics.wait_obs = lambda **kw: dict(seq=0, sim_time=0., if_contact=True,
+                                         actual_contact=dict(dist=.001))
+    sampler = DecisionSampler()
+    bus = MatchedRolloutBus(physics, sampler)
+    bus.wait_obs()
+    assert not sampler.in_physical_contact
+    physics.wait_obs = lambda **kw: dict(seq=1, sim_time=.02, if_contact=False,
+                                         actual_contact=dict(dist=-.001))
+    bus.wait_obs()
+    assert sampler.in_physical_contact
+
+
 def args(tmp_path):
     return SimpleNamespace(ranking_metric_gamma=.9, trial_start=0, trial_num=2,
         rs_samples_per_trajectory=1, rs_successful_trajectories=1,
@@ -274,3 +290,58 @@ def test_failed_sources_are_skipped_before_selecting_one_success(tmp_path):
     assert len(seen) == 52
     assert result['n_states'] == 50
     assert result['table_vi']['source_trajectories'] == 1
+
+
+def test_mixed_samples_have_both_contact_states_and_separated_actual_targets():
+    decisions = [dict(context(), step=i, in_physical_contact=i < 8,
+        p_arm_world=[0, 0, 0], best_contact_point_world=[.1 if i < 18 else .001, 0, 0])
+        for i in range(20)]
+    for seed in range(20):
+        points = select_decision_points(decisions, count=6, seed=seed, mixed_contact=True)
+        assert len({p['step'] for p in points}) == 6
+        assert {p['in_physical_contact'] for p in points} == {True, False}
+        assert all(p['step'] < 18 for p in points)
+    with pytest.raises(ValueError, match='both touching and detached'):
+        select_decision_points(decisions[:8], count=6, mixed_contact=True)
+
+
+@pytest.mark.parametrize('factual,counterfactual,expected', [
+    ((True, 20), (True, 30), 1-.99**10),
+    ((True, 30), (True, 20), -(1-.99**10)),
+    ((True, 20), (False, 100), 1.),
+    ((False, 100), (True, 20), -1.),
+    ((False, 100), (False, 100), 0.),
+    ((True, 100000), (True, 100010), 1-.99**10),
+])
+def test_paper_normalized_advantage(factual, counterfactual, expected):
+    rollouts = {b: [dict(success=o[0], steps=o[1])] for b, o in
+                [('stay', factual), ('switch', counterfactual)]}
+    assert evaluate_state(context(), rollouts, gamma=.99)['normalized_advantage'] == pytest.approx(expected)
+
+
+def test_five_sources_include_failed_bunny_and_thirty_independent_pairs(tmp_path):
+    def runner(args, trial, sampler, reference=None):
+        for step in range(10):
+            sampler.step, sampler.sim_time = step, step*.02
+            sampler.in_physical_contact = step < 5
+            sampler(dict(context(), p_arm_world=[0,0,0], best_contact_point_world=[.1,0,0]))
+        success = trial == 0
+        return SimpleNamespace(summaries=[dict(trial=trial, success=success, steps=12)],
+                               observations=[], commands=[])
+    values = args(tmp_path)
+    values.target_type = 'ground-rotation'
+    values.rs_source_cache = ''
+    values.rs_samples_per_trajectory = 6
+    values.rs_contact_sampling = 'mixed'
+    values.rs_repeats = 1
+    result = run_five_trajectory_cohort(values, trial_runner=runner)
+    states = [json.loads(line) for line in (tmp_path/'states.jsonl').read_text().splitlines()]
+    assert len(states) == len({s['state_id'] for s in states}) == 30
+    assert sum(s['source_success'] for s in states) == 24
+    assert result['table_vi']['source_trajectories'] == 5
+    assert result['cohort']['failed_sources'] == 1
+    assert all(s['normalized_advantage'] == 0 for s in states)
+    manifest = json.loads((tmp_path/'manifest.json').read_text())
+    for case in manifest['cases']:
+        samples = [json.loads(line) for line in (Path(case['output'])/'states.jsonl').read_text().splitlines()]
+        assert {s['in_physical_contact'] for s in samples} == {True, False}

@@ -17,6 +17,10 @@ def main():
     # processes must be able to import this entry without initializing physics.
     root = Path(__file__).resolve().parents[4]
     sys.path.insert(0, str(root))
+    from models.contactsdf import dispatch_standalone
+    from examples.mpc.franka.stocs3d.dispatch import dispatch_execution
+    dispatch_execution(root, sys.argv[1:])
+    dispatch_standalone(root, sys.argv[1:])
     from planning.cpu_runtime import configure_compute_threads
     configure_compute_threads()
     os.environ.pop("SCSP_PLANNER_ONLY", None)

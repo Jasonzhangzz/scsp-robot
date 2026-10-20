@@ -40,6 +40,10 @@ def _add_rollout_policy_args(parser):
             action.help = 'Use the baseline synchronous planner protocol (default).'
         elif '--async-planner' in action.option_strings:
             action.help = 'Use the baseline asynchronous planner protocol.'
+        elif '--contactsdf' in action.option_strings:
+            action.help = 'Run the independent official ContactSDF MPC with a single-tip Franka adapter.'
+        elif '--contactsdf-sigma' in action.option_strings:
+            action.help = 'ContactSDF log-sum-exp sharpness (default 120).'
     return parser
 
 
@@ -58,6 +62,8 @@ def adapt_param_for_cartesian_solver(param, args, build_optimizer=True):
 
 
 def run_mpc_planner(bus, args):
+    if getattr(args, 'contactsdf', False) or getattr(args, 'contact_model', '') == 'contactsdf':
+        raise ValueError('Use contactsdf_run.py for the independent official ContactSDF controller')
     if getattr(args, 'ablation_mode', 'full') == 'a6':
         from .adamw import run_adamw_planner
         return run_adamw_planner(bus, args)
