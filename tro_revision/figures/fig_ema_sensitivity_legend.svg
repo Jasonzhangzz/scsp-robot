@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="307.73625pt" height="31.98pt" viewBox="0 0 307.73625 31.98" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="141.41625pt" height="31.949375pt" viewBox="0 0 141.41625 31.949375" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-10-20T19:11:31.649537</dc:date>
+    <dc:date>2026-10-20T23:40:03.723823</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -21,21 +21,21 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 31.98 
-L 307.73625 31.98 
-L 307.73625 0 
+   <path d="M 0 31.949375 
+L 141.41625 31.949375 
+L 141.41625 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
   </g>
   <g id="legend_1">
    <g id="line2d_1">
-    <path d="M 9.2 14.94 
-L 23.2 14.94 
-L 37.2 14.94 
+    <path d="M 9.2 14.937812 
+L 23.2 14.937812 
+L 37.2 14.937812 
 " style="fill: none; stroke: #0072b2; stroke-width: 1.5; stroke-linecap: square"/>
     <defs>
-     <path id="m021fa53d2a" d="M 0 2.5 
+     <path id="mdd9ae66186" d="M 0 2.5 
 C 0.663008 2.5 1.29895 2.236584 1.767767 1.767767 
 C 2.236584 1.29895 2.5 0.663008 2.5 0 
 C 2.5 -0.663008 2.236584 -1.29895 1.767767 -1.767767 
@@ -48,34 +48,11 @@ z
 " style="stroke: #0072b2"/>
     </defs>
     <g>
-     <use xlink:href="#m021fa53d2a" x="23.2" y="14.94" style="fill: #0072b2; stroke: #0072b2"/>
+     <use xlink:href="#mdd9ae66186" x="23.2" y="14.937812" style="fill: #0072b2; stroke: #0072b2"/>
     </g>
    </g>
    <g id="text_1">
-    <text style="font: 14px 'Times New Roman', 'DejaVu Serif', serif; text-anchor: start" x="48.4" y="19.84" transform="rotate(-0 48.4 19.84)">EMA sweep</text>
-   </g>
-   <g id="PathCollection_1">
-    <defs>
-     <path id="m609eef3f7b" d="M -0 4.84768 
-L 4.84768 0 
-L 0 -4.84768 
-L -4.84768 -0 
-z
-" style="stroke: #ffffff; stroke-width: 0.7"/>
-    </defs>
-    <g>
-     <use xlink:href="#m609eef3f7b" x="171.41625" y="16.165" style="fill: #d55e00; stroke: #ffffff; stroke-width: 0.7"/>
-    </g>
-   </g>
-   <g id="text_2">
-    <!-- Default $\beta=0.18$ -->
-    <g transform="translate(196.61625 19.84)">
-     <text>
-      <tspan style="font: 14px 'DejaVu Serif'" x="0 11.224609 19.509766 24.691406 33.038086 42.054688 46.532227 52.158203" y="-0.359375">Default </tspan>
-      <tspan style="font: italic 14px 'STIXGeneral'" x="56.608398" y="-0.359375">β</tspan>
-      <tspan style="font: 14px 'STIXGeneral'" x="65.713995 77.325589 84.325589 87.825589 94.825589" y="-0.359375">=0.18</tspan>
-     </text>
-    </g>
+    <text style="font: 14px 'Times New Roman', 'DejaVu Serif', serif; text-anchor: start" x="48.4" y="19.837812" transform="rotate(-0 48.4 19.837812)">EMA sweep</text>
    </g>
   </g>
  </g>

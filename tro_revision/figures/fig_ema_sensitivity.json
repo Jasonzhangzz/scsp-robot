@@ -29,12 +29,20 @@
   ],
   "records": [
     {
+      "beta": 0.0,
+      "status": "complete",
+      "successes": 4,
+      "trials": 5,
+      "success_rate": 0.8,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
       "beta": 0.001,
       "status": "complete",
       "successes": 4,
       "trials": 5,
       "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_wide_20261020_174857/sensitivity_summary.json"
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     },
     {
       "beta": 0.02,
@@ -42,39 +50,31 @@
       "successes": 4,
       "trials": 5,
       "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_wide_20261020_174857/sensitivity_summary.json"
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     },
     {
       "beta": 0.16,
       "status": "complete",
-      "successes": 4,
+      "successes": 5,
       "trials": 5,
-      "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_reuse_baseline_20261020_172744/sensitivity_summary.json"
-    },
-    {
-      "beta": 0.18,
-      "status": "complete",
-      "successes": 4,
-      "trials": 5,
-      "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_wide_20261020_174857/sensitivity_summary.json"
+      "success_rate": 1.0,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     },
     {
       "beta": 0.2,
       "status": "complete",
-      "successes": 4,
+      "successes": 5,
       "trials": 5,
-      "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_reuse_baseline_20261020_172744/sensitivity_summary.json"
+      "success_rate": 1.0,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     },
     {
       "beta": 0.34,
       "status": "complete",
-      "successes": 4,
+      "successes": 2,
       "trials": 5,
-      "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_wide_20261020_174857/sensitivity_summary.json"
+      "success_rate": 0.4,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     },
     {
       "beta": 0.5,
@@ -82,7 +82,7 @@
       "successes": 4,
       "trials": 5,
       "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_wide_20261020_174857/sensitivity_summary.json"
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     },
     {
       "beta": 0.8,
@@ -90,7 +90,7 @@
       "successes": 4,
       "trials": 5,
       "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_wide_20261020_174857/sensitivity_summary.json"
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     },
     {
       "beta": 1.0,
@@ -98,9 +98,7 @@
       "successes": 4,
       "trials": 5,
       "success_rate": 0.8,
-      "source": "/home/zz/scsp-robot/output/ablation/ema_wide_20261020_174857/sensitivity_summary.json"
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
     }
-  ],
-  "validity": "invalid_as_ema_sensitivity_evidence",
-  "reason": "Legacy controller replaced the EMA score with a binary contact MPC weight; use corrected results."
+  ]
 }

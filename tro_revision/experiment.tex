@@ -116,11 +116,11 @@ Due to the strong dependencies of the source code released for DyWA, which are d
  & Obj. Pos. Error (m) & \textbf{0.01} & 0.02 & -- & -- & 0.01 & 0.02 & 0.02 & 0.02 & 0.02 & 0.12 & 0.34 & 0.45 & 0.29 \\
  & Obj. Quat. Error & \textbf{0.02} & 0.02 & -- & -- & 0.02 & 0.03 & 0.03 & 0.39 & 0.61 & 0.57 & 0.35 \\
 \midrule
-\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & 0.00 & -- & 0.39 & 0.01 & 0.26 & 0.00 & 0.37 & 0.26 & 0.60 & 0.40 & 0.00 \\
+\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & 0.00 & 0.00 & 0.39 & 0.01 & 0.26 & 0.00 & 0.37 & 0.26 & 0.60 & 0.40 & 0.00 \\
  & Execution Time (s) & $21.79\pm9.79$ & 20.56 & -- & -- & \textbf{19.68} & 22.56 & $22.05\pm9.36$ & -- & $23.60\pm11.86$ & $22.71\pm12.59$ & $24.23\pm11.50$ & 36.65 & -- \\
- & Planning Time (s) & $0.02\pm0.00$ & 0.03 & $0.64\pm0.46$ & -- & 0.25 & 0.08 & $0.03\pm0.00$ & \textbf{$0.01\pm0.00$} & $0.02\pm0.01$ & $0.13\pm0.04$ & $0.58\pm0.09$ & 0.04 & 0.01 \\
- & Obj. Pos. Error (m) & $0.06\pm0.07$ & 0.02 & $0.20\pm0.09$ & -- & \textbf{0.01} & 0.02 & $0.16\pm0.14$ & $0.15\pm0.05$ & $0.12\pm0.12$ & $0.09\pm0.09$ & $0.11\pm0.15$ & 0.02 & 0.35 \\
- & Obj. Quat. Error & $0.20\pm0.35$ & 0.02 & $0.87\pm0.19$ & -- & 0.02 & 0.03 & $0.38\pm0.41$ & $0.73\pm0.32$ & $0.47\pm0.41$ & $0.47\pm0.41$ & $0.29\pm0.40$ & \textbf{0.00} & 0.80 \\
+ & Planning Time (s) & $0.02\pm0.00$ & 0.03 & $0.64\pm0.46$ & $239.33\pm125.10$ & 0.25 & 0.08 & $0.03\pm0.00$ & \textbf{$0.01\pm0.00$} & $0.02\pm0.01$ & $0.13\pm0.04$ & $0.58\pm0.09$ & 0.04 & 0.01 \\
+ & Obj. Pos. Error (m) & $0.06\pm0.07$ & 0.02 & $0.20\pm0.09$ & $0.17\pm0.04$ & \textbf{0.01} & 0.02 & $0.16\pm0.14$ & $0.15\pm0.05$ & $0.12\pm0.12$ & $0.09\pm0.09$ & $0.11\pm0.15$ & 0.02 & 0.35 \\
+ & Obj. Quat. Error & $0.20\pm0.35$ & 0.02 & $0.87\pm0.19$ & $0.79\pm0.25$ & 0.02 & 0.03 & $0.38\pm0.41$ & $0.73\pm0.32$ & $0.47\pm0.41$ & $0.47\pm0.41$ & $0.29\pm0.40$ & \textbf{0.00} & 0.80 \\
 \bottomrule[1pt]
 \end{tabular}
 }
@@ -170,7 +170,7 @@ We ablate each component under the same experimental setup as in Section VI-B.
 
 \textbf{CPO (A6--A7):} A6 removes the phase-dependent attraction and repulsion potentials and directly optimizes motion trajectories; A7 directly explores contact trajectories using MPPI~[1] with the cost $\ell_{\mathrm{A7}} = \omega_{\text{o}}\ell_{\text{o}} + \omega_{\text{cso}}\ell_{\text{cso}}$,
 
-Table~\ref{tab:all_data} reports the available results. For SCSP flipping, terminal pose errors are reported as mean $\pm$ sample standard deviation over all trials, including failures; execution time is averaged over successful trials only. Rotation A1 uses the historical w/o RS Franka results, in which CPO strictly follows the CSO-generated contact guidance. Flipping A1--A3 use the current seven-object cohort.
+Table~\ref{tab:all_data} reports the available results. For SCSP flipping, terminal pose errors are reported as mean $\pm$ sample standard deviation over all trials, including failures; execution time is averaged over successful trials only. STOCS-3D flipping uses the same 15-trial cohort with one planning-time outlier removed (elephant, 3690\,s), so its entries summarize the remaining 14 trials. Rotation A1 uses the historical w/o RS Franka results, in which CPO strictly follows the CSO-generated contact guidance. Flipping A1--A3 use the current seven-object cohort.
 
 For rotation, the ranking strategy mainly affects execution efficiency rather than success rate, whereas it has a significant effect on success rate for flipping. The success rates of A4 and A5 both decrease substantially. Together with the experiments in Section~V, this suggests that the contact guidance remains correct, while perception latency is more likely to cause failures. A6 has only a slight effect on success rate; in the failure episodes we inspected, most failures were false contact detections without actual contact. A7 increases computation time, causing observation latency that degrades success rate.
 
