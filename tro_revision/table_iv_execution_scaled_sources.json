@@ -1,0 +1,92 @@
+{
+  "formula": "estimated_std = source_sample_std * retained_mean / source_mean",
+  "assumption": "Equal coefficient of variation; no sample-count scaling.",
+  "target_total_trials": 200,
+  "observed_target_trials_generated": 0,
+  "source_snapshot": "table_iv_execution_sources.json",
+  "source_snapshot_sha256": "dd97c089f7d2a2c92a0d2c72e435e95f9ed92a06e428fabaea101c6a23f70d7d",
+  "estimates": {
+    "Rotation": {
+      "DyWA": {
+        "source_successes": 30,
+        "source_mean_s": 23.757334461746115,
+        "source_sample_std_s": 24.203732257447445,
+        "retained_mean_s": 18.12,
+        "scale_factor": 0.7627118281799118,
+        "coefficient_of_variation": 1.0187898939765367,
+        "estimated_std_s": 18.460472878854844,
+        "target_total_trials": 200,
+        "target_success_rate": 0.86,
+        "observed_proxy_trials": 35,
+        "status": "mean_scaled_proxy_estimate_not_observed_200_trial_sd"
+      },
+      "Sampling": {
+        "source_successes": 20,
+        "source_mean_s": 40.87500194145832,
+        "source_sample_std_s": 94.6164109660883,
+        "retained_mean_s": 18.97,
+        "scale_factor": 0.46409783728375265,
+        "coefficient_of_variation": 2.3147744702642234,
+        "estimated_std_s": 43.911271700912316,
+        "target_total_trials": 200,
+        "target_success_rate": 0.56,
+        "observed_proxy_trials": 35,
+        "status": "mean_scaled_proxy_estimate_not_observed_200_trial_sd"
+      },
+      "CF-MPC": {
+        "source_successes": 2,
+        "source_mean_s": 8.920000423677266,
+        "source_sample_std_s": 4.0729352530885485,
+        "retained_mean_s": 21.18,
+        "scale_factor": 2.3744393491035907,
+        "coefficient_of_variation": 0.4566070694657527,
+        "estimated_std_s": 9.670937731284642,
+        "target_total_trials": 200,
+        "target_success_rate": 0.01,
+        "observed_proxy_trials": 200,
+        "status": "mean_scaled_proxy_estimate_not_observed_200_trial_sd"
+      }
+    },
+    "Flipping": {
+      "DyWA": {
+        "source_successes": 24,
+        "source_mean_s": 29.821668083119828,
+        "source_sample_std_s": 18.800150676513,
+        "retained_mean_s": 20.56,
+        "scale_factor": 0.6894315885581773,
+        "coefficient_of_variation": 0.6304191510720549,
+        "estimated_std_s": 12.961417746041448,
+        "target_total_trials": 200,
+        "target_success_rate": 0.69,
+        "observed_proxy_trials": 35,
+        "status": "mean_scaled_proxy_estimate_not_observed_200_trial_sd"
+      },
+      "Sampling": {
+        "source_successes": 14,
+        "source_mean_s": 28.031429902849986,
+        "source_sample_std_s": 31.26571602180719,
+        "retained_mean_s": 19.68,
+        "scale_factor": 0.7020690727589003,
+        "coefficient_of_variation": 1.1153807040941701,
+        "estimated_std_s": 21.950692256573266,
+        "target_total_trials": 200,
+        "target_success_rate": 0.39,
+        "observed_proxy_trials": 35,
+        "status": "mean_scaled_proxy_estimate_not_observed_200_trial_sd"
+      },
+      "CF-MPC": {
+        "source_successes": 2,
+        "source_mean_s": 117.61000558617525,
+        "source_sample_std_s": 126.92567325163098,
+        "retained_mean_s": 22.56,
+        "scale_factor": 0.1918204143224007,
+        "coefficient_of_variation": 1.0792081219537903,
+        "estimated_std_s": 24.34693523127751,
+        "target_total_trials": 200,
+        "target_success_rate": 0.01,
+        "observed_proxy_trials": 176,
+        "status": "mean_scaled_proxy_estimate_not_observed_200_trial_sd"
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "dywa/src/models/modules.py": {
+    "description": "Bind the existing history buffer before shifting it.",
+    "authorization": "User explicitly authorized only this one-line fix on 2026-10-21.",
+    "original_sha256": "9dd9cc343c4af1d7d58992342197e304ceb4e6e413479d9af918be64ff1108c0",
+    "patched_sha256": "73c7aaf3a8ef4b456420d37f8a74c30caa02ea8e976f7cd25c726f4e1beb2c2d",
+    "insert_after": "        assert tensor.shape[1] == self.num_tokens\n",
+    "inserted_line": "        buffer = self.history\n"
+  }
+}

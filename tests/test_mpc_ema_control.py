@@ -21,7 +21,8 @@ def test_audit_measures_applied_weights_and_detects_a_binary_override():
     assert row['verify_mpc_max_abs_error'] == .6
 
 
-def test_real_staged_contact_mpc_receives_beta_dependent_scores(monkeypatch):
+@pytest.mark.parametrize('initial_verify', [0., .95])
+def test_real_staged_contact_mpc_receives_beta_dependent_scores(monkeypatch, initial_verify):
     monkeypatch.setenv('SCSP_PLANNER_ONLY', '1')
     from planning.mpc_explicit import _build_mpc_planner_runtime, handle_mpc_request
     record = json.loads((Path(__file__).parent / 'fixtures/bunny_pose_contact.json').read_text())
@@ -31,6 +32,7 @@ def test_real_staged_contact_mpc_receives_beta_dependent_scores(monkeypatch):
         init['args'].update(verify_beta=beta, solver_backend='acados', rollout_trace_jsonl='')
         args, param, mpc, trackers = _build_mpc_planner_runtime(init)
         trackers['object_cost_stages'].stage = 'pose'
+        trackers['value_tracker'].verify = initial_verify
         trackers['model_cost_conf'].accum = .8 * trackers['model_cost_conf'].threshold
         original = mpc.plan_once
         captured = []
@@ -48,13 +50,14 @@ def test_real_staged_contact_mpc_receives_beta_dependent_scores(monkeypatch):
         monkeypatch.setattr(mpc, 'plan_once', solve)
         result = handle_mpc_request(args, param, mpc, trackers, dict(init['msg'], dwell=None))
         assert not result['mpc_skipped'] and result['solver_backend'] == 'acados'
-        assert captured == pytest.approx([.8 * beta])
-        assert result['verify_cost_applied'] == pytest.approx(.8 * beta)
+        expected = (1-beta)*initial_verify + beta*.8
+        assert captured == pytest.approx([expected])
+        assert result['verify_cost_applied'] == pytest.approx(expected)
         stats = VerifyControlStats()
         stats.observe(result)
         assert stats.summary()['verify_mpc_steps'] == 1
         assert stats.summary()['verify_mpc_max_abs_error'] == 0.
         assert np.isfinite(result['action']).all()
         weights.append(captured[0])
-    assert weights == pytest.approx([0., .144, .8])
+    assert weights == pytest.approx([(1-beta)*initial_verify+beta*.8 for beta in (0., .18, 1.)])
     assert abs(objectives[-1] - objectives[0]) > 1e-6

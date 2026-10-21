@@ -18,12 +18,10 @@ def test_verify_ema_tracks_tightness():
     value, _ = tracker.update_verify(tightness=0.8)
     assert value == 0.8
     assert tracker.contact_active
-    # Decay is slower than rise so a one-frame dip cannot slam verify.
-    value, _ = tracker.update_verify(tightness=0.2)
-    assert 0.2 < value < 0.8
-    for _ in range(12):
-        value, _ = tracker.update_verify(tightness=0.2)
-    assert value == pytest.approx(0.2, abs=0.01)
+    # Beta=1 follows both directions immediately, including frame-to-frame jumps.
+    for target in (.2, 1., 0., .8, .1):
+        value, _ = tracker.update_verify(tightness=target)
+        assert value == target
 
 
 def test_verify_ignores_projected_quality_and_distance():
@@ -78,3 +76,15 @@ def test_zero_beta_freezes_the_score_until_explicit_reset():
 def test_invalid_beta_is_rejected(beta):
     with pytest.raises(ValueError, match='verify beta'):
         ContactValueTracker(beta=beta)
+
+
+@pytest.mark.parametrize('beta', [.18, .5, .95, 1.])
+def test_verify_rise_and_fall_have_the_same_response(beta):
+    rising = ContactValueTracker(beta=beta)
+    falling = ContactValueTracker(beta=beta)
+    rising.verify, falling.verify = .2, .8
+    up, _ = rising.update_verify(tightness=.8)
+    down, _ = falling.update_verify(tightness=.2)
+    assert (up-.2)/(.8-.2) == pytest.approx(beta)
+    assert (.8-down)/(.8-.2) == pytest.approx(beta)
+    assert up+down == pytest.approx(1.)

@@ -53,14 +53,16 @@ def test_staged_controller_applies_final_gate_and_preserves_ema(monkeypatch):
         assert row['verify_mpc_max_abs_error'] == 0.
 
 
-def test_acceptance_sweep_reruns_center_and_pairs_exact_ema_cases(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize('workers', [1, 3])
+def test_acceptance_sweep_reruns_center_and_pairs_exact_ema_cases(tmp_path, capsys, monkeypatch, workers):
     source = tmp_path / 'baseline.jsonl'
     cases = [dict(object=obj, trial=i, success=success, verify_beta=.18)
              for i, (obj, success) in enumerate(sensitivity.MIXED_CASES)]
     source.write_text(''.join(json.dumps(row)+'\n' for row in cases))
     output = tmp_path / 'sweep'
     args = selection_parser().parse_args(['--acceptance', '--dry-run', '--baseline-results',
-                                         str(source), '--sensitivity-output', str(output)])
+                                         str(source), '--sensitivity-output', str(output),
+                                         '--sensitivity-workers', str(workers)])
     sensitivity.run_sensitivity(args, [])
     manifest = json.loads(capsys.readouterr().out)
     assert [c['value'] for c in manifest['cells']] == [

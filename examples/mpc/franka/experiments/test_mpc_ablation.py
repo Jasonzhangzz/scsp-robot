@@ -8,6 +8,8 @@ import sys
 def main():
     root = Path(__file__).resolve().parents[4]
     sys.path.insert(0, str(root))
+    from planning.dywa.dispatch import dispatch as dispatch_dywa
+    dispatch_dywa(root, sys.argv[1:])
     from models.contactsdf import dispatch_standalone
     from examples.mpc.franka.stocs3d.dispatch import dispatch_offline
     dispatch_offline(root, sys.argv[1:])
@@ -48,7 +50,10 @@ def main():
         # Help must work on CPU-only machines without loading Isaac Gym.
         os.environ['SCSP_PLANNER_ONLY'] = '1'
         from examples.mpc.franka.experiments.mpc_ablation.mpc import _add_rollout_policy_args
-        _add_rollout_policy_args(argparse.ArgumentParser(description=__doc__)).parse_args()
+        help_parser = _add_rollout_policy_args(argparse.ArgumentParser(description=__doc__))
+        help_parser.add_argument('--dywa', action='store_true',
+                                 help='Run official DyWA; use --dywa --help for policy/cohort options.')
+        help_parser.parse_args()
         return
     folder = Path(__file__).resolve().with_name('mpc_ablation')
     if args.physics_backend == 'mjwarp' or (args.headless and not args.floating_fingertip):

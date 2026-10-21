@@ -1,0 +1,10 @@
+--- a/dywa/src/models/modules.py
++++ b/dywa/src/models/modules.py
+@@ -572,6 +572,7 @@
+ 
+     def put_history(self, tensor: th.Tensor):
+         assert tensor.shape[1] == self.num_tokens
++        buffer = self.history
+ 
+         buffer[:, :-1].copy_(buffer[:, 1:].clone())
+         buffer[:, -1].copy_(tensor.detach())

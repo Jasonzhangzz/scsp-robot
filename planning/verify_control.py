@@ -2,7 +2,7 @@
 import math
 
 
-VERIFY_CONTROL_VERSION = 'ema_mpc_v1'
+VERIFY_CONTROL_VERSION = 'ema_mpc_v2_symmetric'
 
 
 class VerifyControlStats:

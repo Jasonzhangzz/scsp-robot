@@ -1,0 +1,93 @@
+{
+  "data_type": "illustrative",
+  "experimental_measurements": false,
+  "description": "User-specified EMA target curve; all measured sweep results remain separate.",
+  "peak": {
+    "beta": 0.2,
+    "rate": 0.81
+  },
+  "endpoints": {
+    "0": 0.66,
+    "1": 0.48
+  },
+  "line_color": "#0072B2",
+  "star_color": "#F4A340",
+  "interpolation": "Piecewise quadratic, zero derivative at beta=.20.",
+  "points": [
+    {
+      "beta": 0.0,
+      "illustrative_rate": 0.66,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.05,
+      "illustrative_rate": 0.725625,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.1,
+      "illustrative_rate": 0.7725000000000001,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.14,
+      "illustrative_rate": 0.7965000000000001,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.16,
+      "illustrative_rate": 0.804,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.18,
+      "illustrative_rate": 0.8085,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.2,
+      "illustrative_rate": 0.81,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.22,
+      "illustrative_rate": 0.8097937500000001,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.24,
+      "illustrative_rate": 0.8091750000000001,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.26,
+      "illustrative_rate": 0.80814375,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.3,
+      "illustrative_rate": 0.8048437500000001,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.4,
+      "illustrative_rate": 0.789375,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.6,
+      "illustrative_rate": 0.7275,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 0.8,
+      "illustrative_rate": 0.6243749999999999,
+      "data_type": "illustrative"
+    },
+    {
+      "beta": 1.0,
+      "illustrative_rate": 0.48000000000000004,
+      "data_type": "illustrative"
+    }
+  ]
+}

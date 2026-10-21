@@ -1,7 +1,8 @@
-"""Franka ablations, including --ema / --threshold sensitivity grids.
+"""Franka ablations, including --ema / --threshold / --acceptance sensitivity grids.
 
 --contactsdf runs the independent official ContactSDF MPC with a single-tip adapter.
 --stocs3d solves STOCS-3D offline and executes the trajectory in Isaac.
+--dywa runs the official DyWA student and native controller with task input adapters.
 """
 from pathlib import Path
 import sys

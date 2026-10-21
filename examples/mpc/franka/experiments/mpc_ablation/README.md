@@ -96,9 +96,9 @@ python examples/mpc/franka/ik2/test_mpc_ablation.py --threshold --sensitivity-co
   --sensitivity-output output/ablation/threshold_mixed --plot
 ```
 
-`--ema` 的每个扰动点直接调用 `examples/mpc/franka/ik2/test_mpc_isaac.py`，使用该入口的仿真、规划器、求解器和默认参数；不经过消融规划器副本。只改变实际 `verify_cost` 更新系数 `verify_beta`：上升时 `v ← (1−β)v + β·tightness`，下降时沿用基线 `0.35β`。β 必须在 `[0, 1]`；诊断用的 `value_alpha/value_rho` 和旧 window 参数保持不变。EMA 模式不接受修改接受/释放阈值；阈值扫描仍通过消融入口的对应参数实现。
+`--ema` 的每个扰动点直接调用 `examples/mpc/franka/ik2/test_mpc_isaac.py`，使用该入口的仿真、规划器、求解器和默认参数；不经过消融规划器副本。只改变实际 `verify_cost` 更新系数 `verify_beta`：上升、下降统一使用 `v ← (1−β)v + β·tightness`，取消下降方向的强制 `0.35` 缩放。β 必须在 `[0, 1]`；诊断用的 `value_alpha/value_rho` 和旧 window 参数保持不变。EMA 模式不接受修改接受/释放阈值；阈值扫描仍通过消融入口的对应参数实现。
 
-EMA 控制链路修复（`verify_control_version=ema_mpc_v1`）：普通接触 MPC 直接使用 tracker 的连续 `verify`，不再根据接触可达性 / `path_blocked` 覆盖为 0/1；接近路径仍使用原几何控制。β=0 冻结评分（初始化为 0），β=1 上升立即响应、下降仍使用 0.35 的更新率。`--cpo-variant direct` 和 `--ideal_contact_pose` 的目标函数不使用这项混合权重，不能用于此 EMA 扫描。
+EMA 控制链路（当前 `verify_control_version=ema_mpc_v2_symmetric`）：普通接触 MPC 直接使用 tracker 的连续 `verify`，不再根据接触可达性 / `path_blocked` 覆盖为 0/1；接近路径仍使用原几何控制。β=0 冻结评分（初始化为 0），β=1 在上升与下降方向均立即跟随当前帧。旧 `ema_mpc_v1` 使用不对称更新（下降为 `0.35β`）；两版仿真结果分别保存，不混作同一更新规则的结果。`--cpo-variant direct` 和 `--ideal_contact_pose` 的目标函数不使用这项混合权重，不能用于此 EMA 扫描。
 
 每条新轨迹记录 `verify_beta`、控制版本、`verify_mpc_steps`、实际权重的最小/最大/均值，以及 `verify_mpc_max_abs_error`。扫描器要求实际运行过接触 MPC，且实际权重等于 EMA 评分；否则报错。旧的二值覆盖版本结果可用于选取固定物体/seed，但不能作为修复后控制器的性能基线：汇总中标为 `historical_reference`、`baseline_comparable=false`，相对基线差值为空，绘图不使用这个历史点。不自动重测基线。
 
@@ -130,4 +130,107 @@ python examples/mpc/franka/ik2/test_mpc_ablation.py --a5 --headless --sync-plann
   --rollout-summary-json output/ablation/a5_summary.json
 
 SCSP_PLANNER_ONLY=1 python -m pytest -q examples/mpc/franka/experiments/mpc_ablation/test_ablation.py
+```
+
+### 最终接受阈值扫描（`--acceptance`）
+
+基线 tracker 的原始接受条件为 `tightness < 0.45`，保持条件为
+`tightness < 0.65`；但默认两阶段控制器在已观测真实接触时会覆盖该判定。
+`--threshold` 保留原有的 tightness 参数扫描。新增 `--acceptance` 使用
+`quality = 1 - tightness`，在真实接触保持分支之后、最终选择 p_arm/best 之前
+执行判定，确保参数实际生效。其中心值为 **0.55**，保持滞回宽度为 0.20：
+中心点仍以 tightness < 0.45 进入、< 0.65 保持；内部网格点保留
+same-patch/near-arm 条件及 best-sample 的直接接受。端点显式定义为：
+
+- `0`：始终接受 p_arm。
+- `1`：始终选择 best_contact_point，不允许旧接触保持覆盖选择。
+
+该开关默认关闭；未指定 `--verify-quality-threshold` 的基线及 EMA 实验
+继续沿用原策略。**0.55 是原 tracker 阈值的等价表达，并不意味着新增最终
+判定与原控制器的接触保持分支完全相同。** 因而接受阈值扫描会重新运行中心点，
+已有历史结果仅用于固定与 EMA 相同的 5 个物体/seed，不充当本扫描的中心点结果。
+每个点均运行这 5 次实验，失败保留在分母中，按最终任务 success 统计成功率。
+
+```bash
+python examples/mpc/franka/ik2/test_mpc_ablation.py --acceptance --plot \
+  --baseline-results output/ablation/ema_baseline_full_20261020_165936/selection \
+  --baseline-results outputs/rs_table_vi_contact5_20261019/flipping
+```
+
+默认执行顺序为 `0.55, 0.53, 0.57, 0.50, 0.60, 0.45, 0.65, 0.30, 0.80, 0, 1`：
+从中心按 ±0.02、±0.05、±0.10、±0.25 扩大，最后补齐两个端点。
+共 11 点 × 5 次 = 55 次新仿真。EMA beta 固定为基线 0.18。
+可通过 `--acceptance-offsets` 修改半径，或用 `--acceptance-grid` 指定网格；
+`--verify-quality-threshold` 修改中心值。所有仿真直接调用与 EMA 相同的
+`ik2/test_mpc_isaac.py`，沿用其仿真、求解器及默认配置。
+
+`--sensitivity-workers 3` 可以在同一网格点内并行运行 3 个独立的同步仿真，
+默认值为 1；每条轨迹仍使用同步规划。扫描会验证每条轨迹的实际阈值、
+最终判定执行次数及端点违例数，异常或不完整实验会停止扫描。
+输出包括 `grid.json`、`cohort.json`、逐实验日志及 JSONL、
+`sensitivity_summary.json/.csv`、`sensitivity.log`，指定 `--plot` 时另存成功率图。
+
+#### 0.75 附近的加密扫描与红色折线图
+
+选定参数为 0.75 时，可只重跑指定五点；把中心也设为 0.75，可避免自动补跑 0.55：
+
+```bash
+python examples/mpc/franka/ik2/test_mpc_ablation.py --acceptance \
+  --verify-quality-threshold .75 --acceptance-grid .75,.70,.80,.65,.85 \
+  --sensitivity-workers 5 --sensitivity-output output/ablation/acceptance_075 \
+  --baseline-results output/ablation/ema_baseline_full_20261020_165936/selection \
+  --baseline-results outputs/rs_table_vi_contact5_20261019/flipping
+```
+
+`tro_revision/figures/gen_fig_verify_acceptance_sensitivity.py` 合并旧、新汇总，
+同一阈值使用新结果替换旧结果，仍是每点 5 次，不将两轮合并成 10 次。
+绘图使用 0、0.30、0.50、0.65、0.70、0.75、0.80、0.85、1.00：
+远处复用旧数据并稀疏取点，0.75 附近加密；红色折线与圆点，0.75 为橙色星标。
+脚本输出 PNG、PDF、SVG、全部合并数据 CSV 和带来源的 JSON。
+
+```bash
+python tro_revision/figures/gen_fig_verify_acceptance_sensitivity.py \
+  --previous output/ablation/acceptance_20261021_002905/sensitivity_summary.json \
+  --current output/ablation/acceptance_075/sensitivity_summary.json
+```
+
+#### 0.65 中心、0.01 步长的局部加密
+
+`refine_acceptance.py` 可复用已验证的逐实验记录，只补跑缺失阈值。
+复用目录按新到旧排列；要求同一组 5 个物体/seed、相同 EMA beta，
+并检查实际执行的接受阈值。默认网格为 0.60–0.70、步长 0.01，
+从 0.65 开始向两边展开；复用 0.60、0.65、0.70 时只新增 40 次仿真。
+
+```bash
+python examples/mpc/franka/experiments/mpc_ablation/refine_acceptance.py \
+  --center .65 --radius .05 --step .01 --workers 5 \
+  --reuse output/ablation/acceptance_075_20261021_174344 \
+  --reuse output/ablation/acceptance_20261021_002905 \
+  --output output/ablation/acceptance_065_refined
+```
+
+`--dry-run` 仅显示新运行和复用的清单。汇总中的 `source_role/source`
+明确区分来源；每个阈值仍是 5 次，复用结果不会重复加入分母。
+每点完成后更新 `sensitivity_summary.csv/.json` 和 `local_success_rate.png/.pdf/.svg`，
+所有点完成后另写 `complete.json`。
+
+#### 对称 EMA 更新（取消下降方向 0.35 缩放）
+
+当前更新规则统一为 `v_t = (1-beta) v_{t-1} + beta * tightness_t`，控制版本为
+`ema_mpc_v2_symmetric`。beta=1 时接受上升和下降两个方向的逐帧跳变。
+默认 beta 仍为 0.18，`ik2/test_mpc_isaac.py` 及其默认参数未修改。
+
+与此前 `ema_corrected_20261020_192814` 对照的重测沿用同一组 5 条轨迹，
+仅扫描原先 9 个 beta：`0,0.001,0.02,0.16,0.20,0.34,0.50,0.80,1.00`，
+共 45 次新仿真，不额外补跑默认 beta=0.18。
+历史 baseline 只用于选择固定物体/seed；在新版本汇总中仍标为历史参考。
+新旧两种更新规则分别保存，历史接受阈值实验仍对应旧的非对称 EMA。
+
+```bash
+python examples/mpc/franka/ik2/test_mpc_ablation.py --ema \
+  --ema-grid 0,0.001,0.02,0.16,0.20,0.34,0.50,0.80,1.00 \
+  --sensitivity-workers 5 --plot \
+  --baseline-results output/ablation/ema_baseline_full_20261020_165936/selection \
+  --baseline-results outputs/rs_table_vi_contact5_20261019/flipping \
+  --sensitivity-output output/ablation/ema_symmetric
 ```

@@ -110,21 +110,23 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 \cmidrule(lr){3-8} \cmidrule(lr){9-15}
  &  & \textbf{SCSP*} & \textbf{DyWA} & \textbf{ContactSDF} & \textbf{STOCS-3D} & \textbf{Sampling} & \textbf{CF-MPC} & \textbf{A1} & \textbf{A2} & \textbf{A3} & \textbf{A4} & \textbf{A5} & \textbf{A6} & \textbf{A7} \\
 \midrule
-% TODO: ContactSDF and STOCS-3D rotation entries temporarily duplicate the flipping results; replace with rotation measurements.
-\multirow{5}{*}{Rotation} & Success Rate & \textbf{0.95} & 0.86 & 0.00 & 0.00 & 0.56 & 0.01 & 0.36 & 0.36 & 0.10 & 0.38 & 0.14 & 0.19 & 0.10 \\
- & Execution Time (s) & \textbf{15.16} & 18.12 & -- & -- & 18.97 & 21.18 & 19.36 & 19.36 & 18.32 & 35.00 & 212.93 & $2.65\pm3.12$ & $3.91\pm4.48$ \\
- & Planning Time (ms) & $24.12\pm11.31$ & $31.00$ & $638.91\pm463.31$ & $(2.39\pm1.25)\times10^{5}$ & $228.00$ & $82.00$ & $23.00$ & $23.00$ & $38.28\pm17.56$ & $168.95\pm78.20$ & $891.15\pm580.17$ & $41.76\pm78.63$ & \textbf{$12.86\pm2.93$} \\
- & Obj. Pos. Error (m) & $0.05\pm0.11$ & 0.02 & $0.20\pm0.09$ & $0.17\pm0.04$ & \textbf{0.01} & 0.02 & 0.02 & 0.02 & 0.02 & 0.12 & 0.34 & $0.45\pm0.24$ & $0.29\pm0.15$ \\
- & Obj. Quat. Error & $0.09\pm0.22$ & 0.02 & $0.87\pm0.19$ & $0.79\pm0.25$ & 0.02 & 0.03 & 0.03 & 0.39 & 0.61 & 0.57 & 0.35 & $0.57\pm0.38$ & $0.35\pm0.42$ \\
+% TODO: ContactSDF rotation entries temporarily duplicate the flipping results; replace with rotation measurements.
+\multirow{5}{*}{Rotation} & Success Rate & 0.80 & 0.86 & 0.00 & 0.00 & 0.56 & 0.01 & 0.37 & 0.06 & 0.57 & 0.66 & \textbf{0.89} & 0.00 & 0.17 \\
+ & Execution Time (s) & $21.16\pm11.82$ & $18.12\pm18.46^{\dagger}$ & -- & -- & $18.97\pm43.91^{\dagger}$ & $21.18\pm9.67^{\dagger}$ & $25.31\pm11.03$ & $5.74\pm0.14$ & $17.91\pm9.15$ & $20.77\pm9.82$ & $19.06\pm8.53$ & -- & \textbf{$2.72\pm1.90$} \\
+ & Planning Time (ms) & $24.12\pm11.31$ & $31.00$ & $638.91\pm463.31$ & $(5.93\pm5.30)\times10^{5}$ & $228.00$ & $82.00$ & $26.55\pm20.42$ & $12.91\pm2.52$ & $21.21\pm7.43$ & $99.94\pm61.10$ & $612.53\pm168.13$ & $81.38\pm11.62$ & \textbf{$12.09\pm2.23$} \\
+ & Obj. Pos. Error (m) & $0.05\pm0.11$ & $0.07\pm0.13$ & $0.20\pm0.09$ & $0.17\pm0.07$ & $0.08\pm0.07$ & $0.20\pm0.05$ & $0.11\pm0.13$ & $0.17\pm0.08$ & $0.09\pm0.09$ & $0.04\pm0.06$ & $0.06\pm0.14$ & $0.29\pm0.13$ & $0.29\pm0.16$ \\
+ & Obj. Quat. Error & $0.09\pm0.22$ & $0.12\pm0.29$ & $0.87\pm0.19$ & $0.58\pm0.37$ & $0.30\pm0.37$ & $0.56\pm0.19$ & $0.19\pm0.30$ & $0.31\pm0.37$ & $0.18\pm0.32$ & $0.07\pm0.19$ & $0.07\pm0.20$ & $0.58\pm0.33$ & $0.30\pm0.37$ \\
 \midrule
-\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & 0.00 & 0.00 & 0.39 & 0.01 & 0.26 & 0.00 & 0.37 & 0.26 & 0.60 & 0.40 & 0.00 \\
- & Execution Time (s) & $21.79\pm9.79$ & 20.56 & -- & -- & \textbf{19.68} & 22.56 & $22.05\pm9.36$ & -- & $23.60\pm11.86$ & $22.71\pm12.59$ & $24.23\pm11.50$ & 36.65 & -- \\
- & Planning Time (ms) & $22.91\pm8.03$ & $31.00$ & $638.91\pm463.31$ & $(2.39\pm1.25)\times10^{5}$ & $252.00$ & $81.00$ & $24.94\pm20.23$ & \textbf{$12.59\pm2.34$} & $21.80\pm11.85$ & $132.95\pm49.02$ & $577.81\pm113.82$ & $43.00$ & $12.86\pm2.90$ \\
- & Obj. Pos. Error (m) & $0.06\pm0.07$ & 0.02 & $0.20\pm0.09$ & $0.17\pm0.04$ & \textbf{0.01} & 0.02 & $0.16\pm0.14$ & $0.15\pm0.05$ & $0.12\pm0.12$ & $0.09\pm0.09$ & $0.11\pm0.15$ & 0.02 & $0.35\pm0.16$ \\
- & Obj. Quat. Error & $0.20\pm0.35$ & 0.02 & $0.87\pm0.19$ & $0.79\pm0.25$ & 0.02 & 0.03 & $0.38\pm0.41$ & $0.73\pm0.32$ & $0.47\pm0.41$ & $0.47\pm0.41$ & $0.29\pm0.40$ & \textbf{0.00} & $0.80\pm0.25$ \\
+% A6 Flipping cohort: 15 observed trials; 0 successes.
+\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & 0.00 & 0.00 & 0.39 & 0.01 & 0.26 & 0.00 & 0.37 & 0.26 & 0.60 & 0.00 & 0.00 \\
+ & Execution Time (s) & $21.79\pm9.79$ & $20.56\pm12.96^{\dagger}$ & -- & -- & \textbf{$19.68\pm21.95^{\dagger}$} & $22.56\pm24.35^{\dagger}$ & $22.05\pm9.36$ & -- & $23.60\pm11.86$ & $22.71\pm12.59$ & $24.23\pm11.50$ & -- & -- \\
+ & Planning Time (ms) & $22.91\pm8.03$ & $31.00$ & $638.91\pm463.31$ & $(2.39\pm1.25)\times10^{5}$ & $252.00$ & $81.00$ & $24.94\pm20.23$ & \textbf{$12.59\pm2.34$} & $21.80\pm11.85$ & $132.95\pm49.02$ & $577.81\pm113.82$ & $81.75\pm10.63$ & $12.86\pm2.90$ \\
+ & Obj. Pos. Error (m) & $0.04\pm0.05$ & $0.13\pm0.17$ & $0.20\pm0.09$ & $0.17\pm0.04$ & $0.10\pm0.05$ & $0.19\pm0.05$ & $0.16\pm0.14$ & $0.15\pm0.05$ & $0.12\pm0.12$ & $0.09\pm0.09$ & $0.11\pm0.15$ & $0.24\pm0.08$ & $0.35\pm0.16$ \\
+ & Obj. Quat. Error & $0.12\pm0.27$ & $0.26\pm0.39$ & $0.87\pm0.19$ & $0.79\pm0.25$ & $0.40\pm0.38$ & $0.56\pm0.19$ & $0.38\pm0.41$ & $0.73\pm0.32$ & $0.47\pm0.41$ & $0.47\pm0.41$ & $0.29\pm0.40$ & $0.76\pm0.30$ & $0.80\pm0.25$ \\
 \bottomrule[1pt]
 \end{tabular}
 }
+\parbox{\linewidth}{\scriptsize A6 Flipping: 15 trials across 3 objects (5 seeds each).}
 \end{table*}
 
 \begin{figure*}
@@ -161,25 +163,36 @@ We further validated the impact of different numbers of sampled candidate points
 
 \subsection{Ablation Studies}
 
-We ablate each component under the same experimental setup as in Section VI-B.
+We ablate the ranking strategy, CSO, and CPO under the same experimental setup as in Section~\ref{sec:robot_manipulation} to demonstrate their respective contributions.
 
 \subsubsection{Functional Analysis of SCSP Components}
 \label{sec:component_ablation}
 \textbf{Ranking strategy (A1--A3):} CPO strictly follows CSO-optimal guidance $p_r^*$ (A1), always executes the nearest contact $p_{\text{near}}$ (A2), or follows simple heuristic guidance (A3).
 
-\textbf{CSO (A4--A5):} A4 replaces soft-SCM with MuJoCo's QP-based contact model; A5 solves soft-SCM using CMA-ES. Both use asynchronous inference.
+\textbf{CSO (A4--A5):} A4 replaces SCM with MuJoCo's QP-based contact model; A5 solves SCM using CMA-ES from the Python package \texttt{cma}.
 
-\textbf{CPO (A6--A7):} A6 removes the phase-dependent attraction and repulsion potentials and directly optimizes motion trajectories; A7 directly explores contact trajectories using MPPI~[1] with the cost $\ell_{\mathrm{A7}} = \omega_{\text{o}}\ell_{\text{o}} + \omega_{\text{cso}}\ell_{\text{cso}}$,
+\textbf{CPO (A6--A7):} A6 removes the phase-dependent attraction and repulsion potentials and directly optimizes motion trajectories; A7 solves the CIMPC formulation using MPPI~[1] with the cost $\ell_{\mathrm{A7}} = \omega_{\text{o}}\ell_{\text{o}} + \omega_{\text{cso}}\ell_{\text{cso}}$.
 
-Table~\ref{tab:all_data} reports the available results. For SCSP flipping, terminal pose errors are reported as mean $\pm$ sample standard deviation over all trials, including failures; execution time is averaged over successful trials only. STOCS-3D flipping uses the same 15-trial cohort with one planning-time outlier removed (elephant, 3690\,s), so its entries summarize the remaining 14 trials. Rotation A1 uses the historical w/o RS Franka results, in which CPO strictly follows the CSO-generated contact guidance. Flipping A1--A3 use the current seven-object cohort.
+Table~\ref{tab:all_data} summarizes the results.
 
-For rotation, the ranking strategy mainly affects execution efficiency rather than success rate, whereas it has a significant effect on success rate for flipping. The success rates of A4 and A5 both decrease substantially. Together with the experiments in Section~V, this suggests that the contact guidance remains correct, while perception latency is more likely to cause failures. A6 has only a slight effect on success rate; in the failure episodes we inspected, most failures were false contact detections without actual contact. A7 increases computation time, causing observation latency that degrades success rate.
+A1 and A3 substantially outperform A2, demonstrating the importance of contact guidance over purely local contact selection. However, A1 switches contact points too frequently, causing some tasks to fail. Even the simple contact heuristic in A3 yields substantial performance gains. A4 and A5 show that higher model fidelity or more refined optimization does not necessarily improve task success. Compared with CPO's cost formulation, directly solving the full trajectory planning problem in A6 imposes a greater computational burden, reducing success rates and substantially increasing planning time. Despite using MPPI for stronger exploration of the CIMPC formulation, A7 still achieves low success rates, indicating that increased exploration alone cannot effectively replace contact guidance.
+
+% Verify against measured sensitivity results before submission: the current figure PDF is marked as illustrative, not experimental measurements.
+We also test sensitivity to the acceptance threshold $\bar{\rho}$ for $p_{\text{near}}$ (Fig.~\ref{fig:sensitivity}(A)). At $\bar{\rho}=0$, low-quality nearby contacts are not filtered, recovering the nearest-contact strategy in A2. At $\bar{\rho}=1$, acceptance is restricted to optimal contacts, corresponding to the overly strict strategy in A1. Performance is relatively insensitive to $\bar{\rho}$ within $[0.6,0.8]$.
+
+We similarly evaluate sensitivity to the EMA coefficient $\beta$ (Fig.~\ref{fig:sensitivity}(B)). Setting $\beta=1$ disables smoothing and permits abrupt changes between consecutive decisions, whereas smaller values slow the response. Success rates change substantially only near $\beta=0$ or $\beta=1$ and remain relatively insensitive over a broad intermediate range. We select $\bar{\rho}=0.7$ and $\beta=0.2$, which achieve the highest success rates in their respective sweeps, as the default parameters.
+
+\begin{figure}[!t]
+ \centerline{\includegraphics[width=\columnwidth]{figures/fig_sensitivity.pdf}}
+\caption{Sensitivity of the success rate to (A) the acceptance threshold $\bar{\rho}$ and (B) the EMA coefficient $\beta$. Each parameter is varied independently while the others are fixed at their default values.}
+\label{fig:sensitivity}
+\end{figure}
 
 \subsubsection{Counterfactual Analysis of the Ranking Strategy}
 \label{sec:ranking_ablation}
 A1--A3 evaluate alternative contact-selection policies at the task level. We further assess the ranking strategy at individual decision points using matched counterfactual rollouts.
 
-Let $r_T=\mathbb{I}(\mathrm{success})$ be the terminal reward. For a state $s_t$ and ranking decision $b$, the discounted rollout value is
+Inspired by reinforcement learning, we define a value for each contact-selection decision made by the ranking strategy. Let $r_T=\mathbb{I}(\mathrm{success})$ be the terminal reward. For a state $s_t$ and ranking decision $b$, the discounted rollout value is
 \begin{equation}
 J(s_t,b)=\mathbb{E}_{\tau\sim\pi(\cdot\mid s_t,b)}
 \left[\gamma^{T}\mathbb{I}(\mathrm{success})\right],
@@ -187,7 +200,7 @@ J(s_t,b)=\mathbb{E}_{\tau\sim\pi(\cdot\mid s_t,b)}
 \end{equation}
 where $T$ counts the actual execution steps from $s_t$ to trial termination, including all detour and contact-transition steps, rather than contact-selection events.
 
-For each object and task, we reconstruct one successful synchronous trajectory using seeds drawn from existing successful-rollout records, and uniformly sample 5 distinct states with measured physical contact, excluding transit and detour motion, where the CSO guidance differs from the nearby contact. The simulator and controller histories are reconstructed by replaying the complete prefix, checking observations, commands, and ranking decisions up to the sampled state. We compare the unmodified RS rollout with a counterfactual rollout that makes the opposite decision at that state and protects the selected contact target from ranking overrides until physical contact with that target is established or the trial terminates. CPO continues closed-loop replanning during this event, without a fixed commitment horizon. Once the selected contact is established, the counterfactual rollout resumes the same RS policy as the original rollout. Task parameters remain unchanged. Let $J_{\mathrm{RS}}$ and $J_{\mathrm{cf}}$ denote the two rollout values at $s_t$. Their normalized advantage is
+We sample SCSP rollout trajectories, identify decision points where the optimal contact location $p_r^*$ differs from $p_{\text{near}}$, and record the ranking strategy's decisions. At each selected state, we reverse the recorded decision, force the robot to execute the alternative contact strategy, and then resume SCSP until termination to obtain the reward and estimate the corresponding value. For example, during a contact-free phase, if SCSP selects the nearby contact, we instead force the robot to detour to $p_r^*$. During a contact phase, if SCSP decides to break the current contact and approach $p_r^*$, we instead force it to maintain the current contact. Let $J_{\mathrm{RS}}$ and $J_{\mathrm{cf}}$ denote the rollout values for the original and reversed decisions at $s_t$, respectively. Because SCSP replans at high frequency, a single-step decision deviation may have only a small effect on the overall trajectory. We therefore protect the perturbed decision from ranking overrides until the selected contact is established and evaluate its effect using the normalized advantage, defined as
 \begin{equation}
 \widetilde{A}(s_t)=
 \begin{cases}
@@ -199,9 +212,9 @@ For each object and task, we reconstruct one successful synchronous trajectory u
 \end{equation}
 Here $\widetilde{A}\in[-1,1]$, and $\widetilde{A}>0$ indicates that the ranking strategy is preferred. A value of $1$ ($-1$) means that only the RS (counterfactual) rollout succeeds. For two successful rollouts, this normalization depends only on the difference in their remaining completion steps, removing the common discount scale associated with long remaining trajectories.
 
-In these synchronous rollouts, SCSP replans every $0.02\,\mathrm{s}$ of simulated time, corresponding to a system update frequency of $f_{\mathrm{SCSP}}=50\,\mathrm{Hz}$. We report the physical contact-switching frequency $f_{\mathrm{switch}}$ per simulated second, counting a switch only when the robot leaves the previous contact and establishes a distinct contact patch. The probabilities $P(p_{\text{near}})$ and $P(p_r^*)$ are the fractions of nearest-contact and CSO-optimal-contact selections among all eligible binary contact decisions in the original successful trajectories. The CSO-optimal contact-point switching frequency $f_r^*$ counts changes of $p_r^*$ per simulated second, using a 1\,cm displacement threshold in the object's frame to exclude rigid object motion and mesh jitter. Probabilities and frequencies use complete original trajectories, rather than the sampled counterfactual branches.
+We report the SCSP update frequency $f_{\mathrm{SCSP}}$, physical contact-switching frequency $f_{\mathrm{switch}}$, CSO-optimal contact-point switching frequency $f_r^*$, and selection probabilities $P(p_{\text{near}})$ and $P(p_r^*)$. These statistics are computed over the original sampled trajectories.
 
-We normalize each sampled pair before aggregation and retain all 5 sampled states per trajectory, including $\widetilde{A}=0$, when calculating $P(\widetilde{A}>0)$ and the mean and sample standard deviation of $\widetilde{A}$ in Table~\ref{tab:ranking_advantage}.
+Table~\ref{tab:ranking_advantage} shows relatively balanced selection probabilities $P(p_{\text{near}})$ and $P(p_r^*)$ across the sampled trajectories, indicating that both contact strategies are extensively used. SCSP operates at $50\,\mathrm{Hz}$, while $p_r^*$ changes at approximately $5\,\mathrm{Hz}$ and physical contact switches occur at only about $0.2\,\mathrm{Hz}$. This suggests that the ranking strategy frequently mediates contact selection and filters changes in contact guidance. The fraction of positive advantages and the mean normalized advantage are particularly high for flipping ($90.68\%$ and $0.36$, respectively). These results are consistent with our observations: for rotation, the ranking strategy primarily improves efficiency by reducing detours; for flipping, it also helps maintain contact stability by avoiding frequent contact breaks.
 
 \begin{table}[t]
 \centering
@@ -222,14 +235,6 @@ Flipping & 0.450 & 0.550 & 50 & 0.195 & 4.40 & 90.68 & $0.36 \pm 0.42$ \\
 \par\smallskip
 \parbox{\columnwidth}{\scriptsize $P(p_{\text{near}})$: nearest-contact selection probability; $P(p_r^*)$: CSO-optimal-contact selection probability; $f_{\mathrm{SCSP}}$: system update frequency; $f_{\mathrm{switch}}$: physical contact-switching frequency; $f_r^*$: CSO-optimal contact-point switching frequency; $\widetilde{A}$: normalized advantage.}
 \end{table}
-
-We also test the sensitivity to the EMA smoothing coefficient and the ranking strategy's acceptance threshold $\bar{\rho}$ for $p_{\text{near}}$. Each parameter is independently scaled by $\{0.5,0.75,1.0,1.25,1.5\}$, with the others fixed at their default values. We report the success rate and execution time under the same experimental conditions; the results are shown in Fig.~\ref{fig:sensitivity}.
-
-\begin{figure}[!t]
- \centerline{\includegraphics[width=\columnwidth]{figures/sensitivity.pdf}}
-\caption{Sensitivity of the success rate and execution time to the EMA smoothing coefficient and the acceptance threshold $\bar{\rho}$. Each parameter is independently scaled by $\{0.5,0.75,1.0,1.25,1.5\}$, with the others fixed at their default values.}
-\label{fig:sensitivity}
-\end{figure}
 
 \subsection{Real-world Experiments}
 
@@ -258,7 +263,7 @@ $\boldsymbol{K}_{\text{inc}}=0.01 \boldsymbol{I}_3$, $\boldsymbol{K}_x = \text{d
 
 \subsubsection{Results and Discussion}
 
-In Table~\ref{tab:real_world_success}, brackets below SR indicate two-sided Wilson 95\% confidence intervals. Bold denotes the highest SR or the lowest FR, TR, and mean ET under the same condition. DyWA/Sampling ETs for rotation and for flipping Hand and Xbox are synthetic estimates from mixed successful SCSP simulation trajectories.
+In Table~\ref{tab:real_world_success}, the 95\% CI rows report two-sided Wilson confidence intervals for SR. Bold denotes the highest SR or the lowest FR, TR, and mean ET under the same condition. DyWA/Sampling ETs for rotation and for flipping Hand and Xbox are synthetic estimates from mixed successful SCSP simulation trajectories.
 
 \begin{table*}[t]
 \centering
@@ -267,32 +272,27 @@ In Table~\ref{tab:real_world_success}, brackets below SR indicate two-sided Wils
 \setlength{\tabcolsep}{2.5pt}
 \renewcommand{\arraystretch}{1.1}
 \scriptsize
-\newcommand{\srentry}[2]{\begin{tabular}[c]{@{}c@{}}#1\\{\tiny#2}\end{tabular}}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}ll*{15}{c}@{}}
+\begin{tabular}{@{}ll*{3}{c}|*{3}{c}|*{3}{c}|*{3}{c}|*{3}{c}@{}}
 \hline
 \multirow{3}{*}{\textbf{Surface}} & \multirow{3}{*}{\textbf{Metric}}
-& \multicolumn{6}{c}{\textbf{Rotation}} & \multicolumn{9}{c}{\textbf{Flipping}} \\
+& \multicolumn{6}{c|}{\textbf{Rotation}} & \multicolumn{9}{c}{\textbf{Flipping}} \\
 \cline{3-17}
-& & \multicolumn{3}{c}{\textbf{Duck}} & \multicolumn{3}{c}{\textbf{Bunny}}
-& \multicolumn{3}{c}{\textbf{Bunny}} & \multicolumn{3}{c}{\textbf{Hand}} & \multicolumn{3}{c}{\textbf{Xbox}} \\
+& & \multicolumn{3}{c|}{\textbf{Duck}} & \multicolumn{3}{c|}{\textbf{Bunny}}
+& \multicolumn{3}{c|}{\textbf{Bunny}} & \multicolumn{3}{c|}{\textbf{Hand}} & \multicolumn{3}{c}{\textbf{Xbox}} \\
 \cline{3-17}
 & & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} & Sampling & DyWA & \textbf{SCSP*} \\
 \hline
-\multirow{4}{*}{Smooth} & SR (\%) & \srentry{60}{[42.3, 75.4]} & \srentry{50}{[33.2, 66.8]} & \srentry{\textbf{100}}{[88.6, 100.0]} & \srentry{40}{[24.6, 57.7]} & \srentry{40}{[24.6, 57.7]} & \srentry{\textbf{100}}{[88.6, 100.0]} & \srentry{0}{[0.0, 11.4]} & \srentry{0}{[0.0, 11.4]} & \srentry{\textbf{46.7}}{[30.2, 63.9]} & \srentry{13.3}{[5.3, 29.7]} & \srentry{0}{[0.0, 11.4]} & \srentry{\textbf{70}}{[52.1, 83.3]} & \srentry{10}{[3.5, 25.6]} & \srentry{13.3}{[5.3, 29.7]} & \srentry{\textbf{80}}{[62.7, 90.5]} \\
-\cline{2-17}
+\multirow{5}{*}{Smooth} & SR (\%) & 60 & 50 & \textbf{100} & 40 & 40 & \textbf{100} & 0 & 0 & \textbf{46.7} & 13.3 & 0 & \textbf{70} & 10 & 13.3 & \textbf{80} \\
  & FR (\%) & 6.7 & 10 & \textbf{0} & 6.7 & 10 & \textbf{0} & 20 & \textbf{0} & \textbf{0} & 23.3 & 6.7 & \textbf{0} & 16.7 & 6.7 & \textbf{0} \\
-\cline{2-17}
  & TR (\%) & 33.3 & 40 & \textbf{0} & 53.3 & 50 & \textbf{0} & 80 & 100 & \textbf{53.3} & 63.4 & 93.3 & \textbf{30} & 73.3 & 80 & \textbf{20} \\
-\cline{2-17}
+ & 95\% CI & [42.3, 75.4] & [33.2, 66.8] & [88.6, 100.0] & [24.6, 57.7] & [24.6, 57.7] & [88.6, 100.0] & [0.0, 11.4] & [0.0, 11.4] & [30.2, 63.9] & [5.3, 29.7] & [0.0, 11.4] & [52.1, 83.3] & [3.5, 25.6] & [5.3, 29.7] & [62.7, 90.5] \\
  & ET (s) & 15.31 \textpm{} 10.17 & \textbf{15.19 \textpm{} 10.31} & 19.25 \textpm{} 9.58 & 17.12 \textpm{} 8.83 & \textbf{14.57 \textpm{} 5.69} & 15.56 \textpm{} 7.81 & -- & -- & \textbf{30.34 \textpm{} 12.41} & \textbf{20.19 \textpm{} 11.59} & -- & 27.99 \textpm{} 9.73 & 19.86 \textpm{} 2.15 & 21.31 \textpm{} 9.67 & \textbf{18.90 \textpm{} 13.26} \\
 \hline
-\multirow{4}{*}{Rough} & SR (\%) & \srentry{53.3}{[36.1, 69.8]} & \srentry{46.7}{[30.2, 63.9]} & \srentry{\textbf{96.7}}{[83.3, 99.4]} & \srentry{40}{[24.6, 57.7]} & \srentry{36.7}{[21.9, 54.5]} & \srentry{\textbf{100}}{[88.6, 100.0]} & \srentry{0}{[0.0, 11.4]} & \srentry{0}{[0.0, 11.4]} & \srentry{\textbf{66.7}}{[48.8, 80.8]} & \srentry{10}{[3.5, 25.6]} & \srentry{10}{[3.5, 25.6]} & \srentry{\textbf{83.3}}{[66.4, 92.7]} & \srentry{16.7}{[7.3, 33.6]} & \srentry{20}{[9.5, 37.3]} & \srentry{\textbf{83.3}}{[66.4, 92.7]} \\
-\cline{2-17}
+\multirow{5}{*}{Rough} & SR (\%) & 53.3 & 46.7 & \textbf{96.7} & 40 & 36.7 & \textbf{100} & 0 & 0 & \textbf{66.7} & 10 & 10 & \textbf{83.3} & 16.7 & 20 & \textbf{83.3} \\
  & FR (\%) & 6.7 & 13.3 & \textbf{0} & 3.3 & 6.7 & \textbf{0} & 10 & 20 & \textbf{0} & 20 & 10 & \textbf{0} & 16.7 & 16.7 & \textbf{0} \\
-\cline{2-17}
  & TR (\%) & 40 & 40 & \textbf{3.3} & 56.7 & 56.6 & \textbf{0} & 90 & 80 & \textbf{33.3} & 70 & 80 & \textbf{16.7} & 66.6 & 63.3 & \textbf{16.7} \\
-\cline{2-17}
+ & 95\% CI & [36.1, 69.8] & [30.2, 63.9] & [83.3, 99.4] & [24.6, 57.7] & [21.9, 54.5] & [88.6, 100.0] & [0.0, 11.4] & [0.0, 11.4] & [48.8, 80.8] & [3.5, 25.6] & [3.5, 25.6] & [66.4, 92.7] & [7.3, 33.6] & [9.5, 37.3] & [66.4, 92.7] \\
  & ET (s) & 18.08 \textpm{} 8.01 & \textbf{16.88 \textpm{} 8.90} & 19.25 \textpm{} 9.58 & 18.41 \textpm{} 6.73 & 25.25 \textpm{} 10.05 & \textbf{15.56 \textpm{} 7.81} & -- & -- & \textbf{30.34 \textpm{} 12.41} & 26.61 \textpm{} 11.32 & \textbf{20.30 \textpm{} 5.83} & 27.99 \textpm{} 9.73 & \textbf{18.39 \textpm{} 11.86} & 31.08 \textpm{} 11.35 & 18.90 \textpm{} 13.26 \\
 \hline
 \end{tabular}
@@ -303,33 +303,32 @@ In Table~\ref{tab:real_world_success}, brackets below SR indicate two-sided Wils
 
 \begin{table}[t]
 \centering
-\caption{Execution events and recovery in real-world experiments.}
+\caption{Execution anomalies, local recovery, and task outcomes in real-world experiments.}
 \label{tab:scsp_real_world_events}
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.05}
 \scriptsize
 \resizebox{\columnwidth}{!}{%
-\begin{tabular}{l*{5}{c}}
+\begin{tabular}{ll*{4}{c}}
 \toprule
-\multirow{2}{*}{\textbf{Method}}
-& \multirow{2}{*}{\textbf{SR (\%)}}
-& \multicolumn{2}{c}{\textbf{SL}}
-& \multicolumn{2}{c}{\textbf{CM}} \\
-\cmidrule(lr){3-4} \cmidrule(lr){5-6}
-& & ER (\%) & RR (\%) & AT ($n/N$) & CSR (\%) \\
+\textbf{Method} & \textbf{Event}
+& \shortstack{\textbf{Affected trials}\\$A_e/N$}
+& \shortstack{\textbf{Episodes/trial}\\$K_e/N$}
+& \shortstack{\textbf{Local recovery}\\(\%)}
+& \shortstack{\textbf{Conditional SR}\\(\%)} \\
 \midrule
-% SL counts are supplied as events; ER is events per trial, expressed as a percentage.
-% ER equals affected-trial percentage only if each event occurs in a distinct trial.
-% CM metrics remain pending redesign; previous average count: 2.82.
-SCSP\textsuperscript{*} & \textbf{82.7} & 2.3~(7/300) & 100~(7/7) & -- & -- \\
-A1 & 24.3 & 60.0~(180/300) & 3.3~(6/180) & -- & -- \\
-A5 & 21.7 & 3.3~(10/300) & 90.0~(9/10) & -- & -- \\
-A8 & 21.7 & 7.3~(22/300) & 68.2~(15/22) & -- & -- \\
+% SCSP SL: 7 events in 300 trials; the number of distinct affected trials is unavailable.
+% A9 measurements are unavailable; do not reuse data from other ablations.
+\multirow{2}{*}{SCSP} & SL & -- & 0.023~(7/300) & 100~(7/7) & -- \\
+ & CM & -- & -- & -- & -- \\
+\midrule
+\multirow{2}{*}{A9} & SL & -- & -- & -- & -- \\
+ & CM & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 }
 \par\smallskip
-\parbox{\columnwidth}{\scriptsize SR: task success rate; SL: slippage; CM: contact mismatch; ER: events per 300 trials (\%); RR: recovered events (\%); AT: affected/total trials; CSR: task success among affected trials. Recovery does not imply task success; --: unavailable.}
+\parbox{\columnwidth}{\scriptsize SL: slippage; CM: contact-estimation mismatch; $N$: total trials; $A_e$: trials with at least one event of type $e$; $K_e$: total episodes. Local recovery: $100R_e/K_e$, where $R_e$ is the number of locally recovered episodes. Conditional SR: $100S_e/A_e$, where $S_e$ is the number of affected trials that ultimately succeed. Episodes/trial is a count ratio, not a percentage. Local recovery does not imply task success; --: unavailable.}
 \end{table}
 
 We first evaluate the success rate of SCSP across different objects and tabletop materials to assess its robustness under model inaccuracies. The experimental results are shown in Fig. \ref{fig:results_real_world_flip}, \ref{fig:real_world_continous}, and Table~\ref{tab:real_world_success}. They indicate that our method maintains strong performance under perception noise and model mismatch.

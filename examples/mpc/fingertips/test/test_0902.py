@@ -1331,8 +1331,8 @@ class ContactValueTracker:
             dist = 1.0
         q_dist = 1.0 / (1.0 + np.exp((dist - self.dist_mid) / self.dist_width))
         target = float(np.clip(tightness, 0.0, 1.0))
-        rate = self.beta if target >= self.verify else 0.35 * self.beta
-        self.verify = (1.0 - rate) * float(self.verify) + rate * target
+        # Use the same EMA coefficient for rising and falling tightness.
+        self.verify = (1.0 - self.beta) * float(self.verify) + self.beta * target
         self._last_verify_target = target
         self._target_window.append(target)
         self.contact_active = float(self.verify) >= float(self.exit_threshold)

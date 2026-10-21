@@ -1,0 +1,17 @@
+{
+  "inputs": [
+    "fig_verify_acceptance_illustrative.pdf",
+    "fig_ema_illustrative.pdf"
+  ],
+  "output": "fig_acceptance_ema_illustrative_combined.pdf",
+  "order": "acceptance left, EMA right",
+  "top_from_page_top_bp": 1.52175,
+  "bottom_from_page_top_bp": 266.942678,
+  "label_padding_bp": 2.5,
+  "horizontal_gap_bp": 8.0,
+  "output_width_bp": 972.86425,
+  "output_height_bp": 265.420928,
+  "vector_content_preserved": true,
+  "data_type": "illustrative",
+  "experimental_measurements": false
+}

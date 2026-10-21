@@ -1,0 +1,18 @@
+{
+  "last.ckpt": {
+    "url": "https://huggingface.co/Steve3zz/Dywa_abs_1view/resolve/88339406d9b08ef244735f607142a4fe9613bdf3/ckpt/last.ckpt",
+    "sha256": "681724a3891199cc20d78dda51775295036e836b8186cf9e5d4c9d58139cd137"
+  },
+  "teacher-last.ckpt": {
+    "url": "https://huggingface.co/Steve3zz/Dywa_abs_1view/resolve/88339406d9b08ef244735f607142a4fe9613bdf3/ckpt/teacher-last.ckpt",
+    "sha256": "26e4425b4533354296cfd79bc464d03ca1f0442abb0bfb8a3d8572134fceabfd"
+  },
+  "env-last.ckpt": {
+    "url": "https://huggingface.co/Steve3zz/Dywa_abs_1view/resolve/88339406d9b08ef244735f607142a4fe9613bdf3/stat/env-last.ckpt",
+    "sha256": "233ecd2a3c2993f855fc63e96824f33e965f66f13f35f1eb2aa0ea0c3409aca1"
+  },
+  "512-32-balanced-SAM-wd-5e-05-920.ckpt": {
+    "url": "https://huggingface.co/imm-unicorn/corn-public/resolve/bbb439dbbde86680194448530a0e065123e6c830/512-32-balanced-SAM-wd-5e-05-920",
+    "sha256": "f4c72e764fe1cfe4e6f08add3e24c53001032338c3088669f09e8840883fea7a"
+  }
+}
