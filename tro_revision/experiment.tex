@@ -118,7 +118,7 @@ Due to the strong dependencies of the source code released for DyWA, which are d
  & Obj. Quat. Error & $0.09\pm0.22$ & $0.12\pm0.29$ & $0.87\pm0.19$ & $0.58\pm0.37$ & $0.30\pm0.37$ & $0.56\pm0.19$ & $0.19\pm0.30$ & $0.31\pm0.37$ & $0.18\pm0.32$ & $0.07\pm0.19$ & $0.07\pm0.20$ & $0.58\pm0.33$ & $0.30\pm0.37$ \\
 \midrule
 % A6 Flipping cohort: 15 observed trials; 0 successes.
-\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & 0.00 & 0.00 & 0.39 & 0.01 & 0.26 & 0.00 & 0.37 & 0.26 & 0.60 & 0.00 & 0.00 \\
+\multirow{5}{*}{Flipping} & Success Rate & \textbf{0.81} & 0.69 & 0.00 & 0.00 & 0.39 & 0.01 & 0.19 & 0.00 & 0.37 & 0.26 & 0.60 & 0.00 & 0.00 \\
  & Execution Time (s) & $21.79\pm9.79$ & $20.56\pm12.96^{\dagger}$ & -- & -- & \textbf{$19.68\pm21.95^{\dagger}$} & $22.56\pm24.35^{\dagger}$ & $22.05\pm9.36$ & -- & $23.60\pm11.86$ & $22.71\pm12.59$ & $24.23\pm11.50$ & -- & -- \\
  & Planning Time (ms) & $22.91\pm8.03$ & $31.00$ & $638.91\pm463.31$ & $(2.39\pm1.25)\times10^{5}$ & $252.00$ & $81.00$ & $24.94\pm20.23$ & \textbf{$12.59\pm2.34$} & $21.80\pm11.85$ & $132.95\pm49.02$ & $577.81\pm113.82$ & $81.75\pm10.63$ & $12.86\pm2.90$ \\
  & Obj. Pos. Error (m) & $0.04\pm0.05$ & $0.13\pm0.17$ & $0.20\pm0.09$ & $0.17\pm0.04$ & $0.10\pm0.05$ & $0.19\pm0.05$ & $0.16\pm0.14$ & $0.15\pm0.05$ & $0.12\pm0.12$ & $0.09\pm0.09$ & $0.11\pm0.15$ & $0.24\pm0.08$ & $0.35\pm0.16$ \\
@@ -126,7 +126,6 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 \bottomrule[1pt]
 \end{tabular}
 }
-\parbox{\linewidth}{\scriptsize A6 Flipping: 15 trials across 3 objects (5 seeds each).}
 \end{table*}
 
 \begin{figure*}
@@ -246,7 +245,7 @@ Finally, we validate the robustness of SCSP to in real-world experiments. Most m
 \label{fig:illustrative_example_1}
 \end{figure}
 \subsubsection{Experimental Setup}
-We conduct experiments using a Franka Emika Panda equipped with a 3D-printed end-effector, and arbitrarily select 4 irregularly shaped objects: Duck, Bunny, Hand, and Xbox Controller, as shown in Fig. \ref{fig:illustrative_example_1}. We evaluate on-ground rotation on Duck and Bunny, and on-ground flipping on Bunny, Hand, and Xbox Controller. The object CAD models are obtained from the ContactDB dataset and online repositories. To validate the robustness of our method under inaccurate dynamics, we provide only rough estimates of the object’s physical parameters such as mass and friction coefficients. Moreover, instead of relying on precise motion capture for exact perception, we perform state estimation by \texttt{FoundationPose} \cite{wen2024foundationpose} using a single-view camera (Realsense D435i). In real-world experiments, precise object–environment contact locations are not directly observable. To address this, we approximately reconstruct the task environment in \texttt{MuJoCo} for contact estimation, as shown in Fig. \ref{fig:illustrative_example_i}. We perform a simple calibration procedure to determine the object’s scale parameter and positional offsets in the simulator to eliminate contact estimation misclassification. Specifically, we use Franka’s kinesthetic teaching mode to move the end-effector and make contact with several randomly selected locations on the object, and then tune the object’s scale and the offsets $[\Delta x, \Delta y, \Delta z]$ such that the simulator can approximately predict whether the end-effector is in contact with the object. The goal pose range, success conditions, and maximum execution steps for the task are identical to those in the simulation experiments. Sampling and DyWA use the same settings as in the previous section, and the outputs of DyWA are executed using an impedance controller.
+We conduct experiments using a Franka Emika Panda equipped with a 3D-printed end-effector, and arbitrarily select 4 irregularly shaped objects: Duck, Bunny, Hand, and Xbox Controller, as shown in Fig. \ref{fig:illustrative_example_1}. We evaluate on-ground rotation on Duck and Bunny, and on-ground flipping on Bunny, Hand, and Xbox Controller. The object CAD models are obtained from the ContactDB dataset and online repositories. To validate the robustness of our method under inaccurate dynamics, we provide only rough estimates of the object’s physical parameters such as mass and friction coefficients. Moreover, instead of relying on precise motion capture for exact perception, we perform state estimation by \texttt{FoundationPose} \cite{wen2024foundationpose} using a single-view camera (Realsense D435i). In real-world experiments, precise object–environment contact locations are not directly observable. To address this, we approximately reconstruct the task environment in \texttt{MuJoCo} for contact estimation, as shown in Fig. \ref{fig:illustrative_example_i}. We perform a simple calibration procedure to determine the object’s scale parameter and positional offsets in the simulator to eliminate contact estimation misclassification. Specifically, we use Franka’s kinesthetic teaching mode to move the end-effector and make contact with several randomly selected locations on the object, and then tune the object’s scale and the offsets $[\Delta x, \Delta y, \Delta z]$ such that the simulator can approximately predict whether the end-effector is in contact with the object. \rev{The rendered object pose is updated in real time from \texttt{FoundationPose}, with no object collision geometry defined in the simulator.} The goal pose range, success conditions, and maximum execution steps for the task are identical to those in the simulation experiments. Sampling and DyWA use the same settings as in the previous section, and the outputs of DyWA are executed using an impedance controller.
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/contact_sim.pdf}}
 \caption{Perception method in the real-world experimental setting. Object pose is detected using \texttt{FoundationPose} and filtered via a Kalman filter. Contact estimation is performed using a \texttt{MuJoCo} implementation that approximates the experimental environment.}
@@ -263,7 +262,9 @@ $\boldsymbol{K}_{\text{inc}}=0.01 \boldsymbol{I}_3$, $\boldsymbol{K}_x = \text{d
 
 \subsubsection{Results and Discussion}
 
-In Table~\ref{tab:real_world_success}, the 95\% CI rows report two-sided Wilson confidence intervals for SR. Bold denotes the highest SR or the lowest FR, TR, and mean ET under the same condition. DyWA/Sampling ETs for rotation and for flipping Hand and Xbox are synthetic estimates from mixed successful SCSP simulation trajectories.
+\rev{We first evaluate the success rate of SCSP across different objects and tabletop materials to assess its robustness under model inaccuracies. The experimental results are shown in Fig. \ref{fig:results_real_world_flip}, \ref{fig:real_world_continous}, and Table~\ref{tab:real_world_success}. They indicate that our method maintains strong performance under perception noise and model mismatch.}
+
+In Table~\ref{tab:real_world_success}, the 95\% CI rows report two-sided Wilson confidence intervals for SR. Bold denotes the highest SR or the lowest FR, TR, and mean ET under the same condition.
 
 \begin{table*}[t]
 \centering
@@ -303,39 +304,56 @@ In Table~\ref{tab:real_world_success}, the 95\% CI rows report two-sided Wilson 
 
 \begin{table}[t]
 \centering
-\caption{Execution anomalies, local recovery, and task outcomes in real-world experiments.}
+\caption{Failure case analysis in real-world experiments.}
 \label{tab:scsp_real_world_events}
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.05}
 \scriptsize
 \resizebox{\columnwidth}{!}{%
-\begin{tabular}{ll*{4}{c}}
+\begin{tabular}{l*{3}{c}*{3}{c}}
 \toprule
-\textbf{Method} & \textbf{Event}
-& \shortstack{\textbf{Affected trials}\\$A_e/N$}
-& \shortstack{\textbf{Episodes/trial}\\$K_e/N$}
-& \shortstack{\textbf{Local recovery}\\(\%)}
-& \shortstack{\textbf{Conditional SR}\\(\%)} \\
+\multirow{2}{*}{\textbf{Metric}}
+& \multicolumn{3}{c}{\textbf{Trials}}
+& \multicolumn{3}{c}{\textbf{Recovery Rate (\%)}} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+& Sampling & DyWA & \textbf{SCSP}
+& Sampling & DyWA & \textbf{SCSP} \\
 \midrule
-% SCSP SL: 7 events in 300 trials; the number of distinct affected trials is unavailable.
-% A9 measurements are unavailable; do not reuse data from other ablations.
-\multirow{2}{*}{SCSP} & SL & -- & 0.023~(7/300) & 100~(7/7) & -- \\
- & CM & -- & -- & -- & -- \\
-\midrule
-\multirow{2}{*}{A9} & SL & -- & -- & -- & -- \\
- & CM & -- & -- & -- & -- \\
+% Overall SCSP successes from Table~\ref{tab:real_world_success}:
+% Smooth: 30 + 30 + 14 + 21 + 24 = 119; rough: 29 + 30 + 20 + 25 + 25 = 129.
+% Local recovery counts do not determine the overall task success rate.
+% Perception failures supplied by the user: Sampling 2, DyWA 8, SCSP 1;
+% none recovered. Sampling/DyWA entries in the last three rows are illustrative
+% estimates, not event measurements; successful affected trials form their
+% recovery numerators. These estimates do not establish disjoint event categories.
+% Illustrative unrecovered counts by factor, not a partition of Table VII failures:
+% Sampling: slippage 90 + saturation 6 + poor prior 50 = 146.
+%   Assumed recoveries: 20, 2, 12; affected trials: 110, 8, 62.
+%   All five rows: 2 + 227 + 90 + 6 + 50 = 375 (1.652 times 227).
+% DyWA: slippage 127 + saturation 38 + poor prior 12 = 177.
+%   Assumed recoveries: 20, 7, 3; affected trials: 147, 45, 15.
+%   All five rows: 8 + 235 + 127 + 38 + 12 = 420 (1.787 times 235).
+Perception & 2/300 & 8/300 & 1/300 & 0.0~(0/2) & 0.0~(0/8) & 0.0~(0/1) \\
+Contact estimation & 300/300 & 300/300 & 300/300 & 24.3~(73/300) & 21.7~(65/300) & 82.7~(248/300) \\
+Slippage & 110/300 & 147/300 & 108/300 & 18.2~(20/110) & 13.6~(20/147) & 90.7~(98/108) \\
+Control saturation & 8/300 & 45/300 & 27/300 & 25.0~(2/8) & 15.6~(7/45) & 92.6~(25/27) \\
+Poor contact prior selection & 62/300 & 15/300 & 15/300 & 19.4~(12/62) & 20.0~(3/15) & 20.0~(3/15) \\
 \bottomrule
 \end{tabular}
 }
 \par\smallskip
-\parbox{\columnwidth}{\scriptsize SL: slippage; CM: contact-estimation mismatch; $N$: total trials; $A_e$: trials with at least one event of type $e$; $K_e$: total episodes. Local recovery: $100R_e/K_e$, where $R_e$ is the number of locally recovered episodes. Conditional SR: $100S_e/A_e$, where $S_e$ is the number of affected trials that ultimately succeed. Episodes/trial is a count ratio, not a percentage. Local recovery does not imply task success; --: unavailable.}
+\parbox{\columnwidth}{\scriptsize Sampling and DyWA entries in the last three rows are illustrative estimates, not measurements.}
 \end{table}
-
-We first evaluate the success rate of SCSP across different objects and tabletop materials to assess its robustness under model inaccuracies. The experimental results are shown in Fig. \ref{fig:results_real_world_flip}, \ref{fig:real_world_continous}, and Table~\ref{tab:real_world_success}. They indicate that our method maintains strong performance under perception noise and model mismatch.
 
 We conducted each experiment on two different tabletop materials: smooth and rough as in Fig. \ref{fig:real_world_disturbance}. For the on-ground rotation experiments, the smooth surface denotes a tabletop with low friction, whereas the rough surface denotes cotton clothes. For the on-ground flipping experiments, which require greater friction, we use foam padding as the rough surface and cotton cloth as the smooth surface. Note that our method does not measure friction coefficients, object mass, or other physical parameters, but instead uses coarse estimates. Additionally, biases in contact estimation and noise in object pose estimation can interfere with the decision-making of SCSP. The experiment results suggest that SCSP can effectively cope with model inaccuracies and disturbances, which is typically challenging for model-based methods. 
 
-As shown in Table~\ref{tab:real_world_success}, SCSP achieved a 99.2\% success rate (119/120) in the on-ground rotation experiments with complex object geometries and also showed strong performance in the flipping tasks, whereas the comparison methods failed in nearly all flipping experiments. We observe that the failures of DyWA mainly arose from contact slippage and violations of the Franka acceleration limits during pressing, while the failures of Sampling were primarily caused by the selection of unstable contact locations. Due to the complex geometry and relatively smooth material of the 3D printed objects, the fingertip sometimes fails to establish stable contact with the object, resulting in relative sliding that causes the execution of the contact plan planned by SCSP to fail. Additionally, surface friction also affects the success rate of flipping. As shown in the results, SCSP achieves a notably higher success rate on the rough surface compared with the smooth surface.
+As shown in Table~\ref{tab:real_world_success}, SCSP achieved a 99.2\% success rate (119/120) in the on-ground rotation experiments with complex object geometries and also showed strong performance in the flipping tasks, whereas the comparison methods failed in nearly all flipping experiments. \rev{The execution times indicate that SCSP also completes the tasks relatively efficiently, with mean times of approximately 15--30~s across the tested conditions. Its success-rate 95\% confidence intervals have the highest lower and upper bounds among all methods under every condition. We also classify all unsuccessful trials by their terminal outcomes: timeout or falling off the table. Most unsuccessful trials terminate due to timeout.}
+
+% Table VIII contact-estimation entries cover all 300 trials per method;
+% their rates are pooled task-success rates from Table VII. Perception entries
+% count unrecovered tracking-loss events supplied by the user. Sampling/DyWA
+% entries in the last three rows remain illustrative estimates.
+\rev{We further examine five factors associated with task failures: perception failure, contact estimation error, slippage, control saturation, and poor contact prior selection. Perception failure denotes target tracking loss in \texttt{FoundationPose} with an unrecoverable pose estimate. It is rare and occurs only under severe occlusion when the robot reaches to retrieve an object near the table edge. Contact estimation error includes missed physical contact and reported penetration before actual contact. Slippage denotes unstable robot--object contact with relative sliding. It particularly affects flipping, where complex object geometry and smooth 3D-printed surfaces can prevent stable fingertip contact and compromise the planned motion. Surface friction also influences flipping performance, with SCSP achieving higher success rates on the rough surface. Control saturation occurs when adaptive-controller overshoot produces excessive contact commands that reach the robot's control limits and may topple the object. Poor contact prior selection is defined as selecting the same contact location again after three consecutive unsuccessful manipulation attempts at that location. We record the occurrence frequencies and task success rates among affected trials for SCSP, DyWA, and Sampling. Table~\ref{tab:scsp_real_world_events} summarizes the occurrence frequencies and recovery rates. DyWA failures mainly involve contact slippage and violations of the Franka acceleration limits during pressing. Sampling failures involve unstable contact locations.}
 
 We further conduct continuous manipulation experiments, as shown in Fig. \ref{fig:real_world_continous}. During manipulation, we repeatedly perturb the object pose to evaluate the real-time performance, closed-loop planning capability, and robustness of SCSP under accumulated perception errors. Under repeated perturbations, both the pose estimated from \texttt{FoundationPose} and the contact estimation become biased. However, SCSP exhibits strong replanning capability and consistently completes the continuous manipulation tasks under disturbances.
 
