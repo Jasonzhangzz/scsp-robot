@@ -1,0 +1,104 @@
+{
+  "baseline": 0.18,
+  "cohort": [
+    [
+      "stanford_bunny2",
+      3,
+      true
+    ],
+    [
+      "stanford_bunny2",
+      0,
+      false
+    ],
+    [
+      "elephant",
+      0,
+      true
+    ],
+    [
+      "piggy_bank",
+      0,
+      true
+    ],
+    [
+      "rubber_duck",
+      1,
+      true
+    ]
+  ],
+  "records": [
+    {
+      "beta": 0.0,
+      "status": "complete",
+      "successes": 4,
+      "trials": 5,
+      "success_rate": 0.8,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 0.001,
+      "status": "complete",
+      "successes": 4,
+      "trials": 5,
+      "success_rate": 0.8,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 0.02,
+      "status": "complete",
+      "successes": 4,
+      "trials": 5,
+      "success_rate": 0.8,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 0.16,
+      "status": "complete",
+      "successes": 5,
+      "trials": 5,
+      "success_rate": 1.0,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 0.2,
+      "status": "complete",
+      "successes": 5,
+      "trials": 5,
+      "success_rate": 1.0,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 0.34,
+      "status": "complete",
+      "successes": 2,
+      "trials": 5,
+      "success_rate": 0.4,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 0.5,
+      "status": "complete",
+      "successes": 4,
+      "trials": 5,
+      "success_rate": 0.8,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 0.8,
+      "status": "complete",
+      "successes": 4,
+      "trials": 5,
+      "success_rate": 0.8,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    },
+    {
+      "beta": 1.0,
+      "status": "complete",
+      "successes": 4,
+      "trials": 5,
+      "success_rate": 0.8,
+      "source": "output/ablation/ema_corrected_20261020_192814/sensitivity_summary.json"
+    }
+  ]
+}
