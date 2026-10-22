@@ -213,16 +213,15 @@ Furthermore, if $\boldsymbol{W}_{ii}$ admits the low-rank decomposition:
 \boldsymbol{W}_{ii} = \boldsymbol{D} + \boldsymbol{E}, \label{equ:decomposation}
 \end{equation}
 where $\boldsymbol{D}$ is a diagonal matrix and
-$\boldsymbol{E}$ is relatively small, \eqref{equ:contact_i_complementarity} has the approximated closed-form solution:
+$\boldsymbol{E}$ is relatively small, \eqref{equ:contact_i_complementarity} has the \textcolor{red}{smoothed approximate} closed-form solution below. \rev{Here, $\operatorname{softplus}_T(x)=T\log(1+e^{x/T})$ is a componentwise smooth approximation of $\max(x,0)$, with smoothing parameter $T>0$:}
 \begin{equation}
 \boldsymbol{\hat{\lambda}}_{\text{env}, i}
 =
-\max
+\revul{\operatorname{softplus}_T}
 \left(
 -
 \boldsymbol{D}^{-1}
-(\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o + \boldsymbol{\tilde{\phi}}_i),
-\;\boldsymbol{0}
+(\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o + \boldsymbol{\tilde{\phi}}_i)
 \right).
 \label{eq:quasi-closed_form_solution_nonsmooth}
 \end{equation}
@@ -232,36 +231,52 @@ Under Assumption \ref{assumption:decoupling}, the environment contact force $\bo
 \end{lemma}
 To obtain a high-quality approximation, we decompose $\boldsymbol{W}_{ii}$ in \eqref{equ:decomposation} as:
 \begin{equation}\label{equ:max_decomposition}
-\boldsymbol{D} = \operatorname{diag}(\boldsymbol{W}_{ii}) + \epsilon \boldsymbol{I},
+\boldsymbol{D} = \operatorname{diag}(\boldsymbol{W}_{ii}) + \rev{\epsilon \boldsymbol{I}},
 \end{equation}
-where $\epsilon$ is a small regularization coefficient to ensure numerical stability. \eqref{equ:max_decomposition} gives the closest diagonal approximation to $\boldsymbol{W}_{ii}$ in the Frobenius norm\footnote{Proof see Appendix \ref{proof:closest_approximation}.}. However, it should be noted that \eqref{eq:quasi-closed_form_solution_nonsmooth} is incompatible with gradient-based solvers. When the contact set changes within the CSO horizon, variations in $\boldsymbol{\tilde{J}}_{\text{env},i}$ and $\boldsymbol{\tilde{\phi}}_i$ introduce additional non-smoothness. To address this, we leverage Assumption \ref{assumption:mode} to further derive:
+where $\epsilon$ is a small regularization coefficient to ensure numerical stability. \eqref{equ:max_decomposition} gives the closest diagonal approximation to $\boldsymbol{W}_{ii}$ in the Frobenius norm\footnote{Proof see Appendix \ref{proof:closest_approximation}.}. When the contact set changes within the CSO horizon, variations in $\boldsymbol{\tilde{J}}_{\text{env},i}$ and $\boldsymbol{\tilde{\phi}}_i$ introduce non-smoothness. To address this, we leverage Assumption \ref{assumption:mode} to further derive:
 \begin{lemma}\label{lemma2:piecewise-linear}
-The environment contact force $\boldsymbol{\lambda}_{\text{env}}$ is a piecewise linear function of $\boldsymbol{\lambda}_{\text{r}}$:
+The environment contact force $\boldsymbol{\lambda}_{\text{env}}$ is a \textcolor{red}{smooth, closed-form} function of $\boldsymbol{\lambda}_{\text{r}}$:
 \begin{equation}
 \boldsymbol{\hat{\lambda}}_{\text{env}, i}
 =
-\max
-\left(
+\revul{\operatorname{softplus}_T}
+\!\bigl(
 -
 \boldsymbol{D}^{-1}
-\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\hat{\lambda}}_{\text{r},i}),
-\;\boldsymbol{0}
-\right).
+\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\hat{\lambda}}_{\text{r},i})
+\bigr).
 \label{eq:quasi-closed_form_solution}
 \end{equation}
 \end{lemma}
 \begin{proof}
     \renewcommand{\qedsymbol}{}
-    Based on Assumption 1, we can obtain that $\phi \equiv 0$, leading to \eqref{eq:quasi-closed_form_solution}. Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \eqref{eq:quasi-closed_form_solution} is piecewise linear.
+    Based on Assumption 1, we can obtain that $\phi \equiv 0$, leading to \eqref{eq:quasi-closed_form_solution}. Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \textcolor{red}{\eqref{eq:quasi-closed_form_solution} expresses the environment contact force as a smooth, closed-form function of $\boldsymbol{\lambda}_{\text{r}}$}.
 \end{proof}
-Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified}, we obtain a lightweight model:
+\rev{To partially account for the inter-contact coupling neglected by the diagonal approximation, we apply a single global projection to the estimated environment contact impulse, mapping $\boldsymbol{\beta}^{(0)}_{\mathrm{env}}$ to $\hat{\boldsymbol{\beta}}_{\mathrm{env}}$ at each prediction step. We retain only the nonnegative part of the signed contact distance, $\boldsymbol{d}_{\mathrm{env}}=\max(\boldsymbol{\tilde{\phi}}_{\mathrm{env}},\boldsymbol{0})$, to avoid strong repulsion from instantaneous penetration, trading some physical fidelity for greater robustness to contact estimation errors and improved optimization behavior. We define the corresponding residual $\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}}=\boldsymbol{\tilde{J}}_{\mathrm{env}}\boldsymbol{v}_{\mathrm{free}}+\boldsymbol{d}_{\mathrm{env}}/h$, where $\boldsymbol{v}_{\mathrm{free}}$ is the free-motion velocity. Writing the diagonal approximation in \eqref{eq:quasi-closed_form_solution_nonsmooth} in impulse form gives the initial estimate $\boldsymbol{\beta}^{(0)}_{\mathrm{env}}=\operatorname{softplus}_T(-\boldsymbol{D}^{-1}\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}})$, with $T=10^{-4}\,\mathrm{N\,s}$. The projected impulse is then computed as}
+\begin{equation}
+\textcolor{red}{
+\begin{cases}
+\alpha
+=\operatorname{clip}\!\left(
+-\frac{(\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}})^\top
+      \boldsymbol{\beta}^{(0)}_{\mathrm{env}}}
+     {(\boldsymbol{\beta}^{(0)}_{\mathrm{env}})^\top
+      \boldsymbol{W}_{\mathrm{env}}\boldsymbol{\beta}^{(0)}_{\mathrm{env}}},0,1\right),\\
+\hat{\boldsymbol{\beta}}_{\mathrm{env}}
+=\alpha\boldsymbol{\beta}^{(0)}_{\mathrm{env}}.
+\end{cases}}
+\label{eq:scm_single_step_projection}
+\end{equation}
+\rev{The scaling coefficient $\alpha$ is shared by all environment contacts, with $\alpha=1$ when $\boldsymbol{\beta}^{(0)}_{\mathrm{env}}=\boldsymbol{0}$. The corrected impulse $\hat{\boldsymbol{\beta}}_{\mathrm{env}}=\alpha\boldsymbol{\beta}^{(0)}_{\mathrm{env}}$ is the environment contact impulse output by SCM and is used to predict object motion in \eqref{equ:scm}, where the factors $1/h$ convert impulse to force units. For the CSO formulation below, we define $\boldsymbol{s}=-\boldsymbol{D}\hat{\boldsymbol{\beta}}_{\mathrm{env}}$. With $\boldsymbol{R}=\epsilon\boldsymbol{I}$ and $\epsilon=10^{-8}$, the denominator in \eqref{eq:scm_single_step_projection} is evaluated as $\boldsymbol{z}^{\top}\boldsymbol{M}_o^{-1}\boldsymbol{z}+\epsilon\|\boldsymbol{\beta}^{(0)}_{\mathrm{env}}\|_2^2$, where $\boldsymbol{z}=\boldsymbol{\tilde{J}}_{\mathrm{env}}^{\top}\boldsymbol{\beta}^{(0)}_{\mathrm{env}}$. This computation avoids forming or inverting the full Delassus matrix and requires only one projection per prediction step, with no additional inner iterations. For a fixed contact set, the resulting map is smooth away from distance-clipping, amplitude-clipping, and zero-impulse boundaries.}
+
+Substituting \textcolor{red}{the corrected impulse from \eqref{eq:scm_single_step_projection}} into \eqref{eq:simplified}, we obtain a lightweight model:
 \begin{equation}
     f_{\text{SCM}}:\begin{cases}
     \boldsymbol{\hat{v}}^+ =
 \frac{1}{h}\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o
 +
 \frac{1}{h}\boldsymbol{M}_o^{-1}\sum_{i=1}^{n_\text{env}} \boldsymbol{\tilde{J}}_{\text{env},i}^\top
-\boldsymbol{\hat{\lambda}}_{\text{env},i},
+\textcolor{red}{\hat{\boldsymbol{\beta}}_{\mathrm{env},i}},
      \\
     \boldsymbol{\hat{x}}_{k+1}=
     \boldsymbol{x}_{k}
@@ -269,31 +284,6 @@ Substituting \eqref{eq:quasi-closed_form_solution} into \eqref{eq:simplified}, w
     h(\boldsymbol{v}_{k}+\boldsymbol{\hat{v}}^+).
 \end{cases} \label{equ:scm}
 \end{equation}
-
-\textcolor{red}{To compensate for the inter-contact coupling neglected by the diagonal approximation, SCM applies a single global projection to the environment impulse at each prediction step. Using the current free velocity, define}
-\begin{equation}
-\textcolor{red}{
-\begin{aligned}
-\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}}
-&=\boldsymbol{\tilde{J}}_{\mathrm{env}}\boldsymbol{v}_{\mathrm{free}}
-  +\boldsymbol{\tilde{\phi}}_{\mathrm{env}}/h,\qquad
-\boldsymbol{\beta}^{(0)}_{\mathrm{env}}
-=\max\!\left(-\boldsymbol{D}^{-1}\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}},\boldsymbol{0}\right),\\
-\alpha
-&=\operatorname{clip}\!\left(
--\frac{(\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}})^\top
-      \boldsymbol{\beta}^{(0)}_{\mathrm{env}}}
-     {(\boldsymbol{\beta}^{(0)}_{\mathrm{env}})^\top
-      \boldsymbol{W}_{\mathrm{env}}\boldsymbol{\beta}^{(0)}_{\mathrm{env}}},0,1\right),\\
-\hat{\boldsymbol{\beta}}_{\mathrm{env}}
-&=\alpha\boldsymbol{\beta}^{(0)}_{\mathrm{env}},\qquad
-\boldsymbol{s}=\alpha\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}},\qquad
-\hat{\boldsymbol{\beta}}_{\mathrm{env}}
-=\max\!\left(-\boldsymbol{D}^{-1}\boldsymbol{s},\boldsymbol{0}\right).
-\end{aligned}}
-\label{eq:scm_single_step_projection}
-\end{equation}
-\textcolor{red}{The coefficient $\alpha$ is shared by all environment contacts and is set to one when $\boldsymbol{\beta}^{(0)}_{\mathrm{env}}=\boldsymbol{0}$. The environment impulse in \eqref{equ:scm} is replaced by $\hat{\boldsymbol{\beta}}_{\mathrm{env}}$, with the factors $1/h$ converting impulse to force units. We use $r=10^{-8}$ and evaluate the denominator as $\boldsymbol{z}^{\top}\boldsymbol{M}_o^{-1}\boldsymbol{z}+r\|\boldsymbol{\beta}^{(0)}_{\mathrm{env}}\|_2^2$, where $\boldsymbol{z}=\boldsymbol{\tilde{J}}_{\mathrm{env}}^{\top}\boldsymbol{\beta}^{(0)}_{\mathrm{env}}$, without forming or inverting the full Delassus matrix. The projection is evaluated once per prediction step and does not introduce an additional inner iteration. Away from activation, clipping, and zero-impulse boundaries, the resulting map is piecewise rational.}
 
 This Surrogate Contact Model converts the original contact dynamics into a computationally efficient formulation, enabling \eqref{equ:inner_loop} to be solved using gradient-based solvers.
 
@@ -343,13 +333,13 @@ The design of \eqref{equ:objectice_obj} effectively guides the gradient descent 
 The contact dynamics in \eqref{equ:inner_loop} are non-differentiable because of the complementarity constraints and the non-smooth temporal evolution of the contact set, rendering the constraints non-differentiable. With the SCM, \eqref{equ:csqp} becomes a finite candidate search with a continuous force-optimization subproblem for each candidate. The SCM gradients on each fixed active set are
 \begin{equation}
 \frac{\partial\boldsymbol{x}_{k+1}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}
-=h\boldsymbol{M}_o^{-1}\!\left(
+=\revul{\boldsymbol{M}_o^{-1}\!\left(
  h\boldsymbol{J}_{\mathrm r,i}^\top+
  \sum_j\boldsymbol{\tilde J}_{\mathrm{env},j}^\top
  \frac{\partial\hat{\boldsymbol{\beta}}_{\mathrm{env},j}}
- {\partial\boldsymbol{\lambda}_{\mathrm r,i}}\right).
+ {\partial\boldsymbol{\lambda}_{\mathrm r,i}}\right)}.
 \end{equation}
-The impulse derivative follows from~\eqref{eq:quasi-closed_form_solution} with fixed contact geometry, active set, and clipping branches. The resulting map is piecewise smooth; the continuous force subproblem is solved for each candidate using SNOPT, and the candidate costs are enumerated.
+\rev{The impulse derivative follows from~\eqref{eq:quasi-closed_form_solution} with fixed contact geometry, active set, and clipping branches. The resulting map is piecewise smooth; the continuous force subproblem is solved for each candidate using GPU-parallel CEM, and the candidate costs are enumerated.}
 
 
 
@@ -472,7 +462,7 @@ CSO-selected contact should be prioritized.
 
 \textcolor{red}{
 The overall ranking process repeatedly evaluates the nearby contact
-under the current configuration. As $\gamma_t$ approaches 1, CPO prioritizes
+under the current configuration. As $\gamma_t$ approaches 1, CPO increasingly prioritizes
 the nearby contact $\boldsymbol{p}_{\mathrm{near}}$; as it approaches 0,
 CPO prioritizes moving toward the guidance
 $\hat{\boldsymbol{p}}_{\mathrm r}^{*}$ generated by CSO.
@@ -489,10 +479,10 @@ The complete procedure is summarized in Algorithm~\ref{algo:ranking}. This hiera
 \State Compute nearest point $\boldsymbol{p}_{\text{near}}$ to end-effector via \eqref{equ:nearest}
 \State Evaluate contact cost $\ell_{\text{near}}$ via \eqref{equ:csqp}
 \State Compute $\gamma$ via \eqref{equ:ranking1},  \eqref{equ:kappa}, \eqref{equ:ranking} \Comment{Ranking strategy}
-\If{$\gamma =0$}
-    \State $\boldsymbol{p}_{\text{ref}} = \boldsymbol{\hat{p}}^*_{\text{r}}$, $\ell_{\text{lp}}=\ell_{\text{lift}}$ \Comment{Lifting phase}
+\If{$\gamma < 1/2$}
+    \State \rev{$\boldsymbol{p}_{\text{ref}} = \boldsymbol{\hat{p}}^*_{\text{r}}$, $\ell_{\text{lp}}=\ell_{\text{lift}}$} \Comment{Lifting phase}
 \Else
-    \State $\boldsymbol{p}_{\text{ref}} \gets \boldsymbol{p}_{\text{near}}$, $\ell_{\text{lp}}=\ell_{\text{place}}$ \Comment{Placing phase}
+    \State \rev{$\boldsymbol{p}_{\text{ref}} \gets \boldsymbol{p}_{\text{near}}$, $\ell_{\text{lp}}=\ell_{\text{place}}$} \Comment{Placing phase}
 \EndIf 
 \end{algorithmic}
 \end{algorithm}
@@ -535,15 +525,13 @@ This potential formulation explicitly encodes the lifting behavior and avoids op
 
 During the placing phase, when the robot reaches a position above $\hat{\boldsymbol{p}}_r^*$, or when $\boldsymbol{p}_{\text{near}}$ is verified as a feasible contact location, the end-effector is guided to establish contact with the object. The placing phase is formulated by:
 \begin{equation}
-    \ell_{\text{place}} = w_{\text{con}}  \ell_{\text{con}} + w_{\text{o}} \ell_{\text{o}},
+    \ell_{\text{place}} = w_{\text{con}}  \ell_{\text{con}},
 \end{equation}
-where $\ell_{\text{con}}$ attracts the end-effector toward the reference contact point $\boldsymbol{p}_{\text{ref}}$, and $\ell_{\text{o}}$ attracts it toward the object center:
+where $\ell_{\text{con}}$ attracts the end-effector toward \textcolor{red}{a target offset inward from} the reference contact point $\boldsymbol{p}_{\text{ref}}$ \textcolor{red}{along its surface normal}:
 \begin{equation}
-    \ell_{\text{con}} = \left\|\boldsymbol{p}_{\text{ee}} - \boldsymbol{p}_{\text{ref}}\right\|^2, 
-    \quad 
-    \ell_{\text{o}} = \left \| \boldsymbol{p}_{\text{o}} - \boldsymbol{p}_{\text{ee}} \right \|^2.
+    \ell_{\text{con}} = \left\|\boldsymbol{p}_{\text{ee}} - \textcolor{red}{(\boldsymbol{p}_{\text{ref}} - \delta\boldsymbol{n}_{\text{ref}})}\right\|^2. \label{eq:placing_cost}
 \end{equation}
-Using only $\ell_{\text{con}}$ may fail to establish physical contact when the object mesh is inaccurate, since perception or projection errors can cause $\hat{\boldsymbol{p}}_r^*$ to deviate from the actual object surface. The additional term $\ell_{\text{o}}$ improves robustness against such errors.
+\textcolor{red}{Here $\boldsymbol{n}_{\text{ref}}$ is the outward unit surface normal at $\boldsymbol{p}_{\text{ref}}$, and the inward offset is fixed at $\delta=0.02\,\mathrm{m}$ (2 cm).} \textcolor{red}{Attracting the end-effector directly to $\boldsymbol{p}_{\text{ref}}$} may fail to establish physical contact when the object mesh \textcolor{red}{or contact estimation} is inaccurate, since perception or projection errors can cause $\hat{\boldsymbol{p}}_r^*$ to deviate from the actual object surface. The \textcolor{red}{inward offset} improves robustness against such errors.
 
 \subsubsection{Switching Parameter}
 
@@ -570,11 +558,11 @@ where $\ell_{\text{lp}}$ is incorporated into the stage cost $\ell_{\text{cpo}}$
 
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/contact_planning_process.pdf}}
-\caption{Illustration of the CPO-based contact planning module. (a) Ranking strategy. When $\boldsymbol{p}_{\text{near}}$ is evaluated infeasible, $\gamma$ turns to zero and $ \boldsymbol{p}_{\text{ref}} \gets \boldsymbol{\hat{p}}_r^*$. The evaluation runs continuously in real-time. (b) When $\gamma=0$,  the robot is guided by the potential field to $\boldsymbol{p}_{\text{lift}}$. (c) Once above $\hat{\boldsymbol{p}}_r^*$ or the nearest point $\boldsymbol{p}_{\text{ref}}$ to the robot is detected feasible via \eqref{equ:csqp}, $\gamma$ becomes 1 and an attractive potential is applied, guiding the robot to contact with the object.}
+\caption{Illustration of the CPO-based contact planning module. (a) Ranking strategy. When $\boldsymbol{p}_{\text{near}}$ is evaluated infeasible, $\gamma$ \rev{decreases toward zero} and $ \boldsymbol{p}_{\text{ref}} \gets \boldsymbol{\hat{p}}_r^*$. The evaluation runs continuously in real-time. (b) When $\gamma$ is below the switching threshold, the robot is guided by the potential field to $\boldsymbol{p}_{\text{lift}}$. (c) Once above $\hat{\boldsymbol{p}}_r^*$ or the nearest point $\boldsymbol{p}_{\text{ref}}$ to the robot is detected feasible via \eqref{equ:csqp}, $\gamma$ increases toward 1 and an attractive potential is applied, guiding the robot to contact with the object.}
 \label{fig:task_requirements}
 \end{figure}
 
-The formulation in \eqref{equ:cpo_formulation} preserves the favorable properties of the original CIMPC objective while enabling hybrid contact planning. Therefore, CPO can be interpreted as a prior-guided contact planning framework. We state the following lemma.
+\rev{The formulation in \eqref{equ:cpo_formulation} preserves the favorable properties of the original CIMPC objective while enabling hybrid contact planning. Therefore, CPO can be interpreted as a prior-guided contact planning framework; the next subsection describes the CPO solvers.}
 
 
 \subsection{Solvers of CPO} 

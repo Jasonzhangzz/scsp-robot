@@ -22,7 +22,7 @@ def test_corrected_impulse_matches_global_line_minimum_with_full_mass(rows):
     velocity,info = corrected_scm_velocity(free,jac,gap,inverse,.02)
     initial,impulse,alpha = (info[k] for k in ('initial_impulse','impulse','alpha'))
     W = jac@inverse@jac.T+1e-8*np.eye(rows)
-    g = free@jac.T+gap/.02
+    g = free@jac.T+np.maximum(gap,0)/.02
     assert np.all((alpha>=0)&(alpha<=1))
     np.testing.assert_allclose(velocity,free+impulse@jac@inverse)
     before = .5*np.einsum('ni,ij,nj->n',initial,W,initial)+np.sum(g*initial,axis=1)

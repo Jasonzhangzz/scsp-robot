@@ -116,8 +116,9 @@ def contact_response(j:ForceJob,mass:M6,inverse:M6,v:V6,jac:R12,gap:P12,
             row = V6(wp.float64(0.))
             for k in range(6):
                 row[k] = jac[r,k]
-            g = wp.dot(row,v)+gap[r]/h
-            p = wp.max(-g/(diagonal[r]+j.regularization),wp.float64(0.))
+            g = wp.dot(row,v)+wp.max(gap[r],wp.float64(0.))/h
+            impulse_trial = -g/(diagonal[r]+j.regularization)
+            p = wp.max(impulse_trial,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(impulse_trial)/j.temperature))
             q += row*p
             numerator -= g*p
             normp += p*p

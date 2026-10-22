@@ -52,6 +52,10 @@ class ForceJob:
     h: wp.float64
     regularization: wp.float64
     sigma: wp.float64
+    temperature: wp.float64
+    comfree_stiffness: wp.float64
+    comfree_damping: wp.float64
+    constraint_mass: wp.array(dtype=wp.float64)
     force_reg: wp.float64
     tangent_reg: wp.float64
     linear_velocity_reg: wp.float64
@@ -196,8 +200,9 @@ def evaluate(jobs: wp.array(dtype=ForceJob)):
             row = V6(wp.float64(0.))
             for k in range(6):
                 row[k] = j.jac[r,k]
-            g = wp.dot(row,v)+j.gap[r]/j.h
-            p = wp.max(-g/(j.diagonal[r]+j.regularization),wp.float64(0.))
+            g = wp.dot(row,v)+wp.max(j.gap[r],wp.float64(0.))/j.h
+            impulse_trial = -g/(j.diagonal[r]+j.regularization)
+            p = wp.max(impulse_trial,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(impulse_trial)/j.temperature))
             q += row*p
             numerator -= g*p
             normp += p*p
@@ -205,6 +210,16 @@ def evaluate(jobs: wp.array(dtype=ForceJob)):
         if denominator > wp.float64(0.):
             alpha = wp.clamp(numerator/denominator,wp.float64(0.),wp.float64(1.))
         v += alpha*(j.inverse*q)
+    elif j.model == 4:
+        q = V6(wp.float64(0.))
+        for r in range(rows):
+            row = V6(wp.float64(0.))
+            for k in range(6):
+                row[k] = j.jac[r,k]
+            speed = wp.dot(row,v)
+            p = j.constraint_mass[r]*wp.max(-j.comfree_damping*speed-j.comfree_stiffness*(j.h*speed+j.gap[r]),wp.float64(0.))
+            q += row*p
+        v += j.inverse*q
     elif j.model == 1:
         # Equivalent to contactsdf_velocity's Q=M/h^2 LSE projection.
         maximum = wp.float64(-1.e100)
@@ -392,17 +407,20 @@ class GPUForceCEM:
         j.cap = args.max_contact_force/np.sqrt(1+j.mu*j.mu)
         j.h = args.policy_dt
         j.regularization,j.sigma = args.scm_regularization,args.contactsdf_sigma
+        j.temperature = getattr(args,'softplus_temperature',1e-4)
+        j.comfree_stiffness = getattr(args,'comfree_stiffness',.1)
+        j.comfree_damping = getattr(args,'comfree_damping',.001)
         j.force_reg,j.tangent_reg = args.force_reg_coef,args.friction_reg_coef
         j.linear_velocity_reg = getattr(args,'linear_velocity_coef',0.)
         j.angular_velocity_reg = getattr(args,'angular_velocity_coef',0.)
-        j.model = {'scm_corrected':0,'contactsdf':1,'lcp':2,'qp':3}[model]
+        j.model = {'scm_corrected':0,'contactsdf':1,'lcp':2,'qp':3,'comfree':4}[model]
         j.population,j.elites = pop,max(2,int(np.ceil(pop*args.cem_elite_fraction)))
         j.iterations,j.tolerance = args.lcp_max_iterations,args.lcp_tolerance
         # Compile before graph capture; no trial state is consumed.
         wp.load_module(module=__name__,device=self.device)
 
     def prepare(self, inverse, free, pose, target, config, jac, gap, valid, seed, observed=None,
-                native_data=None,velocity_scale=1.):
+                native_data=None,velocity_scale=1.,native_model=None):
         j = self.job
         j.linear_velocity_reg = getattr(self.args,'linear_velocity_coef',0.)*velocity_scale
         j.angular_velocity_reg = getattr(self.args,'angular_velocity_coef',0.)*velocity_scale
@@ -420,6 +438,9 @@ class GPUForceCEM:
         j.directions = wp.array(directions,dtype=wp.float64,device=self.device)
         j.diagonal = wp.array(np.sum(jac*directions,axis=1),dtype=wp.float64,device=self.device)
         j.gap = wp.array(gap,dtype=wp.float64,device=self.device)
+        from models.comfree_contact import constraint_mass
+        j.constraint_mass = wp.array(constraint_mass(native_model,native_data) if self.model=='comfree'
+                                    else np.zeros(len(gap)),dtype=wp.float64,device=self.device)
         if self.model == 'qp':
             if native_data is None or native_data.nefc != len(gap):
                 raise ValueError('Native QP requires exactly the common contact constraint rows')
@@ -459,6 +480,23 @@ class GPUForceCEM:
         tangent=2*np.clip(raw[:,1:],0,1)-1
         tangent/=np.maximum(1.,np.abs(tangent).sum(axis=1,keepdims=True))
         return np.column_stack((normal,self.job.mu*normal[:,None]*tangent))
+
+    def evaluate_raw(self,raw,indices):
+        """Batch arbitrary per-contact queries through the same contact law."""
+        raw,indices = np.asarray(raw).reshape(-1,3),np.asarray(indices,dtype=int)
+        counts = np.bincount(indices,minlength=self.count)
+        if counts.max(initial=0)>self.job.population:
+            raise ValueError('Batch exceeds per-contact sample capacity')
+        samples = np.tile([0.,.5,.5],(self.count,self.job.population,1))
+        offsets = np.zeros(self.count,dtype=int)
+        slots = np.empty(len(indices),dtype=int)
+        for k,index in enumerate(indices):
+            slots[k]=offsets[index];samples[index,slots[k]]=raw[k];offsets[index]+=1
+        self.job.samples.assign(samples)
+        wp.launch(evaluate,(self.count,self.job.population),inputs=[self.jobs],device=self.device)
+        velocity = self.job.velocities.numpy()[indices,slots]
+        pose = self.job.poses.numpy()[indices,slots]
+        return self.commands(raw,indices),velocity,np.column_stack((pose[:,:3],pose[:,[6,3,4,5]])),self.job.costs.numpy()[indices,slots]
 
     def solve(self,iterations=None):
         # The graph reads a device struct updated for every observation.

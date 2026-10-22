@@ -1,3 +1,5 @@
+> 2026-10-22 更新：`scm_soft_corrected` 使用 softplus 冲量和 `d=max(phi,0)`，接触及穿透点距离严格为零；初始冲量和全局幅值修正均已更新。推导、与相同 GT 的配对评估见 [NONNEGATIVE_SCM.md](NONNEGATIVE_SCM.md)。硬 `scm_corrected` 保留作对照。
+>
 > 2026-10-17 更新：可独立运行的未修正 `scm` 已移除，默认与 `three` 组合改用 `scm_corrected`。下面涉及原始 SCM 的数值表、推导和旧命令属于历史记录；重现实验应显式选择仍保留的 corrected/soft 分支。七物体点力闭环实验见 `examples/mpc/fingertips/test/README_scm_solvers.md`。其他 MPC 的 softSCM 保留。
 
 # ComFree / MJWarp / SCM 接触预测对比

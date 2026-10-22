@@ -1,6 +1,10 @@
 # softSCM_corrected：softplus 冲量与全局幅值修正
 
-当前 `scm_soft_corrected` / 表中的 `softSCM_corrected` 是 `scm_corrected` 的
+2026-10-22 更新：当前后端已使用 `d=max(phi,0)`，接触/穿透点距离严格为零，
+且初始冲量和 alpha 都使用这个距离。完整推导、配对结果和复现见
+[NONNEGATIVE_SCM.md](NONNEGATIVE_SCM.md)。以下是 2026-10-19 带符号距离版本的历史记录。
+
+当时的 `scm_soft_corrected` / 表中的 `softSCM_corrected` 是 `scm_corrected` 的
 LogSumExp 平滑版本（`law_version=softplus_impulse_v1`）。旧的弹簧阻尼加全局修正
 实现已移除；不再读取该模型的 `tau,zeta`。独立的未修正 `scm_soft` 仍保持其原定义。
 生产 MPC 的其他接触模型未因此替换。

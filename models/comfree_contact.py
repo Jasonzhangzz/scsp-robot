@@ -42,3 +42,23 @@ def reduced_row_masses(jacobian, inverse_mass, distance=0.0):
     jacobian = np.asarray(jacobian)
     weight = np.trace(np.asarray(inverse_mass)[:3, :3]) / 3
     return np.where(np.any(jacobian != 0, axis=-1), row_mass(weight, distance), 0.0)
+
+
+def constraint_mass(model, data):
+    result = []
+    for cid in np.asarray(data.efc_id):
+        contact = data.contact[int(cid)]
+        dmin, dmax, _, midpoint, power = contact.solimp
+        dmin, dmax = np.clip([dmin,dmax], .0001, .9999)
+        midpoint = np.clip(midpoint,.0001,.9999)
+        power = max(1.,power)
+        x = abs(contact.dist-contact.includemargin)/.01
+        if x >= 1.:
+            imp = dmax
+        else:
+            y = x**power/midpoint**(power-1.) if x < midpoint else 1-(1-x)**power/(1-midpoint)**(power-1.)
+            imp = np.clip(dmin+y*(dmax-dmin),dmin,dmax)
+        bodies = model.geom_bodyid[np.asarray(contact.geom)]
+        invweight = model.body_invweight0[bodies,0].sum()
+        result.append(1./max(invweight*(1-imp)/imp,1e-15))
+    return np.asarray(result)

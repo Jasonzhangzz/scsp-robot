@@ -19,8 +19,10 @@ CONDITIONS = (("transition", "Contact transition"), ("sliding", "Sliding"),
 def report(source, tex=None):
     raw = json.loads(source.read_text())
     soft = raw["soft_scm_corrected"]
-    if soft["law_version"] != "softplus_impulse_v1" or soft["response_time"] != 0:
+    if soft["law_version"] not in ("softplus_impulse_v1", "softplus_nonnegative_gap_v2") or soft["response_time"] != 0:
         raise ValueError("Expected the new softplus SCM, not the historical spring-damper model")
+    if soft["law_version"] == "softplus_nonnegative_gap_v2":
+        assert soft["gap_policy"] == "max(signed_gap,0) in both initial impulse and amplitude correction"
     if raw["reference"] != "mjwarp_coupled_pyramid_lcp_2x0.001":
         raise ValueError("Expected the coupled MJWarp LCP reference")
     if raw.get("angular_frame") != "world; reference uses final body rotation after both substeps":
@@ -84,7 +86,7 @@ def report(source, tex=None):
         end = text.index('\n', start)
         text = text[:start]+marker+str(source.resolve().relative_to(ROOT))+"."+text[end:]
         text = text.replace("% SCM uses backend scm_corrected (response_time=0, r=1e-8, one global amplitude correction).",
-                            "% softSCM_corrected: softplus_impulse_v1; T="+str(soft['temperature_N_s'])+" N s; response_time=0; hard-clipped global alpha.")
+                            "% softSCM_corrected: "+soft['law_version']+"; T="+str(soft['temperature_N_s'])+" N s; response_time=0; hard-clipped global alpha.")
         tex.write_text(text)
     print(json.dumps(manifest, indent=2))
     print("\n".join(table))

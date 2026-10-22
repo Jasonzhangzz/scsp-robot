@@ -1,4 +1,4 @@
-This is BibTeX, Version 0.99d (TeX Live 2019/Debian)
+This is BibTeX, Version 0.99d (TeX Live 2023/Debian)
 Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
 The top-level auxiliary file: root.aux
 The style file: IEEEtran.bst
@@ -17,37 +17,37 @@ Warning--empty year in lianglearning
 Done.
 You've used 53 entries,
             4087 wiz_defined-function locations,
-            1072 strings with 17809 characters,
-and the built_in function-call counts, 40111 in all, are:
-= -- 3035
-> -- 1184
+            1069 strings with 14868 characters,
+and the built_in function-call counts, 35918 in all, are:
+= -- 2916
+> -- 659
 < -- 297
-+ -- 647
-- -- 239
-* -- 1896
-:= -- 5729
++ -- 409
+- -- 120
+* -- 1618
+:= -- 5421
 add.period$ -- 106
 call.type$ -- 53
 change.case$ -- 52
 chr.to.int$ -- 753
 cite$ -- 55
-duplicate$ -- 2882
-empty$ -- 3354
-format.name$ -- 270
-if$ -- 9403
+duplicate$ -- 2693
+empty$ -- 3116
+format.name$ -- 151
+if$ -- 8402
 int.to.chr$ -- 0
 int.to.str$ -- 53
-missing$ -- 523
+missing$ -- 404
 newline$ -- 182
 num.names$ -- 53
-pop$ -- 1365
+pop$ -- 959
 preamble$ -- 1
 purify$ -- 0
 quote$ -- 2
-skip$ -- 3062
+skip$ -- 2766
 stack$ -- 0
 substring$ -- 1856
-swap$ -- 2240
+swap$ -- 2002
 text.length$ -- 46
 text.prefix$ -- 0
 top$ -- 5

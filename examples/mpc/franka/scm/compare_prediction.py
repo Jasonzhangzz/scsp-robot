@@ -447,8 +447,9 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                             "law": "x=h/tau; a=(2*zeta*x+x*x)/(1+2*zeta*x+x*x); b=x*x/(1+2*zeta*x+x*x); p=max(-(a*J*v_projected+b*gap/h)/D,0)",
                             "interpretation": "per-row implicit spring-damper, effective mass=1/D; full contact coupling still approximated"}
     metadata["scm_soft_corrected"] = {
-        "law_version": "softplus_impulse_v1",
-        "law": "g=J*v_projected+gap/h; p0=T*log(1+exp((-g/D)/T)); p=alpha*p0",
+        "law_version": "softplus_nonnegative_gap_v2",
+        "law": "d=max(gap,0); g=J*v_projected+d/h; p0=T*log(1+exp((-g/D)/T)); p=alpha*p0",
+        "gap_policy": "max(signed_gap,0) in both initial impulse and amplitude correction",
         "temperature_N_s": getattr(args, "scm_softplus_temperature", 1e-4),
         "response_time_s": 0.,
         "alpha": "clip(-g.T*p0 / (||J.T*p0||_Minv^2+r*||p0||^2),0,1)",

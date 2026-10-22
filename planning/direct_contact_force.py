@@ -18,8 +18,9 @@ def add_direct_force_args(parser):
                         help='Optional N*m bound; scales the entire point force, preserving its moment arm.')
     parser.add_argument('--success-hold-steps', type=int, default=10,
                         help='Require this many consecutive successful control intervals, then a settled object.')
-    parser.add_argument('--force-apply-duration', type=float, default=0.0005,
-                        help='Apply the full optimized force for this many seconds per policy interval.')
+    parser.add_argument('--force-apply-duration', type=float, default=None,
+                        help='Compatibility option: must equal the full prediction interval; '
+                             'the optimized force is held over every physics substep.')
     parser.add_argument('--force-physics-substeps', type=int, default=40,
                         help='MuJoCo physics substeps per shared 20 ms prediction interval.')
     parser.add_argument('--force-output', default=None,
@@ -247,27 +248,36 @@ def step_point_force(env, point_body, force_body, nstep=None, force_at_substep=N
         data.xfrc_applied[:] = 0.0
 
 
+def continuous_force_duration(env):
+    """Reject archived pulse settings instead of silently changing their meaning."""
+    duration = float(env.param_.lambda_optimizer.h)
+    if not np.isfinite(duration) or duration <= 0:
+        raise ValueError('prediction interval must be finite and positive')
+    requested = getattr(getattr(env, 'force_args_', None), 'force_apply_duration', None)
+    if requested is not None and (not np.isfinite(requested) or
+                                 not np.isclose(requested, duration, rtol=1e-10, atol=1e-12)):
+        raise ValueError('force_apply_duration must equal the full prediction interval; '
+                         'pulse execution is no longer supported. Omit --force-apply-duration.')
+    return duration
+
+
 def step_actuator_contact_force(env, solved):
     """Transmit the optimized actuator force through an ideal point actuator.
 
-    The reference predictor is quasi-dynamic, whereas MuJoCo retains physical
-    inertia. Use a short force pulse followed by unforced physics within the
-    same policy interval. The optimized force magnitude/direction is retained;
-    only its activation duration changes. No simulator oracle reranks actions.
+    The command is a force in N, held in the contact/body frame over the full
+    prediction interval. Each physics substep applies that same force, without
+    dividing by the timestep or number of substeps. Settling intervals are unforced.
     """
-    opt = env.param_.lambda_optimizer
+    duration = continuous_force_duration(env)
+    nstep = int(env.param_.frame_skip_)
+    if nstep < 1 or not np.isclose(nstep*float(env.model_.opt.timestep), duration,
+                                 rtol=1e-10, atol=1e-12):
+        raise ValueError('physics substeps must span the full prediction interval')
     frame = np.column_stack((solved['n_arm'], solved['t1'], solved['t2']))
     command = np.asarray(solved['lam'], dtype=float).reshape(3)
     force = frame @ command
     point = np.asarray(solved['p_local'], dtype=float).reshape(3)
-    requested = float(env.force_args_.force_apply_duration)
-    if not np.isfinite(requested) or requested < 0 or requested > opt.h:
-        raise ValueError('force_apply_duration must be in [0, prediction interval]')
-    active = min(env.param_.frame_skip_, int(round(requested/env.model_.opt.timestep)))
-    if requested > 0 and active < 1:
-        raise ValueError('force_apply_duration must be at least one physics substep')
-    if solved.get('settling', False):
-        active = 0
+    active = 0 if solved.get('settling', False) else nstep
     cap = float(solved.get('execution_force_cap', 0.))
     torque_cap = float(solved.get('execution_torque_cap', 0.))
     com = env.model_.body_ipos[env.model_.body('obj').id]
@@ -277,18 +287,11 @@ def step_actuator_contact_force(env, solved):
         scale = min(scale, cap/np.linalg.norm(force))
     if torque_cap > 0 and np.linalg.norm(raw[3:]) > torque_cap:
         scale = min(scale, torque_cap/np.linalg.norm(raw[3:]))
-    count = 0
-
-    def substep_force():
-        nonlocal count
-        count += 1
-        return scale*force if count <= active else np.zeros(3)
-
-    info = step_point_force(env, point, np.zeros(3), force_at_substep=substep_force)
+    info = step_point_force(env, point, scale*force if active else np.zeros(3), nstep)
     applied_dt = active*float(env.model_.opt.timestep)
     return dict(info, execution='wrench', actuator_force_contact=command,
                 applied_force_body=scale*raw if active else np.zeros(6), active_substeps=active,
-                requested_force_duration=requested, applied_force_duration=applied_dt,
+                requested_force_duration=duration, applied_force_duration=applied_dt,
                 force_body_unclipped=raw*applied_dt/info['h_exec'],
                 wrench_impulse_body=info['actual_applied_impulse_body'].copy(),
                 wrench_impulse_raw_body=raw*applied_dt,

@@ -1,18 +1,22 @@
-"""One diagonal-Delassus prediction followed by one global amplitude correction.
+"""softplus_nonnegative_gap_v2: diagonal impulse and global line correction.
 
-Impulses, not forces, are returned. This is ``scm_corrected`` in the shared
-prediction benchmark: dynamic projection, signed gap, no soft-SCM coefficients.
+The CSO benchmark's scm_corrected now denotes the new soft model. Touching and
+penetrating rows use exactly zero distance; temperature is in N s.
 """
 import numpy as np
 
+LAW_VERSION = 'softplus_nonnegative_gap_v2'
+TEMPERATURE = 1e-4
 
-def corrected_scm_velocity(free, jacobian, gap, inverse, h, regularization=1e-8):
+
+def corrected_scm_velocity(free, jacobian, gap, inverse, h, regularization=1e-8,
+                           temperature=TEMPERATURE):
     free, jacobian, gap, inverse = map(np.asarray, (free, jacobian, gap, inverse))
-    if h <= 0 or regularization <= 0:
-        raise ValueError('h and regularization must be positive')
+    if min(h, regularization, temperature) <= 0:
+        raise ValueError('h, regularization and temperature must be positive')
     diagonal = np.einsum('ij,ij->i', jacobian @ inverse, jacobian) + regularization
-    g = free @ jacobian.T + gap / h
-    initial = np.maximum(-g / diagonal, 0.)
+    g = free @ jacobian.T + np.maximum(gap, 0.) / h
+    initial = temperature*np.logaddexp(0., -g/(diagonal*temperature))
     generalized = initial @ jacobian
     denominator = np.sum((generalized @ inverse) * generalized, axis=-1)
     denominator += regularization * np.sum(initial**2, axis=-1)
@@ -22,37 +26,33 @@ def corrected_scm_velocity(free, jacobian, gap, inverse, h, regularization=1e-8)
     alpha = np.clip(alpha, 0., 1.)
     impulse = initial * alpha[..., None]
     return free + impulse @ jacobian @ inverse.T, dict(
-        initial_impulse=initial, impulse=impulse, alpha=alpha)
+        initial_impulse=initial, impulse=impulse, alpha=alpha, law_version=LAW_VERSION)
 
 
-def corrected_scm_velocity_cs(free, jacobian, gap, inverse, h, regularization=1e-8):
-    """CasADi/SQP form of :func:`corrected_scm_velocity`."""
+def corrected_scm_velocity_cs(free, jacobian, gap, inverse, h, regularization=1e-8,
+                              temperature=TEMPERATURE):
     import casadi as cs
     diagonal = cs.sum2((jacobian @ inverse) * jacobian) + regularization
-    gap_rate = jacobian @ free + gap / h
-    initial = cs.fmax(-gap_rate / diagonal, 0)
-    generalized = cs.transpose(initial) @ jacobian
-    denominator = (generalized @ inverse @ cs.transpose(generalized)
-                   + regularization * cs.sumsqr(initial))
-    numerator = -cs.dot(gap_rate, initial)
-    alpha = cs.fmin(cs.fmax(numerator / (denominator + 1e-12), 0), 1)
-    return free + alpha * (inverse @ cs.transpose(jacobian) @ initial)
+    g = jacobian @ free + cs.fmax(gap, 0) / h
+    trial = -g/diagonal
+    initial = cs.fmax(trial, 0)+temperature*cs.log(1+cs.exp(-cs.fabs(trial)/temperature))
+    generalized = jacobian.T @ initial
+    denominator = cs.dot(generalized, inverse @ generalized)+regularization*cs.sumsqr(initial)
+    alpha = cs.if_else(denominator > 0, cs.fmin(cs.fmax(-cs.dot(g, initial)/
+                      cs.if_else(denominator > 0, denominator, 1), 0), 1), 1)
+    return free + alpha*(inverse @ generalized)
 
 
-def corrected_scm_velocity_torch(free, jacobian, gap, inverse, h, regularization=1e-8):
-    """Torch form used by the velocity-state MPC fallback."""
+def corrected_scm_velocity_torch(free, jacobian, gap, inverse, h, regularization=1e-8,
+                                 temperature=TEMPERATURE):
     import torch
-    diagonal = torch.sum((jacobian @ inverse) * jacobian, dim=-1) + regularization
-    if free.ndim == 1:
-        gap_rate = jacobian @ free + gap / h
-        initial = torch.clamp(-gap_rate / diagonal, min=0.)
-        generalized = initial @ jacobian
-        denominator = generalized @ inverse @ generalized + regularization * torch.sum(initial**2)
-        alpha = torch.clamp((-torch.sum(gap_rate * initial)) / (denominator + 1e-12), 0., 1.)
-        return free + alpha * (inverse @ jacobian.T @ initial)
-    gap_rate = free @ jacobian.T + gap / h
-    initial = torch.clamp(-gap_rate / diagonal, min=0.)
+    diagonal = torch.sum((jacobian @ inverse) * jacobian, dim=-1)+regularization
+    g = free @ jacobian.T + torch.clamp(gap, min=0)/h
+    initial = temperature*torch.nn.functional.softplus(-g/(diagonal*temperature))
     generalized = initial @ jacobian
-    denominator = torch.einsum('bi,ij,bj->b', generalized, inverse, generalized) + regularization * torch.sum(initial**2, dim=-1)
-    alpha = torch.clamp((-torch.sum(gap_rate * initial, dim=-1)) / (denominator + 1e-12), 0., 1.)
-    return free + alpha[:, None] * (generalized @ inverse.T)
+    denominator = torch.sum((generalized @ inverse)*generalized, dim=-1)
+    denominator += regularization*torch.sum(initial**2, dim=-1)
+    safe = torch.where(denominator > 0, denominator, torch.ones_like(denominator))
+    alpha = torch.where(denominator > 0, -torch.sum(g*initial, dim=-1)/safe,
+                        torch.ones_like(denominator)).clamp(0, 1)
+    return free + alpha[..., None]*(generalized @ inverse.T)

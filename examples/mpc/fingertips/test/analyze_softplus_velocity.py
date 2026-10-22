@@ -41,8 +41,10 @@ def main():
     parser.add_argument('source', type=Path)
     args = parser.parse_args()
     raw = json.loads(args.source.read_text())
-    assert raw['soft_scm_corrected']['law_version'] == 'softplus_impulse_v1'
-    variants = [('hard_max', 0., 'hard'), ('T_1e-5', 1e-5, 'hard'),
+    assert raw['soft_scm_corrected']['law_version'] == 'softplus_nonnegative_gap_v2'
+    assert raw['soft_scm_corrected']['temperature_N_s'] == 1e-4, 'This ablation uses the fixed T=1e-4 baseline'
+    variants = [('signed_hard_max', 0., 'hard'), ('signed_T_1e-4', 1e-4, 'hard'),
+                ('hard_max', 0., 'hard'), ('T_1e-5', 1e-5, 'hard'),
                 ('T_1e-4', 1e-4, 'hard'), ('T_1e-3', 1e-3, 'hard'),
                 ('T_1e-4_lse_clip', 1e-4, 'lse'), ('T_1e-4_c1_clip', 1e-4, 'c1')]
     records = []
@@ -63,11 +65,13 @@ def main():
             inverse = (np.diag(backend.api.inverse_diagonal.numpy().astype(float)) if backend.api.use_diagonal
                        else backend.api.inverse_dense.numpy().astype(float))
             W = J@inverse@J.T+1e-8*np.eye(count)
-            g = J@free+gap/raw['h_model']
+            clamped_g = J@free+np.maximum(gap, 0.)/raw['h_model']
+            signed_g = J@free+gap/raw['h_model']
             rotation = np.zeros(9)
             benchmark.mujoco.mju_quat2Mat(rotation, np.asarray(row['qpos_initial'][3:]))
             rotation = rotation.reshape(3, 3)
             for name, temperature, clip in variants:
+                g = signed_g if name.startswith('signed_') else clamped_g
                 trial = -g/np.diag(W)
                 p = (np.maximum(trial, 0.) if temperature == 0 else
                      temperature*np.logaddexp(0., trial/temperature))
@@ -80,6 +84,9 @@ def main():
                 if name == 'T_1e-4':
                     max_velocity_difference = max(max_velocity_difference, float(np.max(np.abs(world-prediction))))
                     np.testing.assert_allclose(world, prediction, atol=5e-5, rtol=1e-4)
+                if name == 'signed_hard_max':
+                    np.testing.assert_allclose(world, row['prediction_velocity_world']['SCM'],
+                                               atol=5e-5, rtol=1e-4)
                 linear, angular = benchmark.errors(world, np.asarray(row['reference_velocity_world']))
                 records.append(dict(object=shape, condition=row['condition'], sample=row['sample'], step=row['step'],
                                     variant=name, linear=linear, angular=angular, alpha=alpha, alpha_unclipped=x,
@@ -94,7 +101,8 @@ def main():
         summary[name]['unclipped_alpha_le_zero'] = sum(r['alpha_unclipped'] <= 0 for r in selected)
     payload = dict(source=str(args.source), source_sha256=hashlib.sha256(args.source.read_bytes()).hexdigest(),
                    method='frozen-state NumPy formula using GPU contact geometry/smooth dynamics; all raw states',
-                   n_states=len(raw['rows']), clip_epsilon=.01, max_numpy_gpu_velocity_difference=max_velocity_difference,
+                   n_states=len(raw['rows']), law_version=raw['soft_scm_corrected']['law_version'],
+                   clip_epsilon=.01, max_numpy_gpu_velocity_difference=max_velocity_difference,
                    summary=summary, rows=records)
     output = args.source.parent/'softplus_sensitivity.json'
     output.write_text(json.dumps(payload)+'\n')

@@ -20,7 +20,7 @@ from planning.object_pose_cost import ObjectCostStages, target_up_axis, object_c
 from planning.rollout_timing import distribution
 
 ROOT = Path(__file__).resolve().parents[1]
-MODELS = ('scm_corrected','contactsdf','lcp','qp')
+MODELS = ('scm_corrected','contactsdf','lcp','qp','comfree')
 OBJECTS = ('foam_brick','mug','rubber_duck','elephant','piggy_bank','stanford_bunny2','teapot')
 
 
@@ -323,7 +323,7 @@ class PointForcePlanner:
             self.gpu.prepare(p['inverse'],self.free,self.pose,self.target,self.config,
                              p['jac'],p['gap'],self.valid,
                              1000003*self.seed+self.args.solver_seed+7919*self.round+1,
-                             observed=p['velocity'],native_data=self.data,velocity_scale=scale)
+                             observed=p['velocity'],native_data=self.data,velocity_scale=scale,native_model=self.model)
 
     def predict_numpy(self,commands,indices):
         commands,indices = np.asarray(commands).reshape(-1,3),np.asarray(indices,dtype=int)
@@ -342,6 +342,15 @@ class PointForcePlanner:
         metadata = {}
         if self.name == 'scm_corrected':
             velocity,metadata = corrected_scm_velocity(free,p['jac'],p['gap'],p['inverse'],a.policy_dt,a.scm_regularization)
+        elif self.name == 'comfree':
+            # Pinned upstream forward.py: impulse = efc_mass *
+            # max(-damping*Jv - stiffness*(h*Jv + signed_gap), 0).
+            row_velocity = free @ p['jac'].T
+            impulse = np.maximum(-a.comfree_damping*row_velocity -
+                a.comfree_stiffness*(a.policy_dt*row_velocity+p['gap']), 0.)
+            from models.comfree_contact import constraint_mass
+            impulse *= constraint_mass(self.model,self.data)
+            velocity = free + impulse @ p['jac'] @ p['inverse'].T
         elif self.name == 'contactsdf':
             from examples.mpc.franka.scm.contact_dynamics import contactsdf_velocity
             velocity = np.array([contactsdf_velocity(p['mass'],v,p['jac'],p['gap'],a.policy_dt,a.contactsdf_sigma)[0] for v in free])
@@ -724,13 +733,13 @@ class SnapshotViewer:
         return result
 
 
-def run_rollout(args,name,obj,seed=0,steps=None):
+def run_rollout(args,name,obj,seed=0,steps=None,planner_class=PointForcePlanner):
     rows = TrialRows()
     initialized = time.perf_counter()
     model,data,target,_ = scene(args,obj,seed)
     points,frames = surface_points(model,data,args.sample_num,seed)
     stages = ObjectCostStages(args,target_up_axis(target[3:]))
-    planner = PointForcePlanner(model,points,frames,target,args,name,seed)
+    planner = planner_class(model,points,frames,target,args,name,seed)
     def snapshot(step):
         return data.qpos.copy(),data.qvel.copy(),float(data.time),int(step)
     start_state = data.qpos.copy()
@@ -955,6 +964,10 @@ def run_rollout(args,name,obj,seed=0,steps=None):
             physics_fault = None
             completed_substeps = 0
             for _ in range(args.force_physics_substeps):
+                # mj_step integrates qpos after refreshing xmat/xpos. Refresh
+                # kinematics before applying the next body-attached point force.
+                mujoco.mj_kinematics(model,data)
+                mujoco.mj_comPos(model,data)
                 rot = data.xmat[body].reshape(3,3)
                 # mj_applyFT adds into qfrc_applied; clear the previous
                 # substep so a constant command is not accumulated 1+2+3+...

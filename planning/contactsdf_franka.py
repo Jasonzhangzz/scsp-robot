@@ -6,6 +6,7 @@ approach planners, MPCExplicit, or alternative initial guesses.
 from pathlib import Path
 from types import SimpleNamespace
 import hashlib
+import time
 
 import numpy as np
 
@@ -80,11 +81,18 @@ class FrankaContactSDF:
         self.sol_guess = None
 
     def plan(self, measured_state):
+        detection_started = time.perf_counter()
         state = np.asarray(measured_state, float).reshape(10).copy()
         state[:3] -= self.origin
         state[7:10] -= self.origin
         phi, jac_n, jac_f = self.contact.detectOnce(state)
+        detection_time = time.perf_counter() - detection_started
+        # Match the local planner callback: contact data already exists here.
+        # Include parameter packing, solve, extraction and warm-start update.
+        planning_started = time.perf_counter()
         result = self.planner.planOnce(self.target_p, self.target_q, state,
             phi, jac_n, jac_f, self.theta, self.sol_guess)
         self.sol_guess = result['sol_guess']
+        result['planning_callback_time_s'] = time.perf_counter() - planning_started
+        result['contact_preparation_time_s'] = detection_time
         return result

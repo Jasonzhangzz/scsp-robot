@@ -324,7 +324,7 @@ from planning.attract_function import compute_scalar_potential_and_gradient
 from planning.mlqp_point import LambdaContactControlOptimizer
 
 class ExplicitMPCParams:
-    def __init__(self, args, rand_seed=1, target_type='ground-rotation', model='explicit'):
+    def __init__(self, args, rand_seed=1, target_type='ground-rotation', model='explicit', build_optimizer=True):
         # ---------------------------------------------------------------------------------------------
         #      simulation parameters
         # ---------------------------------------------------------------------------------------------
@@ -603,6 +603,9 @@ class ExplicitMPCParams:
 
         self.sol_guess_ = None
 
+        self.lambda_optimizer = None
+        if not build_optimizer:
+            return
         self.lambda_optimizer = LambdaContactControlOptimizer(
                                                 mesh_path=self.mesh_path_,
                                                 obj_mass=self.obj_mass_,

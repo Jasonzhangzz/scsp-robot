@@ -4,8 +4,8 @@ The reference uses MJWarp collision, smooth dynamics and integration, replacing
 the native contact solve with a certified, coupled friction-pyramid LCP at
 h=0.001 s. Predictors step at h=0.002 s against two reference substeps. SCM uses
 scm_corrected: one diagonal response and global amplitude correction, no soft response.
-softSCM_corrected replaces only its positive-part impulse with LogSumExp
-(softplus); it does not use a spring-damper response time.
+softSCM_corrected uses LogSumExp (softplus) impulses and d=max(gap,0) in
+both impulse activation and amplitude correction; no spring-damper response.
 """
 from __future__ import annotations
 
@@ -243,6 +243,7 @@ def predict_all(model, qpos, qvel, wrench, friction, backends):
         backends["reference_lcp"], qpos, qvel, wrench)
     out = {"LCP": reference, "GT": reference, "next": nxt,
            "measured_mode": contact_mode(model, probe),
+           "prediction_step_ms": {}, "scm_diagnostics": {},
            "reference_certificates": certificates}
     m1 = step_mujoco(model, qpos, qvel, wrench, 1)
     out["M1"] = world_velocity(m1, pre)
@@ -253,6 +254,16 @@ def predict_all(model, qpos, qvel, wrench, friction, backends):
             continue
         try:
             out[name], _ = step_backend(backend, model, qpos, qvel, wrench)
+            out["prediction_step_ms"][name] = 1000 * backend.last_step_seconds
+            if engine in ("scm_corrected", "scm_soft_corrected"):
+                count = int(backend.wdata.nefc.numpy()[0])
+                gap = backend.wdata.efc.efc_dist.numpy()[0, :count]
+                out["scm_diagnostics"][name] = {
+                    "constraint_rows": count,
+                    "penetrating_rows": int(np.count_nonzero(gap < 0)),
+                    "minimum_signed_gap_m": float(gap.min()) if count else None,
+                    "alpha": backend.last_amplitude_scale,
+                    "nonnegative_gap": backend.api.nonnegative_gap}
         except (RuntimeError, FloatingPointError, ValueError):
             out[name] = None
     probe = mujoco.MjData(model)
@@ -335,7 +346,7 @@ def run(args):
         log.write("Error is ||v_model - v_GT|| in the pre-step world frame. Linear m/s, angular rad/s.\n")
         log.write("SCM: scm_corrected, r=1e-8, response_time=0, one global amplitude correction.\n")
         log.write("softSCM: tau=%.3f s, zeta=%.2f.\n" % (SOFT_TAU, SOFT_ZETA))
-        log.write("softSCM_corrected: softplus_impulse_v1, T=%.8g N s, response_time=0, same hard-clipped global amplitude correction.\n" % args.softplus_temperature)
+        log.write("softSCM_corrected: softplus_nonnegative_gap_v2, d=max(gap,0) in both stages, T=%.8g N s, response_time=0, hard-clipped global amplitude correction.\n" % args.softplus_temperature)
         for shape in args.objects:
             print("object", shape, flush=True)
             model_h = make_model(shape, args.friction, H_MODEL, args.mass)
@@ -349,6 +360,8 @@ def run(args):
                         pred = predict_all(model_h, qpos, qvel, wrench, args.friction, backends)
                         record = {"object": shape, "condition": condition, "sample": index, "step": step,
                                   "measured_mode": pred["measured_mode"],
+                                  "prediction_step_ms": pred["prediction_step_ms"],
+                                  "scm_diagnostics": pred["scm_diagnostics"],
                                   "reference_certificates": pred["reference_certificates"],
                                   "qpos_initial": qpos.tolist(), "qvel_initial": qvel.tolist(),
                                   "wrench_world_N_Nm": wrench.tolist(),
@@ -390,9 +403,10 @@ def run(args):
                "percentile_method": "numpy.percentile(method='linear')",
                "contact_dimensions": 3,
                "diagonal_contact": "one ordered normal/tangent pass; physical diagonal Delassus; box friction; no fitted gains or history",
-               "soft_scm_corrected": {"backend": "scm_soft_corrected", "law_version": "softplus_impulse_v1",
+               "soft_scm_corrected": {"backend": "scm_soft_corrected", "law_version": "softplus_nonnegative_gap_v2",
                                       "temperature_N_s": args.softplus_temperature,
-                                      "law": "p0=T*log(1+exp((-g/D)/T)); g=J*v_free+gap/h; p=alpha*p0",
+                                      "law": "d=max(gap,0); g=J*v_free+d/h; p0=T*log(1+exp((-g/D)/T)); p=alpha*p0",
+                                      "gap_policy": "max(signed_gap,0) in both initial impulse and amplitude correction",
                                       "response_time": 0., "regularization": 1e-8,
                                       "amplitude_correction": "alpha=clip(-g.T*p0/(p0.T*W*p0),0,1)",
                                       "amplitude_clip": "hard"},

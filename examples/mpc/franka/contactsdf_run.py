@@ -95,7 +95,7 @@ def run(args):
         env = IsaacFrankaOSCSimulator(scene, headless=args.headless,
             sim_device=args.sim_device, graphics_device_id=args.graphics_device_id)
         record = metrics.open_trial_recorder(args, trial, scene.target_p_, scene.target_q_, method='contactsdf')
-        timings, statuses = [], []
+        timings, detection_timings, full_timings, statuses = [], [], [], []
         success = aborted = False
         start = time.perf_counter()
         initial_time = float(env.gym.get_sim_time(env.sim))
@@ -132,7 +132,9 @@ def run(args):
                     break
                 before = time.perf_counter()
                 result = controller.plan(state)
-                timings.append(time.perf_counter()-before)
+                full_timings.append(time.perf_counter()-before)
+                timings.append(result['planning_callback_time_s'])
+                detection_timings.append(result['contact_preparation_time_s'])
                 statuses.append(result['solve_status'])
                 if record is not None:
                     record.note_planning(timings[-1])
@@ -164,6 +166,11 @@ def run(args):
                 planning_wall_count=len(timings), planning_wall_total_s=sum(timings),
                 planning_wall_sum_squares_s2=float(np.dot(timings, timings)),
                 planning_wall_mean_ms=float(np.mean(timings)*1000) if timings else None,
+                planning_wall_std_ms=float(np.std(timings, ddof=1)*1000) if len(timings)>1 else None,
+                planning_timing_scope='callback_after_contact_preparation_v1',
+                planning_time_s=timings,
+                contact_preparation_time_s=detection_timings,
+                detection_and_planning_time_s=full_timings,
                 solve_status=statuses[-1] if statuses else None,
                 mpc_failures=sum(s not in ('Solve_Succeeded', 'Solved_To_Acceptable_Level') for s in statuses),
                 lambda_failures=0, mpc_fallbacks=0, lambda_fallbacks=0)

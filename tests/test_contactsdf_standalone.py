@@ -110,12 +110,17 @@ def test_single_tip_controller_only_detects_and_calls_official_plan_once(monkeyp
     monkeypatch.setattr(module, 'Contact', Detector)
     monkeypatch.setattr(module, 'MPC_IPOPT', Planner)
     monkeypatch.setattr(module, 'mesh_pointcloud', lambda *a: 'input.txt')
+    clock = iter([0., 100., 100., 100.005, 200., 300., 300., 300.005])
+    monkeypatch.setattr(module, 'time', SimpleNamespace(perf_counter=lambda: next(clock)))
     scene = SimpleNamespace(contactsdf_theta_source_='cube', contactsdf_theta_=np.ones(8),
         mesh_path_='mesh.stl', init_obj_qpos_=np.r_[[.6, .2, .4], 1., 0., 0., 0.],
         table_height=.35, target_p_=np.array([.5, .1, .4]), target_q_=np.array([1., 0., 0., 0.]))
     model = FrankaContactSDF(scene, tmp_path)
     state = np.r_[scene.init_obj_qpos_, [.65, .2, .4]]
-    model.plan(state); model.plan(state)
+    result = model.plan(state)
+    assert result['contact_preparation_time_s'] == pytest.approx(100.)
+    assert result['planning_callback_time_s'] == pytest.approx(.005)
+    model.plan(state)
     assert [c[0] for c in calls] == ['detect', 'plan', 'detect', 'plan']
     assert calls[1][1][-1] is None
     assert calls[3][1][-1] == dict(x0=[1])

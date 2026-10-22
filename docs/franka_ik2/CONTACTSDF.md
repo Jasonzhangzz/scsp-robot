@@ -76,6 +76,19 @@ python examples/mpc/franka/ik2/test_mpc_isaac.py --contactsdf \
 
 ## 验证
 
+### 规划耗时口径（2026-10-22 更新）
+
+新运行的 `planning_wall_*` 与本地 MPC 的回调边界对齐：先准备接触数据，再统计
+`planOnce` 的参数打包、求解、解提取及 warm-start 更新，不包含检测。
+`planning_timing_scope=callback_after_contact_preparation_v1` 标记此口径；逐周期数组
+`planning_time_s`、`contact_preparation_time_s`、`detection_and_planning_time_s`
+分别保留回调、接触准备和完整调用耗时。
+
+旧批次的 `planning_wall_*` 仍是检测加规划，不得按新定义重新解释；日志中的
+`mpc solving time` 又比完整规划回调更窄。历史表格的 5.30/5.22 ms 是日志求解时间，
+不是本次新增计时下的完整轨迹统计。固定状态诊断的回调约 5–10 ms，不能替代整批轨迹结果。
+检测仍会阻塞当前同步控制循环，应通过完整调用时间评价实际闭环计算速度。
+
 `tests/test_contactsdf_standalone.py` 核对原文件哈希、三指情况下接触检测输出与目标值/导数的逐项一致性，
 并检查单指闭合项、原始 warm start 的传递、无 Lambda 和本地策略参数拒绝。
 原生 Isaac 单步 smoke 已完成，IPOPT 返回 `Solve_Succeeded`；单步 smoke 不用于报告任务成功率。

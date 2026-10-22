@@ -5,8 +5,10 @@ The benchmark uses impulse units:
   p = max(-(J v_free + phi/h) / (diag(J M^-1 J.T) + r), 0),
   v_next = v_free + M^-1 J.T p.
 The amplitude-corrected SCM adds no contact damping. Its softplus variant
-replaces max(x, 0) with T*log(1+exp(x/T)), in impulse units, before the same
-global amplitude correction. The separate, uncorrected soft SCM uses a finite
+replaces max(x, 0) with T*log(1+exp(x/T)), in impulse units, and uses
+d=max(phi, 0) in BOTH the initial impulse and global amplitude correction.
+Touching and penetrating points thus have exactly zero contact distance.
+The separate, uncorrected soft SCM uses a finite
 response time and damping ratio; that spring-damper law is never combined
 with amplitude correction.
 Coefficients are frozen for ONE step
@@ -45,6 +47,7 @@ def diagonal_contact(
     inverse_diagonal: wp.array(dtype=float), inverse_dense: wp.array2d(dtype=float),
     use_diagonal: bool, increment: bool, regularization: float,
     response_time: float, damping_ratio: float, softplus_temperature: float,
+    nonnegative_gap: bool,
     force: wp.array2d(dtype=float), generalized_force: wp.array2d(dtype=float),
 ):
     world, row = wp.tid()
@@ -72,7 +75,10 @@ def diagonal_contact(
         denominator = 1.0 + 2.0 * damping_ratio * x + x * x
         velocity_gain = (2.0 * damping_ratio * x + x * x) / denominator
         gap_gain = x * x / denominator
-    trial = -(velocity_gain * velocity + gap_gain * gap[world, row] / h) / (mobility + regularization)
+    distance = gap[world, row]
+    if nonnegative_gap:
+        distance = wp.max(distance, 0.0)
+    trial = -(velocity_gain * velocity + gap_gain * distance / h) / (mobility + regularization)
     impulse = wp.max(trial, 0.0)
     if softplus_temperature > 0.0:
         impulse = softplus_impulse(trial, softplus_temperature)
@@ -88,7 +94,7 @@ def correct_amplitude(
     J: wp.array3d(dtype=float), gap: wp.array2d(dtype=float),
     vfree: wp.array2d(dtype=float), v: wp.array2d(dtype=float),
     inverse_diagonal: wp.array(dtype=float), inverse_dense: wp.array2d(dtype=float),
-    use_diagonal: bool, increment: bool, regularization: float,
+    use_diagonal: bool, increment: bool, regularization: float, nonnegative_gap: bool,
     force: wp.array2d(dtype=float), generalized_force: wp.array2d(dtype=float),
     amplitude: wp.array(dtype=float),
 ):
@@ -106,7 +112,10 @@ def correct_amplitude(
             if increment:
                 predicted -= v[world, i]
             velocity += J[world, row, i] * predicted
-        numerator += (velocity + gap[world, row] / h) * impulse
+        distance = gap[world, row]
+        if nonnegative_gap:
+            distance = wp.max(distance, 0.0)
+        numerator += (velocity + distance / h) * impulse
         denominator += regularization * impulse * impulse
     for i in range(nv):
         q_i = h * generalized_force[world, i]
@@ -153,6 +162,8 @@ class ScmEngine:
             raise ValueError("Softplus SCM requires amplitude correction and response_time=0.")
         self.response_time, self.damping_ratio = response_time, damping_ratio
         self.softplus_temperature = softplus_temperature
+        # Keep the signed-gap hard SCM and spring-damper baselines unchanged.
+        self.nonnegative_gap = softplus_temperature > 0.0
         M = np.zeros((model.nv, model.nv))
         mujoco.mj_fullM(model, M, initial_data.qM)
         self.use_diagonal = np.allclose(M, np.diag(np.diag(M)), rtol=0, atol=1e-12)
@@ -219,13 +230,15 @@ class ScmEngine:
                   inputs=[m.nv, m.opt.timestep, d.nefc, d.efc.J, d.efc.efc_dist,
                           d.qvel_smooth_pred, d.qvel, self.inverse_diagonal, self.inverse_dense,
                           self.use_diagonal, self.motion == "increment", self.regularization,
-                          self.response_time, self.damping_ratio, self.softplus_temperature],
+                          self.response_time, self.damping_ratio, self.softplus_temperature,
+                          self.nonnegative_gap],
                   outputs=[d.efc.force, d.qfrc_constraint])
         if self.amplitude_correction:
             wp.launch(correct_amplitude, dim=d.nworld,
                       inputs=[m.nv, m.opt.timestep, d.nefc, d.efc.J, d.efc.efc_dist,
                               d.qvel_smooth_pred, d.qvel, self.inverse_diagonal, self.inverse_dense,
-                              self.use_diagonal, self.motion == "increment", self.regularization],
+                              self.use_diagonal, self.motion == "increment", self.regularization,
+                              self.nonnegative_gap],
                       outputs=[d.efc.force, d.qfrc_constraint, self.amplitude])
         self.finish_step(m, d)
 

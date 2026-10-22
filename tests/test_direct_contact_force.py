@@ -111,9 +111,9 @@ def test_gravity_uses_actual_com_moment(env):
                                np.r_[force, np.cross(env.model_.body_ipos[1], force)])
 
 
-def test_optimized_force_pulse_preserves_force_and_integrated_impulse(env, monkeypatch):
+def test_optimized_force_is_held_for_the_full_interval(env, monkeypatch):
     env.param_.lambda_optimizer = SimpleNamespace(h=.0003)
-    env.force_args_ = SimpleNamespace(force_apply_duration=.0001)
+    env.force_args_ = SimpleNamespace(force_apply_duration=None)
     point = np.array([.08, .02, -.01])
     force = np.array([.7, .1, -.03])
     solved = dict(lam=force, p_local=point, n_arm=np.eye(3)[:, 0],
@@ -127,17 +127,56 @@ def test_optimized_force_pulse_preserves_force_and_integrated_impulse(env, monke
 
     monkeypatch.setattr(mujoco, 'mj_applyFT', capture)
     info = step_actuator_contact_force(env, solved)
-    np.testing.assert_allclose(calls, [force, np.zeros(3), np.zeros(3)], atol=1e-12)
+    np.testing.assert_allclose(calls, [force, force, force], atol=1e-12)
     wrench = np.r_[force, np.cross(point-env.model_.body_ipos[1], force)]
     np.testing.assert_allclose(info['applied_force_body'], wrench)
-    np.testing.assert_allclose(info['actual_applied_impulse_body'], .0001*wrench)
-    np.testing.assert_allclose(info['force_body'], wrench/3)
-    assert info['active_substeps'] == 1
+    np.testing.assert_allclose(info['actual_applied_impulse_body'], .0003*wrench)
+    np.testing.assert_allclose(info['force_body'], wrench)
+    assert info['applied_force_duration'] == pytest.approx(.0003)
+    assert info['active_substeps'] == 3
     assert not info['force_was_clipped']
     parked = step_actuator_contact_force(env, dict(solved, settling=True))
     assert parked['active_substeps'] == 0
     np.testing.assert_array_equal(parked['applied_force_body'], np.zeros(6))
     np.testing.assert_array_equal(parked['actual_applied_impulse_body'], np.zeros(6))
+
+
+@pytest.mark.parametrize('substeps', [1, 4, 40])
+def test_full_interval_force_produces_the_planned_linear_impulse(env, substeps):
+    """Physics frequency must not attenuate or amplify the optimized force."""
+    duration = .02
+    env.param_.lambda_optimizer = SimpleNamespace(h=duration)
+    env.param_.frame_skip_ = substeps
+    env.model_.opt.timestep = duration/substeps
+    env.force_args_ = SimpleNamespace(force_apply_duration=duration)
+    body = env.model_.body('obj').id
+    force = np.array([.7, .1, -.03])
+    world_force = object_frame(env) @ force
+    solved = dict(lam=force, p_local=env.model_.body_ipos[body].copy(),
+                  n_arm=np.eye(3)[:, 0], t1=np.eye(3)[:, 1], t2=np.eye(3)[:, 2])
+    info = step_actuator_contact_force(env, solved)
+    jac = np.zeros((3, env.model_.nv))
+    mujoco.mj_jacBodyCom(env.model_, env.data_, jac, None, body)
+    momentum = env.model_.body_mass[body] * (jac @ env.data_.qvel)
+    np.testing.assert_allclose(momentum, duration*world_force, atol=1e-12)
+    np.testing.assert_allclose(info['actual_applied_impulse_body'][:3], duration*force,
+                               atol=1e-12)
+
+
+@pytest.mark.parametrize('duration', [.0001, 0., -1., np.nan, np.inf])
+def test_direct_force_rejects_pulse_settings_before_advancing_physics(env, duration):
+    env.param_.lambda_optimizer = SimpleNamespace(h=.0003)
+    env.force_args_ = SimpleNamespace(force_apply_duration=duration)
+    with pytest.raises(ValueError, match='full prediction interval'):
+        step_actuator_contact_force(env, {})
+    assert env.data_.time == 0.
+
+
+def test_direct_force_rejects_a_mismatched_execution_interval(env):
+    env.param_.lambda_optimizer = SimpleNamespace(h=.02)
+    with pytest.raises(ValueError, match='substeps must span'):
+        step_actuator_contact_force(env, {})
+    assert env.data_.time == 0.
 
 
 def test_direct_rollout_uses_corrected_scm_and_continuous_physical_force(monkeypatch):
@@ -258,7 +297,7 @@ def test_exported_scm_prediction_matches_isaac_nlp_and_numpy(shared_predictors, 
 def test_baseline_prediction_is_independent_and_does_not_change_plant(shared_predictors, mode, monkeypatch):
     from planning.point_contact_baselines import PointContactBaseline
     scm, _, env = shared_predictors
-    env.force_args_ = SimpleNamespace(force_apply_duration=.0005)
+    env.force_args_ = SimpleNamespace(force_apply_duration=None)
     predictor = PointContactBaseline(env, mode)
     signature = mujoco.mjtState.mjSTATE_INTEGRATION
     state = np.zeros(mujoco.mj_stateSize(env.model_, signature))
@@ -266,6 +305,7 @@ def test_baseline_prediction_is_independent_and_does_not_change_plant(shared_pre
     monkeypatch.setattr(scm, 'predict_contact_response',
                         lambda *a, **k: pytest.fail('Baseline cannot use SCM prediction'))
     predictor.prepare()
+    assert predictor.duration == scm.h
     frame = np.column_stack((scm.normal[0],scm.t1[0],scm.t2[0]))
     command = np.array([.6,.05,-.02])
     out = predictor.predict(command,scm.sample_point[0],frame)
@@ -279,6 +319,8 @@ def test_baseline_prediction_is_independent_and_does_not_change_plant(shared_pre
         assert out['residual'] <= 1e-6
     else:
         assert predictor.model.opt.cone == mujoco.mjtCone.mjCONE_PYRAMIDAL
+        np.testing.assert_allclose(predictor.data.qfrc_applied[:3],
+                                   predictor.rotation @ (frame @ command), atol=1e-12)
         # Recompute the entire native force pipeline independently: skipping
         # cached position/velocity work must give the same actual QP result.
         m,d=predictor.model,predictor.data

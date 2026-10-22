@@ -4,7 +4,7 @@ Only benchmark instances replace their per-candidate inner solve. The reference
 Isaac SCM factory, contact selection policy and physical executor are retained.
 QP is MuJoCo's native pyramidal soft-contact QP, not an alias for the LCP.
 LCP is the repository's regularized, coupled nonnegative friction-ray LCP.
-Both physical predictors use the pulse's impulse averaged over one policy step.
+Both physical predictors use the optimized force over the full policy step.
 """
 import copy
 from pathlib import Path
@@ -19,7 +19,7 @@ from scipy.spatial.transform import Rotation
 
 from planning.direct_contact_force import (
     environment_contacts_body, gravity_wrench_body, object_frame,
-    object_mass_body, object_velocity_body,
+    object_mass_body, object_velocity_body, continuous_force_duration,
 )
 from planning.object_pose_cost import object_cost_np, object_cost_cs
 from planning.scm_contact_models import contact_jacobian
@@ -102,9 +102,7 @@ class PointContactBaseline:
         env = self.env
         self.pose = env.data_.qpos[:7].copy()
         self.rotation = object_frame(env)
-        dt = float(env.model_.opt.timestep)
-        active = int(round(float(env.force_args_.force_apply_duration)/dt))
-        self.duration = active*dt
+        self.duration = continuous_force_duration(env)
         self.velocity = object_velocity_body(env)
         self.inverse = np.linalg.inv(object_mass_body(env))
         self.gravity = gravity_wrench_body(env)
@@ -127,7 +125,7 @@ class PointContactBaseline:
             d.qfrc_applied[:] = 0.; d.xfrc_applied[:] = 0.
             d.qacc_warmstart[:] = self.warmstart
             body = m.body('obj').id
-            mujoco.mj_applyFT(m, d, self.rotation @ force * (self.duration/self.opt.h),
+            mujoco.mj_applyFT(m, d, self.rotation @ force,
                              np.zeros(3), d.xpos[body]+self.rotation @ point,
                              body, d.qfrc_applied)
             tip = getattr(self.env, 'fingertip_body_id', None)

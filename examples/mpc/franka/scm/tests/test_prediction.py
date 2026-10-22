@@ -146,7 +146,8 @@ def test_gpu_scm_matches_numpy_diagonal_formula_and_reset(motion, engine, shape)
     # value: float64-vs-float32 cancellation can fabricate tiny angular impulses.
     incoming = np.asarray(state.qvel, dtype=np.float32).astype(float)
     projected = vf if motion == "dynamic" else vf - incoming
-    g = J @ projected + gap / .002
+    distance = np.maximum(gap, 0.) if engine == "scm_soft_corrected" else gap
+    g = J @ projected + distance / .002
     if engine == "scm_soft":
         x = .002 / .05
         denominator = 1 + 2 * x + x * x
@@ -287,7 +288,7 @@ def test_amplitude_kernel_uses_full_mass_coupling():
             wp.array(J[None], dtype=wp.float32), wp.array(gap[None], dtype=wp.float32),
             wp.array(vf[None], dtype=wp.float32), wp.zeros((1, 2), dtype=wp.float32),
             wp.array(np.diag(inverse), dtype=wp.float32), wp.array(inverse, dtype=wp.float32),
-            False, False, r], outputs=[force, reaction, alpha])
+            False, False, r, False], outputs=[force, reaction, alpha])
         np.testing.assert_allclose(alpha.numpy(), expected_alpha, rtol=3e-6)
         np.testing.assert_allclose(force.numpy()[0] * h, expected_alpha * p, rtol=3e-6)
         np.testing.assert_allclose(reaction.numpy()[0] * h, expected_alpha * J.T @ p, rtol=3e-6)
