@@ -23,8 +23,11 @@ def report(source, tex=None):
         raise ValueError("Expected the new softplus SCM, not the historical spring-damper model")
     if soft["law_version"] == "softplus_nonnegative_gap_v2":
         assert soft["gap_policy"] == "max(signed_gap,0) in both initial impulse and amplitude correction"
-    if raw["reference"] != "mjwarp_coupled_pyramid_lcp_2x0.001":
-        raise ValueError("Expected the coupled MJWarp LCP reference")
+    if raw["reference"] not in ("mjwarp_coupled_pyramid_lcp_2x0.001",
+                                "mjwarp_coulomb_pyramid_lcp_nonnegative_gap_2x0.001",
+                                "mjwarp_coulomb_pyramid_lcp_signed_gap_2x0.001",
+                                "mjwarp_convex_pyramid_lcp_nonnegative_gap_2x0.001"):
+        raise ValueError("Expected a certified MJWarp LCP reference")
     if raw.get("angular_frame") != "world; reference uses final body rotation after both substeps":
         raise ValueError("Expected corrected world angular velocities")
     rows = raw["rows"]

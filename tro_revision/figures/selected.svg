@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-10-21T22:08:35.128606</dc:date>
+    <dc:date>2026-10-23T13:02:50.927250</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -31,7 +31,7 @@ z
   <g id="legend_1">
    <g id="line2d_1">
     <defs>
-     <path id="m63b75267e8" d="M 0 -7.25 
+     <path id="m7a7b60d9ec" d="M 0 -7.25 
 L -1.627726 -2.240373 
 L -6.89516 -2.240373 
 L -2.633717 0.855746 
@@ -45,7 +45,7 @@ z
 " style="stroke: #ab6500; stroke-width: 0.6; stroke-linejoin: bevel"/>
     </defs>
     <g>
-     <use xlink:href="#m63b75267e8" x="18" y="15.6" style="fill: #f4a340; stroke: #ab6500; stroke-width: 0.6; stroke-linejoin: bevel"/>
+     <use xlink:href="#m7a7b60d9ec" x="18" y="15.6" style="fill: #f4a340; stroke: #ab6500; stroke-width: 0.6; stroke-linejoin: bevel"/>
     </g>
    </g>
    <g id="text_1">

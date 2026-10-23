@@ -11,8 +11,63 @@ activate_dependencies()
 import mujoco
 import numpy as np
 import pytest
-from lcp_backend import solve_lcp, solve_lcp_active_set
+from lcp_backend import (solve_lcp, solve_lcp_active_set, coulomb_problem, solve_coulomb_lcp,
+                         pyramid_contacts)
 from compare_prediction import make_model, fresh_data, backend_for, argument_parser
+
+
+def _point_contact_rows(mu):
+    normal = np.array([0., 0., 1.])
+    t1, t2 = np.array([1., 0., 0.]), np.array([0., 1., 0.])
+    return np.array([normal + mu*t1, normal - mu*t1, normal + mu*t2, normal - mu*t2])
+
+
+@pytest.mark.parametrize("vx", [1.0, 0.002, 0.0])
+def test_coulomb_facet_lcp_point_mass_matches_analytic_coulomb(vx):
+    h, mu = .002, .5
+    rows = _point_contact_rows(mu)
+    free = np.array([vx, 0., -9.81*h])
+    contacts = pyramid_contacts([3], [0], 4)
+    problem = coulomb_problem(rows, -1e-3*np.ones(4), free, np.eye(3), h, 1e-8, contacts, nonnegative_gap=True)
+    z, certificate = solve_coulomb_lcp(problem["M"], problem["q"])
+    post = free + rows.T @ problem["decode"](z)
+    # Non-penetration without pop-out, normal impulse m g h, Coulomb bound sum(beta) <= c_n.
+    assert certificate["residual"] <= 1e-8
+    assert post[2] == pytest.approx(0., abs=1e-9)
+    assert z[0] == pytest.approx(9.81*h, abs=1e-9)
+    assert z[1:5].sum() <= z[0] + 1e-12
+    expected = max(vx - mu*9.81*h, 0.)
+    assert post[0] == pytest.approx(expected, abs=1e-9)
+    if expected > 0:
+        assert z[1:5].sum() == pytest.approx(z[0], abs=1e-9)  # sliding: on the friction bound
+
+
+def test_coulomb_facet_lcp_signed_gap_pops_out_and_nonnegative_does_not():
+    h = .002
+    rows = _point_contact_rows(.5)
+    free = np.array([0., 0., -9.81*h])
+    contacts = pyramid_contacts([3], [0], 4)
+    signed = coulomb_problem(rows, -1e-3*np.ones(4), free, np.eye(3), h, 1e-8, contacts, nonnegative_gap=False)
+    z, _ = solve_coulomb_lcp(signed["M"], signed["q"])
+    assert (free + rows.T @ signed["decode"](z))[2] == pytest.approx(1e-3/h, abs=1e-7)  # r=1e-8 compliance
+    clipped = coulomb_problem(rows, -1e-3*np.ones(4), free, np.eye(3), h, 1e-8, contacts, nonnegative_gap=True)
+    z, _ = solve_coulomb_lcp(clipped["M"], clipped["q"])
+    assert (free + rows.T @ clipped["decode"](z))[2] == pytest.approx(0., abs=1e-9)
+
+
+def test_coulomb_decoder_preserves_generalized_impulse_and_pyramid_structure():
+    rows = _point_contact_rows(.5)
+    contacts = pyramid_contacts([3], [0], 4)
+    problem = coulomb_problem(rows, np.zeros(4), np.array([.3, -.2, -.02]), np.eye(3), .002, 1e-8, contacts)
+    z, _ = solve_coulomb_lcp(problem["M"], problem["q"])
+    p = problem["decode"](z)
+    assert p.min() >= 0
+    C, F = problem["normals"], problem["facets"]
+    expected = problem["Jn"].T @ z[:C] + problem["Jd"].T @ z[C:C+F]
+    np.testing.assert_allclose(rows.T @ p, expected, atol=1e-12)
+    assert p.sum() == pytest.approx(z[0], abs=1e-12)
+    with pytest.raises(ValueError, match="contact row"):
+        pyramid_contacts([3], [0], 5)
 
 
 @pytest.mark.parametrize("seed", range(8))

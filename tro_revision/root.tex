@@ -20,7 +20,7 @@
 %% Legal Notice:
 %% This code is offered as-is without any warranty either expressed or
 %% implied; without even the implied warranty of MERCHANTABILITY or
-%% FITNESS FOR A PARTICULAR PURPOSE! 
+%% FITNESS FOR A PARTICULAR PURPOSE!
 %% User assumes all risk.
 %% In no event shall the IEEE or any contributor to this code be liable for
 %% any damages or losses, including, but not limited to, incidental,
@@ -36,39 +36,35 @@
 %% in the base LaTeX documentation of all distributions of LaTeX released
 %% 2003/12/01 or later.
 %% Retain all contribution notices and credits.
-%% ** Modified files should be clearly indicated as such, including  **
+%% ** Modified files should be clearly indicated as such, including **
 %% ** renaming them and changing author support contact information. **
 %%*************************************************************************
 
-
-% *** Authors should verify (and, if needed, correct) their LaTeX system  ***
+% *** Authors should verify (and, if needed, correct) their LaTeX system ***
 % *** with the testflow diagnostic prior to trusting their LaTeX platform ***
-% *** with production work. The IEEE's font choices and paper sizes can   ***
-% *** trigger bugs that do not appear when using other class files.       ***                          ***
+% *** with production work. The IEEE's font choices and paper sizes can ***
+% *** trigger bugs that do not appear when using other class files. *** ***
 % The testflow support page is at:
 % http://www.michaelshell.org/tex/testflow/
 
-
-
-\documentclass[journal]{IEEEtran}  % Comment this 
+\documentclass[journal]{IEEEtran} % Comment this
 %
 % If IEEEtran.cls has not been installed into the LaTeX system files,
 % manually specify the path to it like:
 % \documentclass[journal]{../sty/IEEEtran}
-
 
 \usepackage{amsmath} % assumes amsmath package installed
 \usepackage{amsthm}
 \theoremstyle{definition}
 \newtheorem{definition}{Definition}
 \newtheorem{assumption}{Assumption}
-\usepackage{amssymb}  % assumes amsmath package installed
+\usepackage{amssymb} % assumes amsmath package installed
 \usepackage{bm}
 \usepackage{graphicx}
 \usepackage[normalem]{ulem}
 % \usepackage{xcolor}
 \usepackage{algorithm}
-\usepackage{algpseudocode}  % 支持 \Require 和 \Ensure
+\usepackage{algpseudocode} % 支持 \Require 和 \Ensure
 \usepackage{booktabs}
 \makeatletter
 \let\IEEEorigmakecaption\@makecaption
@@ -76,8 +72,8 @@
 \usepackage[labelsep=period]{caption}
 \usepackage{subcaption}
 % \usepackage{algorithm, algorithmic}
-\renewcommand{\algorithmicrequire}{\textbf{Input:}} 
-\renewcommand{\algorithmicensure}{\textbf{Output:}} 
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
 \usepackage{float}
 \usepackage{diagbox}
 \usepackage{multirow}
@@ -90,16 +86,22 @@
 \newcommand{\cb}{\color{black}}
 % Red markup identifies language and clarity revisions.
 \newcommand{\rev}[1]{\textcolor{red}{#1}}
-\newcommand{\revul}[1]{\textcolor{red}{\uline{#1}}}
-\usepackage{xcolor} 
+\newcommand{\revul}[1]{\textcolor{red}{#1}}
+\newcommand{\delrev}[1]{\textcolor{red}{\sout{#1}}}
+\newcommand{\addrev}[1]{\textcolor{red}{#1}}
+\newcommand{\mdel}[1]{\textcolor{red}{\sout{\mbox{$#1$}}}}
+\newcommand{\madd}[1]{\textcolor{blue}{#1}}
+% Blue markup identifies the second-round consistency revisions.
+\newcommand{\bdel}[1]{\textcolor{blue}{\sout{#1}}}
+\usepackage{xcolor}
 \usepackage{tabularx}
 \usepackage[noprefix]{nomencl} % 避免编号前缀
 \usepackage{pifont}
 \makeatletter
 \AtBeginDocument{%
-  \let\@makecaption\IEEEorigmakecaption
-  \setlength\abovecaptionskip{0.5\baselineskip}%
-  \setlength\belowcaptionskip{0pt}%
+ \let\@makecaption\IEEEorigmakecaption
+ \setlength\abovecaptionskip{0.5\baselineskip}%
+ \setlength\belowcaptionskip{0pt}%
 }
 \makeatother
 % \makenomenclature
@@ -109,7 +111,6 @@
 % Some very useful LaTeX packages include:
 % (uncomment the ones you want to load)
 
-
 % *** MISC UTILITY PACKAGES ***
 %
 %\usepackage{ifpdf}
@@ -117,9 +118,9 @@
 % compilation based on whether the output is pdf or dvi.
 % usage:
 % \ifpdf
-%   % pdf code
+% % pdf code
 % \else
-%   % dvi code
+% % dvi code
 % \fi
 % The latest version of ifpdf.sty can be obtained from:
 % http://www.ctan.org/pkg/ifpdf
@@ -127,11 +128,6 @@
 % \ifCLASSINFOpdf conditional that works the same way.
 % When switching from latex to pdflatex and vice-versa, the compiler may
 % have to be run twice to clear warning/error messages.
-
-
-
-
-
 
 % *** CITATION PACKAGES ***
 %
@@ -151,35 +147,30 @@
 % http://www.ctan.org/pkg/cite
 % The documentation is contained in the cite.sty file itself.
 
-
-
-
-
-
 % *** GRAPHICS RELATED PACKAGES ***
 %
 \ifCLASSINFOpdf
-  % \usepackage[pdftex]{graphicx}
-  % declare the path(s) where your graphic files are
-  % \graphicspath{{../pdf/}{../jpeg/}}
-  % and their extensions so you won't have to specify these with
-  % every instance of \includegraphics
-  % \DeclareGraphicsExtensions{.pdf,.jpeg,.png}
+ % \usepackage[pdftex]{graphicx}
+ % declare the path(s) where your graphic files are
+ % \graphicspath{{../pdf/}{../jpeg/}}
+ % and their extensions so you won't have to specify these with
+ % every instance of \includegraphics
+ % \DeclareGraphicsExtensions{.pdf,.jpeg,.png}
 \else
-  % or other class option (dvipsone, dvipdf, if not using dvips). graphicx
-  % will default to the driver specified in the system graphics.cfg if no
-  % driver is specified.
-  % \usepackage[dvips]{graphicx}
-  % declare the path(s) where your graphic files are
-  % \graphicspath{{../eps/}}
-  % and their extensions so you won't have to specify these with
-  % every instance of \includegraphics
-  % \DeclareGraphicsExtensions{.eps}
+ % or other class option (dvipsone, dvipdf, if not using dvips). graphicx
+ % will default to the driver specified in the system graphics.cfg if no
+ % driver is specified.
+ % \usepackage[dvips]{graphicx}
+ % declare the path(s) where your graphic files are
+ % \graphicspath{{../eps/}}
+ % and their extensions so you won't have to specify these with
+ % every instance of \includegraphics
+ % \DeclareGraphicsExtensions{.eps}
 \fi
 % graphicx was written by David Carlisle and Sebastian Rahtz. It is
 % required if you want graphics, photos, etc. graphicx.sty is already
 % installed on most LaTeX systems. The latest version and documentation
-% can be obtained at: 
+% can be obtained at:
 % http://www.ctan.org/pkg/graphicx
 % Another good source of documentation is "Using Imported Graphics in
 % LaTeX2e" by Keith Reckdahl which can be found at:
@@ -196,10 +187,6 @@
 % You can find documentation about the pdfTeX application at:
 % http://www.tug.org/applications/pdftex
 
-
-
-
-
 % *** MATH PACKAGES ***
 %
 %\usepackage{amsmath}
@@ -213,10 +200,6 @@
 % does. amsmath.sty is already installed on most LaTeX systems. The latest
 % version and documentation can be obtained at:
 % http://www.ctan.org/pkg/amsmath
-
-
-
-
 
 % *** SPECIALIZED LIST PACKAGES ***
 %
@@ -235,9 +218,6 @@
 % algorithmicx.sty package by Szasz Janos:
 % http://www.ctan.org/pkg/algorithmicx
 
-
-
-
 % *** ALIGNMENT PACKAGES ***
 %
 %\usepackage{array}
@@ -251,19 +231,15 @@
 % latest version and documentation can be obtained at:
 % http://www.ctan.org/pkg/array
 
-
 % IEEEtran contains the IEEEeqnarray family of commands that can be used to
 % generate multiline equations as well as matrices, tables, etc., of high
 % quality.
 
-
-
-
 % *** SUBFIGURE PACKAGES ***
 %\ifCLASSOPTIONcompsoc
-%  \usepackage[caption=false,font=normalsize,labelfont=sf,textfont=sf]{subfig}
+% \usepackage[caption=false,font=normalsize,labelfont=sf,textfont=sf]{subfig}
 %\else
-%  \usepackage[caption=false,font=footnotesize]{subfig}
+% \usepackage[caption=false,font=footnotesize]{subfig}
 %\fi
 % subfig.sty, written by Steven Douglas Cochran, is the modern replacement
 % for subfigure.sty, the latter of which is no longer maintained and is
@@ -282,9 +258,6 @@
 % The latest version and documentation of subfig.sty can be obtained at:
 % http://www.ctan.org/pkg/subfig
 
-
-
-
 % *** FLOAT PACKAGES ***
 %
 %\usepackage{fixltx2e}
@@ -301,7 +274,6 @@
 % needed.
 % The latest version and documentation can be found at:
 % http://www.ctan.org/pkg/fixltx2e
-
 
 %\usepackage{stfloats}
 % stfloats.sty was written by Sigitas Tolusis. This package gives LaTeX2e
@@ -329,17 +301,14 @@
 % The latest version can be found at:
 % http://www.ctan.org/pkg/dblfloatfix
 
-
-
-
 %\ifCLASSOPTIONcaptionsoff
-%  \usepackage[nomarkers]{endfloat}
+% \usepackage[nomarkers]{endfloat}
 % \let\MYoriglatexcaption\caption
 % \renewcommand{\caption}[2][\relax]{\MYoriglatexcaption[#2]{#2}}
 %\fi
-% endfloat.sty was written by James Darrell McCauley, Jeff Goldberg and 
-% Axel Sommerfeldt. This package may be useful when used in conjunction with 
-% IEEEtran.cls'  captionsoff option. Some IEEE journals/societies require that
+% endfloat.sty was written by James Darrell McCauley, Jeff Goldberg and
+% Axel Sommerfeldt. This package may be useful when used in conjunction with
+% IEEEtran.cls' captionsoff option. Some IEEE journals/societies require that
 % submissions have lists of figures/tables at the end of the paper and that
 % figures/tables without any captions are placed on a page by themselves at
 % the end of the document. If needed, the draftcls IEEEtran class option or
@@ -367,11 +336,8 @@
 % http://www.ctan.org/pkg/endfloat
 %
 % The IEEEtran \ifCLASSOPTIONcaptionsoff conditional can also be used
-% later in the document, say, to conditionally put the References on a 
+% later in the document, say, to conditionally put the References on a
 % page by themselves.
-
-
-
 
 % *** PDF, URL AND HYPERLINK PACKAGES ***
 %
@@ -382,15 +348,11 @@
 % http://www.ctan.org/pkg/url
 % Basically, \url{my_url_here}.
 
-
-
-
 % *** Do not adjust lengths that control margins, column widths, etc. ***
-% *** Do not use packages that alter fonts (such as pslatex).         ***
+% *** Do not use packages that alter fonts (such as pslatex). ***
 % There should be no need to do such things with IEEEtran.cls V1.6 and later.
 % (Unless specifically asked to do so by the journal or conference you plan
 % to submit to, of course. )
-
 
 % correct bad hyphenation here
 % \hyphenation{op-tical net-works semi-conduc-tor}
@@ -404,13 +366,10 @@
 % Do not put math or special symbols in the title.
 \title{Simultaneous Contact Selection and Planning for Contact-Rich Manipulation with Cascaded Optimization}
 
-
 \markboth{Journal of \LaTeX\ Class Files,~Vol.~18, No.~9, September~2020}%
 {Simultaneous Contact Selection and Planning for Contact-Rich Manipulation with Cascaded Optimization}
 
 \maketitle
-
-
 
 % As a general rule, do not put math, special symbols or citations
 % in the abstract or keywords.
@@ -425,25 +384,25 @@ Project website: \href{https://sites.google.com/view/scsp-robot}{https://sites.g
 % IEEE, IEEEtran, journal, \LaTeX, paper, template.
 % \end{IEEEkeywords}
 \begin{IEEEkeywords}
-Contact-Rich Manipulation, Contact Selection,  Contact-Implicit Trajectory Optimization
+Contact-Rich Manipulation, Contact Selection, Contact-Implicit Trajectory Optimization
 \end{IEEEkeywords}
 
 \section*{Nomenclature}
 \addcontentsline{toc}{section}{Nomenclature}
 \begin{IEEEdescription}[\IEEEusemathlabelsep\IEEEsetlabelwidth{$V_1,V_2,V_3$}]
-\item[$p, \boldsymbol{p}$] A 3D point and its position vector. 
+\item[$p, \boldsymbol{p}$] A 3D point and its position vector.
 \item[$\theta, \boldsymbol{\psi}$] Angle and quaternion vector.
-\item[$\mathcal{O}, \partial \mathcal{O}$] Object geometry and surface. 
-\item[$\mathcal{R}, \partial \mathcal{R}$] Robot geometry and surface. 
+\item[$\mathcal{O}, \partial \mathcal{O}$] Object geometry and surface.
+\item[$\mathcal{R}, \partial \mathcal{R}$] Robot geometry and surface.
 
 \item[$h$] Time interval.
-\item[$\boldsymbol{\lambda}, \boldsymbol{\beta}$] Contact force vector and contact impulse vector. 
+\item[$\boldsymbol{\lambda}, \boldsymbol{\beta}$] Contact force vector and contact impulse vector.
 \item[$\boldsymbol{\phi}$] Contact distance vector.
-\item[$\boldsymbol{J}$] Contact Jacobian. 
+\item[$\boldsymbol{J}$] Contact Jacobian.
 \item[$\boldsymbol{n}, \boldsymbol{t}_i$] Normal vector and $i$-th tangental vector.
 \item[{$\boldsymbol{x} = [ \boldsymbol{p}, \boldsymbol{\psi} ]$}] Pose vector consists of position and orientation.
 \item[$\boldsymbol{q}, \dot{\boldsymbol{q}}, \ddot{\boldsymbol{q}}$] Robot configuration, velocity and acceleration.
-\item[$\boldsymbol{s}$] System state consists of object pose $\boldsymbol{x}_o$ and  $\boldsymbol{q}$. 
+\item[$\boldsymbol{s}$] System state consists of object pose $\boldsymbol{x}_o$ and $\boldsymbol{q}$.
 \item[$\boldsymbol{v}$] Velocity vector in Cartesian space.
 \end{IEEEdescription}
 % For peer review papers, you can put extra information on the cover
@@ -455,8 +414,6 @@ Contact-Rich Manipulation, Contact Selection,  Contact-Implicit Trajectory Optim
 % For peerreview papers, this IEEEtran command inserts a page break and
 % creates the second title. It will be ignored for other modes.
 % \IEEEpeerreviewmaketitle
-
-
 
 \input{introduction}
 % \input{related}
@@ -484,7 +441,7 @@ Contact-Rich Manipulation, Contact Selection,  Contact-Implicit Trajectory Optim
 % \providecommand{\BIBentryALTinterwordstretchfactor}{4}
 % \providecommand{\BIBentryALTinterwordspacing}{\spaceskip=\fontdimen2\font plus
 % \BIBentryALTinterwordstretchfactor\fontdimen3\font minus
-%   \fontdimen4\font\relax}
+% \fontdimen4\font\relax}
 % \providecommand{\BIBforeignlanguage}[2]{{%
 % \expandafter\ifx\csname l@#1\endcsname\relax
 % \typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
@@ -497,13 +454,9 @@ Contact-Rich Manipulation, Contact Selection,  Contact-Implicit Trajectory Optim
 % \providecommand{\BIBdecl}{\relax}
 % \BIBdecl
 
-
 % \end{thebibliography}
 \appendix
 \input{appendix}
-
-
-
 
 % that's all folks
 \end{document}

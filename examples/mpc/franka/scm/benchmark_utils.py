@@ -36,9 +36,10 @@ class Backend:
                  stiffness=0.2, damping=0.001, nconmax=2048, njmax=16384,
                  scm_regularization=1e-8, scm_motion="dynamic", scm_friction="point",
                  scm_response_time=.05, scm_damping_ratio=1.0,
-                 scm_softplus_temperature=1e-4,
+                 scm_softplus_temperature=1e-4, scm_correction_steps=1,
                  lcp_regularization=1e-8, lcp_tolerance=1e-8, lcp_max_iterations=2000,
-                 lcp_solver="lemke", contactsdf_sigma=120.,
+                 lcp_solver="lemke", lcp_law="convex", lcp_gap_policy="signed",
+                 contactsdf_sigma=120.,
                  collect_contacts=False):
         self.engine, self.model = engine, model
         self.collect_contacts = collect_contacts
@@ -65,7 +66,8 @@ class Backend:
             from comfree_warp import mujoco_warp
         except ImportError as exc:
             raise RuntimeError("Install this directory's requirements.txt into .deps using pi0 Python first.") from exc
-        if engine not in ("comfree", "mjwarp", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
+        if engine not in ("comfree", "mjwarp", "scm_corrected", "scm_soft", "scm_soft_corrected",
+                          "scm_residual", "scm_preconditioned", "lcp"):
             raise ValueError(f"Unknown engine: {engine}")
         if mujoco.__version__ != "3.6.0":
             raise RuntimeError(f"Pinned ComFree requires MuJoCo 3.6.0; found {mujoco.__version__}. Reinstall requirements.txt into .deps.")
@@ -90,13 +92,28 @@ class Backend:
                                      response_time=scm_response_time if engine == "scm_soft" else 0.,
                                      softplus_temperature=scm_softplus_temperature if engine == "scm_soft_corrected" else 0.,
                                      damping_ratio=scm_damping_ratio)
+            if engine in ("scm_residual", "scm_preconditioned"):
+                if not np.isfinite(scm_softplus_temperature) or scm_softplus_temperature <= 0:
+                    raise ValueError(f"{engine} requires positive finite scm_softplus_temperature (N s)")
+                if scm_correction_steps < 0:
+                    raise ValueError("scm_correction_steps must be nonnegative")
+                if __package__:
+                    from .residual_scm import ResidualScmEngine
+                else:
+                    from residual_scm import ResidualScmEngine
+                self.api = ResidualScmEngine(
+                    model, initial_data, regularization=scm_regularization, motion=scm_motion,
+                    friction=scm_friction, softplus_temperature=scm_softplus_temperature,
+                    correction="spectral" if engine == "scm_residual" else "preconditioned",
+                    correction_steps=scm_correction_steps)
             if engine == "lcp":
                 if __package__:
                     from .lcp_backend import LcpEngine
                 else:
                     from lcp_backend import LcpEngine
                 self.api = LcpEngine(model, initial_data, regularization=lcp_regularization,
-                                     tolerance=lcp_tolerance, max_iterations=lcp_max_iterations, solver=lcp_solver)
+                                     tolerance=lcp_tolerance, max_iterations=lcp_max_iterations,
+                                     solver=lcp_solver, law=lcp_law, gap_policy=lcp_gap_policy)
             kwargs = dict(comfree_stiffness=stiffness, comfree_damping=damping) if engine == "comfree" else {}
             self.wmodel = self.api.put_model(model, **kwargs)
             # The pinned upstream sensor module has an undefined xmat in its
@@ -132,7 +149,8 @@ class Backend:
                     if value.size:
                         target = getattr(self.wdata, name)
                         wp.copy(target, wp.array(value, dtype=target.dtype, device=self.device))
-                if self.engine in ("scm_corrected", "scm_soft", "scm_soft_corrected", "lcp"):
+                if self.engine in ("scm_corrected", "scm_soft", "scm_soft_corrected",
+                                   "scm_residual", "scm_preconditioned", "lcp"):
                     self.api.update_mass(data)
                 wp.synchronize_device(self.device)
                 started = time.perf_counter()
@@ -141,6 +159,11 @@ class Backend:
                 self.last_step_seconds = time.perf_counter() - started
                 if self.engine in ("scm_corrected", "scm_soft_corrected"):
                     self.last_amplitude_scale = float(self.api.amplitude.numpy()[0])
+                if self.engine in ("scm_residual", "scm_preconditioned"):
+                    self.last_scm_lipschitz = self.api.last_lipschitz
+                    self.last_scm_step_size = self.api.last_step_size
+                    self.last_scm_power_iterations = self.api.last_power_iterations
+                    self.last_scm_spectral_source = self.api.last_spectral_source
                 ncontact = int(self.wdata.nacon.numpy()[0])
                 nconstraint = int(self.wdata.nefc.numpy()[0])
                 ncollision = int(self.wdata.ncollision.numpy()[0])

@@ -1,4 +1,4 @@
-"""Render the shared star legend for the two illustrative curves."""
+"""Render the shared star legend for the sensitivity curves."""
 from pathlib import Path
 
 import matplotlib

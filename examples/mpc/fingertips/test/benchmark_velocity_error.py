@@ -1,11 +1,16 @@
-"""Object velocity error versus coupled LCP contact dynamics in MJWarp.
+"""Object velocity error versus rigid Coulomb LCP contact dynamics in MJWarp.
 
 The reference uses MJWarp collision, smooth dynamics and integration, replacing
-the native contact solve with a certified, coupled friction-pyramid LCP at
-h=0.001 s. Predictors step at h=0.002 s against two reference substeps. SCM uses
+the native contact solve with a certified LCP at h=0.001 s. By default this is
+the Stewart-Trinkle Coulomb facet LCP (non-relaxed friction pyramid, separate
+normal/tangential complementarity, d=max(gap,0) so residual penetration is not
+expelled); --reference convex --reference-gap signed reproduces the earlier
+symmetric relaxed pyramid LCP. Predictors step at h=0.002 s against two reference substeps. SCM uses
 scm_corrected: one diagonal response and global amplitude correction, no soft response.
 softSCM_corrected uses LogSumExp (softplus) impulses and d=max(gap,0) in
 both impulse activation and amplitude correction; no spring-damper response.
+scm_residual and scm_preconditioned replace that amplitude clip with one
+coupled residual step (1/lambda_max(W), or Jacobi-Gershgorin omega D^{-1}).
 """
 from __future__ import annotations
 
@@ -247,7 +252,11 @@ def predict_all(model, qpos, qvel, wrench, friction, backends):
            "reference_certificates": certificates}
     m1 = step_mujoco(model, qpos, qvel, wrench, 1)
     out["M1"] = world_velocity(m1, pre)
-    for name, engine in (("SCM", "scm_corrected"), ("softSCM", "scm_soft"), ("softSCM_corrected", "scm_soft_corrected"), ("comfree", "comfree"), ("diagonalContact", "diagonal_contact")):
+    for name, engine in (("SCM", "scm_corrected"), ("softSCM", "scm_soft"),
+                         ("softSCM_corrected", "scm_soft_corrected"),
+                         ("scm_residual", "scm_residual"),
+                         ("scm_preconditioned", "scm_preconditioned"),
+                         ("comfree", "comfree"), ("diagonalContact", "diagonal_contact")):
         backend = backends.get(engine)
         if backend is None:
             out[name] = None
@@ -255,15 +264,26 @@ def predict_all(model, qpos, qvel, wrench, friction, backends):
         try:
             out[name], _ = step_backend(backend, model, qpos, qvel, wrench)
             out["prediction_step_ms"][name] = 1000 * backend.last_step_seconds
-            if engine in ("scm_corrected", "scm_soft_corrected"):
+            if engine in ("scm_corrected", "scm_soft_corrected", "scm_residual", "scm_preconditioned"):
                 count = int(backend.wdata.nefc.numpy()[0])
                 gap = backend.wdata.efc.efc_dist.numpy()[0, :count]
-                out["scm_diagnostics"][name] = {
+                diagnostic = {
                     "constraint_rows": count,
                     "penetrating_rows": int(np.count_nonzero(gap < 0)),
                     "minimum_signed_gap_m": float(gap.min()) if count else None,
-                    "alpha": backend.last_amplitude_scale,
-                    "nonnegative_gap": backend.api.nonnegative_gap}
+                    "nonnegative_gap": bool(backend.api.nonnegative_gap)}
+                if engine in ("scm_corrected", "scm_soft_corrected"):
+                    diagnostic["alpha"] = backend.last_amplitude_scale
+                else:
+                    lipschitz, step_size = backend.last_scm_lipschitz, backend.last_scm_step_size
+                    diagnostic.update(
+                        lipschitz=None if lipschitz is None else float(lipschitz),
+                        step_size=None if step_size is None else float(step_size),
+                        power_iterations=int(backend.last_scm_power_iterations),
+                        spectral_source=backend.last_scm_spectral_source,
+                        correction=backend.api.correction,
+                        correction_steps=int(backend.api.correction_steps))
+                out["scm_diagnostics"][name] = diagnostic
         except (RuntimeError, FloatingPointError, ValueError):
             out[name] = None
     probe = mujoco.MjData(model)
@@ -302,7 +322,29 @@ def fmt(block):
     return "%.4f ± %.4f [P95=%.4f] (n=%d)" % (block["mean"], block["std"], block["p95"], block["n"])
 
 
-def make_backends(model, settled, lcp_solver="active-set", softplus_temperature=1e-4):
+REFERENCE_LAWS = ("coulomb", "convex")
+REFERENCE_GAPS = ("nonnegative", "signed")
+# Tikhonov term r I on the Delassus block. The Stewart-Trinkle matrix is
+# structurally singular at resting contacts (opposed facet pair impulses
+# cancel; hyperstatic normal distribution), so r must exceed the ~1e-8 of the
+# convex reference for Lemke to certify 1e-8 residuals. r=1e-6 s/kg adds a
+# velocity slack r*p < 2e-7 m/s for the impulses in this benchmark.
+REFERENCE_REGULARIZATION = {"coulomb": 1e-6, "convex": 1e-8}
+
+
+def reference_regularization(law):
+    return REFERENCE_REGULARIZATION[law]
+
+
+def reference_tag(law, gap_policy):
+    """Payload/report identifier of the reference contact law."""
+    if law == "convex" and gap_policy == "signed":
+        return "mjwarp_coupled_pyramid_lcp_2x0.001"
+    return "mjwarp_%s_pyramid_lcp_%s_gap_2x0.001" % (law, gap_policy)
+
+
+def make_backends(model, settled, lcp_solver="active-set", softplus_temperature=1e-4,
+                  reference_law="coulomb", reference_gap="nonnegative"):
     from benchmark_utils import Backend
     common = dict(device="cuda:0", nconmax=512, njmax=4096, stiffness=0.2, damping=0.001,
                   scm_response_time=SOFT_TAU, scm_damping_ratio=SOFT_ZETA,
@@ -313,15 +355,21 @@ def make_backends(model, settled, lcp_solver="active-set", softplus_temperature=
     reference_data = mujoco.MjData(reference_model)
     set_state(reference_model, reference_data, settled.qpos, settled.qvel, np.zeros(6))
     # Reference failures abort the run; no substitute contact law or dropped samples.
+    # The Stewart-Trinkle Coulomb LCP is non-symmetric and requires Lemke.
+    solver = "lemke" if reference_law == "coulomb" else lcp_solver
     backends["reference_lcp"] = Backend(
-        "lcp", reference_model, reference_data, lcp_solver=lcp_solver,
-        lcp_regularization=1e-8, lcp_tolerance=1e-8, lcp_max_iterations=2000,
+        "lcp", reference_model, reference_data, lcp_solver=solver,
+        lcp_law=reference_law, lcp_gap_policy=reference_gap,
+        lcp_regularization=reference_regularization(reference_law),
+        lcp_tolerance=1e-8, lcp_max_iterations=2000,
         **common)
-    for engine in ("scm_corrected", "scm_soft", "scm_soft_corrected", "comfree", "diagonal_contact"):
+    for engine in ("scm_corrected", "scm_soft", "scm_soft_corrected", "scm_residual",
+                   "scm_preconditioned", "comfree", "diagonal_contact"):
         try:
             backends[engine] = Backend(engine, model, settled, **common)
         except Exception as exc:
-            if engine in ("scm_corrected", "scm_soft_corrected", "comfree"):
+            if engine in ("scm_corrected", "scm_soft_corrected", "scm_residual",
+                          "scm_preconditioned", "comfree"):
                 raise
             print(engine, "unavailable:", exc, flush=True)
     return backends
@@ -337,21 +385,34 @@ def run(args):
     log_path = out / "velocity_error.log"
     rows = []
     rng = np.random.default_rng(args.seed)
-    models = ("LCP", "M1", "SCM", "softSCM", "softSCM_corrected", "comfree", "diagonalContact", "ContactSDF")
+    models = ("LCP", "M1", "SCM", "softSCM", "softSCM_corrected", "scm_residual",
+              "scm_preconditioned", "comfree", "diagonalContact", "ContactSDF")
+    reference_solver = "lemke" if args.reference == "coulomb" else args.lcp_solver
+    gap_text = ("d=max(gap,0)/h (velocity-level non-penetration, no pop-out of residual penetration)"
+                if args.reference_gap == "nonnegative" else "d=gap/h (signed; residual penetration is expelled within one step)")
     with log_path.open("w") as log:
-        log.write("Reference: MJWarp collision/smooth dynamics/integration + coupled friction-pyramid LCP, %d steps of h=0.001 s.\n" % GT_SUBSTEPS)
-        log.write("LCP solver: %s; r=1e-8; original-scale residual tolerance=1e-8.\n" % args.lcp_solver)
+        if args.reference == "coulomb":
+            log.write("Reference: MJWarp collision/smooth dynamics/integration + Stewart-Trinkle Coulomb facet LCP (non-relaxed friction pyramid, separate normal/tangential complementarity), %d steps of h=0.001 s.\n" % GT_SUBSTEPS)
+        else:
+            log.write("Reference: MJWarp collision/smooth dynamics/integration + convex coupled friction-pyramid LCP (0<=p _|_ Wp+g>=0 over pyramid rows), %d steps of h=0.001 s.\n" % GT_SUBSTEPS)
+        log.write("Reference gap term: %s.\n" % gap_text)
+        log.write("LCP solver: %s; r=%g; original-scale residual tolerance=1e-8.\n"
+                  % (reference_solver, reference_regularization(args.reference)))
         log.write("M1, SCM, softSCM, comfree and ContactSDF use one step of h=0.002 s.\n")
         log.write("LCP error is zero because it is the reference.\n")
         log.write("Error is ||v_model - v_GT|| in the pre-step world frame. Linear m/s, angular rad/s.\n")
         log.write("SCM: scm_corrected, r=1e-8, response_time=0, one global amplitude correction.\n")
         log.write("softSCM: tau=%.3f s, zeta=%.2f.\n" % (SOFT_TAU, SOFT_ZETA))
         log.write("softSCM_corrected: softplus_nonnegative_gap_v2, d=max(gap,0) in both stages, T=%.8g N s, response_time=0, hard-clipped global amplitude correction.\n" % args.softplus_temperature)
+        log.write("scm_residual: beta0=softplus_T(-g/D); r=W beta0+g; beta=softplus_T(beta0-r/L); L=lambda_max(W) by power iteration; one step.\n")
+        log.write("scm_preconditioned: beta=softplus_T(beta0-omega D^{-1} r); omega=1/L_N; L_N=max_i sum_j |W_ij|/sqrt(D_ii D_jj); one step.\n")
+        log.write("Errors below are versus the coupled LCP reference. comfree is the paired baseline for the two residual SCM variants.\n")
         for shape in args.objects:
             print("object", shape, flush=True)
             model_h = make_model(shape, args.friction, H_MODEL, args.mass)
             settled = settle(model_h)
-            backends = make_backends(model_h, settled, args.lcp_solver, args.softplus_temperature)
+            backends = make_backends(model_h, settled, args.lcp_solver, args.softplus_temperature,
+                                     args.reference, args.reference_gap)
             for condition in CONDITIONS:
                 for index in range(args.samples):
                     qpos, qvel, wrench = sample_state(settled, condition, rng, args.friction, args.mass)
@@ -370,7 +431,8 @@ def run(args):
                                                                 if pred[name] is not None}}
                         for name in models:
                             lin, ang = errors(pred[name], pred["GT"])
-                            if lin is None and name in ("M1", "SCM", "softSCM_corrected", "comfree", "ContactSDF"):
+                            if lin is None and name in ("M1", "SCM", "softSCM_corrected", "scm_residual",
+                                                          "scm_preconditioned", "comfree", "ContactSDF"):
                                 raise RuntimeError(f"Required predictor {name} failed: {shape}/{condition}/{index}/{step}")
                             record[name + "_linear"] = lin
                             record[name + "_angular"] = ang
@@ -392,17 +454,32 @@ def run(args):
     payload = {"objects": list(args.objects), "samples": args.samples, "seed": args.seed,
                "rollout_steps": args.rollout_steps, "h_model": H_MODEL,
                "h_lcp": H_LCP, "h_gt": H_GT, "friction": args.friction, "mass": args.mass,
-               "reference": "mjwarp_coupled_pyramid_lcp_2x0.001",
-               "lcp": {"backend": "lcp_backend.LcpEngine", "solver": args.lcp_solver,
-                       "regularization": 1e-8, "residual_tolerance": 1e-8,
+               "reference": reference_tag(args.reference, args.reference_gap),
+               "lcp": {"backend": "lcp_backend.LcpEngine", "solver": reference_solver,
+                       "law": args.reference, "gap_policy": args.reference_gap,
+                       "regularization": reference_regularization(args.reference), "residual_tolerance": 1e-8,
                        "collision_and_integration": "vendored MJWarp",
-                       "contact_law": "0 <= p _|_ (J Minv J.T + r I) p + J v_free + gap/h >= 0"},
+                       "contact_law": (
+                           "z=[c_n,beta,lambda]; 0<=c_n _|_ J_n v+ + d/h>=0; 0<=beta_k _|_ (r_k-J_n) v+ + lambda>=0; "
+                           "0<=lambda _|_ c_n - sum beta>=0; r_k = MJWarp pyramid rows, J_n=(r_0+r_1)/2"
+                           if args.reference == "coulomb" else
+                           "0 <= p _|_ (J Minv J.T + r I) p + J v_free + d/h >= 0 over pyramid rows"),
+                       "gap_term": "d=max(gap,0)" if args.reference_gap == "nonnegative" else "d=gap"},
                "soft_scm": {"tau": SOFT_TAU, "zeta": SOFT_ZETA},
                "scm": {"backend": "scm_corrected", "regularization": 1e-8,
                        "response_time": 0.0, "motion": "dynamic", "amplitude_correction": True},
                "percentile_method": "numpy.percentile(method='linear')",
                "contact_dimensions": 3,
                "diagonal_contact": "one ordered normal/tangent pass; physical diagonal Delassus; box friction; no fitted gains or history",
+               "scm_residual": {"backend": "scm_residual", "correction": "spectral",
+                                "law": "beta0=softplus(-g/D); beta=softplus(beta0-r/L); L=lambda_max(W)",
+                                "correction_steps": 1, "temperature_N_s": args.softplus_temperature,
+                                "gap_policy": "max(signed_gap,0)", "regularization": 1e-8},
+               "scm_preconditioned": {"backend": "scm_preconditioned", "correction": "preconditioned",
+                                      "law": "beta=softplus(beta0-omega D^{-1} r); omega=1/L_N",
+                                      "L_N": "Gershgorin bound of D^{-1/2} W D^{-1/2}",
+                                      "correction_steps": 1, "temperature_N_s": args.softplus_temperature,
+                                      "gap_policy": "max(signed_gap,0)", "regularization": 1e-8},
                "soft_scm_corrected": {"backend": "scm_soft_corrected", "law_version": "softplus_nonnegative_gap_v2",
                                       "temperature_N_s": args.softplus_temperature,
                                       "law": "d=max(gap,0); g=J*v_free+d/h; p0=T*log(1+exp((-g/D)/T)); p=alpha*p0",
@@ -414,7 +491,8 @@ def run(args):
                "initialization": "native MuJoCo soft-contact settling; residual penetration retained for all models",
                "source_sha256": {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                                   for path in (Path(__file__), SCM / "scm_backend.py", SCM / "benchmark_utils.py",
-                                               SCM / "lcp_backend.py", SCM / "contact_dynamics.py")},
+                                               SCM / "residual_scm.py", SCM / "lcp_backend.py",
+                                               SCM / "contact_dynamics.py")},
                "contact_sdf": "dynamic extension of upstream LSE; Q=M/h^2; sigma=120",
                "collision": "MuJoCo CPU for MuJoCo QP/ContactSDF; vendored MJWarp for reference/SCM/ComFree",
                "summary": aggregate(rows, models, None),
@@ -457,7 +535,12 @@ def main():
     parser.add_argument("--mass", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lcp-solver", choices=("active-set", "lemke"), default="active-set",
-                        help="Certified solver for the coupled LCP; no DART contact law")
+                        help="Certified solver for the convex coupled LCP; the Coulomb law always uses Lemke")
+    parser.add_argument("--reference", choices=REFERENCE_LAWS, default="coulomb",
+                        help="coulomb: Stewart-Trinkle facet LCP (exact pyramid Coulomb friction); "
+                             "convex: symmetric relaxed pyramid LCP (the paper's eq. 21 target)")
+    parser.add_argument("--reference-gap", choices=REFERENCE_GAPS, default="nonnegative",
+                        help="nonnegative: d=max(gap,0), no pop-out of residual penetration; signed: d=gap")
     parser.add_argument("--softplus-temperature", type=float, default=1e-4,
                         help="LogSumExp smoothing temperature in impulse units (N s); no spring-damper gains")
     parser.add_argument("--output-dir", default="output/diagnostics")

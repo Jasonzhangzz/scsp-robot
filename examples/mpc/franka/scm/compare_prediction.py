@@ -7,7 +7,10 @@ engine receives identical qpos, qvel and world-frame external wrench; solver
 warm starts are reset for every query. No predicted trajectory feeds later
 samples. The SCM variant uses diagonal Delassus, R=rI and no extra damping
 on the common polyhedral point-contact rows, with explicit dynamic/increment
-choices. See README.md for the distinction from the quasi-dynamic CSO model.
+choices. scm_residual and scm_preconditioned keep that diagonal impulse and
+replace the global amplitude clip with one coupled residual step: spectral
+step 1/lambda_max(W), or Jacobi step omega D^{-1} with the Gershgorin scale.
+See README.md for the distinction from the quasi-dynamic CSO model.
 """
 
 from __future__ import annotations
@@ -71,6 +74,16 @@ def mesh_world_vertices(model, data):
     adr, count = int(model.mesh_vertadr[mesh]), int(model.mesh_vertnum[mesh])
     return (model.mesh_vert[adr:adr + count] @ data.geom_xmat[geom].reshape(3, 3).T
             + data.geom_xpos[geom])
+
+
+def nonnegative_int(value):
+    try:
+        value = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be nonnegative")
+    return value
 
 
 def positive_float(value):
@@ -137,6 +150,7 @@ def backend_for(engine, model, initial, args):
                    scm_response_time=getattr(args, "scm_response_time", .05),
                    scm_damping_ratio=getattr(args, "scm_damping_ratio", 1.),
                    scm_softplus_temperature=getattr(args, "scm_softplus_temperature", 1e-4),
+                   scm_correction_steps=getattr(args, "scm_correction_steps", 1),
                    lcp_regularization=getattr(args, "lcp_regularization", 1e-8),
                    lcp_tolerance=getattr(args, "lcp_tolerance", 1e-8),
                    lcp_max_iterations=getattr(args, "lcp_max_iterations", 2000),
@@ -329,6 +343,7 @@ def aggregate(rows, contact_moments, post_moments):
                 "orientation_error_rad", "velocity_weighted_error", "increment_weighted_error",
                 "velocity_relative_error", "increment_relative_error", "contact_correction_relative_error",
                 "increment_angle_deg", "contact_correction_angle_deg", "step_seconds", "scm_amplitude_scale",
+                "scm_lipschitz", "scm_step_size", "scm_power_iterations",
                 "max_slip_speed_m_s", "friction_power_W", "max_friction_utilization",
                 "poststate_max_penetration_m", "lcp_residual", "lcp_iterations")}
             for prefix in ("velocity", "increment", "contact_correction"):
@@ -455,6 +470,22 @@ def run_configuration(shape, friction, timestep, args, rng, output):
         "alpha": "clip(-g.T*p0 / (||J.T*p0||_Minv^2+r*||p0||^2),0,1)",
         "interpretation": "SCM with LogSumExp smoothed positive-part impulses and the same global line search",
         "limitation": "smooths row activation only; global clipping and collision remain piecewise smooth"}
+    metadata["scm_residual"] = {
+        "law_version": "spectral_residual_v1",
+        "law": "beta0=softplus_T(-g/D); r=W@beta0+g; beta=softplus_T(beta0-r/L); L=lambda_max(W)",
+        "W": "J @ Minv @ (J.T @ beta) + r * beta; L by power iteration, once per contact geometry",
+        "gap_policy": "max(signed_gap,0)",
+        "temperature_N_s": getattr(args, "scm_softplus_temperature", 1e-4),
+        "correction_steps": getattr(args, "scm_correction_steps", 1),
+        "interpretation": "one Euclidean projected-gradient step on the coupled dual QP; no shared amplitude clip"}
+    metadata["scm_preconditioned"] = {
+        "law_version": "jacobi_gershgorin_residual_v1",
+        "law": "r=W@beta0+g; beta=softplus_T(beta0-omega*D^{-1}@r); omega=1/L_N",
+        "L_N": "max_i sum_j |W_ij|/sqrt(D_ii D_jj), Gershgorin bound of the D-normalized Delassus",
+        "gap_policy": "max(signed_gap,0)",
+        "temperature_N_s": getattr(args, "scm_softplus_temperature", 1e-4),
+        "correction_steps": getattr(args, "scm_correction_steps", 1),
+        "interpretation": "one Jacobi-preconditioned projected-gradient step; D and L_N fixed for the step"}
     metadata["dart"] = {
         "source": "DART v6.16.0 ContactConstraint/PgsBoxedLcpSolver equations, deterministic NumPy port",
         "collision": "MuJoCo CPU active contacts (touching or penetrating only)",
@@ -542,6 +573,12 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                            "step_seconds": elapsed}
                     if engine in ("scm_corrected", "scm_soft_corrected") and data is not None:
                         row["scm_amplitude_scale"] = backends[engine].last_amplitude_scale
+                    if engine in ("scm_residual", "scm_preconditioned") and data is not None:
+                        lipschitz, step_size = backends[engine].last_scm_lipschitz, backends[engine].last_scm_step_size
+                        row["scm_lipschitz"] = None if lipschitz is None else float(lipschitz)
+                        row["scm_step_size"] = None if step_size is None else float(step_size)
+                        row["scm_power_iterations"] = int(backends[engine].last_scm_power_iterations)
+                        row["scm_spectral_source"] = backends[engine].last_scm_spectral_source
                     if engine == "lcp" and data is not None:
                         row.update(lcp_residual=backends[engine].api.last_lcp["residual"],
                                    lcp_iterations=backends[engine].api.last_lcp["iterations"])
@@ -617,7 +654,10 @@ def argument_parser():
                         help="Independent MJWarp animation before each mode; excluded from statistics. 0 disables it")
     parser.add_argument("--display-pause", type=nonnegative_float, default=.02,
                         help="Wall-clock hold per displayed one-step prediction [s]")
-    parser.add_argument("--engines", nargs="+", choices=("mjwarp", "comfree", "scm_corrected", "scm_soft", "scm_soft_corrected", "lcp", "dart", "contactsdf", "diagonal_contact", "mujoco"), default=["mjwarp", "comfree", "scm_corrected"])
+    parser.add_argument("--engines", nargs="+", choices=(
+        "mjwarp", "comfree", "scm_corrected", "scm_soft", "scm_soft_corrected",
+        "scm_residual", "scm_preconditioned", "lcp", "dart", "contactsdf",
+        "diagonal_contact", "mujoco"), default=["mjwarp", "comfree", "scm_corrected"])
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--shapes", nargs="+", type=canonical_shape, choices=(*SHAPES, *MESH_SHAPES),
                         default=["box", "sphere"], help="Primitives or repository STL objects; stanford_bunn2 aliases stanford_bunny2")
@@ -637,7 +677,9 @@ def argument_parser():
     parser.add_argument("--scm-damping-ratio", type=positive_float, default=.25,
                         help="Soft SCM damping ratio; benchmark default .25 (MPC model defaults are separate)")
     parser.add_argument("--scm-softplus-temperature", type=positive_float, default=1e-4,
-                        help="scm_soft_corrected LogSumExp temperature in N s; independent of spring-damper gains")
+                        help="LogSumExp temperature in N s for softplus SCM variants")
+    parser.add_argument("--scm-correction-steps", type=nonnegative_int, default=1,
+                        help="Residual applications per prediction for scm_residual and scm_preconditioned; the published model uses 1")
     parser.add_argument("--contactsdf-sigma", type=positive_float, default=120.,
                         help="LSE sharpness for the dynamic ContactSDF extension (Q=M/h^2)")
     parser.add_argument("--lcp-regularization", type=positive_float, default=1e-8)
