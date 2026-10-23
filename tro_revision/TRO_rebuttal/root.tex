@@ -23,9 +23,14 @@
 \definecolor{responseblue}{RGB}{0,70,160}
 \newcommand{\delrev}[1]{\textcolor{red}{\sout{#1}}}
 \newcommand{\addrev}[1]{\textcolor{red}{#1}}
-% Blue markup identifies the second-round consistency revisions.
-\newcommand{\bdel}[1]{\textcolor{blue}{\sout{#1}}}
-\newcommand{\badd}[1]{\textcolor{blue}{#1}}
+% Final revision markup uses red for retained additions; deleted text is omitted.
+\newcommand{\bdel}[1]{}
+\newcommand{\badd}[1]{\textcolor{red}{#1}}
+% Second-round consistency edits have been accepted and are marked in red;
+% the helper macros below are kept for reuse.
+\newcommand{\rbdel}[1]{{\color{black}\sout{#1}}}
+\newcommand{\rbnew}[1]{\textcolor{blue}{#1}}
+\newcommand{\rbdelm}[1]{\text{\rbdel{\ensuremath{#1}}}}
 
 \newcommand{\reviewer}[1]{%
  \par\smallskip\noindent
@@ -143,7 +148,7 @@ Reference-path rollout & \err{0.03}{0.10} & \err{0.47}{1.55} & $0.21$ & $3.22$ &
 }
 \end{table*}
 \endgroup
-The results show that SCM is comparable to the other contact models overall: it has the lowest linear-velocity error in contact transition, remains close to the baselines in sliding and sticking, and is competitive on the reference-path rollout. We further generate ideal contact-wrench trajectories with each contact model and execute them in the manipulation evaluation. The ideal success rates are all high (0.91--0.99), showing that the generated wrench trajectories are generally feasible; higher-fidelity contact models do not automatically produce better deployed performance. In the direct-force evaluation reported in the manuscript's Table~V, the three closed-form models perform strongly, with SCM achieving the best reported real success rate (0.88) and the best overall result. We therefore select SCM for CSO.
+The results show that SCM is a competitive approximation model across the evaluated contact states. We further generate ideal contact-wrench trajectories with each contact model and execute them in the manipulation evaluation. The ideal success rates are all high (0.91--0.99), showing that the generated wrench trajectories are generally feasible; higher-fidelity contact models do not automatically produce better deployed performance. In the direct-force evaluation reported in the manuscript's Table~V, the three closed-form models perform strongly, with SCM achieving the best reported real success rate (0.88) and the best overall result. We therefore select SCM for CSO.
 
 \question{3}{The ranking strategy appears internally inconsistent}
 
@@ -188,7 +193,7 @@ We further clarify that the previous formulation using the absolute cost $\ell$ 
 \epsilon)
 }\right). \label{equ:correct_derivation}
 \end{equation}
-The above derivation shows that the previous formulation using the absolute cost $\ell$ was equivalent in principle but introduced ambiguity due to the reversed ordering convention. To avoid this confusion, we have rewritten the Ranking Strategy subsection in Section IV-B and reformulated $\rho_t$ directly based on the cost reduction $\Delta\ell$. The revised manuscript also replaces the earlier counter-based switching rule with EMA smoothing of the binary trigger. To remove the previous smoothing strategy's dependence on contact estimation---in particular, the $T_3$ counter that counted consecutive contact steps---we use an EMA that is independent of contact-state estimates.
+The above derivation shows that the previous formulation using the absolute cost $\ell$ was equivalent in principle but introduced ambiguity due to the reversed ordering convention. To avoid this confusion, we have rewritten the Ranking Strategy subsection in Section IV-B and reformulated $\rho_t$ directly based on the cost reduction $\Delta\ell$. The revised manuscript also replaces the earlier counter-based switching rule with EMA smoothing of the binary trigger\textcolor{red}{, $\bar{\kappa}_{t+1}=(1-\beta)\bar{\kappa}_t+\beta\kappa_t$, and thresholds the filtered trigger to obtain the binary phase variable $\gamma_{t+1}=\mathbf{1}(\bar{\kappa}_{t+1}\geq 1/2)\in\{0,1\}$ used by CPO (Eq.~(36)): $\gamma_t=0$ selects the lifting phase toward $\hat{p}_r^*$ and $\gamma_t=1$ selects the placing phase toward $p_{\mathrm{near}}$, so Eq.~(36), Algorithm~2, and the lifting/placing phases now share one explicit rule}. To remove the previous smoothing strategy's dependence on contact estimation---in particular, the $T_3$ counter that counted consecutive contact steps---we use an EMA that is independent of contact-state estimates.
 
 \question{4}{The CPO potential costs appear incorrectly specified}
 
@@ -231,9 +236,9 @@ For CSO, we directly apply the optimized contact wrench at the selected contact 
 
 For SCM, Table~IV reports linear- and angular-velocity errors and P95 values for contact transition, sliding, sticking, and the reference-path flipping rollout. The benchmark uses multi-contact configurations, seven object meshes with varied irregular geometries used in the experiments, and an LCP reference with MuJoCo collision checking. The direct-force rollout results in Table~V further test whether the predicted contact wrenches are executable; the high ideal success rates across models show that the trajectories are generally feasible, while the deployed results show that higher model fidelity alone does not guarantee better task performance.
 
-For the ranking strategy, Table~VI reports the CSO-optimal-point switching frequency and physical contact-switching frequency. Table~II compares execution time for SCSP with A1 and A2, showing the efficiency difference between ranking-based execution, strict optimal-contact tracking, and nearest-contact execution. Table~VI also reports the normalized advantage of an individual ranking decision, computed from a time-discounted success reward, thereby measuring its effect on execution efficiency and outcome. Table~VIII reports failure categories and recovery rates for real hardware, including slippage and failures associated with contact switching. Finally, Fig.~10 evaluates sensitivity to the acceptance threshold $\bar{\rho}$ and EMA coefficient $\beta$. The earlier $T_1,T_2,T_3$ counter-based smoothing is replaced by contact-estimation-independent EMA smoothing.
+For the ranking strategy, Table~VI reports the CSO-optimal-point switching frequency and physical contact-switching frequency. Table~II compares execution time for SCSP with A1 and A2, showing the efficiency difference between ranking-based execution, strict optimal-contact tracking, and nearest-contact execution. Table~VI also reports the normalized advantage of an individual ranking decision, computed from a time-discounted success reward, thereby measuring its effect on execution efficiency and outcome. Table~VIII reports failure categories and recovery rates for real hardware, including slippage \textcolor{red}{and control saturation. Contact switching itself does not directly cause failure, so it is not counted as a failure category; instead, for the events that can topple the object after a contact switch, Table~VIII reports the number of occurrences and the recovery rate, i.e., the number of trials in which the robot successfully re-adjusted after the object fell over and still completed the task}. Finally, Fig.~10 evaluates sensitivity to the acceptance threshold $\bar{\rho}$ and EMA coefficient $\beta$. The earlier $T_1,T_2,T_3$ counter-based smoothing is replaced by contact-estimation-independent EMA smoothing.
 
-For CPO, A6 removes the lift-and-place cost and directly solves an obstacle-avoidance trajectory-optimization problem, while A7 replaces the CPO objective with an MPPI-based CIMPC objective. In the current formulation, the contact target is an inward-offset (penetrating) point $\boldsymbol{p}_{\mathrm{ref}}-\delta\boldsymbol{n}_{\mathrm{ref}}$, rather than an attraction term toward the object center. In the real-world ablation A9, we replace this inward-offset target with the estimated surface point $\boldsymbol{p}_{\mathrm{ref}}$; this surface-attraction design often prevents the robot from descending to establish contact. Table~VIII reports the resulting contact-estimation-related errors together with the success and recovery outcomes. The same table counts perception error, contact-estimation error, slippage, control saturation, and poor prior selection, and reports the recovery rate after each event. An event does not necessarily imply final failure because SCSP replanning can sometimes correct it; the recovery rate therefore counts the trials that still succeed after the event. Together with the CSO, SCM, ranking, and hardware analyses above, these experiments quantify the proposed components within the tested tasks.
+For CPO, A6 removes the lift-and-place cost and directly solves an obstacle-avoidance trajectory-optimization problem, while A7 \textcolor{red}{solves the same CPO problem without contact guidance using MPPI (see our reply to Q6)}. In the current formulation, the contact target is an inward-offset (penetrating) point $\boldsymbol{p}_{\mathrm{ref}}-\delta\boldsymbol{n}_{\mathrm{ref}}$, rather than an attraction term toward the object center. In the real-world ablation A9, we replace this inward-offset target with the estimated surface point $\boldsymbol{p}_{\mathrm{ref}}$; this surface-attraction design often prevents the robot from descending to establish contact. Table~VIII reports the resulting contact-estimation-related errors together with the success and recovery outcomes. The same table counts perception error, contact-estimation error, slippage, control saturation, and poor prior selection, and reports the recovery rate after each event. An event does not necessarily imply final failure because SCSP replanning can sometimes correct it; the recovery rate therefore counts the trials that still succeed after the event. Together with the CSO, SCM, ranking, and hardware analyses above, these experiments quantify the proposed components within the tested tasks.
 
 \question{6}{Baseline coverage and comparison protocols need strengthening}
 
@@ -261,11 +266,11 @@ We thank the reviewer for the valuable suggestions. We have revised the baseline
 
 We now fully reproduce the released Sampling implementation, including its C3 contact model, the MIQP solved with Gurobi, and its original contact-selection strategy. The updated comparison results are reported in Table~II.
 
-Our use of ``generalization'' refers to cross-task generalization, whereas DyWA's reported setting concerns cross-object generalization. We have revised the wording in Table~I to make this distinction explicit.
+Our use of ``generalization'' refers to cross-task generalization, whereas DyWA's reported setting concerns cross-object generalization. \textcolor{red}{Table~I has been revised accordingly: the term ``generalization'' is no longer used, and the new column ``Task Diversity'' refers explicitly to cross-task coverage, under which DyWA and CRISP are marked with a cross, while STOCS-3D and Sampling are marked ``Not Validated''. We also now credit STOCS-3D and DyWA with active contact selection, and the previous ``No Obj.-Specific Analytic Geom.'' column is renamed ``Irregular Geometry''.}
 
  We additionally include STOCS-3D and ContactSDF in the comparison. STOCS-3D is a CITO method that cannot be evaluated online in our setting and does not switch contact points during execution. Given the initial and target object poses, we compute one contact trajectory offline with STOCS-3D and execute it through OSC. ContactSDF provides a differentiable contact model but does not perform explicit contact selection. The resulting comparison is reported in Table~II.
 
-We also evaluate direct sampling-based alternatives. \addrev{A5 uses CMA-ES} to optimize the object-surface contact point directly, with the SDF distance-to-surface constraint $d_{\mathrm{SDF}}=0$. \addrev{A7 directly explores end-effector displacement sequences with MPPI under the same contact model $f_{\text{cf}}$, control bounds, and cost weights as CPO ($N=10$, 128 samples, one iteration, noise $\sigma=0.003\,\mathrm{m}$, temperature $0.005$), without any CSO output; the attraction term targets the object center.} The results are included in Table~II. A5 remains below SCSP, especially on objects with many sharp edges such as the bunny, where direct surface optimization often selects difficult contacts. Although MPPI explores locally more effectively than gradient-based methods such as CF-MPC, it still has difficulty discovering large-range contact switching, so its success rate remains limited.
+We also evaluate direct sampling-based alternatives. \addrev{A5 uses CMA-ES} to optimize the object-surface contact point directly, with the SDF distance-to-surface constraint $d_{\mathrm{SDF}}=0$. \textcolor{red}{A7 solves exactly the same CPO problem with contact guidance removed, using MPPI: the ranking strategy and the lifting phase are removed, and the objective keeps only the attraction toward $p_{\mathrm{near}}$ and the object cost $\ell_{\mathrm{cso}}$, with the same cost weights, horizon, contact model $f_{\text{cf}}$, and control bounds as CPO ($N=5$, 128 samples, one iteration, noise $\sigma=0.003\,\mathrm{m}$, temperature $0.005$). No CSO output is used.} The results are included in Table~II. A5 remains below SCSP\textcolor{red}{ in both tasks (0.89 versus 0.95 for rotation and 0.60 versus 0.81 for flipping), indicating that more refined continuous optimization over the object surface does not by itself improve task success}. Although MPPI explores locally more effectively than gradient-based methods such as CF-MPC, it still has difficulty discovering large-range contact switching, so its success rate remains limited. \textcolor{red}{Because A7 shares the CPO cost, horizon, dynamics model, and control bounds, the gap between A7 and SCSP isolates the contribution of contact guidance rather than differences in the optimizer.}
 
 \question{7}{Multi-contact and generalization claims are overstated}
 
@@ -274,9 +279,9 @@ The notation allows multiple robot contact points, and the SCM includes multiple
 The claim that SCSP can be easily extended to multi-contact tasks should be weakened. The paper should discuss scalability with respect to the number of robot contacts, since selecting $n_r$ contacts from $n_s$ candidates can scale combinatorially, e.g., $\binom{n_s}{n_r}$ in the unordered case.
 
 \answer
-Thank you for pointing out this important limitation. We agree that extending SCSP to general multi-contact tasks faces scalability challenges. In Section VI-A(3), we demonstrate that SCSP can autonomously select finger contacts and generate force-closure grasps without manually specifying contact locations or the number of fingers. By leveraging GWB-based methods to reduce the CSO search space, this result demonstrates the potential of SCSP for extending contact selection and planning to multi-contact manipulation.
+Thank you for pointing out this important limitation. We agree that extending SCSP to general multi-contact tasks faces scalability challenges. \textcolor{red}{In Section VI-A(3), the grasping case study does not search over all contact combinations. The CSO search is restricted to the top-5 GWB-based region pairs plus the points nearest to each fingertip, and the inner loop minimizes a wrench residual over a finite set of sampled disturbance wrenches (Eq.~(47)); a small residual on these samples does not certify six-dimensional force closure. Within this restricted search, SCSP selects finger contacts online without manually specifying contact locations, which indicates the potential, rather than a general capability, of extending contact selection and planning to multi-contact manipulation.}
 
-However, we acknowledge that more complex multi-contact tasks involve not only combinatorial growth but also strong geometric coupling among contact locations, which remain challenging for the current SCSP framework. The demonstrated precision grasping case involves a limited number of contacts with relatively weak coupling among fingers, while more complex tasks such as power grasping remain challenging for autonomous planning. We have therefore weakened our claims in the revised manuscript, stating that SCSP provides a potential framework for multi-contact manipulation rather than a general solution. This limitation and the scalability of multi-contact planning are also discussed as future work in Section VII.
+However, we acknowledge that more complex multi-contact tasks involve not only combinatorial growth but also strong geometric coupling among contact locations, which remain challenging for the current SCSP framework. The demonstrated precision grasping case involves a limited number of contacts with relatively weak coupling among fingers, while more complex tasks such as power grasping remain challenging for autonomous planning. We have therefore weakened our claims in the revised manuscript, stating that SCSP provides a potential framework for multi-contact manipulation rather than a general solution. \textcolor{red}{Section VII now states explicitly that selecting $n_{\mathrm{r}}$ robot contacts from $n_s$ candidates grows combinatorially, e.g., $\binom{n_s}{n_{\mathrm{r}}}$ in the unordered case, and that reducing the CSO search space, as done with the GWB-based regions, is one way to mitigate this growth.} This limitation and the scalability of multi-contact planning are also discussed as future work in Section VII.
 
 \question{8}{Hardware evidence is encouraging but statistically limited}
 
@@ -304,7 +309,7 @@ We also classify unsuccessful trials by their terminal outcomes, including timeo
  \item Lemma 4 is not a proof of non-conflicting objectives. It should be removed, weakened, or replaced with a precise first-order condition.
 \end{itemize}
 
-\answer We thank the reviewer for the careful checking of the technical details. We have revised Eq. (32) and Eq. (35) to ensure the correctness of the friction constraints and the consistency of force/impulse notation. We have also corrected the notation error after Eq.(32) by replacing $\hat{\boldsymbol{\lambda}}_r^*$ with $\hat{\boldsymbol{p}}_r^*$, removed the incorrect radian unit annotation in Table II, and clarified that the quaternion error metric is a dimensionless quantity.
+\answer We thank the reviewer for the careful checking of the technical details. We have revised Eq. (32) and Eq. (35) \textcolor{red}{(now Eq.~(29) and Eq.~(28) in the revised manuscript)} to ensure the correctness of the friction constraints and the consistency of force/impulse notation. We have also corrected the notation error after Eq.(32) by replacing $\hat{\boldsymbol{\lambda}}_r^*$ with $\hat{\boldsymbol{p}}_r^*$, removed the incorrect radian unit annotation in Table II, and clarified that the quaternion error metric is a dimensionless quantity.
 
 \bdel{The current manuscript instead implements $\operatorname{softplus}_T$ and describes the fixed-contact map as \addrev{piecewise smooth and closed-form}, with smoothness qualified by clipping and zero-impulse boundaries.} \badd{We agree that the $\max$ operator is nonsmooth at the switching surface. The current manuscript replaces it with the componentwise smooth approximation $\operatorname{softplus}_T(x)=T\log(1+e^{x/T})$ and applies a single smooth residual correction to the diagonal impulse estimate instead of hard clipping. Lemma~2 is restated accordingly: for a fixed contact set, the SCM map is smooth and closed-form in $\boldsymbol{\lambda}_{\mathrm{r}}$, and nonsmoothness arises only when the contact set changes.}
 
@@ -351,7 +356,7 @@ In the revised manuscript, we have rewritten Section IV-B and reformulated $\rho
 \end{equation}
 With this definition, a larger $\rho_t$ indicates that $p_{\mathrm{near}}$ provides greater improvement and has a better ranking. Accordingly, $\kappa_t=\mathbf{1}(\rho_t\geq\bar{\rho})$ consistently indicates whether $p_{\text{near}}$ is sufficiently good. The previous derivation error was introduced during a further simplification of the formulation, as shown in \eqref{equ:correct_derivation}.
 
-The current manuscript replaces the counter-based rule with exponential moving-average smoothing, $\gamma_{t+1}=(1-\beta)\gamma_t+\beta\kappa_t$, with $\gamma_0=0$. The earlier smoothing still depended on contact information, in particular the $T_3$ counter of consecutive contact steps, which is not robust to contact-estimation errors in the real-world experiments. The EMA does not require any contact-related input and reduces the tuning burden by replacing the multiple counter thresholds with the single smoothing coefficient $\beta$. Its feasibility is evaluated in the real-world experiments in Section~V-C and in the sensitivity study in Fig.~10.
+The current manuscript replaces the counter-based rule with exponential moving-average smoothing\textcolor{red}{ of the binary trigger, $\bar{\kappa}_{t+1}=(1-\beta)\bar{\kappa}_t+\beta\kappa_t$ with $\bar{\kappa}_0=0$, followed by a fixed threshold, $\gamma_{t+1}=\mathbf{1}(\bar{\kappa}_{t+1}\geq 1/2)$ (Eq.~(36)). The phase variable $\gamma_t\in\{0,1\}$ is therefore binary: $\gamma_t=0$ activates the lifting cost toward $\hat{p}_r^*$ and $\gamma_t=1$ activates the placing cost toward $p_{\mathrm{near}}$, which is the explicit switching rule used in Algorithm~2 and Fig.~6. There are no counters, and the only state is the filtered trigger $\bar{\kappa}_t$, which is updated at every planning step and never reset}. The earlier smoothing still depended on contact information, in particular the $T_3$ counter of consecutive contact steps, which is not robust to contact-estimation errors in the real-world experiments. The EMA does not require any contact-related input and reduces the tuning burden by replacing the multiple counter thresholds with the single smoothing coefficient $\beta$. Its feasibility is evaluated in the real-world experiments in Section~V-C and in the sensitivity study in Fig.~10.
 
 \question{2}{Optimization claims}
 
@@ -373,7 +378,7 @@ are simply enumerated; if so, just say so.
 
 We agree that ``asymptotically optimal'' was incorrect. CSO searches only the finite sampled candidate set, so the selected contact is optimal among the sampled candidates rather than asymptotically optimal on the continuous object surface. We have changed the wording accordingly and corrected the variable error in Eq.~(32) from $\hat{\boldsymbol{\lambda}}_r^*$ to $\hat{\boldsymbol{p}}_r^*$.
 
-The MIQP/QP characterization was also inaccurate. \bdel{The SCM relation contains a componentwise max, so the underlying force map is \addrev{piecewise smooth} and nonsmooth at activation boundaries rather than a QP.} \badd{The previous SCM relation contained a componentwise $\max$; the current manuscript replaces it with $\operatorname{softplus}_T$, so the force map is smooth for a fixed contact set, but the nonlinear softplus and the quaternion cost still prevent a QP formulation.} In addition, the previous manuscript omitted the one-step \badd{coupled residual correction} of the environment impulse; this extra coupled operation makes the problem even less compatible with a QP formulation. Nevertheless, the resulting optimization remains lightweight because the model is \bdel{\addrev{piecewise smooth}}\badd{smooth and closed-form for a fixed contact set} and the candidate set is finite.
+The MIQP/QP characterization was also inaccurate. \textcolor{red}{We first need to correct an omission in the previous description of SCM. After the diagonal (decoupled) estimate of the environment impulse, the implementation applies one residual-correction step on the coupled Delassus operator, $\boldsymbol{r}_{\mathrm{env}}=\boldsymbol{W}_{\mathrm{env}}\boldsymbol{\beta}^{(0)}+\boldsymbol{g}^{\mathrm{step}}$ and $\hat{\boldsymbol{\beta}}_{\mathrm{env}}=\operatorname{softplus}_T(\boldsymbol{\beta}^{(0)}-\boldsymbol{r}_{\mathrm{env}}/L)$ with $L=\lambda_{\max}(\boldsymbol{W}_{\mathrm{env}})$, which was not stated in the previous manuscript. This step is now given explicitly in Eq.~(27). Second, with this correction the force map is not piecewise linear: the componentwise $\max$ of the previous version is replaced by the smooth approximation $\operatorname{softplus}_T$, so for a fixed contact set the map $\boldsymbol{\lambda}_{\mathrm{r}}\mapsto\hat{\boldsymbol{\beta}}_{\mathrm{env}}$ is smooth and closed-form (Lemma~2 and the text following Eq.~(27)); nonsmoothness arises only when the contact set changes. The nonlinear softplus, the coupled correction, and the quaternion cost together prevent a QP formulation. Nevertheless, the resulting optimization remains lightweight because the model is smooth and closed-form for a fixed contact set and the candidate set is finite.}
 
 The previous implementation solved the continuous subproblem serially with SNOPT, which was already sufficiently fast for the tested setting. The current implementation replaces this serial solve with GPU-parallel CEM and obtains higher solving efficiency. No binary variables, big-$M$ constraints, or mixed-integer solver are used.
 
@@ -392,7 +397,7 @@ wording is stronger than the data supports.
 
 \answer Thank you for the suggestions.
 
-We have corrected all of these inconsistencies. The real-world evaluation now uses 30 trials for each object/surface condition, and the revised success rates and two-sided Wilson 95\% confidence intervals are reported in Table~VII. The open-loop long-horizon results are included in the success-trial table, and the wording for multi-finger grasping has been corrected to avoid overstating the comparison.
+We have corrected all of these inconsistencies. The real-world evaluation now uses 30 trials for each object/surface condition, and the revised success rates and two-sided Wilson 95\% confidence intervals are reported in Table~VII. The open-loop long-horizon results are included in Table~X, and the wording for multi-finger grasping has been corrected to avoid overstating the comparison.
 
 \question{4}{Reproducibility}
 The friction-cone constraints in (32) have no lower\
@@ -417,13 +422,23 @@ state the fallback.
 Please state the orientation tolerance in (51) in degrees (about $26$
 deg) and the distribution behind ``mass randomly scaled within a factor
 of 10."
-\answer Thank you for pointing out these issues. The $\tilde{\boldsymbol{Q}}$ in (8) and (11) is a notation error and should be $\boldsymbol{Q}$ as defined in (4). We have corrected this inconsistency in the revised manuscript.
+\answer Thank you for pointing out these issues. 
 
-The current manuscript retains the piecewise $\ell_{\mathrm{cso}}$ definition and uses $\boldsymbol{x}_T$ in the CSO objective; it does not claim the separate unified-objective rewrite described in the previous response. \bdel{The coefficient $\alpha$ is still mentioned in the stable-pose prose but is not used in the displayed formula.} \badd{The unused coefficient $\alpha$ has been removed from the stable-pose description.}
 
- \bdel{The CSO objective now uses the terminal state $\boldsymbol{x}_T$, while the CPO display still uses $N$ in the stage sum and $T$ in its constraints.} \badd{The CSO objective now uses the terminal state $\boldsymbol{x}_T$ with horizon index $k=0,\dots,T-1$, and the CPO formulation consistently uses $N$ in the stage sum, the terminal cost $V_f(\boldsymbol{x}_N)$, and its constraints, so the two horizons are no longer mixed.}
 
-The fallback strategy for local-frame construction is present in Eq.~(18): when the reference axis $a$ is nearly parallel to $n_i$, another coordinate axis is selected. The success threshold in Eq.~(51) is $1-(\boldsymbol{\psi}_{\mathrm{goal}}^\top\boldsymbol{\psi}_o)^2\leq0.015$, corresponding to an orientation tolerance of approximately $14.1^\circ$. The mass is sampled from the discrete set $\{0.01,0.1,1.0,10.0\}$ kg.
+
+
+
+
+\textcolor{red}{All of these points have been corrected in the revised manuscript:
+\begin{itemize}
+ \item The two-stage stable-pose objective in the previous (33), together with its unused coefficient $\alpha$, has been removed. The CSO objective is now the object pose cost $\ell_{\mathrm{pose}}$ directly, which is the objective used in all reported experiments.
+ \item $\tilde{\boldsymbol{Q}}$ in (8) and (11) was a notation error; it is now $\boldsymbol{Q}$ as defined in (4).
+ \item The CPO formulation (now Eq.~(40)) writes the terminal term as $V_f(\boldsymbol{x}_N)=w_{\mathrm{cso}}\ell_{\mathrm{cso}}(\boldsymbol{x}_N)$ and uses the single index $k=0,\dots,N-1$ throughout.
+ \item The CSO objective (now Eq.~(29)) is evaluated at the terminal state $\boldsymbol{x}_T$; the free index $k$ has been removed.
+ \item Eq.~(18) now states the fallback: when the reference axis $\boldsymbol{a}$ is nearly parallel to $\boldsymbol{n}_i$, another coordinate axis is selected as the reference axis.
+ \item The orientation tolerance is stated in degrees: the threshold $1-(\boldsymbol{\psi}_{\mathrm{goal}}^\top\boldsymbol{\psi}_o)^2\leq0.015$ in the success criterion (now Eq.~(44)) corresponds to approximately $14.1^\circ$. The mass is sampled with equal probability from the discrete set $\{0.01,0.1,1.0,10.0\}$~kg, while SCM uses a fixed nominal mass of $0.1$~kg.
+\end{itemize}}
 
 \reviewer{Reviewer 5}
 
@@ -475,12 +490,13 @@ We now characterize the concrete contribution of the ranking strategy in two com
 Second, Section~V-B evaluates the value of an individual ranking decision with matched counterfactual rollouts. We define the terminal reward as $r_T=\mathbb{I}(\mathrm{success})$ and the value of a contact-selection decision $b$ at state $s_t$ as
 \begingroup
 \begin{equation}
-J(s_t,b)=\mathbb{E}_{\tau\sim\pi(\cdot\mid s_t,b)}\left[\gamma^T\mathbb{I}(\mathrm{success})\right],
-\qquad \gamma=0.99.
+J(s_t,b)=\mathbb{E}_{\tau\sim\pi(\cdot\mid s_t,b)}\left[\textcolor{red}{\eta_{\mathrm{cf}}^{T}}\mathbb{I}(\mathrm{success})\right],
+\qquad \textcolor{red}{\eta_{\mathrm{cf}}=0.99,}
 \label{eq:ranking_value_reply}
 \end{equation}
 \endgroup
-We sample SCSP rollout trajectories and identify decision points where $p_r^*$ differs from $p_{\mathrm{near}}$. We then reverse the recorded decision and continue the rollout with the full SCSP controller. For example, if the ranking strategy decides to break the current contact and detour to $p_r^*$, the counterfactual keeps the current contact; if it decides to maintain contact, the counterfactual forces detachment and detours to $p_r^*$.
+\textcolor{red}{where $T$ counts the actual execution steps from $s_t$ to trial termination and the discount factor is denoted by $\eta_{\mathrm{cf}}$ to avoid confusion with the ranking phase variable $\gamma_t$.}
+We sample \textcolor{red}{200} SCSP rollout trajectories and identify \textcolor{red}{10} decision points \textcolor{red}{per trajectory} where $p_r^*$ differs from $p_{\mathrm{near}}$ \textcolor{red}{(2000 decision points in total)}. We then reverse the recorded decision and continue the rollout with the full SCSP controller. For example, \textcolor{red}{during a contact-free phase, if the ranking strategy selects the nearby contact $p_{\mathrm{near}}$, the counterfactual forces the robot to detour to $p_r^*$; during a contact phase, if the ranking strategy decides to break the current contact and approach $p_r^*$, the counterfactual forces the robot to maintain the current contact.}
 
 Let $J_{\mathrm{RS}}$ and $J_{\mathrm{cf}}$ denote the values of the original and reversed decisions. We quantify the decision effect with the normalized advantage
 \begingroup
@@ -500,14 +516,14 @@ The results are reported in Table~VI. We report both the CSO-optimal contact-poi
 experiments. This demonstrates that SCSP tolerates single-step simulation errors, which is further supported by our additional analysis experiments. With high-frequency replanning, such simulation errors do not significantly
 affect the contact selection and planning decisions of SCSP.
 
-SCSP has limitations in highly dynamic tasks and deformable object manipulation. Further extending SCSP may require a higher-fidelity contact simulator or a learned simulator.
+SCSP has limitations in highly dynamic tasks and deformable object manipulation. Further extending SCSP may require a higher-fidelity contact \textcolor{red}{model, as discussed in Sec.~VII}.
 
 \textbf{3)Clarification of contribution:}
 Although our object pose estimation does not rely on motion capture, we clarify that a one-time calibration estimates only object scale and positional offsets from kinesthetic teaching. The MuJoCo proxy is used for visualization and coarse kinematic alignment; the rendered object pose comes from FoundationPose and no object collision geometry is defined in the proxy.
 \question{2}{Clarity}
 
 - The bullet points in the ``main contributions" paragraph are mostly
-rehashed from the preceding paragraph beginning with ``In this work, ..."
+rehashed from the preceding paragraph beginning with ``In this work,..."
 Only one of these large text blocks is necessary.
 
 - Broadly, Section I uses adjective-dense and redundant phrasing, and
@@ -564,12 +580,12 @@ addresses this issue by allowing a nearby feasible candidate
 $p_{\mathrm{near}}$ to replace the infeasible contact prior. We have added
 this clarification in Sec. VI.B \bdel{and Fig. 18} \badd{(the paragraph accompanying Fig.~19 and Table~X)}, and removed the overstatement
 that CSO explicitly avoids singularities\badd{; the revised text attributes the recovery to the ranking strategy rather than to CSO}.
+\textcolor{red}{Specifically, the revised Fig.~19 and its caption now show that SCSP switches contacts when the current contact leaves the predefined workspace (e.g., from the handle to the drawer panel or to the inner wall of the microwave door). The accompanying paragraph in Sec.~VI.B reports that SCSP succeeds in 20/20 trials versus 15/20 for the open-loop baseline (Table~X), that the offline contact sequences fail under slippage or near-singular configurations, and that, because CSO is object-centric, its selected contact may violate robot kinematic limits, in which case the ranking strategy substitutes a nearby feasible candidate and enables recovery. The experimental description in Sec.~VI.B also states the coarse Cartesian workspace region and the masking of the drawer and microwave-door interiors that drive these contact switches.}
 
 Finally, we agree that the term ``world model'' in Sec. VII is overly broad.
 Our original intention was to indicate that SCM could potentially be replaced
-by a learned simulator to extend SCSP to more complex scenarios. Since
-``world model'' has a broader meaning in recent literature, we have replaced
-it with ``simulator'' throughout Sec. VII.
+by a \textcolor{red}{higher-fidelity contact model} to extend SCSP to more complex scenarios. Since
+``world model'' has a broader meaning in recent literature, we have \textcolor{red}{removed the term from Sec.~VII. The revised discussion refers only to higher-fidelity contact models such as PointWorld as a potential direction for sequential, high-fidelity state prediction, and explicitly notes that their interfaces and task domains differ from SCM, so they are not drop-in replacements}.
 
 \question{3}{Significance}
 
@@ -599,13 +615,13 @@ real-world deployment and practicality (not needing mocap).
 
 \answer
 
-Thank you for the careful assessment. We are indeed deeply inspired by Jin's complementarity-free simplification: we construct a closed-form contact model so that CSO can evaluate contact candidates efficiently. Our setting differs from the ComFree formulation in that ComFree requires a tuned matrix parameter $K$, whereas we design SCM to avoid this additional tuning.
+Thank you for the careful assessment. We are indeed deeply inspired by Jin's complementarity-free simplification: we construct a closed-form contact model so that CSO can evaluate contact candidates efficiently. 
 
 We also need to correct an omission in the previous manuscript. The one-step global projection of the environment impulse was not described. Directly constructing $D$ from the diagonal entries of the Delassus matrix is an aggressive simplification and can introduce substantial model bias, which makes the corresponding error bound loose; the global projection corrects part of this bias. Nevertheless, as the reviewer observes, the bound can still become very large under rank-deficient Jacobians. SCM can represent separation of retained old contacts, but newly created contacts are absent from the current contact set and inevitably introduce additional prediction bias.
 
 For the same reason, the previous lemma and proof are not useful as general guarantees. The earlier appeal to standard perturbation theory for LCPs was also inappropriate: perturbations near a contact-set boundary can cause large changes, and SCM does not smooth those contact-set transitions. We have therefore removed the error-bound lemma and its proof and no longer present this perturbation argument as a theoretical guarantee.
 
-We instead validate SCM empirically as a feasible contact model for contact selection. The velocity-error table in the manuscript compares MuJoCo's high-fidelity QP/LCP contact simulation, ComFree, ContactSDF, and SCM over contact transition, sliding, sticking, and a real flipping rollout, reporting linear- and angular-velocity prediction errors. SCM remains within an acceptable range across these contact states. We then generate optimal contact-wrench trajectories with each model and test their feasibility in the direct-force evaluation. The contact-guidance results show that all models produce largely feasible trajectories, while the closed-form models can perform better in deployment than the higher-fidelity model. This demonstrates that model fidelity is not directly proportional to task success and motivates using SCM for CSO.
+We instead validate SCM empirically as a feasible contact model for contact selection. The velocity-error table in the manuscript compares MuJoCo's high-fidelity QP/LCP contact simulation, ComFree, ContactSDF, and SCM over contact transition, sliding, sticking, and a \textcolor{red}{reference-path} flipping rollout \textcolor{red}{in MuJoCo}, reporting linear- and angular-velocity prediction errors. SCM remains within an acceptable range across these contact states. We then generate optimal contact-wrench trajectories with each model and test their feasibility in the direct-force evaluation. The contact-guidance results show that all models produce largely feasible trajectories, while the closed-form models can perform better in deployment than the higher-fidelity model. This demonstrates that model fidelity is not directly proportional to task success and motivates using SCM for CSO.
 
 \question{4}{Various typos and minor addenda}
 Various typos and minor addenda:
@@ -636,6 +652,16 @@ computational cost of sampling?
 - pg. 13 Floating ``I-MPC" after ``quaternion error." in the second
 paragraph
 
-\answer We corrected the Eq.~(6) index and the notation issues that are reflected in the current formulation, retained the explicit offline FPS sampling description, and report its measured offline cost in the computation-time table. The current manuscript also states the $h=0.02$ s simulation step, the $14.1^\circ$ orientation tolerance, and the discrete mass distribution used in the experiments.
+\answer 
+\textcolor{red}{Thank you for the careful reading. We have addressed each item as follows:
+\begin{itemize}
+ \item pg.~1 ``thus efficiently handle'', pg.~2 ``This work inspiring'', ``existing CIMPC formulation struggle'', and ``by fast simulating state transitions'': Section~I has been rewritten for clarity and concision, and these sentences no longer appear in the revised manuscript.
+ \item ``LCS model'': the acronym has been removed. The revised Section~I refers to linear complementarity problems (LCPs) in full.
+ \item References [30] and [31]: the two works are now cited separately in the related-work discussion of Section~I (contact-trust-region formulation and motion--contact planning with tracking, respectively), and Table~I cites each listed method individually.
+ \item Eq.~(6): the iterator $i$ has been changed to $k$ for consistency with the subsequent usage.
+ \item Offline sampling cost: the FPS sampling remains offline, and its measured cost ($4.82\pm3.85$~s) is now reported in the computation-time table (Table~IX) and explicitly marked as offline.
+ \item Floating ``I-MPC'' on pg.~13: removed.
+\end{itemize}
+The revised manuscript also states the simulation time step $h=0.02$~s, the $14.1^\circ$ orientation tolerance, and the discrete mass distribution used in the experiments.}
 
 \end{document}

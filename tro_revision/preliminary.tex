@@ -97,7 +97,7 @@ is the Coulomb friction cone, and $\mathcal{K}_i^{*}$ is the dual cone as
  \right\|
  \right\}$.
 
-Equations~\eqref{equ.quasi_dyn} and~\eqref{equ.complementarity_constraint} are the Karush--Kuhn--Tucker (KKT)~\cite{avriel2003nonlinear} optimality conditions of the following primal optimization~\cite{anitescu2006optimization}:
+The KKT conditions are~\cite{avriel2003nonlinear,anitescu2006optimization}:
 \begin{subequations}
 \label{equ.contact_model}
 \begin{align}
@@ -186,7 +186,7 @@ Problem~\eqref{equ.contact_model} and its variants are widely used in physics si
 
 Contact planning refers to generating trajectories for approaching, making contact, and breaking contact with the object to manipulate it to a target state.
 Model-based contact planning methods integrate contact dynamics and solve trajectory optimization problems.
-As a representative contact planning method, CIMPC is formulated as the following optimization problem:
+As a representative method, CIMPC is formulated as:
 \begin{equation}
 \begin{aligned}
  \min_{\boldsymbol{u}_{0:N-1}}\quad
@@ -242,7 +242,7 @@ w_{\mathrm{quat}}
 
 \textcolor{red}{
 The hybrid nature of contact dynamics renders~\eqref{eq:CIMPC_opt} a piecewise-smooth nonlinear complementarity problem (NCP).
-Directly using the full contact model in~\eqref{equ.contact_model} within receding-horizon trajectory optimization remains computationally demanding, motivating the efficient contact-model approximations introduced below.
+The full contact model is too costly for online receding-horizon optimization, so we use efficient approximations.
 }
 
 \subsection{Complementarity-free Model}

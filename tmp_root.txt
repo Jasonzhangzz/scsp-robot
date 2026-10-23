@@ -1,0 +1,1689 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                           1
+
+
+
+
+    Simultaneous Contact Selection and Planning for
+       Contact-Rich Manipulation with Cascaded
+                    Optimization
+
+    Abstract—We propose an optimization-based framework for            contact sequence consisting of approaching trajectory, contact
+robust contact-rich manipulation. Recent contact-implicit meth-        locations, contact forces, and transitions between different
+ods enable online hybrid planning across contact modes, allowing       contact modes (i.e., contact, separation, sliding, and sticking).
+closed-loop manipulation for a given target state and contact
+location sequence of the robot and object. However, most existing      Such contact planning is challenging due to the combinatorial
+approaches lack the ability to autonomously reason and generate        complexity of contact modes and the inherent nonsmooth-
+diverse contact location sequences and manipulation trajectories,      ness arising from the hybrid nature of contact dynamics.
+i.e., active contact location selection, which limits their applica-   Early model-based approaches typically relied on hybrid
+bility to relatively simple tasks. Active contact location selection   planning, either separating continuous trajectory generation
+is challenging due to complementarity in contact dynamics and
+the sparse gradients, making the design of a unified framework         from discrete contact-mode transitions through hierarchical
+for contact selection and planning difficult. To address these         frameworks [1]–[5], or handling the hybrid nature of contact
+challenges, we introduce Simultaneous Contact Selection and            with mixed-integer programs [6]–[8]. However, this separation
+Planning (SCSP), a cascaded optimization framework comprising          often suffers from poor scalability caused by the explosion
+Contact Selection Optimization (CSO) and Contact Planning              of contact trajectories. Therefore, these methods offer limited
+Optimization (CPO). CSO leverages a surrogate contact model
+and discrete-continuous optimization to efficiently resolve the        manipulation strategies and poor robustness.
+nonsmoothness and coupling in contact selection, enabling online          Recent advances in contact-rich manipulation have been
+search over sampled contact locations. CPO performs prior-             achieved through both learning-based and model-based meth-
+guided contact planning by evaluating the reference contact            ods. Learning-based methods [9]–[17] directly learn mappings
+locations produced by CSO and generating corresponding ma-             from object states to contact strategies, thereby enabling
+nipulation trajectories in real time for redundant manipulators.
+Extensive simulations and real-world experiments demonstrate           complex contact-rich behaviors without explicitly modeling
+that SCSP produces diverse manipulation behaviors and robust           or optimizing through the hybrid and nonsmooth contact
+control under inaccurate dynamics and perceptual noise. We fur-        dynamics encountered by model-based methods. However,
+ther validate the generalization of the framework on challenging       these methods typically rely on offline training, and their
+manipulation tasks.                                                    generalization is often demonstrated within specific task fam-
+    Project website: https://sites.google.com/view/scsp-robot.
+                                                                       ilies, such as across unseen object geometries or variations
+  Index Terms—Contact-Rich Manipulation, Contact Selection,            of a predefined task. For example, DyWA [17] demonstrates
+Contact-Implicit Trajectory Optimization                               impressive 6D non-prehensile manipulation across diverse
+                                                                       object geometries, i.e., cross-object generalization, but remains
+                        N OMENCLATURE                                  limited to the specific robot embodiment and task on which it
+                                                                       is trained. Consequently, achieving broadly applicable contact-
+  p, p       A 3D point and its position vector.
+                                                                       rich manipulation across substantially different robot embod-
+  θ, ψ       Angle and quaternion vector.
+                                                                       iments and task settings, which we refer to as cross-task
+  O, ∂O      Object geometry and surface.
+                                                                       generalization in this paper, remains challenging.
+  R, ∂R      Robot geometry and surface.
+                                                                          Contact-implicit trajectory optimization (CITO) subse-
+  h          Time interval.
+                                                                       quently avoids this explicit mode decomposition by modeling
+  λ, β       Contact force vector and contact impulse vec-
+                                                                       robot–object interaction (ROI) with complementary contact
+             tor.
+                                                                       dynamics and solving the resulting trajectory optimization
+  φ          Contact distance vector.
+                                                                       problem in a unified framework. CITO was first applied to
+  J          Contact Jacobian.
+                                                                       locomotion [26], [27] and later extended to manipulation. We
+  n, ti      Normal vector and i-th tangental vector.
+                                                                       mainly focus on Contact-Implicit Model Predictive Control
+  x = [p, ψ] Pose vector consists of position and orientation.
+                                                                       (CIMPC), as its receding-horizon formulation continuously
+  q, q̇, q̈  Robot configuration, velocity and acceleration.
+                                                                       replans from the current state and is therefore particularly
+  s          System state consists of object pose xo and q.
+                                                                       suitable for real-time closed-loop contact-rich manipulation.
+  v          Velocity vector in Cartesian space.
+                                                                         CIMPC embeds contact dynamics as constraints in a non-
+                                                                       linear programming (NLP) solver to compute the robot’s
+                       I. I NTRODUCTION                                control inputs online. CIMPC incorporates approximated time-
+     ONTACT-Rich manipulation requires robots to intention-            stepping contact dynamics [28], [29] into trajectory opti-
+C    ally make and break contact with objects to drive them
+toward desired states. Specifically, the robot needs to plan the
+                                                                       mization, enabling online hybrid contact planning. Because
+                                                                       contact models commonly used in physical simulators are
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                  2
+
+
+
+                                                                      TABLE I
+                                                    C OMPARISON OF C ONTACT P LANNING M ETHODS .
+
+ Methods                Perception      Active Contact Selection         6D Manip. Exp.     Real-Time    No Obj.-Specific Analytic Geom.
+ C3 [18]                Exact State                  7                          7               3                        7
+ CRISP [19]             Exact State                  7                          7               3                        7
+ IDTO [20]              Exact State                  7                          3               3                        7
+ CQDCs [21]             Exact State                  7                          3               3                        7
+ CF-MPC [22]            Exact State                  7                          3               3                        3
+ STOCS-3D [23]          Exact State                  7                          3               7                        3
+ ContactSDF [24]          Vision                     7                          3               3                        3
+ DyWA [17]                Vision                     7                          3               3                        3
+ Sampling [25]            Vision                     3                          3               3                        3
+ SCSP                      Vision                    3                          3               3                        3
+
+
+
+                                                                               ContactSDF [24] provides differentiable multi-contact models,
+                                                                               and CRISP [19] discovers contact sequences within contact-
+                                                                               implicit optimization. These methods, however, do not explic-
+                                                                               itly select task-relevant robot–object contact locations; CRISP
+                                                                               is also evaluated primarily in planar settings. Venkatesh et al.
+                                                                               [25] address this issue by sampling contact candidates and
+                                                                               solving a local CIMPC problem for each, but at the cost
+                                                                               of repeated lower-level optimization. Xie et al. [33] use a
+                                                                               hierarchical RL–MPC policy to select contacts for a low-level
+                                                                               CIMPC controller, but require task-specific training. Efficient
+                                                                               task-directed contact selection for closed-loop planning there-
+                                                                               fore remains unresolved.
+                                                                                  In this work, we propose Simultaneous Contact Selection
+                                                                               and Planning (SCSP), a cascaded optimization framework for
+                                                                               complex contact-rich manipulation. SCSP comprises Contact
+                                                                               Selection Optimization (CSO), which performs object-centric
+Fig. 1. SCSP enables online contact selection and closed-loop generation       search over candidate contact locations and provides contact
+of diverse manipulation trajectories, allowing it to address a wide range of
+challenging contact-rich manipulation tasks.                                   guidance to steer optimization away from local optima, and
+                                                                               Contact Planning Optimization (CPO), which plans robot
+                                                                               actions to execute the guided contact while retaining the
+often formulated as linear complementarity problems (LCPs)                     freedom to realize a nearby feasible contact for flexible
+or quadratic programs (QPs), directly using them can hinder                    execution. A ranking strategy couples the two modules in a
+efficient online optimization. CIMPC methods therefore often                   cascade by comparing the CSO-guided contact with nearby
+adopt approximate contact models that trade physical fidelity                  candidates and passing the resulting reference to CPO. It
+for computational efficiency. Representative methods improve                   combines object-centric contact guidance, executable trajec-
+the efficiency and scalability of this process through differ-                 tory planning, and a ranking strategy that balances the guided
+ent contact-model approximations and optimization strategies                   contact with nearby feasible alternatives.
+[18], [21], [30]. In particular, CF-MPC [22] introduces a                         Table I summarizes the scope of SCSP relative to represen-
+complementarity-free contact model to improve the efficiency                   tative contact-planning methods. The contributions are:
+of online contact-implicit MPC, substantially accelerating                        • An efficient contact selection method, CSO, is devel-
+contact-rich optimization.                                                           oped for online contact-guidance generation. It samples
+   Although CIMPC enables online planning of contact-mode                            a candidate point set and performs batched optimization
+transitions, actively selecting contact locations on the object                      to avoid direct surface-gradient search and the associ-
+remains challenging. Contact geometry and complementarity                            ated nonsmoothness of contact selection. A lightweight
+constraints make the resulting optimization nonsmooth and                            surrogate contact model (SCM) enables fast evaluation
+nonconvex, while contact-free states often provide ineffective                       of candidate utility and selection of the best contact as
+gradients toward candidate contacts. Because contact locations                       guidance.
+are typically determined implicitly by the robot trajectory,                      • A contact planning method, CPO, is proposed with a
+short planning horizons and local optimization can obscure                           unified cost formulation for generating approach, contact-
+the long-term benefits of reaching distant contacts. Recent                          establishment, and contact-switching trajectories.
+methods improve contact-rich optimization and execution: Suh                      • A ranking strategy forms the cascade between contact
+et al. [31] introduce a contact-trust-region formulation, Jiang                      guidance and planning by ranking the guided contact
+et al. [32] integrate motion–contact planning with tracking,                         together with nearby feasible candidates. This preserves
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                               3
+
+
+
+      task-directed guidance while allowing CPO to select an          contact forces and system motion are typically formulated as
+      executable nearby contact, thereby maintaining execution        the following cone complementarity problem [36]:
+      flexibility and contact-trajectory diversity.                                          
+                                                                                              φ
+  •   Extensive simulation and real-world experiments validate                            1  i
+                                                                        Ki 3 λi ⊥ Ji v +      0 ∈ Ki∗ ,     ∀i ∈ {1, . . . , nc }, (2)
+      SCSP across diverse object geometries and contact-rich                              h
+                                                                                              0
+      tasks. Real-world experiments further demonstrate robust
+                                                                                      
+      vision-based nonprehensile manipulation using only sim-         where Ki = λi ∈ R3 µi λni ≥ λdi            is the Coulomb
+                                                                                              ∗
+      ple contact calibration and without exact object percep-        friction
+                                                                      n         cone,  and  K i is
+                                                                                                 o  the  dual  cone    as Ki∗ =
+      tion.                                                                  n     φi
+                                                                        v Ji v + h ≥ µi Ji v .d
+
+   The rest of the paper is organized as follows. Section II             The KKT conditions are [29], [37]:
+reviews the preliminaries. The CSO and CPO are introduced                       1 2 >
+in Sections III and IV, respectively. Section V presents the              min     h v Qv − hv > b(u),                                   (3a)
+                                                                            v   2
+experimental results, and Section VI evaluates extensions of                              
+                                                                                          φ
+the SCSP architecture to additional contact-rich manipulation                          1  i
+                                                                           s.t. Ji v +    0 ∈ Ki∗ ,             i ∈ {1, . . . , nc }.   (3b)
+settings. Finally, discussion and limitations are presented in                         h
+                                                                                          0
+Section VII, and conclusions are drawn in Section VIII.
+                                                                      where Q ∈ R(no +nDoF )×(no +nDoF ) and b(u) ∈ Rno +nDoF are
+                                                                               Mo /h2 0
+                                                                                                                        
+                       II. P RELIMINARIES                                                                            τo
+                                                                        Q :=                    ,       b(u) :=              . (4)
+                                                                                  0       Kr                     Kr u + τr
+   We begin with a brief overview of the contact-dynamics
+and contact-planning formulations used throughout this work.          Here, no and nDoF are the dimensions of the object and robot
+Section II-A introduces time-stepping contact dynamics and            states, respectively, and nc is the number of contacts.
+the associated complementarity formulation. Section II-B in-             Problem (3) is a second-order cone program (SOCP) and is
+troduces model-based contact planning and reviews CIMPC               often approximated by a QP through a polyhedral approxima-
+as a representative online formulation. Section II-C reviews          tion of the friction cone:
+the complementarity-free contact model that motivates the                                  φi
+                                                                        Jin − µi Ji,j
+                                                                                   d
+                                                                                      
+                                                                                        v+ ≥ 0, i ∈ {1, . . . , nc }, j ∈ {1, . . . , nd },
+lightweight contact-model approximation used later in CSO.                                 h
+                                                                                                                                   (5)
+                                                                      where nd is the number of friction-cone facets. Solving (3)
+A. Contact Dynamics                                                   corresponds to one step of physically consistent contact sim-
+                                                                      ulation. The resulting velocity v can then be used to integrate
+   Contact dynamics provides a physical description of inter-         the current state as qt+1 = qt ⊕ hv. Problem (3) and its
+actions among the robot, object, and environment. Here, we            variants are widely used in physics simulators.
+consider the commonly used Anitescu model [29], which is
+formulated as the following time-stepping equation:
+                                                                      B. Model-based Contact Planning
+                                          nc
+                                          X
+                                                 >                       Contact planning refers to generating trajectories for ap-
+                       Mo vo = hτo +           Jo,i βi ,      (1a)   proaching, making contact, and breaking contact with the
+                                          i=1
+                                          nc                          object to manipulate it to a target state. Model-based con-
+                                                                      tact planning methods integrate contact dynamics and solve
+                                          X
+                                                 >
+             hKr (hvr − u) = hτr +              Jr,i βi .      (1b)
+                                          i=1
+                                                                      trajectory optimization problems. As a representative method,
+                                                                      CIMPC is formulated as:
+   Here, βi denotes the contact impulse over the time interval                        N
+                                                                                      X −1
+h. In the contact-force formulation below, we use λi to denote               min             `(xk , uk ) + Vf (xN )
+                                                                            u0:N −1
+the corresponding contact force. Assuming that the contact                            k=0
+force is approximately constant within one time step, they are                  s.t. xk+1 = f (xk , uk ),       k = 0, . . . , N − 1,    (6)
+related by βi ≈ hλi . Mo , vo , τo , and Jo,i are the regularized
+                                                                                      xk ∈ X ,     k = 0, . . . , N,
+mass matrix, velocity change, non-contact force, and contact
+Jacobian of the object, respectively. Kr , vr , τr , and Jr,i are                     uk ∈ U,      k = 0, . . . , N − 1.
+the robot stiffness matrix, velocity, non-contact torque, and         in which xk is the system state, including the object pose qk
+contact Jacobian, respectively. The control input is defined as       and robot configuration, and f denotes the contact dynamics.
+u = ∆q.                                                               The stage cost ` can take various forms and is typically used
+   The above equations describe, from the perspective of              to guide the process of approaching the contact location. The
+momentum balance, how the robot influences the object’s state         terminal cost Vf is usually defined as the error between the
+through contact, as well as how the object interacts with the         object pose and the desired pose:
+environment. Here, we follow [22], [34] and consider the robot                                                               2 
+                                                                                                   2                  >
+to be under impedance control [35], modeling the robot–object          `pose = wpos kpobj − pgoal k2 + wquat 1 − ψobj   ψgoal      .
+interaction as a spring system. The contact constraints between                                                                  (7)
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                  4
+
+
+
+  The hybrid nature of contact dynamics renders (6) a                           III. C ONTACT S ELECTION O PTIMIZATION
+piecewise-smooth nonlinear complementarity problem (NCP).                 In this section, we present the design of CSO. We begin by
+The full contact model is too costly for online receding-              analyzing the key challenges of integrating contact selection
+horizon optimization, so we use efficient approximations.              into CIMPC, which limit the diversity of existing methods. We
+                                                                       then formulate the contact selection problem and discuss the
+C. Complementarity-free Model                                          main difficulties in solving it. Finally, we present the detailed
+                                                                       design of our CSO module for online contact selection.
+  We next introduce the complementarity-free contact model
+proposed in [22], which motivates the contact-model approx-
+                                                                       A. Why Contact Selection is necessary?
+imation used later in CSO. Problem (3) has the dual form:
+                                                                          Contact selection refers to choosing object contact locations
+             1                 
+                                                                       {pO,i } ⊂ ∂O that can generate task-beneficial wrenches for
+   max     − 2 β > JeQ−1 Je> + R β
+   β≥0      2h                                                         changing the object pose. According to (1a) and (1b), the
+                  1  e −1      >
+                −    JQ b + φ  e β − 1 b> Q−1 b. (8)                   object wrench is jointly determined by the contact Jacobian,
+                  h                  2                                 which depends on the contact location and its local geometry,
+                                                                       and the contact impulse βi (or, equivalently, the contact force
+in which R is a small regularization term commonly used to
+                                                                       λi ). For some contact locations, no force within the corre-
+enhance numerical stability, and
+                                                                       sponding friction cone can produce a wrench that improves
+          J1n − µ1 J1,1t                                               the object pose; contact switching is therefore necessary.
+                                                       
+                                       φ1            β1,1
+                ..                  ..          ..                  CIMPC models robot–object interaction (ROI) with contact
+        n . t
+                                      .           . 
+                                                                       dynamics whose informative gradients are confined to the
+                            
+                                                        
+        J1 − µ1 J1,n                φ1          β1,nd 
+                        t                                        low-dimensional contact manifold Scontact embedded in the
+                ..            e  ..              .. 
+  Je =                        , φ =         , β =           . (9)    full state space S. The contact-free manifold Sfree provides
+       
+                 .           
+                                      . 
+                                          
+                                                    . 
+                                                   
+                                                                       no effective contact-induced gradient, making autonomous
+                            
+        J n − µn J t               φn           βn ,1 
+        nc          c nc ,1         c           c 
+                  ..                  .           .                contact selection difficult and requiring attractive costs or
+                                        .           .. 
+                            
+                  .                  .  
+                                                                       reference trajectories to induce contact. Although CIMPC
+          n            t
+        Jnc − µnc Jnc ,nt             φ nc          βnc ,nd            can choose between contact and non-contact modes, its short
+                                                                       receding horizon may not reveal, within the fixed horizon, the
+   Here, β is not only a dual variable but also has a physical
+                                                                       benefit of reaching a distant contact location.
+interpretation as the contact impulse. Specifically, the solution
+                                                                          We formulate contact selection separately. As illustrated in
+of (8) satisfies the following complementarity constraints:
+                                                                       Fig. 2, we ignore robot contact-location planning and solve:
+            1  e −1 e>                           
+ 0≤β⊥           J Q J + R β+ JeQ−1 b + φ           e ≥ 0. (10)              min        `cso (xT )
+            h                                                            pr ∈∂O,λ∈K
+                                                                                                                                           (13)
+                                                           −1   e>             s.t.    xk+1 = f (xk , pr , λ),     k = 0, . . . , T − 1.
+   Following [22], we replace the dense inverse (JeQ J +
+R)−1 by a positive-definite diagonal matrix K(q) chosen as a           where K is the set of feasible contact forces and `cso (·) is
+local approximation. This replacement defines a modified dual          the objective of contact selection. pr ∈ R3×nr represents
+problem; it is not an equality that holds for a general multi-         the locations where the robot applies contacts to the object,
+contact geometry. With D = K −1 , the modified problem has             with nr denotes the number of robot contacts. (13) addresses
+the following closed-form solution:                                    the gradient sparsity issue arising from hybrid planning in
+                                                                   the original contact-rich manipulation problem by defining
+         β + = max −hK(q) JeQ−1 b + φ        e ,0 .      (11)          CSO to solve for low-cost sampled contact locations and
+                                                                       contact forces on Scontact . The neglected process of the robot
+  The complementarity-free model is then written as:                   approaching Scontact from its current state is the primary source
+                                                                       of the gradient sparsity. Note that (13) is hard to solve
+              v + = 1 Q−1 b + 1 Q−1 Je> β + ,
+              
+                                                                       due to the coupling of contact location pr and the contact
+        fcf :        h         h2                               (12)   force λ = [λenv , λr ]. Therefore, we adopt a commonly used
+               xk+1 = xk + h (vk + v + ) .
+              
+                                                                       simplification for handling nonconvex optimization problems
+where β denotes the contact impulses of all contact points and         to reformulate (13) as subproblems:
+v + combines the object velocity vo and robot velocity vr .                                         min      V (pr ),                      (14)
+   The modified problem is exact for the chosen diagonal                                            pr ∈∂O
+
+surrogate, while its discrepancy from the original contact             in which:
+model depends on the discarded off-diagonal coupling. The
+                                                                       V (pr ) := min       `cso (xT )
+SCM introduced in Section III starts from the same diagonal                        λr ∈K
+approximation, replaces the max operator in (11) with a                                                               k = 0, . . . , T − 1.
+                                                                                      s.t. xk+1 = f (xk , pr , λr , λenv ),
+smooth softplus, and partially restores the off-diagonal cou-                                                                      (15)
+pling with one residual correction; its predictive fidelity is         The physical interpretation of (14) and (15) is that a contact
+evaluated empirically in Section V-B2.                                 location is regarded as optimal if applying the best possible
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                                                5
+
+
+
+
+        Perception                        Contact Selection Optimization                                 Contact Planning Optimization                                          Execution
+
+                                     Sampling & Exchange         Surrogate Contact Model                                   Ranking Stragegy
+    RGB-D         Estimated
+                    Pose
+
+
+
+
+                                                                                                                                     Eq. (32)
+
+                                                                                                                                                Eq. (38)
+
+                                                                                                                                                           Eq. (40)
+                                                  Valid Region                                                                                                        Trigger
+                                                   Selection
+                                                                                                            : Potential Contact Location
+                                   ACD                               : Robot Contact Point & Force
+                                                                    : Env. Contact Point & Force                   Online Trajectory Optimization
+                                                     FPS
+                                         Discretization for        Surrogate approximation for
+    Mesh          Goal Pose               nonsmoothness                 complementarity
+
+                                         Solving MIQP            Optimal Contact Location
+
+
+
+
+                                                                                                     Eq. (47)
+                                                                                                                   Approaching Trajectory                  Contact Trajectory
+
+
+
+Fig. 2. Framework structure of SCSP. SCSP consists of Contact Selection Optimization (CSO) and Contact Planning Optimization (CPO). CSO discretizes
+nonsmooth geometry through the Sampling & Exchange method and introduces a surrogate contact model for efficient approximation of contact dynamics.
+CSO online computes the optimal contact location among candidate contact set p̂∗r as contact prior. The ranking strategy in CPO further evaluates whether the
+nearest point pnear can serve as a sufficiently competitive suboptimal substitute for p̂∗r as the reference contact location, after which trajectory optimization
+is solved online to generate the approach and contact trajectories.
+
+
+
+combination of contact force λ∗ yields the minimum motion                                 decomposes the object into convex polygons, mitigating in-
+cost of the object. Despite the simplifications, (14) remains a                           terference caused by local geometric details and reducing
+complex problem with nonsmooth constraints pr ∈ ∂O that                                   computational cost. Moreover, these polygons are typically
+depend on the object geometry. Meanwhile, (15) is a comple-                               larger and flatter, which implies greater contact stability and
+mentary problem with coupled environment forces λenv and                                  improved reachability.
+robot contact forces λr . The nonconvexity makes online CSO                                  Then we perform Farthest-Point Sampling (FPS) on the
+intractable. We next present the solutions to further simplify                            convex approximation to uniformly sample points on the
+both (14) and (15) to improve computational efficiency.                                   polygons. Starting from an arbitrary point as a sample, the
+                                                                                          algorithm iteratively selects the points that maximize the
+                                                                                          minimal Euclidean distance to all previously chosen samples:
+B. Sampling and Exchange Method
+                                                                                                                   p0k+1 = arg max min kpi − p0j k2 ,                                   (17)
+  The nonsmoothness on the object geometry leads to dis-                                                                           0        pi ∈F pj ∈Ik
+continuities in the gradient of (14). The inherently nonsmooth
+                                                                                          where Ik is the set of already selected samples. The sampling
+nature of the problem motivates us to adopt a sampling-
+                                                                                          process is performed offline. Solving (17) yields a uniformly
+based method. To simplify (14), we uniformly sample a set
+                                                                                          distributed set of points Iobj . For each sampled point p0j ∈
+of candidate contact point set Iobj = {pi }ni=1s
+                                                  on the object
+                                                                                          Ik , we also construct its local coordinate frame to obtain the
+surface ∂O, thus reformulate (14) as:
+                                                                                          tangential and normal vectors as local contact information.
+                               min        V (pr ),                            (16)        The local orthonormal frame is constructed as (ni , t1,i , t2,i ) in
+                              pr ∈Iobj
+                                                                                          which the normal vector ni is obtained from the mesh or point-
+When the sampling is sufficiently uniform, (16) provides a                                cloud normal estimate, and two orthogonal tangent directions
+good approximation to (14) and is not affected by discontinu-                             are computed as:
+ous gradients caused by the geometry. To obtain a high quality                                                            a − (a · ni )ni
+candidate set, Iobj should satisfy the following conditions:                                                t1,i =                          , t2,i = ni × t1,i ,                        (18)
+                                                                                                                         ka − (a · ni )ni k
+  • Physical reachability, which requires that candidate con-                             where a is an arbitrary fixed axis. When the reference axis a
+     tact locations be reachable by the robot, i.e., within the                           is nearly parallel to the surface normal ni , we select another
+     robot workspace and not occluded.                                                    coordinate axis as the reference axis to avoid numerical singu-
+  • Contact stability, which requires avoiding regions with                               larity. We use this local geometric information to compute the
+     high curvature where stable contact is difficult to apply.                           Jacobian required for contact force optimization. Furthermore,
+  • Uniform distribution, which means the sampled points                                                                          ns
+                                                                                          a KD-tree T = {(pi , ni , t1,i , t2,i )}i=1 is constructed over the
+     are representative of approximating the original geometry.                           set Iobj to enable efficient nearest-neighbor queries.
+These conditions require the sampling method to maintain                                     An online Valid Region Selection procedure is further ap-
+uniform coverage while prioritizing manipulability over local                             plied to identify feasible and task-relevant surface regions, fil-
+geometric details. To address this, we propose an efficient                               tering out unreachable or low-quality points such as occluded
+sampling strategy as shown in Algorithm 1. We first perform                               regions, regions outside the robot workspace, and regions that
+approximate convex decomposition (ACD) [38] to obtain a                                   violate task-specific semantic masks (for example, handles
+convex approximation F of the original geometry O. ACD                                    or forbidden surfaces). The valid region is maintained by
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                      6
+
+
+
+(a) Farthest-Point Sampling (Offline):                                                   C. Surrogate Contact Model
+     (i) Step 1: Initialization     (ii) Step 2: Next Sample Generation
+                                                                                            The sampling strategy transforms the original optimization
+                                                                                         into a discrete–continuous problem. We further simplify (15)
+                                                                                         to improve efficiency. Most existing contact models are com-
+                                                                                         putationally expensive for scenarios that require repeatedly
+                                                                                         solving (15). Moreover, complementarity and coupling be-
+                                                           ...
+                                                                                         tween λenv and λr make the optimization difficult to converge,
+                                                    Repeated                             leading to physically inconsistent results. To enable online
+                                                   Generation                            contact selection, we introduce a surrogate contact model
+                                                                                         (SCM); its procedure is illustrated in Fig. 4. The approxima-
+                                                                                         tion uses the following assumptions:
+(b) Valid Region Selection (Online):
+                                                                                         Assumption 1 (Fixed Contact Set). The object–environment
+                                                                                         contact location remains unchanged in each SCM rollout, i.e.,
+                                                                                         no new contacts are created and existing contacts remain, so
+                                                                                         that the contact gap satisfies φ̃env ≡ 0 throughout the rollout.
+     : Sampled Candidate Set      : Valid Surface Region         : Valid Candidate Set
+                                                                                         Assumption 2 (Multi-Contact Decoupling). The contact be-
+Fig. 3. The sampling strategy in CSO. The candidate point set is sampled                 tween the object and the environment can be approximated by
+sequentially through: (a) Farthest-Point Sampling to uniformly sample points             independent spring–damper systems, neglecting higher-order
+on the object, and (b) Valid Region Selection to select valid points for contact.
+                                                                                         dynamic couplings between different contact locations. This
+                                                                                         assumption is used only to construct an initial impulse esti-
+Algorithm 1 Sampling and Exchange Method                                                 mate; the residual correction in (29) reintroduces the coupling
+Input: Object geometry O, sample count K, fixed axis a                                   through the full Delassus matrix.
+                                       ns
+Output: T = {(pi , ni , t1,i , t2,i )}i=1    and Iavail .                                   We reformulate the object dynamics in (1a) at the velocity
+ 1: F ← ACD(O)                             . Convex approximation                        level, retaining the current object velocity vk so that the model
+ 2: Initialize Ik ← {p01 } with an arbitrary seed in F
+                                                                                         matches the dynamic rollout used in CSO, where Mo is the
+ 3: for k = 1 to K − 1 do
+                                                                                         object mass matrix and vo+ is the post-step object velocity:
+ 4:     p0k+1 ← arg maxp0i ∈F minpj ∈Ik kp0i − p0j k2
+                                                                                                                         Xn r                Xnenv
+ 5:     Ik+1 ← Ik ∪ {p0k+1 }                  . Obtain candidate set                     Mo vo+ = Mo vk +h(τo +                   >
+                                                                                                                                 Jr,i λr,i +         >
+                                                                                                                                                   J˜env,j λenv,j ),
+    Iobj = IK                                                                                                                i=1              j=1
+                                                                                                                                                               (19)
+ 6: end for                                                                                                                                  Pnr     >
+                                                                                         and we denote b̃o = Mo vk +h(τo + i=1                     Jr,i λr,i ) and
+ 7: Fv ← Exchange(F) . Apply offline-specified rule and
+    manual masks                                                                         its force-level
+                                                                                                 Pnr         counterpart f˜o = b̃o /h = Mo vk /h +
+                                                                                                           >
+ 8: for all pi ∈ Iobj do
+                                                                                         τo +       i=1 Jr,i λr,i , which includes the momentum term
+ 9:     if pi ∈
+              / Fv then                                                                  Mo vk /h. Following the friction-pyramid parameterization in
+10:          Remove pi from Iobj            . Valid region selection                     Section II-C, the environment contact force at contact j is
+11:          continue                                                                    represented by nd nonnegative facet multipliers λenv,j ∈ Rn≥0            d
+
+
+
+12:     end if                                          . Obtain Iavail                  with the facet Jacobian J˜env,j ∈ R d , whose rows are
+                                                                                                                                        n  ×6
+
+13:     Estimate normal ni from F at pi                                                  Jjn − µj Jj,l
+                                                                                                     t
+                                                                                                       , l = 1, . . . , nd (our implementation uses nd = 4).
+                  a − (a · ni )ni                                                        Similar to (8), the physically consistent environment contact
+14:     t1,i ←                       , t2,i ← ni × t1,i                                  force can be obtained by solving the following dual problem
+                ka − (a · ni )ni k
+15: end for                                                                              (written in force units by dividing the impulse-level dual by
+                                          ns
+16: return T = {(pi , ni , t1,i , t2,i )}i=1 and Iavail                                  h2 ):
+
+                                                                                                         1                          
+                                                                                             max      − λ>       J˜env M −1 ˜>
+                                                                                                                         o J     + R   λenv
+                                                                                            λenv ≥0      2 env               env
+
+applying a mask to F to obtain Fv , and then selecting points                                                                         1
+on Fv to obtain Iavail . To better illustrate the process, consider                               − (J˜env Mo−1 f˜o + φ̃/h2 )> λenv − f˜o> Mo−1 f˜o , (20)
+                                                                                                                                      2
+the toy example shown in Fig. 3. First, following the procedure
+illustrated in Fig. 3(a), we iteratively apply (17) to obtain a                          and the solution satisfies the complementarity condition
+set of uniformly distributed sampling points over the processed                                          0 ≤ λenv ⊥ Wenv λenv + genv ≥ 0.                     (21)
+object mesh. We then partition the surface online into a set of
+valid regions and masked regions, and select the points that                             where
+lie within the valid regions to form the candidate set Iavail , as                                                                                 
+shown in Fig. 3(b). The Exchange step applies these masks                                Wenv = J˜env Mo−1 J˜env
+                                                                                                             >
+                                                                                                                 + R , genv = J˜env Mo−1 f˜o + φ̃/h2 .
+online and exchanges F for the retained valid surface Fv ; its                                                                                   (22)
+cost is reported in Table IX. Both masks are specified offline                           Here Wenv is the Delassus matrix associated with ob-
+with the object model; no online segmentation is performed.                              ject–environment contact. Since the contact force at each
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                               7
+
+
+
+contact point is represented by its nd facet multipliers λenv,i ∈     expresses the argument of softplusT /h as an affine function of
+Rnd , the Delassus matrix Wenv admits a block structure               the robot contact forces, which gives (28). Moreover, since the
+                  
+                    W11       W12 · · · W1nenv
+                                                                     contact geometry set remains invariant over the time interval,
+                   W21       W22 · · · W2nenv                       J˜env,i is a constant matrix, thus Wii is constant, and D, Mo−1
+         Wenv =  .
+                  
+                               ..      ..       ..   ,
+                                                                     are all constant matrices. Therefore, the fixed-contact map
+                   ..          .         .      .                   is the composition of an affine map with the C ∞ function
+                       Wnenv 1   Wnenv 2   ···   Wnenv nenv           softplusT /h and is smooth in λr ; nonsmoothness arises only
+                                                                      when the contact set changes.
+where each block Wij ∈ Rnd ×nd is
+                                                                         To partially compensate for the neglected inter-contact cou-
+                   Wij = J˜env,i Mo−1 J˜env,j
+                                        >
+                                              + Rij .
+                                                                      pling, we apply a single smooth residual correction to the
+The diagonal blocks Wii describe local effective inertia, while       diagonal impulse estimate, which avoids hard clipping and
+the off-diagonal blocks Wij (i 6= j) represent coupling               additional inner iterations. We retain only the nonnegative part
+between contacts. Under Assumption 2, these couplings are             of the signed contact distance, denv = max(φ̃env , 0), to avoid
+negligible, so Wenv is block diagonal:                                strong repulsion from instantaneous penetration, trading some
+                                                                      physical fidelity for greater robustness to contact estimation
+       Wenv = blockdiag(W11 , W22 , . . . , Wnenv nenv ),      (23)
+                                                                      errors and improved optimization behavior; for the touching
+and (21) is decomposed to subproblems:                                contacts of Assumption 1, denv = 0, and denv is evaluated
+                                                                      once from the current state xk , independently of λr . We define
+ 0 ≤ λenv,i ⊥ Wii λenv,i + (J˜env,i Mo−1 f˜o + φ̃i /h2 ) ≥ 0. (24)    the corresponding residual genvstep
+                                                                                                           = J˜env vP
+                                                                                                                    free + denv /h, where
+                                                                                  −1                    −1            nr    >
+We decompose Wii as:                                                  vfree = Mo b̃o = vk + hMo (τo + i=1                 Jr,i λr,i ) is the
+                                                                      free-motion velocity, i.e., the post-step object velocity without
+                              Wii = D + E,                     (25)   environment contact, so that genv   step
+                                                                                                                = hgenv with denv in
+where D is diagonal and E is small, (24) has the smooth ap-           place of φ̃env . Writing the diagonal approximation in (26)
+proximate closed-form solution below. Here, softplusT (x) =           in impulse form (βenv = hλenv ) gives the initial estimate
+                                                                        (0)
+T log(1 + ex/T ) is a componentwise smooth (C ∞ ) approx-             βenv = softplusT (−D −1 genv   step
+                                                                                                          ), with T = 10−4 N s. The
+imation of max(x, 0) with smoothing parameter T > 0; its              corrected impulse is then computed as
+derivative is the logistic function σ(x/T ) = 1/(1 + e−x/T ).
+The temperature T is specified in impulse units (N s), so the
+                                                                       (                  (0)  step
+                                                                           renv = Wenv βenv+ genv  ,
+force-level relation uses T /h:                                                                  (0)    renv
+                                                                                                               
+                                                                         β̂env = softplusT βenv −      L         ,
+                                                                                                              L = λmax (Wenv ),
+   λ̂env,i = softplusT /h −D −1 (J˜env,i Mo−1 f˜o + φ̃i /h2 ) .                                                                  (29)
+                                                              (26)    where Wenv is the full coupled Delassus matrix in (22)
+With (26), we can obtain the following lemma:                         rather than its block-diagonal approximation. The corrected
+                                                                      impulse β̂env is the environment contact impulse output by
+Lemma 1. Under Assumption 2, the environment contact                  SCM and is used to predict object motion in (30). With
+force λenv is an explicit function of λr .                            R = I and  = 10−8 , the product Wenv β is evaluated
+   To obtain a high-quality approximation, we decompose Wii           as J˜env Mo−1 (J˜env
+                                                                                        >
+                                                                                           β) + β. This computation avoids forming
+in (25) as:                                                           or inverting the full Delassus matrix; since Wenv depends
+                                                                      only on the contact geometry, L is independent of λr and
+                  D = diag(J˜env,i Mo−1 J˜env,i
+                                          >
+                                                ) + I,        (27)   is obtained by power iteration with the same matrix–vector
+where  is the regularization coefficient, so that D =                products once per contact configuration, then reused for every
+diag(Wii ) and the same regularization appears in Wenv . (27)         force evaluation of that CSO update. Because D, Wenv , L,
+gives the closest diagonal approximation to Wii in the Frobe-         and denv are constant for a fixed contact set and softplusT is
+nius norm1 . When the contact set changes within the CSO              C ∞ , the map λr 7→ β̂env is smooth; it is neither piecewise
+horizon, variations in J˜env,i and φ̃i introduce non-smoothness.      linear nor piecewise smooth in λr , and the only remaining
+Assumption 1 then gives:                                              nonsmoothness is the change of the contact set between rollout
+                                                                      steps or CSO updates.
+Lemma 2. The initial diagonal estimate of the environment                Substituting the corrected impulse from (29) into (19), we
+contact force is a smooth, closed-form function of λr :               obtain a lightweight model:
+         λ̂env,i = softplusT /h −D −1 J˜env,i Mo−1 f˜o ,
+                                                                               (                         Pnenv >
+                                                                                  v̂ + = Mo−1 b̃o + Mo−1 i=1   J˜env,i β̂env,i ,
+                   M o vk        Xn r                    (28)            fSCM :                                                  (30)
+             f˜o =        + τo +            >
+                                         Jr,j λ̂r,j .                             x̂k+1 = xk ⊕hv̂ ,+
+                     h              j=1
+
+Proof. Assumption 1 provides the condition φ̃i ≡ 0 for every          where v̂ + is the predicted post-step object velocity (it already
+environment contact i during the rollout. Substituting φ̃i = 0        contains vk through b̃o ), and ⊕ denotes the pose update with
+and the definition of f˜o into (26) removes the gap term and          the quaternion increment.
+                                                                        This Surrogate Contact Model converts the original contact
+  1 Proof   see Appendix A.                                           dynamics into a computationally efficient formulation, and
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                        8
+
+
+
+    Assumption 1: Fixed Contact Set              Assumption 2: Multi-Contact Decoupling           reaching the goal pose set Xg from the current pose xo , and
+                                                                                                  then minimize `pose in Xg :
+                                                                                                                         (
+                                                                                   Independent                             `stab , if xo ∈
+                                                                                                                                         / Xg ,
+                                                                                  Spring-Damper
+                                                                                      System
+                                                                                                                  `cso =                                  (33)
+                                                                                                                           `pose , otherwise.
+      Contacts remain unchanged over                      Neglecting the coupling among           The design of (33) effectively guides the gradient descent of
+      a short time interval (Sticking).                    environment-object contacts
+                                                                                                  CSO to select a more statically stable trajectory. Although
+        Surrogate Contact Model                                                                   this increases the control cost, it effectively prevents CSO
+                                                                                                  from generating numerous unstable contact locations as priors,
+                                                                                                  which would otherwise make the lower-level contact planning
+                                                                                                  difficult to execute in practice.
+                                                                                                     2) Solving CSO over Sampled Candidates: The contact
+      SCM is a lightweight approximation of the object-environment contacts. With SCM,
+                                                                                                  dynamics in (15) are non-differentiable because of comple-
+         the environment contact force is an explicit function of robot contact force.            mentarity constraints and changes in the contact set. With
+                                                                                                  the SCM, (31) becomes a finite candidate search with a
+Fig. 4. Illustration of SCM. SCM is a lightweight approximation of the                            continuous force-optimization subproblem for each candidate.
+object-environment contact, enabling fast contact selection optimization.
+                                                                                                  For a fixed contact set, differentiating (30) with respect to the
+                                                                                                  robot contact force gives
+enables the continuous force subproblem to be solved by GPU-                                                                                            !
+                                                                                                              ∂ x̂k+1       −1       >      >  ∂ β̂ env
+parallel CEM for each sampled candidate.                                                                              = hMo      hJr,i + J˜env            ,    (34)
+                                                                                                               ∂λr,i                            ∂λr,i
+D. Formulation of CSO                                                                             where the first term is the direct robot-force effect and
+  Integrating SCM into (15), we can obtain the formulation                                        the second is the induced environment-impulse effect. Let
+of CSO as:                                                                                        Gi = J˜env Mo−1 Jr,i >
+                                                                                                                          , and let Σ(0) and Σ(1) denote the
+                                                                                                 diagonal softplus-derivative matrices evaluated at the initial
+   min min `cso xT
+  p̂r ∈Iavail λ̂r ∈K                                                                              and corrected impulse estimates, respectively. Applying the
+           s.t.        x̂k+1 = fSCM (xk , p̂r , λ̂r ),           k = 0, . . . , T − 1,            chain rule to the two softplus projections in (29) gives
+                                                                                                                                                      
+                       |λ̂t1
+                          r,i | ≤ µi λ̂nr,i , |λ̂t2           n
+                                                 r,i | ≤ µi λ̂r,i ,
+                                                                                                     ∂ β̂env                    Wenv                 1
+                                                                                                             = −hΣ(1) I −               Σ(0) D −1 + I Gi .
+                                                                                                      ∂λr,i                      L                   L
+                       0≤     λ̂nr,i ≤ λ̂nmax , i = 0, . . . , nr .                                                                                          (35)
+                                                             (31)
+                                                                                                  For a fixed contact set, the SCM rollout is smooth in the robot
+By solving this discrete-continuous optimization problem, we
+                                                                                                  contact forces. GPU-parallel CEM uses forward evaluations of
+can obtain the optimal contact location among candidate
+                                                                                                  (30), and the gradients support alternative gradient solvers.
+contact set p̂∗r ∈ Iavail as guidance for the lower-level contact
+planning. Next, we discuss the details of CSO.
+   1) Objective: Despite the objective of CSO being to mini-                                                IV. C ONTACT P LANNING O PTIMIZATION
+mize the object pose cost as denoted in (7), directly using `pose                                    In this section, we introduce the CPO module for contact
+as the CSO objective `cso results in unstable contact strategies                                  planning. CPO accepts the optimal contact location predicted
+by blindly minimizing cost. In addition, the execution of the                                     by CSO as reference, and generates approaching and contact
+lower-level contact planning approach is inherently subject to                                    trajectories online. We will discuss the problem of designing
+delay, since the robot must physically approach and estab-                                        a prior-guided contact planning. Then we design a ranking
+lish contact rather than instantaneously reaching the selected                                    strategy as an expressive connection between contact planning
+contact location. Therefore, the design of the CSO should                                         and contact prior from contact selection module. Finally, we
+explicitly consider the delay and avoid unstable behaviors                                        propose a novel objective formulation for prior-guided contact
+that may cause frequent dynamic changes in the object pose.                                       trajectory generation, and present two solvers for CPO.
+Therefore, we introduce the concept of an    Skequivalence class
+of stable poses of an object as Xstab = j=1 Xj , where Xj                                         A. Problem Statement
+denotes the j-th class of stable pose of the object and xo ∈ Xj
+                                                                                                     Compared to CIMPC methods, CPO must additionally con-
+is a statically stable pose at which the object can remain at
+                                                                                                  sider the guidance from the high-level module and generate the
+rest on the table, with its center of mass projected within the
+                                                                                                  corresponding executable trajectory. Based on (6), we define
+support polygon. We define the transfer cost from the current
+                                                                                                  CPO as the single shooting problem:
+object pose to the goal stable pose as:
+                                                                                                                PN −1                   ∗
+                                                                                                        min       k=0 `cpo (xk , uk , p̂r ) + Vf (xN )
+                                  `stab (xo ) = d(xo , Xg ),                              (32)        u0:N −1
+
+where d(·, ·) is a pose distance metric, Xj denotes the set of                                            s.t.   xk+1 = f (xk , uk ),    k = 0, . . . , N − 1,   (36)
+object poses associated with the j-th statically stable place-                                                   xk ∈ X ,   k = 0, . . . , N ,
+ment mode. We reformulate the CSO objective to prioritize                                                        uk ∈ U,    k = 0, . . . , N − 1.
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                              9
+
+
+
+Here p̂∗r is explicitly included in the objective function. We        where peei is the end-effector position corresponding to contact
+next investigate two key questions: in what form should               at pi . We reformulate the problem (36) so that the placing term
+contact prior guide contact planning, and how should a feasible       tracks the nearby contact as the reference contact location,
+approach and contact trajectory be defined mathematically?            pref = pnear , while the lifting term detours toward p̂∗r ; the
+   1) Role of Contact Guidance: In the previous section, we           ranking strategy weights the two terms in real time. Accord-
+discussed how CIMPC methods suffer from gradient sparsity             ingly, the ranking output determines whether to maintain the
+and proposed CSO, which serves as a search over the finite            current contact or detach and switch to p̂∗r in the contact phase,
+sampled candidate contact set Iavail on the object surface            and whether to establish a nearby contact or detour toward p̂∗r
+and provide contact guidance. But this raises another open            in the pre-contact phase. We next define the evaluation criteria
+question: in what form should the guidance affect contact             for the ranking strategy.
+execution? The most straightforward approach is full coupling,           For each candidate contact location pi , the optimal cost re-
+where the contact planning strictly follows and executes the          duction obtained from (33) is denoted as ∆`it = `(xt )−`(x̂+     t ).
+guidance from the CSO. However, such a fully coupled scheme           Based on the predicted
+                                                                                           min cost reduction
+                                                                                                                  range of all candidate
+may compromise control robustness because the upper-level             contact locations, ∆`t , ∆`max  t       , the relative ranking score
+surrogate abstracts away detailed contact interactions. The           of the nearby contact pnear is defined as
+object-centric search performed by CSO does not explicitly
+                                                                                                   ∆`near      − ∆`min
+                                                                                                                              
+account for robot morphology, resulting in an inherent gap                                              t            t
+                                                                                  ρt = Π[0,1]                                    ,    (38)
+between contact selection and execution. Moreover, contact-                                     max(∆`max t     − ∆`mint  , )
+rich manipulation is inherently underdetermined, as numerous          where the fraction performs min-max normalization and Π[0,1]
+contact-wrench and contact-location trajectories can accom-           projects the resulting score onto [0, 1]. The ranking score
+plish the same task. Strictly executing the CSO-optimal trajec-       ρt indicates the relative improvement of the nearby contact
+tory would therefore restrict this intrinsic solution diversity in    compared with all candidate contacts.
+robot–object interaction. To address this limitation, we intro-         We use κt ∈ {0, 1} to decide whether the nearby contact
+duce an objective-based contact planning module named CPO.            replaces the CSO-selected contact:
+Through the ranking strategy, the CPO balances the CSO-
+optimal contact against nearby and other candidate contacts,                                   κt = 1(ρt ≥ ρ̄) ,                      (39)
+establishing a loose coupling between high-level contact selec-       where ρ̄ is a predefined ranking threshold and 1(·) denotes
+tion and low-level contact planning. This design benefits from        the indicator function. When κt = 1, the nearby contact
+sampled-set guidance to escape local optima while preserving          pnear provides a sufficiently competitive cost reduction and
+the flexibility of contact planning for execution.                    can serve as the reference contact. Otherwise, the reference
+   2) Contact Switching Trajectory: Existing CIMPC methods            remains the CSO-selected contact p̂∗r . The trigger variable κt
+mainly induce nearby contacts through attractive costs, without       therefore evaluates the relative quality of the nearby contact
+explicitly modeling the detouring motions required for either         among the sampled candidates and determines whether contact
+approaching designated contacts or switching between con-             relocation is allowed. To avoid frequent switching due to
+tacts. To incorporate the upper-level guidance, we define the         transient ranking variations, we apply exponential moving
+approaching trajectory in the contact-free space Sfree as:            average (EMA) smoothing to κt :
+   • All intermediate waypoints lie in the collision-free space.
+   • The terminal waypoint establishes contact, and the con-                              γt+1 = (1 − β)γt + βκt ,                    (40)
+      tact force lies within the friction cone.                       where β ∈ [0, 1] is the smoothing coefficient and γ0 = 0.
+   As shown in Fig. 5, the robot–object interaction states form       The filtered weight γt ∈ [0, 1] is subsequently used in the
+a low-dimensional manifold embedded in the full system state          CPO objective formulation to determine whether the nearby
+space. A detouring motion can be viewed as planning a kin-            contact or the CSO-selected contact should be prioritized.
+odynamically feasible bridging manifold Sapproach within the              The overall ranking process repeatedly evaluates the nearby
+contact-free space Sfree , connecting two states on the contact       contact under the current configuration. As γt approaches 1,
+manifold Scontact . This is challenging for CIMPC methods             CPO increasingly prioritizes the nearby contact pnear ; as it
+because, as discussed above, Sfree provides little informative        approaches 0, CPO prioritizes moving toward the guidance
+contact-induced gradient for such transitions. To naturally           p̂∗r generated by CSO. The complete procedure is summarized
+bridge the approaching, contact, and contact-switching phases         in Algorithm 2. This hierarchical design establishes a weak
+without relying on a discrete state machine, we formulate CPO         coupling between CSO and CPO, allowing CPO to exploit
+under a unified objective that jointly governs contact execution      the guidance from CSO while retaining the flexibility to
+and pre-contact detouring and approach motions.                       autonomously determine executable contact strategies.
+
+B. Ranking Strategy of Contact Locations
+                                                                      C. Formulation of CPO
+  In addition to the optimal contact location p̂∗r from the CSO
+prediction, we always consider the nearest point pnear to the            Contact planning inherently consists of multiple phases,
+current robot configuration as a candidate contact location:          including approaching, contact establishment, and contact
+                                                                      switching. However, the CIMPC formulation does not nat-
+               pnear = arg min            pee − pee
+                                                 i    2
+                                                          ,    (37)   urally support contact switching, because contact switching
+                             pi ∈Iavail
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                     10
+
+
+
+Algorithm 2 Ranking Strategy of CPO
+Input: p̂∗r predicted by CSO, current robot configuration qk ,
+    threshold ρ̄, EMA coefficient β, and current filter state γt
+Output: pref for the placing term and blended cost `lp
+ 1: Compute nearest point pnear to end-effector via (37)
+                                                                                   : Approaching Trajectory     : Intermediate Point
+ 2: Evaluate ∆`near
+                  t   and [∆`mint    , ∆`max
+                                          t   ] via (31)                           : Contact Trajectory
+ 3: Compute ρt and κt via (38) and (39)
+ 4: Update γt+1 = (1 − β)γt + βκt via (40)
+ 5: Set pref ← pnear for `place ; `lift continues to target p̂∗
+                                                              r
+                                                                             Fig. 5. (a) Illustrative example of a feasible approach and contact trajectory.
+                                                                             (b) Explanation of CPO in a geometric perspective. CPO can be characterized
+ 6: Compute `lp = (1 − γt+1 )`lift + γt+1 `place via (46)                    as operating over two manifolds: contact states in Scontact and approaching
+ 7: return pref , `lp                                                        trajectories on the manifold Sapproach embedded in the contact-free state space
+                                                                             Sfree . CPO must not only generate contact trajectories on Scontact but also
+                                                                             address the gradient-sparse issue and generate trajectories on Sapproach .
+
+requires leaving Scontact and traversing the contact-free space
+Sfree , where the CIMPC objective provides no effective gra-
+dient information for trajectory optimization. To address this                 2) Placing Phase: During the placing phase, when the
+issue, we introduce a novel objective formulation that enables               robot reaches a position above p̂∗r , or when pnear is accepted
+multi phases planning within a unified framework. The pro-                   by the ranking strategy, the end-effector is guided to establish
+posed formulation is general to different task settings and                  contact with the object. The placing phase is formulated by:
+compatible with various optimization solvers.
+                                                                                                                      `place = wcon `con ,                     (44)
+   As illustrated in Fig. 6, the trajectory optimization is
+decomposed into three stages. First, the end-effector leaves
+                                                                             The contact cost attracts the end-effector to an inward offset
+the current contact and moves around the object toward an
+                                                                             of pref .
+intermediate waypoint plift or pose qlift . This intermediate                                                                                       2
+target guides the robot toward a pre-contact configuration                                                `con = kpee − (pref − δnref )k .                     (45)
+above the object. Second, the end-effector is guided toward
+pref to establish contact. This design is inspired by footstep               Here nref is the outward unit surface normal at pref , and the
+planning in legged robots [39]. The corresponding costs are:                 inward offset is fixed at δ = 0.02 m (2 cm). Attracting the end-
+   1) Lifting Phase: During the lifting phase, when the current              effector directly to pref may fail to establish physical contact
+nearest contact point pnear is infeasible, a hybrid potential field          when the object mesh or contact estimation is inaccurate,
+guides the robot to detach from the object and move above the                since perception or projection errors can cause p̂∗r to deviate
+guidance. It consists of a repulsive term from the object:                   from the actual object surface. The inward offset improves
+                                                                           robustness against such errors.
+              − log kpee − po k2 + ε , if kpee − po k2 < σ,                    3) Switching Parameter: The blending between lifting and
+   `obs =
+                                                                             placing behaviors is determined by the filtered weight γ
+                   0,                            otherwise.
+              
+                                                                             introduced in Section IV-B. The overall lift-and-place cost is:
+                                                                     (41)
+and an attractive term toward the lifting point plift or lifting
+                                                                                                              `lp = (1 − γ)`lift + γ`place ,                   (46)
+configuration qlift . The lifting target plift is a moving waypoint
+on a lift–cross–drop path: the end-effector first rises to a                 where `lp is incorporated into the stage cost `cpo in (36). By
+clearance height zc = max(ztop + dtop , p̂∗r,z + dref ), where ztop          defining the terminal cost Vf (xN ) = wcso `cso (xN ) on the
+is the top of the object’s bounding box in its current pose                  predicted terminal state, the CPO formulation is obtained as:
+and dtop , dref are clearance margins, then moves horizontally
+to (p̂∗r,x , p̂∗r,y , zc ), and finally descends to p̂∗r . At each control            PN −1                                           2
+                                                                                                                                        
+                                                                              min
+                                                                             u0:N −1     k=0 wlp `lp (xk , qk , uk , pref ) + wu kuk k +Vf (xN )
+cycle, plift is set one bounded step ahead of pee along the
+current segment. The path is latched until p̂∗r or the object                    s.t.      xk+1 = fcf (xk , uk ),                      k = 0, . . . , N − 1,
+pose changes, so that ranking fluctuations cannot reverse a                                xk ∈ X ,              k = 0, . . . , N ,
+half-completed crossing; if the straight line from pee to p̂∗r                             uk ∈ U,               k = 0, . . . , N − 1.
+does not intersect the object, only the descending segment is                                                                     (47)
+used. qlift is obtained from plift by inverse kinematics. The                  The formulation in (47) retains the CIMPC objective and
+attractive potential is defined as:                                          supports hybrid contact trajectories.
+      `att = kpee − plift k2     or   `att = kqee − qlift k2 .       (42)
+The lifting cost is formulated as:                                           D. Solvers of CPO
+                     `lift = watt `att + wobs `obs .                 (43)
+                                                                               Since CPO specifies the optimization formulation rather
+This potential formulation explicitly encodes the lifting behav-             than a specific solver, various reactive motion planners can
+ior and avoids optimization failure caused by gradient-sparse                be adopted to generate contact trajectories. Below, we present
+regions during contact breaking.                                             two solvers employed in our experiments.
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                             11
+
+
+
+      Ranking Strategy                   Lifting Phase       Placing Phase              V. E XPERIMENT: N ONPREHENSILE M ANIPULATION
+                                                                                       This section evaluates the SCSP framework through non-
+                Eq. (38)-(40)
+                                                                                    prehensile manipulation experiments, which represent a class
+                    ,                                                               of contact-rich manipulation tasks characterized by frequent
+ :          :                   : Lifting point
+                                                                                    contact-state transitions and unstable control. The tasks consist
+                                                                                    of on-ground rotation and on-ground flipping. On-ground
+                                                                                    rotation requires the robot to move an object to a target pose
+                                                                                    on the ground through 2D pushing and rotating, whereas on-
+                                                                                    ground flipping involves 6D manipulation. We select a set of
+Fig. 6. Illustration of the CPO-based contact planning module. (a) Ranking          irregularly shaped objects from the ContactDB dataset [42] for
+strategy. When pnear is evaluated as not sufficiently competitive (κt = 0),         validation. The objects are initialized at random poses with
+γ decreases toward zero and the lifting term toward p̂∗r dominates. The             xinit , yinit ∈ [−0.3, 0.3] m, and Euler angles (φinit , θinit , ϕinit )
+evaluation runs continuously in real-time. (b) When γ is small, the robot is
+guided by the potential field to plift . (c) Once above p̂∗r or the nearest point   uniformly sampled from [−π, π] rad. We define the conditions
+pnear to the robot is accepted by the ranking strategy (κt = 1), γ increases        of task success as:
+toward 1 and an attractive potential is applied, guiding the robot to contact
+                                                                                                                        >
+with the object.                                                                        kpo − pgoal k ≤ 0.02 [m], 1 − (ψgoal ψo )2 ≤ 0.015,            (51)
+
+                                                                                    where the orientation tolerance corresponding to the quater-
+   1) Operational-Space Control: We simplify the full-order                         nion error threshold is 14.1◦ . A trial is considered successful
+contact planning problem to an end-effector point contact plan-                     if the conditions are satisfied within 2500 rollout steps.
+ning problem, avoiding high-DoF robot trajectory optimiza-                             Simulations are conducted in MuJoCo [43] and IsaacGym
+tion. The resulting joint torques are generated by operational                      [44] with a fixed integration time step h = 0.02s. For the
+space control (OSC) [40] to track the CPO output. Specifically,                     sampling method in our CSO module, we use CoACD [45]
+the state in (47) is reduced to s ∈ R10 , consisting of the object                  for convex decomposition of the objects and trimesh for
+position, object orientation represented by a quaternion, and                       mesh processing and local frame construction. CSO is solved
+the end-effector position pee ∈ R3 . Solving (47) yields the                        using GPU-parallel CEM, while CPO is solved using acados
+control input u = ∆pee .                                                            SQP-RTI with HPIPM and a solver tolerance of 10−4 . Unless
+   Given the desired pose (pd , Rd ) with pd = pee + u and                          otherwise stated, experiments are conducted on a desktop
+a preset Rd , the position and orientation errors are computed                      computer with an Intel i7-13620H processor, 32 GB RAM,
+                             >
+as epos = u, and eR = Ree      R . Converting eR to quaternion                      and an NVIDIA GeForce RTX 5090 GPU.
+                           > d 4
+form gives equat = e , ηe ∈ R , and after sign correction,                            We applied certain randomization to the environment and
+               (                                                                    object parameters. The friction coefficients of the object µo ,
+                  equat ,  ηe ≥ 0,                                                  fingertip µr , and ground µenv are all set to 0.5 with random
+      equat ←                            erot = −Re .        (48)                  perturbations of ±0.2. The object mass is randomly sampled
+                  −equat , ηe < 0,
+                                                                                    from the discrete set {0.01, 0.1, 1.0, 10.0} kg with equal
+                              >                                                   probability for each trial, while SCM uses a fixed nominal
+By defining epose = epos , erot , the task-space and null-space
+                                                                                    mass of 0.1 kg. We set Mo = diag(50, 50, 50, 0.05, 0.05, 0.05)
+torques are given by:
+                                                                                    and Kr = 300I7 , and the dynamic parameters used in SCM
+     τtask = J > (q) (−Kx epose − Dx ẋ) ,              (49)                        are not measured precisely, but are roughly set to their mean
+                                                                                  values.
+     τnull = I − J > (J > )† Kq (qinit − q) − 2 Kq q̇ , (50)
+                                              p
+                                                                                       For CSO, the default configuration samples ns = 70
+                                                                                    candidate contacts, retains the two lowest-cost candidates, and
+and the final control torque is τ = τtask + τnull + g(q). This                      uses a one-step prediction (T = 1) with 20 GPU-parallel CEM
+controller is used in all simulations and real-world experiments                    iterations. CSO and CPO share a prediction step of 0.02 s and
+in Section V, and is suitable for tasks such as tabletop                            pose weights wpos = 500 and wquat = 20. CSO uses force
+manipulation, where high orientation diversity is not critical.                     and tangential-force regularization weights of 0.01 and 0.03,
+   2) Sampling-based Motion Planner: Another formulation                            respectively, with a 3 N force-command limit corresponding
+is to directly solve the full-order planning problem of the robot.                  to λ̂nmax ≈ 1.59 N under the configured friction pyramid. CPO
+In this case, the state in (47) is given by x ∈ R7+nDoF , where                     uses N = 5, componentwise control bounds |uj | ≤ 0.005 m,
+nDoF denotes the number of robot DoFs. For this class of prob-                      and weights wlp = 1, wu = 50, and wcso = 10. Its lifting
+lems, we employ sampling-based MPC methods as the solver,                           and reference-contact attraction weights are both 20, while
+such as MPPI [41]. Recent studies have demonstrated the                             the repulsive-field term is disabled. The lift–cross–drop path
+impressive performance of MPPI in solving high-dimensional                          uses clearance margins dtop = 0.025 m and dref = 0.015 m
+optimization problems for redundant robots, enabling real-time                      and a per-cycle step bound of 0.005 m on plift . The bounding
+computation while avoiding issues related to gradient-based                         box defining ztop is the axis-aligned bounding box of the
+methods. The cost function is defined in the same manner as                         object mesh in its body frame, with center c and half-extents
+in the previous formulation, except that pee is computed via                        e; it is rotatedPwith the estimated object pose and ztop =
+forward kinematics for the full-order problem.                                      (po +Ro c)z + i |Ro,zi | ei is the top of the resulting oriented
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                   12
+
+
+
+box, so zc follows the object’s current orientation. Segment
+switching uses tolerances of 0.004 m on the height zc and
+0.008 m on the horizontal distance to the waypoint; the latched
+waypoint is released when the end-effector is within 0.012 m
+of the target or the object moves by more than 0.015 m. During
+the flipping stage, the orientation error measures alignment
+of the object’s target upright axis with the world vertical,
+leaving yaw unconstrained. Let ag = R(xgoal )> ez , where
+ez = [0, 0, 1]> . The normalized upright error is `stab (xo ) =
+1        >
+2 1 − ez R(xo )ag . The flipping-stage object cost is `cso =
+500`pos + 20`stab , with the full quaternion-error weight set to
+zero. Here `pos = kpo −pgoal k2 , except for the Stanford bunny,
+which uses `pos = max(kpo,xy − pgoal,xy k − 0.08 m, 0)2 to          Fig. 7. Experimental results of robot manipulation in simulation. SCSP signif-
+allow vertical motion and planar displacement within an 8 cm        icantly outperforms other model-based methods and exceeds the performance
+                                                                    of well-trained learning-based methods.
+radius during flipping.
+   From Table I, we select methods that are applicable to
+6D manipulation and can manipulate objects with arbitrary
+                                                                    dimension set by each method's formulation. pee is obtained
+geometries, rather than being restricted to regular shapes, as
+                                                                    via differentiable forward kinematics.
+baselines, including:
+                                                                       The experimental results are shown in Fig. 7, Fig. 8, and
+   • DyWA [17]: An end-to-end 6D nonprehensile policy
+                                                                    Table II. SCSP achieves a higher success rate than other
+     evaluated on unseen object geometries using the released       model-based algorithms and outperforms DyWA on all objects
+     single-view student policy in IsaacGym.                        except the torus. Additionally, SCSP achieved the shortest
+   • ContactSDF [24]: A differentiable multi-contact model
+                                                                    execution time, demonstrating that SCSP can generate correct
+     based on signed distance functions (SDFs), which pro-          contact locations through CSO, thereby efficiently minimizing
+     vides closed-form collision detection and time-stepping        the pose cost of the object. SCSP also achieved the smallest
+     prediction for contact-rich manipulation.                      convergence position error and quaternion error. Furthermore,
+   • STOCS-3D [23]: An offline method that jointly optimizes
+                                                                    we observed that during experiments, DyWA tends to flip
+     contact selection and a contact-implicit trajectory opti-      objects by pressing the edges of the top surface, whereas
+     mization (CITO) problem for 3D manipulation. We use            our method makes more comprehensive decisions regarding
+     STOCS-3D to generate the CITO trajectory offline and           whether to lift the object by pushing the bottom or by pressing
+     execute the resulting trajectory with operational-space        the top. Although many flipping tasks can be accomplished
+     control (OSC).                                                 through pressing, for certain objects (such as elongated ob-
+   • Sampling [25]: A hierarchical method that samples can-
+                                                                    jects), the pressing approach requires applying substantial
+     didate contacts and evaluates them with a lower-level          torque to the object and demands sufficiently high coefficients
+     CIMPC controller. We use the released implementation           of friction. Based on our observations, the global contact
+     with its original C3 contact model, Gurobi MIQP solver,        selection mechanism in CSO enables SCSP to exhibit greater
+     and contact-selection method.                                  diversity in its manipulation behaviors compared with other
+   • CF-MPC [22]: A complementarity-free MPC method
+                                                                    methods, rather than converging to a single strategy.
+     with a closed-form contact model and limited explicit
+                                                                       We further validated the impact of different numbers of
+     contact-selection capability.
+                                                                    sampled candidate points on performance. As shown in Table
+                                                                    III, when the number of sampled points reaches 70, nearly
+A. Robot Manipulation in Simulation                                 the highest success rate is achieved with relatively low SCSP
+   We evaluate SCSP in redundant robot manipulation tasks.          computation time. As the number of sampled points continues
+Compared with a floating end-effector, contact problems for         to increase, the success rate plateaus and computational effi-
+redundant robots introduce complex kinematic constraints. In        ciency deteriorates. This indicates that increasing the number
+the experiments, we demonstrate the superiority of SCSP and         of sampled points does not necessarily improve performance.
+validate the soundness of our framework.                            There exists an optimal convergence value. For nonprehensile
+   Due to the strong dependencies of the source code released       manipulation tasks, 70 to 100 sampled points are sufficient to
+for DyWA, which are difficult to transfer, we follow its            characterize the geometric features of object geometries.
+setup and conduct all experiments in IsaacGym for con-
+sistency, with the same simulation settings described above.
+                                                                    B. Ablation Studies
+All methods use our link-mounted sphere as the end-effector
+to replicate point contacts. Since DyWA uses the Franka                We ablate the ranking strategy, CSO, and CPO under the
+gripper, we adjust the link length so that the sphere’s center      same experimental setup as in Section V-A to demonstrate
+coincides with the gripper’s center. The Cartesian stiffness
+                                                      √             their respective contributions. We also examine contact-model
+Kx = diag(1000, 1000, 1000, 50, 50, 50) and Dx = 2Kx .              fidelity and the feasibility of CSO-generated contact trajecto-
+All methods use the same settings as above, with the control        ries.
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                                                                          13
+
+
+
+                                                                    TABLE II
+                         C OMPARISON AND ABLATION RESULTS FOR NONPREHENSILE MANIPULATION TASKS IN THE ROBOT EXPERIMENTS
+
+                                                                Comparison                                                                                       Ablation
+Task    Metric
+                             SCSP*          DyWA      ContactSDF      STOCS-3D          Sampling      CF-MPC           A1             A2           A3              A4             A5             A6             A7
+         Success Rate            0.80          0.86        0.00            0.00             0.56         0.01          0.37            0.06        0.57            0.66           0.89           0.00            0.17
+         Execution Time (s) 15.16 ± 11.82 18.12 ± 18.46      –               –         18.97 ± 43.91 21.18 ± 9.67 25.31 ± 11.03    5.74 ± 0.14 17.91 ± 9.15    20.77 ± 9.82   19.06 ± 8.53         –        2.72 ± 1.90
+Rotation Planning Time (ms) 24.12 ± 11.31 31.00 ± 7.67 5.30 ± 1.37 (5.93 ± 5.30) × 105    228.00        82.00     26.55 ± 20.42   12.91 ± 2.52 21.21 ± 7.43   99.94 ± 61.10 612.53 ± 168.13 81.38 ± 11.62   12.09 ± 2.23
+         Obj. Pos. Error (m) 0.05 ± 0.11   0.07 ± 0.13 0.06 ± 0.03     0.17 ± 0.07      0.08 ± 0.07  0.20 ± 0.05   0.11 ± 0.13    0.17 ± 0.08 0.09 ± 0.09      0.04 ± 0.06    0.06 ± 0.14    0.29 ± 0.13     0.29 ± 0.16
+         Obj. Quat. Error    0.09 ± 0.22   0.12 ± 0.29 0.64 ± 0.34     0.58 ± 0.37      0.30 ± 0.37  0.56 ± 0.19   0.19 ± 0.30    0.31 ± 0.37 0.18 ± 0.32      0.07 ± 0.19    0.07 ± 0.20    0.58 ± 0.33     0.30 ± 0.37
+         Success Rate            0.81         0.69        0.00            0.00             0.39          0.01          0.19         0.00          0.37          0.26            0.60           0.00         0.00
+         Execution Time (s) 18.75 ± 9.79 20.56 ± 12.96      –               –         19.68 ± 21.95 22.56 ± 24.35 22.05 ± 9.36        –      23.60 ± 11.86 22.71 ± 12.59 24.23 ± 11.50           –            –
+Flipping Planning Time (ms) 22.91 ± 8.03 31.00 ± 7.67 5.22 ± 2.22 (2.39 ± 1.25) × 105    252.00         81.00     24.94 ± 20.23 12.59 ± 2.34 21.80 ± 11.85 132.95 ± 49.02 577.81 ± 113.82 81.75 ± 10.63 12.86 ± 2.90
+         Obj. Pos. Error (m) 0.04 ± 0.05  0.13 ± 0.17 0.20 ± 0.09     0.17 ± 0.04      0.10 ± 0.05   0.19 ± 0.05   0.16 ± 0.14 0.15 ± 0.05 0.12 ± 0.12      0.09 ± 0.09     0.11 ± 0.15    0.24 ± 0.08 0.35 ± 0.16
+         Obj. Quat. Error    0.12 ± 0.27  0.26 ± 0.39 0.87 ± 0.19     0.79 ± 0.25      0.40 ± 0.38   0.56 ± 0.19   0.38 ± 0.41 0.73 ± 0.32 0.47 ± 0.41      0.47 ± 0.41     0.29 ± 0.40    0.76 ± 0.30 0.80 ± 0.25
+
+
+
+                    (a) Visualization                                          (b) Tracking and Contact Metrics                                                     (c) Performance Metrics
+
+   1
+ Case 1
+            t=0s                     t=4s                                                                                                                                          Fall-off the table
+
+
+            t=8s                     t=12s
+
+
+
+   2                                                                                                                                                                    Solve failed
+            t=0s                     t=4s
+ Case 2
+
+
+
+            t=8s                     t=12s
+
+
+
+Fig. 8. Nonprehensile manipulation experiments in simulation. (a): Snapshots of SCSP in the robot experiments, where the goal pose is visualized either
+transparently or as a floating coordinate frame. (b): The mean and standard deviation curves of the position and orientation errors over steps across 10 SCSP
+trials. (c) The pose error `pose of different methods during manipulation. The comparison methods either require longer execution time or fail due to local
+minima or solver failures.
+
+
+                            TABLE III                                ments under the same fcf and control bounds as CPO, with
+  E VALUATION OF THE EFFECT OF THE NUMBER OF CANDIDATE POINTS        N = 10, 128 samples, one iteration, noise σ = 0.003 m, and
+                                                                     temperature 0.005.
+  Sampling numbers in CSO         5        10      70   120     500
+  Avg. Success Rate             0.25      0.59    0.88  0.88    0.85
+                                                                        Table II summarizes the results.
+  SCSP Computation Time (s) 0.012        0.017   0.025 0.032   0.089    A1 and A3 substantially outperform A2, demonstrating
+                                                                     the importance of contact guidance over purely local contact
+                                                                     selection. However, A1 switches contact points too frequently,
+   1) Functional Analysis of SCSP Components: Ranking causing some tasks to fail. Even the coarse contact model in
+strategy (A1–A2): CPO strictly follows CSO-optimal guid- A3 yields substantial performance gains, suggesting that useful
+ance p∗r (A1) or always executes the nearest contact pnear (A2). contact priors do not require detailed contact modeling. A4 and
+   CSO (A3–A5): A3 replaces SCM with a coarse contact A5 show that higher model fidelity or more refined optimiza-
+model that encloses the object in an oriented bounding box tion does not necessarily improve task success. Compared with
+(OBB), ignores object–environment contact, and evaluates CPO’s cost formulation, directly solving the full trajectory
+candidate contact locations solely based on the object pose planning problem in A6 imposes a greater computational
+error. This variant assesses the model fidelity needed to pro- burden, reducing success rates and substantially increasing
+vide useful contact priors. A4 replaces SCM with MuJoCo’s planning time. Despite using MPPI for stronger exploration of
+QP-based contact model; A5 directly applies CMA-ES to solve the CIMPC formulation, A7 still achieves low success rates,
+(14) (Eq. 14) and obtain (p∗r , λ∗r ), without sampling, construct- indicating that increased exploration alone cannot effectively
+ing, or evaluating a candidate contact set. The SDF-distance replace contact guidance.
+constraint dSDF (pr ) = 0 enforces that every optimized contact         We also test sensitivity to the acceptance threshold ρ̄ and
+point lies on the object surface.                                    the EMA coefficient β (Fig. 10). Setting ρ̄ = 0 accepts nearby
+   CPO (A6–A7): A6 removes the phase-dependent attraction contacts without filtering their quality, recovering A2, whereas
+and repulsion potentials and directly optimizes motion trajec- ρ̄ = 1 restricts acceptance to optimal contacts, corresponding
+tories; A7 solves the CIMPC formulation using MPPI [41] to A1. Smaller ρ̄ values make nearby contacts easier to accept.
+with the cost `A7 = ωo `o + ωcso `cso , where `o attracts the Setting β = 1 disables smoothing and permits abrupt changes
+end-effector to the object center (ωo = 20, ωcso = 10) and between consecutive decisions, whereas smaller positive val-
+no CSO output is used. MPPI samples end-effector displace- ues provide stronger smoothing but slow the response; β = 0
+ JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                      14
+
+
+
+
+ Fig. 9. Visualization of the contact map during the elephant and bunny flipping tasks. Red indicates a larger cost reduction predicted by CSO and thus higher
+ contact quality.
+
+
+               100%
+                                  (0.70, 81%)
+                                                                 100%
+                                                                        (0.20, 81%)
+                                                                                                    obtained by native MuJoCo settling.
+Success Rate
+
+
+
+
+                                                  Success Rate
+
+
+
+
+               80%                                               80%                                   We then evaluate whether the ideal contact trajectories
+               60%                                               60%                                generated by each contact model can achieve the manipulation
+               40%                                               40%                                goals under the success criteria in (51). The results are shown
+               20%                                               20%
+                                                                                                    in Table V. For direct force application, we report success
+                0%                                                0%
+                  0.00 0.20 0.40 0.60 0.80 1.00                     0.00 0.20 0.40 0.60 0.80 1.00   rates, planning time, and execution steps under synchronous
+                      Acceptance Threshold ρ¹                               EMA coefficient β       inference without observation latency. Across 70 paired trials
+                                                                                                    per method, MuJoCo QP, ComFree, SCM+CMA-ES, and
+ Fig. 10. Sensitivity of the measured success rate to the acceptance threshold
+ ρ̄ and EMA coefficient β. Each parameter is varied independently while the                         SCM+CEM each succeed on all 70 trials, and SCM+IPOPT
+ others are fixed at their default values.                                                          succeeds on 69/70; the remaining trial reaches the step limit.
+                                                                                                    Planning time and execution steps in Table V are mean ± std,
+                                                                                                    with planning time pooled over planning rounds and execu-
+ prevents the filtered weight from updating. The sweep results                                      tion steps taken over successful trials. These results evaluate
+ support the default settings ρ̄ = 0.7 and β = 0.2, which are                                       closed-loop contact guidance under ideal force application.
+ used in the experiments below.                                                                        3) Counterfactual Analysis of the Ranking Strategy: A1–
+    2) Contact Model Evaluation: To complement the CSO                                              A2 evaluate alternative contact-selection policies at the task
+ ablations above, we evaluate both contact-model fidelity and                                       level. We further assess the ranking strategy at individual
+ the feasibility of the resulting ideal contact trajectories. We                                    decision points using matched counterfactual rollouts.
+ first compare MuJoCo’s native quadratic-programming (QP)
+                                                                                                       Inspired by reinforcement learning, we define a value for
+ model, ComFree, SCM, and ContactSDF against a reference
+                                                                                                    each contact-selection decision made by the ranking strategy.
+ combining MJWarp collision detection and integration with
+                                                                                                    Let rT = I(success) be the terminal reward. For a state st and
+ the fully coupled friction-pyramid LCP contact dynamics of
+                                                                                                    ranking decision b, the discounted rollout value is
+ (21) (with R = I,  = 10−8 ), solved exactly over all contact
+ rows and certified to a complementarity residual of 10−8 . The                                       J(st , b) = Eτ ∼π(·|st ,b) γ T I(success) ,
+                                                                                                                                              
+                                                                                                                                                    γ = 0.99, (52)
+ reference is the hard-constraint limit of MuJoCo’s pyramidal
+ contact model without soft-contact compliance; it uses the                                         where T counts the actual execution steps from st to trial
+ nonnegative part of the contact distance, max(φ̃env , 0), so                                       termination, including all detour and contact-transition steps,
+ residual penetration in the initial poses is not expelled within                                   rather than contact-selection events.
+ one step. The reference advances two substeps of h = 0.001 s,                                         We sample 200 SCSP rollout trajectories and, in each, 10
+ while all predictors use a single h = 0.002 s step. We report                                      decision points where the optimal contact location p∗r differs
+ the linear- and angular-velocity errors of the post-step object                                    from pnear (2000 decision points in total), and record the
+ velocity v + relative to LCP under four contact states: contact                                    ranking strategy’s decisions. At each selected state, we reverse
+ transition, sliding, sticking, and the reference-path rollout. The                                 the recorded decision, force the robot to execute the alternative
+ benchmark uses seven objects, 32 initial states per object and                                     contact strategy, and then resume SCSP until termination to
+ contact state, and 10 rollout windows per rollout state. The                                       obtain the reward and estimate the corresponding value. For
+ results are shown in Table IV.                                                                     example, during a contact-free phase, if SCSP selects the
+    For SCM, we set T = 10−4 N s and  = 10−8 , and report                                          nearby contact, we instead force the robot to detour to p∗r .
+ the single-step residual correction of (29). Initial poses are                                     During a contact phase, if SCSP decides to break the current
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                                                                              15
+
+
+
+                                                                   TABLE IV
+            P OST- STEP VELOCITY ERRORS RELATIVE TO LCP ( MEAN ± STD AND P95). L INEAR : m/s; ANGULAR : rad/s. B OLD INDICATES MINIMA .
+
+                                               MuJoCo QP                                            ComFree                                        ContactSDF                                     SCM
+Contact state
+                                                              P95    P95                                          P95    P95                                      P95    P95                                  P95    P95
+                               Linear            Angular     Linear Angular            Linear       Angular      Linear Angular       Linear         Angular     Linear Angular     Linear      Angular      Linear Angular
+Contact transition        0.607 ± 0.227        2.03 ± 1.66   0.952     5.27       0.641 ± 0.233    2.34 ± 1.60   0.995    5.30    0.308 ± 0.164    9.19 ± 5.04   0.602 17.88 0.642 ± 0.441     6.58 ± 3.86   1.461    13.40
+Sliding                   0.189 ± 0.081        2.48 ± 2.16   0.318     6.57       0.226 ± 0.093    3.01 ± 2.53   0.376    7.73    0.068 ± 0.063    3.84 ± 3.02   0.215 9.45 0.225 ± 0.169      4.23 ± 3.10   0.545    11.11
+Sticking                 0.001 ± 0.003         0.04 ± 0.09   0.008     0.25       0.014 ± 0.003    0.06 ± 0.07   0.017    0.22     0.078 ± 0.091   1.00 ± 1.25   0.299 3.87 0.018 ± 0.010      0.14 ± 0.08   0.032     0.32
+Reference-path rollout   0.022 ± 0.054         0.39 ± 1.04   0.140     2.31       0.028 ± 0.061    0.41 ± 1.01   0.159    2.23     0.028 ± 0.042   0.68 ± 1.05   0.112 2.63 0.026 ± 0.052      0.48 ± 0.99   0.120     2.31
+
+
+
+
+                                    TABLE V                                                                                                              TABLE VI
+                      CSO CONTACT- GUIDANCE PERFORMANCE .                                                                             R ANKING - STRATEGY COUNTERFACTUAL ANALYSIS .
+
+                                     Model                                   Solver (SCM)
+Metric
+                       M1               M2            M3            CMA-ES              IPOPT
+                                                                                                       Ours
+                                                                                                                         Task       P (pnear ) P (p∗r ) fswitch (Hz) fr∗ (Hz) P (A
+                                                                                                                                                                                 e > 0) (%)                       A
+                                                                                                                                                                                                                  e
+Success (ideal)        1.00
+Planning time (ms) 27.76 ± 5.68
+                                       1.00
+                                  22.82 ± 3.00
+                                                       0.99
+                                                   3.70 ± 0.53
+                                                                       1.00            0.99
+                                                                  21.08 ± 2.95 111.30 ± 19.05
+                                                                                                       1.00
+                                                                                                   2.35 ± 0.73
+                                                                                                                         Rotation    0.353     0.647            0.203        5.51            71.42           0.17 ± 0.28
+Execution steps   160.74 ± 98.06 305.09 ± 287.05 181.40 ± 122.40 216.96 ± 126.33 379.00 ± 465.02 296.07 ± 362.53         Flipping    0.450     0.550            0.195        4.40            90.68           0.36 ± 0.42
+Success (real)        0.46              0.78          0.65            0.75                  0.72       0.88
+M1: MuJoCo QP; M2: ComFree; M3: ContactSDF.                                                                           P (pnear ): nearest-contact selection probability; P (p∗
+                                                                                                                                                                             r ): CSO-optimal-contact selection
+                                                                                                                      probability; fswitch : physical contact-switching frequency; fr∗ : CSO-optimal contact-
+                                                                                                                      point switching frequency; A: e normalized advantage.
+
+contact and approach p∗r , we instead force it to maintain the
+                                                                                                                                                                                                     Example Objects
+current contact. Let JRS and Jcf denote the rollout values                                                                                      3D printed                                             (3D printed)
+for the original and reversed decisions at st , respectively.                                                             Camera               end effector
+Because SCSP replans at high frequency, a single-step decision
+                                                                                                                                                                                      Franka
+deviation may have only a small effect on the overall trajectory.                                                                                                                     Robot
+We therefore protect the perturbed decision from ranking
+overrides until the selected contact is established and evaluate                                                                                3D printed object
+
+its effect using the normalized advantage, defined as                                                                                                            Surface
+
+               JRS − Jcf , max{J , J } > 0,
+              
+                                           RS cf                                                                      Fig. 11. Hardware setup of the real-world experiments.
+     e t ) = max{JRS , Jcf }
+    A(s                                                     (53)
+                0,                 otherwise.
+              
+
+Here A e ∈ [−1, 1], and A     e > 0 indicates that the ranking                                                        in simulation, but in real-world experiments, they often rely
+strategy is preferred. A value of 1 (−1) means that only the RS                                                       on highly accurate perception systems, such as motion capture.
+(counterfactual) rollout succeeds. For two successful rollouts,                                                       The main challenge in replacing exact perception with purely
+this normalization depends only on the difference in their                                                            vision-based perception is that errors in pose observation can
+remaining completion steps, removing the common discount                                                              perturb contact estimation, leading to incorrect inference of
+scale associated with long remaining trajectories.                                                                    contact states and consequently inaccurate contact dynamics.
+   We report the physical contact-switching frequency fswitch ,                                                       To the best of our knowledge, our method is the first model-
+CSO-optimal contact-point switching frequency fr∗ , and se-                                                           based approach that can achieve purely vision-based, complex
+lection probabilities P (pnear ) and P (p∗r ). These statistics are                                                   geometries, model mismatch contact-rich manipulation.
+computed over the original sampled trajectories.                                                                         1) Experimental Setup: We conduct experiments using a
+   Table VI shows relatively balanced selection probabilities                                                         Franka Emika Panda equipped with a 3D-printed end-effector,
+P (pnear ) and P (p∗r ) across the sampled trajectories, indicating                                                   and arbitrarily select 4 irregularly shaped objects: Duck,
+that both contact strategies are extensively used. The CSO-                                                           Bunny, Hand, and Xbox Controller, as shown in Fig. 11.
+optimal contact p∗r changes at approximately 5 Hz, while                                                              We evaluate on-ground rotation on Duck and Bunny, and
+physical contact switches occur at only about 0.2 Hz. This                                                            on-ground flipping on Bunny, Hand, and Xbox Controller.
+suggests that the ranking strategy frequently mediates contact                                                        The object CAD models are obtained from the ContactDB
+selection and filters changes in contact guidance. The fraction                                                       dataset and online repositories. To validate the robustness
+of positive advantages and the mean normalized advantage are                                                          of our method under inaccurate dynamics, we provide only
+particularly high for flipping (90.68% and 0.36, respectively).                                                       rough estimates of the object’s physical parameters such as
+These results are consistent with our observations: for rotation,                                                     mass and friction coefficients. Moreover, instead of relying
+the ranking strategy primarily improves efficiency by reducing                                                        on precise motion capture for exact perception, we perform
+detours; for flipping, it also helps maintain contact stability by                                                    state estimation by FoundationPose [46] using a single-
+avoiding frequent contact breaks.                                                                                     view camera (Realsense D435i). In real-world experiments,
+                                                                                                                      precise object–environment contact locations are not directly
+                                                                                                                      observable. To support visualization and coarse kinematic
+C. Real-world Experiments                                                                                             alignment, we maintain a MuJoCo proxy of the table and end-
+  Finally, we validate the robustness of SCSP to in real-                                                             effector, as shown in Fig. 12. We calibrate only the object
+world experiments. Most model-based methods perform well                                                              scale and positional offsets [∆x, ∆y, ∆z] from kinesthetic
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                    16
+
+
+
+                                                                                 object geometries and also showed strong performance in
+                                                                                 the flipping tasks, whereas the comparison methods failed in
+                                                                                 nearly all flipping experiments. The execution times indicate
+                                                                                 that SCSP also completes the tasks relatively efficiently, with
+                                                                                 mean times of approximately 15–30 s across the tested con-
+                                                                                 ditions. SCSP has the highest estimated success rate under
+                                                                                 every condition, and its 95% Wilson interval does not overlap
+                                                                                 with that of either comparison method in any condition. We
+                                                                                 report these intervals as uncertainty estimates for each success
+Fig. 12. Perception method in the real-world experimental setting. Object pose   rate rather than as a formal hypothesis test between methods.
+is detected using FoundationPose and filtered via a Kalman filter. Contact       We also classify all unsuccessful trials by their terminal
+estimation is performed using a MuJoCo implementation that approximates
+the experimental environment.                                                    outcomes: timeout or falling off the table. Most unsuccessful
+                                                                                 trials terminate due to timeout.
+                                                                                    We further examine five factors associated with task fail-
+teaching. The proxy is not used as a physical object-contact                     ures: perception failure, contact estimation error, slippage,
+model: the rendered object pose is updated in real time                          control saturation, and poor contact selection. Perception fail-
+from FoundationPose, and no object collision geometry                            ure denotes target tracking loss in FoundationPose with
+is defined in the simulator. The goal pose range, success                        an unrecoverable pose estimate. It is rare and occurs only
+conditions, and maximum execution steps for the task are                         under severe occlusion when the robot reaches to retrieve an
+identical to those in the simulation experiments. Sampling and                   object near the table edge. Contact estimation error includes
+DyWA use the same settings as in the previous section, and the                   missed physical contact and reported penetration before actual
+outputs of DyWA are executed using an impedance controller.                      contact. Slippage denotes unstable robot–object contact with
+                                                                                 relative sliding. It particularly affects flipping, where complex
+   The OSC controller is implemented in c++. Unlike in                           object geometry and smooth 3D-printed surfaces can prevent
+simulation experiments, control in real-world deployment is                      stable fingertip contact and compromise the planned motion.
+subject to disturbances, leading to control lag and steady-state                 Surface friction also influences flipping performance, with
+errors. To address this, we designed an adaptive controller for                  SCSP achieving higher success rates on the rough surface.
+precise control, which we refer to as the Incremental OSC. We                    Control saturation occurs when adaptive-controller overshoot
+introduce an intermediate position vector pinc = pinc + Kinc u,                  produces excessive contact commands that reach the robot’s
+and replace epos with epos = pinc − pee . The steady-state                       control limits and may topple the object. Poor contact selection
+error is adaptively eliminated under the high-frequency self-                    is defined as selecting the same contact location again after
+integrating effect. In the experiment, we set Kinc √ = 0.01I3 ,                  three consecutive unsuccessful manipulation attempts at that
+Kx = diag(500, 500, 500, 10, 10, 10) and Dx = 2Kx .                              location. We record the occurrence frequencies and task suc-
+   2) Results and Discussion: We first evaluate the success                      cess rates among affected trials for SCSP, DyWA, Sampling,
+rate of SCSP across different objects and tabletop materials                     A8, and A9. Table VIII summarizes the occurrence frequencies
+to assess its robustness under model inaccuracies. The exper-                    and recovery rates. DyWA failures mainly involve contact
+imental results are shown in Fig. 13, 14, and Table VII. They                    slippage and violations of the Franka acceleration limits during
+indicate that our method maintains strong performance under                      pressing. Sampling failures involve unstable contact locations.
+perception noise and model mismatch.                                                Contact estimation errors can falsely indicate penetration or
+   In Table VII, the 95% CI rows report two-sided Wilson                         miss existing physical contact. SCM sets φ ≡ 0 to suppress
+confidence intervals for SR. Bold denotes the highest SR or                      spurious repulsive wrenches induced by estimated penetration,
+the lowest FR, TR, and mean ET under the same condition.                         while CPO attracts the end-effector toward an inward-offset
+   We conducted each experiment on two different tabletop                        target rather than the estimated surface, helping avoid local
+materials: smooth and rough as in Fig. 15. For the on-ground                     minima above the physical surface. We compare A8, which
+rotation experiments, the smooth surface denotes a tabletop                      removes the φ ≡ 0 condition, and A9, which replaces
+with low friction, whereas the rough surface denotes cotton                      the target in (45) with the surface point pref . Table VIII
+clothes. For the on-ground flipping experiments, which require                   summarizes the comparison. A9 sometimes stalls above the
+greater friction, we use foam padding as the rough surface                       object without establishing contact, leading to timeout. A8
+and cotton cloth as the smooth surface. Note that our method                     is particularly sensitive to contact estimation errors: when
+does not measure friction coefficients, object mass, or other                    FoundationPose estimates an object pose penetrating the
+physical parameters, but instead uses coarse estimates. Addi-                    ground, we observe abrupt changes in A8’s predicted object
+tionally, biases in contact estimation and noise in object pose                  positions, sometimes causing premature contact loss during
+estimation can interfere with the decision-making of SCSP.                       flipping and subsequent object toppling.
+The experiment results suggest that SCSP can effectively cope                       We further conduct continuous manipulation experiments,
+with model inaccuracies and disturbances, which is typically                     as shown in Fig. 14. During manipulation, we repeatedly
+challenging for model-based methods.                                             perturb the object pose to evaluate the real-time performance,
+   As shown in Table VII, SCSP achieved a 99.2% success rate                     closed-loop planning capability, and robustness of SCSP under
+(119/120) in the on-ground rotation experiments with complex                     accumulated perception errors. Under repeated perturbations,
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                                                                                         17
+
+
+
+
+ (a)
+                                                                                                   Slip                                                                                                           Slip
+                                                                                                                                                                                                                      Success
+                                                                                                                                                                                                                       Failed
+
+ (b)
+
+                                                                                                                                                                                                                      Success
+
+
+ (c)
+                                                                                                                                                                                                            Fall Off
+                                                                                                                                                                                                                         Failed
+
+ (d)
+
+                                                                                                                                                                                                                      Success
+
+ t=0                                                                                                                                                                                                                         t=T
+Fig. 13. Snapshots of nonprehensile manipulation in real-world experiments. (a) DyWA failed to flip the bunny. (b) SCSP succeeds in flipping the bunny.
+(c) Sampling failed by pushing the Xbox controller to fall off the foam padding. (d) SCSP succeed in flipping the Xbox controller.
+
+                                                                         TABLE VII
+                               R EAL - WORLD MANIPULATION PERFORMANCE ON SMOOTH AND ROUGH SURFACES (30 TRIALS PER CONDITION ).
+
+                                                                Rotation                                                                                               Flipping
+Surface Metric                       Duck                                          Bunny                                      Bunny                                  Hand                                        Xbox
+                     Sampling        DyWA                SCSP*         Sampling    DyWA            SCSP*       Sampling     DyWA         SCSP*         Sampling      DyWA            SCSP*        Sampling      DyWA          SCSP*
+       SR (%)            60            50                  100            40          40             100           0            0          46.7          13.3           0              70            10           13.3           80
+       FR (%)            6.7           10                   0            6.7          10              0           20            0           0            23.3          6.7              0           16.7           6.7            0
+Smooth TR (%)           33.3           40                   0            53.3         50              0           80          100          53.3          63.4         93.3             30           73.3           80            20
+       95% CI       [42.3, 75.4]  [33.2, 66.8]        [88.6, 100.0] [24.6, 57.7] [24.6, 57.7]   [88.6, 100.0] [0.0, 11.4] [0.0, 11.4] [30.2, 63.9]    [5.3, 29.7]  [0.0, 11.4]    [52.1, 83.3]   [3.5, 25.6]  [5.3, 29.7]   [62.7, 90.5]
+       ET (s)      15.31 ± 10.17 15.19 ± 10.31        19.25 ± 9.58 17.12 ± 8.83 14.57 ± 5.69    15.56 ± 7.81       –            –     30.34 ± 12.41 20.19 ± 11.59       –         27.99 ± 9.73 19.86 ± 2.15 21.31 ± 9.67 18.90 ± 13.26
+       SR (%)           53.3          46.7                 96.7           40         36.7            100           0            0          66.7           10           10             83.3          16.7           20           83.3
+       FR (%)            6.7          13.3                  0            3.3         6.7              0           10           20           0             20           10               0           16.7          16.7            0
+Rough TR (%)             40            40                  3.3           56.7        56.6             0           90           80          33.3           70           80             16.7          66.6          63.3          16.7
+       95% CI       [36.1, 69.8]  [30.2, 63.9]         [83.3, 99.4] [24.6, 57.7] [21.9, 54.5]   [88.6, 100.0] [0.0, 11.4] [0.0, 11.4] [48.8, 80.8]    [3.5, 25.6]  [3.5, 25.6]    [66.4, 92.7]   [7.3, 33.6]  [9.5, 37.3]   [66.4, 92.7]
+       ET (s)       18.08 ± 8.01 16.88 ± 8.90         19.25 ± 9.58 18.41 ± 6.73 25.25 ± 10.05   15.56 ± 7.81       –            –     30.34 ± 12.41 26.61 ± 11.32 20.30 ± 5.83    27.99 ± 9.73 18.39 ± 11.86 31.08 ± 11.35 18.90 ± 13.26
+SR: success rate; FR: fall-out rate; TR: timeout rate; ET: execution time.
+
+
+
+                              TABLE VIII                                                                                  selection as a prior can still bring substantial performance
+            FAILURE CASE ANALYSIS IN REAL - WORLD EXPERIMENTS .                                                           improvement. This observation also provides insight into the
+                                             Trials                                    Recovery Rate                      role of the contact-selection model: how to properly connect
+ Metric
+                          Sampling   DyWA    SCSP          A8      A9     Sampling DyWA     SCSP       A8     A9          the prior with the planning framework seems to be more
+ Perception
+ Contact Estimation
+                           2/300
+                          300/300
+                                       8/300  1/300   1/300   0/300
+                                     300/300 300/300 300/300 300/300
+                                                                             0/2
+                                                                           73/300
+                                                                                      0/8     0/1     0/1    –
+                                                                                    65/300 248/300 58/300 37/300
+                                                                                                                          important than the optimality and accuracy of the prior itself.
+ Slippage
+ Control Saturation
+                          110/300
+                           8/300
+                                     147/300 108/300 158/300 142/300
+                                      45/300 27/300 85/300 11/300
+                                                                           20/110
+                                                                             2/8
+                                                                                    20/147 98/108 26/158 19/142
+                                                                                     7/45   25/27   32/85 10/11
+                                                                                                                          The designs of CSO and the ranking strategy are both devel-
+ Poor Contact Selection    62/300     15/300 15/300 90/300 14/300           12/62    3/15    3/15    0/90  0/14
+                                                                                                                          oped with this perspective. 2) CPO has a strong closed-loop
+                                                                                                                          nature. The real-time performance and robustness of CIMPC
+                                                                                                                          methods have been thoroughly validated in previous work.
+both the pose estimated from FoundationPose and the
+                                                                                                                          CPO is a prior-guided contact planning framework built upon
+contact estimation become biased. However, SCSP exhibits
+                                                                                                                          the CIMPC formulation. It inherits the robustness of CIMPC
+strong replanning capability and consistently completes the
+                                                                                                                          while improving manipulation diversity. Therefore, the SCSP
+continuous manipulation tasks under disturbances.
+                                                                                                                          framework is able to achieve robust performance.
+   We combine the preceding experimental results to analyze
+the source of SCSP’s robustness to model mismatch. We
+conclude that: 1) the ablation study reveals that optimality                                                                            VI. G ENERALIZATION TO M ULTIPLE TASKS
+of the contact prior is not necessary. Although the prior is                                                                We further implement SCSP in different scenarios to eval-
+important for contact planning, even a coarse contact location                                                            uate its cross-task generalization. Using multi-contact and
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                            18
+
+
+
+
+Fig. 14. Snapshots of manipulation under external disturbances. The object’s pose is continuously perturbed during manipulation to demonstrate SCSP’s
+real-time robustness under such disturbances. The panels on the right shows the temporal evolution of position and orientation errors.
+
+
+
+                              TABLE IX                                        (a)                                  (b) (b)
+                      C OMPUTATION TIME OF SCSP                                                                                       t=0
+
+       Metric                                           Value
+                                                                                                                                                     t=1s
+                         CSO Computation time
+                                                                                                                                       t=3s
+       Offline sampling cost time (s)                4.82 ± 3.85
+       Exchange cost time (ms)                      0.002 ± 0.01
+         CEM cost time (ms)                         0.32 ± 0.05                                                                        t=5s
+       CSO solving time (ms)                        1.07 ± 0.32
+                         CPO Computation time                                 Fig. 16. Soccer dribbling task. (a) Experiment setup. The task is to kick the
+                                                                              soccer to the target (translucent). Red and green cubes show footworkspaces,
+       RS cost time (s)                             0.01 ± 0.00               and the yellow point indicates CSO-planned contact locations. (b) Gribbling
+       Average CPO solving time (ms)                8.68 ± 0.31               trajectory.
+
+
+ (a)                                    (b)                                   velocity vk from the simulation using a Kalman filter. The
+                                                                              3D model of the ball is then input to the SCSP to compute
+                                                                              the actions u ∈ R2×4 for both feet, where the control vector
+                                                                              for each foot is [x, y, z, θyaw ]. We define activation triggers
+                                                                              separately for the left and right feet: using the midpoint
+                                                                              between both feet as the center, the space is divided into
+        Rough                                 Smooth                          left and right half-spaces. When xk appears in a half-space,
+                                                                              the corresponding left or right foot is activated. Additionally,
+Fig. 15. Robustness validation of SCSP on surfaces with different friction.   workspace constraints (represented as semi-transparent cubes)
+(a) Foam. (b) Cotton clothes.                                                 are imposed on each foot to prevent singular gait patterns. The
+                                                                              number of CSO sampling points is set to ns = 70, and points
+                                                                              close to the ground {pi ∈ Iobj | zi < 0.02m} are masked out.
+articulated-object manipulation tasks as examples, we demon-
+                                                                              We randomly selected 10 goal positions for the soccer ball,
+strate online contact selection for underactuated objects.
+                                                                              and SCSP continuously controlled the robot’s feet to dribble
+                                                                              the ball to each target, achieving a 100% success rate. The
+A. Case Study I: Multi-Contact Task                                           experimental results are shown in Fig. 16. This experiment
+   SCSP provides a potential framework for extending contact                  serves as a toy example, simulating the approaching and
+selection and planning to multi-contact tasks, rather than a                  contact phases in humanoid soccer dribbling. In the future,
+general solution. We illustrate the generalization of SCSP with               we plan to extend SCSP to more complex motion planners to
+following example:                                                            realize a more complete demonstration [47], [48].
+   1) Soccer Dribbling: We use a soccer dribbling task to                        2) Tilted Pushing: SCSP can be extended to manipulation
+demonstrate the performance of SCSP in dynamic scenar-                        tasks in uneven environments, such as tilted pushing. Stable
+ios. In this task, SCSP plans contact with the ball using                     object poses on a slope are inherently fragile, requiring ac-
+one of the two feet and drives it toward the goal through                     curate contact location selection and online replanning. We
+multi-contact manipulation. The main challenges lie in the                    compare open-loop methods, which plan a contact sequence
+highly dynamic behavior of the ball, which makes stable and                   offline, with SCSP, which replans online during execution.
+sustained contact difficult, and in coordinating the two feet                 As the baseline, we use STOCS-3D to compute an offline
+effectively. We read the ball position pk and estimate its                    sequence of contact locations and contact forces, and execute
+ JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                     19
+
+
+
+
+(a)(a)                                   (b)                                 Failed      (a)
+                                                                                       (a)
+                                                                            Fall off
+                                           Open-Loop
+
+                                                                            Success
+                                                                                                            t=0                      t=2s                      t=4s
+
+                                                                                         (b)
+                                               SCSP
+
+ Fig. 17. Experiment setup. The task is to push an object on a surface tilted
+ at 15◦ . (a) The open-loop method fails when execution errors occur, causing                               t=0                      t=2s                      t=4s
+ the teapot to fall off the tilted surface. (b) SCSP can replan online and thus
+ successfully complete the dynamic task.
+                                                                                                                           (b)
+
+                                                                                       Fig. 18. Snapshots of the multi-contact grasping tasks. (a) Bi-manual grasping
+ this sequence using our CPO. Experiments are conducted in                             of an elephant with the size scaling factor ς = 1. (b) Multi-finger grasping
+ IsaacGym with a 15◦ slope and a friction coefficient of 0.1.                          of a duck with ς = 1.5.
+ For SCSP, we set wstab = 0 and λ̂nmax = 0.5, while keeping all
+ other parameters the same as in Section V-A. We selected the
+ teapot and duck (used in previous experiments) and randomly                           fails on some objects with complex geometry because of the
+ set 10 stable poses on the slope as goal poses, and pushed and                        convexification of the collision mesh by MuJoCo.
+ rotated the objects from below to reach these goals. The results
+ in Table X and Fig. 17 show that the real-time replanning
+ capability of SCSP provides substantially better robustness.                          B. Case Study II: Articulated Object Manipulation
+    3) Grasping & Dexterous Manipulation: SCSP can also be
+ applied to predict grasping poses, such as bimanual grasping                             SCSP uses active contact selection to perform articulated
+ and multi-finger grasping. Following [49], we use the Grasp                           object manipulation. We evaluate this capability on a drawer
+ Wrench Boundary (GWB) [50] to select grasping regions and                             and a microwave door, which require sequential contact
+ identify the top-K pairs of potential valid regions for grasping.                     interactions. The tasks are to pull the drawer to a target
+ Subsequently, sampling of the candidate set Iobj is performed                         displacement and to open the microwave door to a target angle.
+ within these regions. The objective of the CSO inner loop                             In both tasks, the object is semantically segmented offline
+ optimization is then transformed to force closure:                                    into different parts, such as handles, while non-manipulable
+                                                                                       parts are excluded. From the current end-effector pose, we
+                 Nd                                       nd
+                 X                             2          X             2              coarsely sample a 3D Cartesian region. Contact points outside
+         min            ξw(j) − Jo λ̂(j)
+                                     r             + wλ         λ̂(j)
+                                                                  r                    it may require a large change in contact posture and are
+     λ̂r ∈K                                    2                        2
+                 j=1                                      j=1
+                                                                              (54)     masked. The drawer interior and the microwave-door interior
+                 K
+                 X                                                                     are also masked before the drawer or door is pulled open.
+          s.t.         λ̂(j),n
+                         r       ≥ ζ, ∀j = 1, . . . , nd .                             For the drawer, we directly compute the final pulled-out
+                 i=1
+                                                                                       pose as the goal pose. For the microwave, which involves
+ where nc is the number of robot contact points, nd denotes                            rotational motion, we set the goal pose of each rollout as
+ the number of sampled disturbance wrenches, w(j) ∈ R6                                 the SLERP interpolation between the current state and the
+                                            (j)
+ represents the j-th disturbance wrench. λr denotes the robot                          desired door state. The parameter and cost settings of SCSP
+ contact force corresponding to disturbance w(j) . ξ is the dis-                       are the same as those in Section V-A, with wstab = 0. The
+ turbance scaling factor, ζ the minimum total normal force re-                         solver for CPO is an MPPI-based motion planner [51]. As a
+ quired to maintain an active grasp and wλ = 0.1. During each                          baseline, we use an open-loop method that plans the contact
+ rollout, the CSO in SCSP solves (54) for the nearest points                           sequence offline using CSO and executes it online with CPO,
+ pinear to the robot end-effector or Allegro fingers additional to                     in order to demonstrate the effectiveness of online contact
+ the top 5 pairs of potential grasping pairs, thereby searching                        selection. We randomly perturbed the distance and yaw angle
+ for grasping poses online. We use an open-loop baseline that                          between the drawer or microwave and the   Franka base by
+ computes the optimal grasping locations offline using CSO                             ∆d ∈ [−0.1, 0.1] m and ∆θyaw ∈ − π4 , π4 and conducted 10
+ and executes them online with CPO for comparison. For bi-                             trials for each object. The experimental results are shown in
+ manual and multi-finger grasping, we selected five objects                            Fig. 19, Table X and the website videos. When the contact
+ each, placed them on a pedestal (black), randomly perturbed                           point on the handle leaves this region, the contact switches
+ their yaw angles θyaw and scaled their sizes by a random                              to the drawer panel or to the inner wall of the microwave
+ factor ς ∈ {0.5, 1, 1.5, 2}, conducting 20 trials for each task.                      door. SCSP succeeds in 20/20 trials versus 15/20 for the
+ The results are shown in Table X and Fig. 18. For bi-manual                           open-loop baseline. Offline sequences fail under slippage or
+ grasping, SCSP succeeds in 15/20 trials whereas the open-                             near-singular configurations. Because CSO is object-centric,
+ loop baseline fails in all 20; for multi-finger grasping, the                         its selected contact may violate robot kinematic limits; the
+ two are close (16/20 versus 15/20), so the benefit of online                          ranking strategy substitutes a nearby feasible candidate and
+ contact selection is modest in this setting; however, SCSP                            enables recovery.
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                             20
+
+
+
+                                                                      TABLE X
+                                                      S UCCESS TRIALS ACROSS DIFFERENT TASKS .
+
+Metric             Soccer Dribbling         Tilted Pushing        Bi-Manual Grasping       Multi-finger Grasping      Articulated Object Manipulation
+                  Open-Loop     SCSP     Open-Loop      SCSP     Open-Loop      SCSP      Open-Loop        SCSP       Open-Loop              SCSP
+Success Trials         /        10/10        0/20        18/20       0/20        15/20        15/20        16/20         15/20               20/20
+
+
+
+ (a)                                                                          can use a nearby contact point when the lowest-cost sampled
+                                                                              point is difficult to execute. These results do not establish
+                                                                              surrogate accuracy beyond the evaluated tasks; robustness
+                                                                              claims therefore apply only to tested settings.
+                   t=1s                     t=3s                     t=6s
+                                                                                                    VIII. C ONCLUSION
+ (b)
+                                                                                 This work presented SCSP, a cascaded framework that
+                                                                              separates contact-location selection from contact-trajectory
+                                                                              optimization for contact-rich manipulation. CSO evaluates a
+                                                                              finite set of sampled surface points with a surrogate contact
+                   t=1s                     t=3s                     t=6s
+                                                                              model, and CPO uses the resulting contact prior together with
+Fig. 19. Snapshots of articulated-object manipulation tasks. Given only       a ranking rule to generate approaching, contact, and contact-
+the target pose of the object, SCSP performs online reasoning and selects     switching trajectories. Simulations and hardware experiments
+appropriate contact locations to accomplish the task. (a) Opening a drawer.
+(b) Opening the microwave door.
+                                                                              show that this decomposition can improve manipulation diver-
+                                                                              sity and task success under the tested geometric and modeling
+                                                                              conditions. The results also indicate that SCSP remains limited
+                 VII. D ISCUSSION & L IMITATIONS                              by the point-contact and fixed-contact-set assumptions of the
+                                                                              surrogate model, as well as by the need for a one-time MuJoCo
+   The theoretical and experimental results support the useful-               calibration in the vision-based hardware experiments.
+ness of explicit contact selection, while also exposing several
+limitations of the current implementation.                                                                  R EFERENCES
+   CSO provides contact-location priors through mesh dis-                      [1] C. Zito et al., “Two-level RRT planning for robotic push manipulation,”
+cretization and a lightweight surrogate contact model. This                        in Proc. IROS, 2012, pp. 678–685.
+design is computationally efficient, but its accuracy decreases                [2] A. Wu et al., “R3T: Rapidly-exploring random reachable set tree for
+                                                                                   optimal kinodynamic planning of nonlinear hybrid systems,” in Proc.
+in complex contact configurations because it assumes a fixed                       ICRA, 2020, pp. 4245–4251.
+object–environment contact set, restores inter-contact coupling                [3] J. A. Haustein et al., “Kinodynamic randomized rearrangement planning
+only through a single residual correction, and represents con-                     via dynamic transitions between statically stable states,” in Proc. ICRA,
+                                                                                   2015, pp. 3075–3082.
+tacts as points. CSO therefore does not provide sequential,                    [4] C. Chen et al., “Trajectotree: Trajectory optimization meets tree search
+high-fidelity state prediction and is not directly suited to                       for planning multi-contact dexterous manipulation,” in Proc. IROS, 2021,
+complex end-effectors or deformable objects. Higher-fidelity                       pp. 8262–8268.
+                                                                               [5] X. Cheng et al., “Contact mode guided motion planning for quasidy-
+contact models such as [52] are a potential direction for these                    namic dexterous manipulation in 3D,” in Proc. ICRA, 2022, pp. 2730–
+capabilities, although their interfaces and task domains differ                    2736.
+from SCM and they are not drop-in replacements. General                        [6] B. Aceituno-Cabezas et al., “A global quasi-dynamic model for contact-
+                                                                                   trajectory optimization in manipulation,” 2020.
+multi-contact manipulation remains limited by scalability:                     [7] T. Marcucci et al., “Approximate hybrid model predictive control
+selecting nr robot contacts from ns candidates grows combina-                     for multi-contact push recovery in complex environments,” in Proc.
+torially, e.g., nnsr in the unordered case, and tasks with strong                  Humanoids, 2017, pp. 31–38.
+                                                                               [8] F. R. Hogan et al., “Feedback control of the pusher-slider system: A
+geometric coupling among contacts, such as power grasping,                         story of hybrid and underactuated contact dynamics,” in Proc. WAFR,
+are beyond the demonstrated precision-grasping case. Reduc-                        2020, pp. 800–815.
+ing the CSO search space, as done with the GWB-based                           [9] M. Kim et al., “Pre- and post-contact policy decomposition for non-
+                                                                                   prehensile manipulation with zero-shot sim-to-real transfer,” in Proc.
+regions in Section VI, is a first step toward this direction and                   IROS, 2023, pp. 10 644–10 651.
+is left for future work.                                                      [10] J. Liang et al., “Learning preconditions of hybrid force-velocity con-
+   CPO generates trajectories for contact-free and contact-                        trollers for contact-rich manipulation,” in Proc. CoRL.
+                                                                              [11] W. Zhou et al., “Learning to grasp the ungraspable with emergent
+rich stages using model-predictive control. Its implementation                     extrinsic dexterity,” in Proc. CoRL, 2023, pp. 150–160.
+may be less suitable for tasks such as loco-manipulation and                  [12] X. Zhang et al., “Learning generalizable pivoting skills,” in Proc. ICRA,
+may not maintain continuous surface contact during contact                         2023, pp. 5865–5871.
+                                                                              [13] W. Zhou et al., “HACMan: Learning hybrid actor-critic maps for 6D
+switching. Future work can replace the rule-based ranking                          non-prehensile manipulation,” in Proc. CoRL, 2023, pp. 241–265.
+strategy with a learned representation and can combine CPO                    [14] Y. Cho et al., “Corn: Contact-based object representation for non-
+with a more expressive motion planner such as [53].                                prehensile manipulation of general unseen objects,” arXiv preprint
+                                                                                   arXiv:2403.10760, 2024.
+   The experiments also suggest that the interface between                    [15] B. Jiang et al., “Hacman++: Spatially-grounded motion primitives for
+contact selection and trajectory optimization is important: CPO                    manipulation,” arXiv preprint arXiv:2407.08585, 2024.
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020                                                                                                     21
+
+
+
+[16] H. Le et al., “Enhancing exploration with diffusion policies in hybrid off-    [45] X. Wei et al., “Approximate convex decomposition for 3D meshes with
+     policy RL: Application to non-prehensile manipulation,” IEEE Robot.                 collision-aware concavity and tree search,” ACM Trans. Graph., vol. 41,
+     Autom. Lett., 2025.                                                                 no. 4, pp. 1–18, 2022.
+[17] J. Lyu et al., “Dywa: Dynamics-adaptive world action model for                 [46] B. Wen et al., “Foundationpose: Unified 6d pose estimation and tracking
+     generalizable non-prehensile manipulation,” in Proc. ICCV, 2025, pp.                of novel objects,” in Proc. CVPR, 2024, pp. 17 868–17 879.
+     11 058–11 068.                                                                 [47] S. Yin et al., “Visualmimic: Visual humanoid loco-manipulation via
+[18] A. Aydinoglu et al., “Consensus complementarity control for multi-                  motion tracking and generation,” arXiv preprint arXiv:2509.20322,
+     contact MPC,” IEEE Trans. Robot., 2024.                                             2025.
+[19] Y. Li et al., “On the surprising robustness of sequential convex               [48] J. Kong et al., “Learning soccer skills for humanoid robots: A progres-
+     optimization for contact-implicit motion planning,” arXiv preprint                  sive perception-action framework,” arXiv preprint arXiv:2602.05310,
+     arXiv:2502.01055, 2025.                                                             2026.
+[20] V. Kurtz et al., “Inverse dynamics trajectory optimization for contact-        [49] M. Lin et al., “Bidexgrasp: Coordinated bimanual dexterous grasps
+     implicit model predictive control,” Int. J. Robot. Res., vol. 45, no. 1, pp.        across object geometries and sizes,” arXiv preprint arXiv:2604.06589,
+     23–40, 2026.                                                                        2026.
+[21] T. Pang et al., “Global planning for contact-rich manipulation via             [50] C. Borst et al., “Grasp planning: How to choose a suitable task wrench
+     local smoothing of quasi-dynamic contact models,” IEEE Trans. Robot.,               space,” in Proc. ICRA, vol. 1, 2004, pp. 319–325.
+     vol. 39, no. 6, pp. 4691–4711, 2023.                                           [51] M. Bhardwaj et al., “Storm: An integrated framework for fast joint-space
+[22] W. Jin, “Complementarity-free multi-contact modeling and optimization               model-predictive control for reactive manipulation,” in Proc. CoRL,
+     for dexterous manipulation,” arXiv preprint arXiv:2408.07855, 2024.                 2022, pp. 750–759.
+[23] M. Zhang et al., “Simultaneous trajectory optimization and contact             [52] W. Huang et al., “Pointworld: Scaling 3D world models for in-the-wild
+     selection for contact-rich manipulation with high-fidelity geometry,”               robotic manipulation,” arXiv preprint arXiv:2601.03782, 2026.
+     IEEE Trans. Robot., 2025.                                                      [53] S. Xu et al., “Interprior: Scaling generative control for physics-based
+[24] W. Yang et al., “Contactsdf: Signed distance functions as multi-contact             human-object interactions,” arXiv preprint arXiv:2602.06035, 2026.
+     models for dexterous manipulation,” arXiv preprint arXiv:2408.09612,
+     2024.
+[25] S. Venkatesh et al., “Approximating global contact-implicit MPC via
+                                                                                                                       A PPENDIX
+     sampling and local complementarity,” arXiv preprint arXiv:2505.13350,          A. Proof of Closest Approximation
+     2025.
+[26] M. Posa et al., “A direct method for trajectory optimization of rigid            Let Aii = Wii − Rii ∈ Rn×n be the unregularized
+     bodies through contact,” Int. J. Robot. Res., vol. 33, no. 1, pp. 69–81,       contact mobility matrix. We seek a diagonal matrix D =
+     2014.
+[27] P. M. Wensing et al., “Optimization-based control for dynamic legged
+                                                                                    diag(d1 , . . . , dn ) that minimizes the Frobenius norm of the
+     robots,” IEEE Trans. Robot., vol. 40, pp. 43–63, 2023.                         approximation error:
+[28] D. Stewart et al., “An implicit time-stepping scheme for rigid body                                                                      2
+     dynamics with Coulomb friction,” in Proc. ICRA, vol. 1, 2000, pp. 162–                             D ∗ = arg min kAii − DkF .                            (55)
+                                                                                                                          D
+     169.
+[29] M. Anitescu, “Optimization-based simulation of nonsmooth rigid multi-          Expanding the Frobenius norm, we have
+     body dynamics,” Math. Program., vol. 105, no. 1, pp. 113–143, 2006.
+                                                                                                                                     n
+[30] H. Bui et al., “Push anything: Single- and multi-object pushing from                                    X                       X
+     first sight with contact-implicit MPC,” arXiv preprint arXiv:2510.19974,          kAii − Dk2F =                |(Aii )jk |2 +         |(Aii )jj − dj |2 . (56)
+     2025.                                                                                                   j6=k                    j=1
+[31] H. Suh et al., “Dexterous contact-rich manipulation via the contact trust
+     region,” arXiv preprint arXiv:2505.02291, 2025.                                The off-diagonal terms are not affected by choosing D, and
+[32] Y. Jiang et al., “Robust model-based in-hand manipulation with inte-           so the minimization reduces to independent scalar problems
+     grated real-time motion-contact planning and tracking,” arXiv preprint
+     arXiv:2505.04978, 2025.                                                        for each diagonal entry:
+[33] Z. Xie et al., “Where to touch, how to contact: Hierarchical RL-MPC
+     framework for geometry-aware long-horizon dexterous manipulation,”                    d∗j = arg min |(Aii )jj − dj |2 ,           j = 1, . . . , n.      (57)
+                                                                                                        dj
+     arXiv preprint arXiv:2601.10930, 2026.
+[34] T. Pang et al., “A convex quasistatic time-stepping scheme for rigid           It is immediate that the minimizer is d∗j = (Aii )jj . Hence
+     multibody systems with contact and friction,” in Proc. ICRA, 2021, pp.
+     6614–6620.                                                                     diag(Aii ) is the closest diagonal approximation in the Frobe-
+[35] N. Hogan, “Impedance control: An approach to manipulation,” in Proc.           nius norm. Equation (27) adds I = Rii , so that D =
+     ACC, 1984, pp. 304–313.                                                        diag(Wii ) carries the same regularization as the coupled
+[36] M. Anitescu et al., “An iterative approach for cone complementarity
+     problems for nonsmooth dynamics,” Comput. Optim. Appl., vol. 47,               matrix Wenv .
+     no. 2, pp. 207–235, 2010.
+[37] M. Avriel, Nonlinear programming: Analysis and methods. Courier
+     Corporation, 2003.
+[38] J.-M. Lien et al., “Approximate convex decomposition of polyhedra,” in
+     Proc. SPM, 2007, pp. 121–131.
+[39] B. Acosta et al., “Perceptive mixed-integer footstep control for under-
+     actuated bipedal walking on rough terrain,” IEEE Trans. Robot., 2025.
+[40] J. Nakanishi et al., “Operational space control: A theoretical and
+     empirical comparison,” Int. J. Robot. Res., vol. 27, no. 6, pp. 737–757,
+     2008.
+[41] G. Williams et al., “Model predictive path integral control using covari-
+     ance variable importance sampling,” arXiv preprint arXiv:1509.01149,
+     2015.
+[42] S. Brahmbhatt et al., “Contactdb: Analyzing and predicting grasp contact
+     via thermal imaging,” in Proc. CVPR, 2019, pp. 8709–8719.
+[43] E. Todorov et al., “MuJoCo: A physics engine for model-based control,”
+     in Proc. IROS, 2012, pp. 5026–5033.
+[44] V. Makoviychuk et al., “Isaac Gym: High performance GPU-based
+     physics simulation for robot learning,” arXiv preprint arXiv:2108.10470,
+     2021.
+

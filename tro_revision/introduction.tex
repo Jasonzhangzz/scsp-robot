@@ -17,17 +17,19 @@ SCSP enables online contact selection and closed-loop generation of diverse mani
 
 \begin{table*}[t]
 \centering
-\caption{Comparison of Contact Planning Methods. \madd{``Generalization'' in this paper refers to cross-task generalization across robot embodiments and task settings; the cross-object generalization reported by DyWA~\cite{lyu2025dywa} is within a trained task.}}
+\caption{Comparison of Contact Planning Methods.}
 \label{tab:comparison}
-\small
-\begin{tabularx}{\textwidth}{l c c c c c}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X *{6}{>{\centering\arraybackslash}X}}
 \toprule
 \textbf{Methods}
 & \textbf{Perception}
 & \textcolor{red}{\textbf{Active Contact Selection}}
 & \textbf{6D Manip. Exp.}
 & \textbf{Real-Time}
-& \textcolor{red}{\textbf{No Obj.-Specific Analytic Geom.}} \\
+& \textcolor{red}{\textbf{Irregular Geometry}}
+& \textcolor{red}{\textbf{Task Diversity}} \\
 \midrule
 
 C3~\cite{aydinoglu2024consensus}
@@ -35,63 +37,72 @@ C3~\cite{aydinoglu2024consensus}
 & \ding{55}
 & \ding{55}
 & \ding{51}
-& \ding{55} \\
+& \ding{55}
+& \textcolor{red}{\ding{51}} \\
 
 CRISP~\cite{li2025surprising}
 & \textcolor{red}{Exact State}
 & \textcolor{red}{\ding{55}}
 & \ding{55}
 & \ding{51}
-& \ding{55} \\
+& \ding{55}
+& \textcolor{red}{\ding{55}} \\
 
 IDTO~\cite{kurtz2026inverse}
 & \textcolor{red}{Exact State}
 & \ding{55}
 & \ding{51}
 & \ding{51}
-& \ding{55} \\
+& \ding{55}
+& \textcolor{red}{\ding{51}} \\
 
 CQDCs~\cite{pang2023global}
 & \textcolor{red}{Exact State}
 & \ding{55}
 & \ding{51}
 & \ding{51}
-& \ding{55} \\
+& \ding{55}
+& \textcolor{red}{\ding{51}} \\
 
 CF-MPC~\cite{jin2024complementarity}
 & \textcolor{red}{Exact State}
 & \ding{55}
 & \ding{51}
 & \ding{51}
-& \ding{51} \\
+& \ding{51}
+& \textcolor{red}{\ding{51}} \\
 
 STOCS-3D~\cite{zhang2025simultaneous}
 & \textcolor{red}{Exact State}
-& \textcolor{red}{\ding{55}}
+& \textcolor{red}{\ding{51}}
 & \ding{51}
 & \ding{55}
-& \ding{51} \\
+& \ding{51}
+& \textcolor{red}{Not Validated} \\
 
 \textcolor{red}{ContactSDF~\cite{yang2024contactsdf}}
 & \textcolor{red}{Vision}
 & \textcolor{red}{\ding{55}}
 & \textcolor{red}{\ding{51}}
 & \textcolor{red}{\ding{51}}
+& \textcolor{red}{\ding{51}}
 & \textcolor{red}{\ding{51}} \\
 
 DyWA~\cite{lyu2025dywa}
 & Vision
-& \textcolor{red}{\ding{55}}
+& \textcolor{red}{\ding{51}}
 & \ding{51}
 & \ding{51}
-& \ding{51} \\
+& \ding{51}
+& \textcolor{red}{\ding{55}} \\
 
 Sampling~\cite{venkatesh2025approximating}
 & Vision
 & \ding{51}
 & \ding{51}
 & \ding{51}
-& \ding{51} \\
+& \ding{51}
+& \textcolor{red}{Not Validated} \\
 
 \midrule
 
@@ -100,7 +111,8 @@ Sampling~\cite{venkatesh2025approximating}
 & \ding{51}
 & \ding{51}
 & \ding{51}
-& \ding{51} \\
+& \ding{51}
+& \textcolor{red}{\ding{51}} \\
 
 \bottomrule
 \end{tabularx}
@@ -124,7 +136,7 @@ Although CIMPC enables online planning of contact-mode transitions, actively sel
 }
 
 \textcolor{red}{
-In this work, we propose Simultaneous Contact Selection and Planning (SCSP), a cascaded optimization framework for complex contact-rich manipulation. SCSP comprises Contact Selection Optimization (CSO), which performs object-centric search over candidate contact locations and provides contact guidance to steer optimization away from local optima, and Contact Planning Optimization (CPO), which plans robot actions to execute the guided contact while retaining the freedom to realize a nearby feasible contact for flexible execution. A ranking strategy couples the two modules in a cascade by comparing the CSO-guided contact with nearby candidates and passing the resulting reference to CPO.
+In this work, we propose Simultaneous Contact Selection and Planning (SCSP), a cascaded optimization framework for complex contact-rich manipulation. \madd{It combines object-centric contact guidance, executable trajectory planning, and a ranking strategy that balances the guided contact with nearby feasible alternatives.}
 }
 
 \rev{Table \ref{tab:comparison} summarizes the scope of SCSP relative to representative contact-planning methods. The contributions are:}
