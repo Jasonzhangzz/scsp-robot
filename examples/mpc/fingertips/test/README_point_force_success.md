@@ -37,8 +37,15 @@ One frozen-contact full-dynamic prediction step spans 20 ms. Native MuJoCo
 physics independently executes the selected body-fixed force over all 40
 substeps (0.5 ms each). The point and force direction follow the object's body
 frame. There is no robot collider, state teleportation, pulse duty scaling or
-execution force clipping. All solvers share the 3 N force bound and friction
-pyramid. Native QP uses its actual soft constraint objective; noslip postprocessing
+execution force clipping. All solvers share the 3 N force bound, the friction
+pyramid and the per-interval object delta-v caps (`--max-linear-force-delta-v`,
+default 0.3 m/s; `--max-angular-force-delta-v`, default 3 rad/s). The caps are
+part of the planner's feasible set (CPU `force_commands`, GPU `bounded_force`,
+IPOPT CasADi expression), never an executor clip. Without them a 3 N command on
+a 10 g object is a 6 m/s one-step dead-beat impulse: cohorts run that way
+(e.g. `point_force_success_20261022`) failed mostly by launching the object off
+the table (`physics_instability`/`native_reset`), not by a contact-model error.
+Native QP uses its actual soft constraint objective; noslip postprocessing
 is disabled so it does not silently add a second solver after QP. ComFree uses
 the pinned upstream row mass and force equations (ba8b9969), ported to float64
 on the common MuJoCo geometry. This is a model-law comparison with common

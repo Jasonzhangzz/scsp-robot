@@ -31,10 +31,11 @@ from planning.point_force_benchmark import (OBJECTS,TrialRows,scene,surface_poin
     trial_summary,write_json,write_rows,json_value)
 from planning.point_force_success import SuccessPlanner
 from planning.rollout_timing import distribution
-from models.corrected_scm import LAW_VERSION
+PAPER_SCM_LAW = 'spectral_residual_one_step'
 
 CONFIGS={'scm_gpu_lm':('scm_corrected','gpu-lm'),'comfree_gpu_lm':('comfree','gpu-lm'),
-         'contactsdf_gpu_lm':('contactsdf','gpu-lm'),'qp_adamw':('qp','adamw'),'comfree_lm':('comfree','lm'),'scm_lm':('scm_corrected','lm'),
+         'contactsdf_gpu_lm':('contactsdf','gpu-lm'),'contactsdf_lm':('contactsdf','lm'),
+         'qp_adamw':('qp','adamw'),'comfree_lm':('comfree','lm'),'scm_lm':('scm_corrected','lm'),
          'scm_cmaes':('scm_corrected','cma-es'),'scm_cem':('scm_corrected','cem'),
          'scm_ipopt':('scm_corrected','ipopt'),'qp_lm':('qp','lm')}
 DEFAULT_CONFIGS=('qp_adamw','comfree_gpu_lm','contactsdf_gpu_lm','scm_gpu_lm','scm_cmaes','scm_cem','scm_ipopt')
@@ -42,7 +43,7 @@ SOURCES=['models/corrected_scm.py','models/comfree_contact.py','planning/point_f
     'planning/point_force_lm_gpu.py','planning/point_force_benchmark.py','planning/point_force_gpu.py','planning/point_force_prediction.py',
     'planning/object_pose_cost.py','planning/rollout_timing.py','examples/mpc/fingertips/test/params.py',
     'examples/mpc/fingertips/test/run_point_force_success.py',
-    'examples/mpc/franka/scm/contact_dynamics.py']
+    'examples/mpc/franka/scm/contact_dynamics.py','examples/mpc/franka/scm/residual_scm.py']
 
 
 def parser():
@@ -61,8 +62,12 @@ def parser():
         (['--linear-velocity-coef'],dict(type=float,default=0.)),
         (['--angular-velocity-coef'],dict(type=float,default=0.)),
         (['--pose-velocity-scale'],dict(type=float,default=1.)),
-        (['--max-linear-force-delta-v'],dict(type=float,default=1e6)),
-        (['--max-angular-force-delta-v'],dict(type=float,default=1e6)),
+        # Per-interval object delta-v a single contact command may deliver.
+        # With a 10 g object, 3 N over 20 ms is 6 m/s: an unbounded one-step
+        # dead-beat impulse launches the object off the table regardless of
+        # the contact model, so the feasible set must bound the impulse.
+        (['--max-linear-force-delta-v'],dict(type=float,default=.3)),
+        (['--max-angular-force-delta-v'],dict(type=float,default=3.)),
         (['--async-result-wait-ms'],dict(type=float,default=None)),
         (['--async-max-command-age'],dict(type=float,default=.1)),
         (['--async-planning-budget-ms'],dict(type=float,default=None)),
@@ -114,7 +119,8 @@ def worker(task):
             traceback.print_exc()
         summary=trial_summary(rows,name,obj,seed,False,error)
         if error:summary['success']=False
-        summary.update(configuration=config,solver=solver,law_version=LAW_VERSION if name=='scm_corrected' else name)
+        summary.update(configuration=config,solver=solver,
+                       law_version=PAPER_SCM_LAW if name=='scm_corrected' else name)
         print('TRIAL_RESULT '+json.dumps(json_value(summary)),flush=True)
     archive=destination.with_suffix('.json.gz');temporary=archive.with_suffix('.gz.tmp')
     with gzip.open(temporary,'wt',compresslevel=4) as stream:
@@ -165,10 +171,13 @@ def main():
     if args.smoke:args.trials=1;args.steps=3;args.objects=['foam_brick']
     args.output_dir=args.output_dir.resolve();args.output_dir.mkdir(parents=True,exist_ok=True)
     if args.summarize_only:summarize(args);return
-    protocol=dict(model_law=LAW_VERSION,temperature=args.softplus_temperature,configs={c:CONFIGS[c] for c in args.configs},
+    protocol=dict(model_law=PAPER_SCM_LAW,temperature=args.softplus_temperature,configs={c:CONFIGS[c] for c in args.configs},
         objects=args.objects,seeds=list(range(args.trials)),expected_trials=len(args.configs)*len(args.objects)*args.trials,
         synchronous=True,policy_dt=args.policy_dt,physics_substeps=args.force_physics_substeps,max_steps=args.steps,
         execution='body-fixed point force held on every physics substep; zero extra torque; no collider or pose overwrite',
+        force_feasible_set=dict(max_contact_force=args.max_contact_force,arm_friction=args.arm_friction,
+            max_linear_force_delta_v=args.max_linear_force_delta_v,max_angular_force_delta_v=args.max_angular_force_delta_v,
+            note='identical cone and per-interval delta-v caps on CPU (force_commands) and GPU (bounded_force) paths'),
         prediction='one frozen-contact 20 ms full-dynamic step; common measured mass, contacts, friction and objective',
         success='position<0.02m, quaternion metric<0.015, 10 unforced settled intervals',
         comfree=dict(commit='ba8b9969f5f7859d51b1f738f458f8d2f49be080',stiffness=args.comfree_stiffness,damping=args.comfree_damping,

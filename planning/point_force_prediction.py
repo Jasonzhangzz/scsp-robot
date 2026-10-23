@@ -10,7 +10,7 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from models.corrected_scm import corrected_scm_velocity
+from examples.mpc.franka.scm.residual_scm import spectral_residual_velocity
 
 
 class CPUSubstepPredictor:
@@ -64,7 +64,8 @@ class CPUSubstepPredictor:
                     old=d.qvel.copy()
                     free=old+h*d.qacc_smooth
                     if self.name=='scm_corrected':
-                        updated,info=corrected_scm_velocity(free,rows,gap,inverse,h,a.scm_regularization)
+                        updated,info=spectral_residual_velocity(
+                            free,rows,gap,inverse,h,a.scm_regularization,a.softplus_temperature)
                         alpha=float(info['alpha'])
                     elif self.name=='contactsdf':
                         updated=contactsdf_velocity(mass,free,rows,gap,h,a.contactsdf_sigma)[0]

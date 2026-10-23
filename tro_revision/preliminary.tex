@@ -409,5 +409,5 @@ where $\boldsymbol{\beta}$ denotes the contact impulses of all contact points an
 \textcolor{red}{
 The modified problem is exact for the chosen diagonal surrogate, while
 its discrepancy from the original contact model depends on the discarded
-off-diagonal coupling. The predictive fidelity of SCM is evaluated empirically in Section~\ref{sec:scm_evaluation}.
+off-diagonal coupling. The SCM introduced in Section~\ref{sec:cso} starts from the same diagonal approximation, replaces the $\max$ operator in \eqref{eq:cf_impulse} with a smooth softplus, and partially restores the off-diagonal coupling with one residual correction; its predictive fidelity is evaluated empirically in Section~\ref{sec:scm_evaluation}.
 }

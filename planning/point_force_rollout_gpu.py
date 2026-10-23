@@ -10,7 +10,7 @@ import mujoco
 import warp as wp
 from scipy.spatial.transform import Rotation
 from planning.point_force_gpu import (GPUForceCEM,ForceJob,V6,M6,initialize,sample,update,
-    feasible,cholesky_solve6,pose_cost)
+    bounded_force,cholesky_solve6,pose_cost)
 from planning.point_force_collision_gpu import GPUPlaneContacts,PlaneMesh,plane_mesh_contacts
 
 P12=wp.types.vector(12,wp.float64)
@@ -32,16 +32,6 @@ class Physics:
     friction:wp.float64
     refsafe:wp.int32
     substeps:wp.int32
-
-
-@wp.func
-def bounded_force(j:ForceJob,c:int,raw:wp.vec3d):
-    direction=feasible(wp.vec3d(wp.float64(1.),raw[1],raw[2]),wp.float64(1.),j.mu)
-    body_force=j.frame[c]*direction
-    angular=j.inverse_inertia*wp.cross(j.point[c]-j.center_of_mass,body_force)
-    cap=wp.min(j.cap,j.object_mass*j.max_linear_force_delta_v/(j.h*wp.max(wp.length(body_force),wp.float64(1.e-30))))
-    cap=wp.min(cap,j.max_angular_force_delta_v/(j.h*wp.max(wp.length(angular),wp.float64(1.e-30))))
-    return direction*(wp.clamp(raw[0],wp.float64(0.),wp.float64(1.))*cap)
 
 
 @wp.func
@@ -109,23 +99,28 @@ def contact_response(j:ForceJob,mass:M6,inverse:M6,v:V6,jac:R12,gap:P12,
     alpha=wp.float64(1.)
     residual=wp.float64(0.)
     if j.model == 0:
-        numerator = wp.float64(0.)
-        normp = wp.float64(0.)
         q = V6(wp.float64(0.))
         for r in range(rows):
             row = V6(wp.float64(0.))
             for k in range(6):
                 row[k] = jac[r,k]
             g = wp.dot(row,v)+wp.max(gap[r],wp.float64(0.))/h
-            impulse_trial = -g/(diagonal[r]+j.regularization)
-            p = wp.max(impulse_trial,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(impulse_trial)/j.temperature))
+            raw = -g/(diagonal[r]+j.regularization)
+            p = wp.max(raw,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(raw)/j.temperature))
+            impulse[r] = p
             q += row*p
-            numerator -= g*p
-            normp += p*p
-        denominator = wp.dot(q,inverse*q)+j.regularization*normp
-        if denominator > wp.float64(0.):
-            alpha = wp.clamp(numerator/denominator,wp.float64(0.),wp.float64(1.))
-        v += alpha*(inverse*q)
+        stored = inverse*q
+        q = V6(wp.float64(0.))
+        for r in range(rows):
+            row = V6(wp.float64(0.))
+            for k in range(6):
+                row[k] = jac[r,k]
+            g = wp.dot(row,v)+wp.max(gap[r],wp.float64(0.))/h
+            mismatch = wp.dot(row,stored)+j.regularization*impulse[r]+g
+            raw = impulse[r]-mismatch/j.delassus_lipschitz
+            p = wp.max(raw,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(raw)/j.temperature))
+            q += row*p
+        v += inverse*q
     elif j.model == 1:
         # Equivalent to contactsdf_velocity's Q=M/h^2 LSE projection.
         maximum = wp.float64(-1.e100)

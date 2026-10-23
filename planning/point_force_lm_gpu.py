@@ -6,7 +6,7 @@ The measured contact geometry is shared with the CPU reference and CUDA CEM.
 """
 import numpy as np
 import warp as wp
-from planning.point_force_gpu import ForceJob, GPUForceCEM, evaluate, feasible
+from planning.point_force_gpu import ForceJob, GPUForceCEM, evaluate, bounded_force
 
 R22 = wp.types.vector(22, wp.float64)
 
@@ -25,7 +25,7 @@ def residual(j: ForceJob, c: int, s: int):
     axis = wp.quat_rotate(q,wp.vec3d(j.config[3],j.config[4],j.config[5]))
     qr = q-wp.dot(q,qd)*qd
     upright = axis-up
-    f = feasible(j.samples[c,s],j.cap,j.mu)
+    f = bounded_force(j,c,j.samples[c,s])
     r = R22(wp.float64(0.))
     for k in range(3):
         r[k] = wp.sqrt(j.config[0])*delta[k]

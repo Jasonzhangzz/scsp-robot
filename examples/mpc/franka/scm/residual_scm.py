@@ -29,10 +29,14 @@ from __future__ import annotations
 import numpy as np
 import warp as wp
 
-if __package__:
-    from .scm_backend import ScmEngine
-else:
-    from scm_backend import ScmEngine
+try:
+    if __package__:
+        from .scm_backend import ScmEngine
+    else:
+        from scm_backend import ScmEngine
+except ModuleNotFoundError:
+    # The prediction functions above do not need the Warp contact engine.
+    ScmEngine = object
 
 
 def softplus(values, temperature):
@@ -196,6 +200,64 @@ def environment_impulses(jacobian, inverse_mass, projected_velocity, gap, timest
         raise FloatingPointError("nonfinite residual impulse")
     info.update(lipschitz=lipschitz, step_size=step)
     return beta, info
+
+
+def spectral_residual_velocity(free, jacobian, gap, inverse, timestep, regularization=1e-8,
+                               temperature=1e-4, lipschitz=None):
+    """One spectral residual step, equation (eq:scm_single_step_projection).
+
+    ``beta0 = softplus_T(-D^{-1} g)``, ``beta = softplus_T(beta0 - (W beta0 + g) / L)``
+    with ``L = lambda_max(W)`` and ``g = J v_free + max(gap, 0) / h``. ``L`` depends
+    only on the contact geometry, so a caller that reuses one contact set passes it in.
+    """
+    free = np.asarray(free, dtype=np.float64)
+    single = free.ndim == 1
+    free = np.atleast_2d(free)
+    jacobian = np.asarray(jacobian, dtype=np.float64)
+    inverse = np.asarray(inverse, dtype=np.float64)
+    gap = np.asarray(gap, dtype=np.float64)
+    rows = jacobian.shape[0]
+    if lipschitz is None:
+        lipschitz = spectral_radius(jacobian, inverse, regularization)[0]
+    lipschitz = float(lipschitz)
+    if rows == 0 or not np.isfinite(lipschitz) or lipschitz <= 0:
+        lipschitz = 1.0
+        updated = free
+        beta = np.zeros((len(free), rows))
+        beta0 = beta
+    else:
+        diagonal = diagonal_delassus(jacobian, inverse, regularization)
+        linear = free @ jacobian.T + np.maximum(gap, 0.0) / timestep
+        beta0 = softplus(-linear / diagonal, temperature)
+        # Row form of J M^{-1} (J^T beta): beta @ J @ M^{-T} @ J^T. M^{-1} is
+        # symmetric for a mass matrix, but the transpose keeps the product exact.
+        residual = beta0 @ jacobian @ inverse.T @ jacobian.T + regularization * beta0 + linear
+        beta = softplus(beta0 - residual / lipschitz, temperature)
+        updated = free + beta @ jacobian @ inverse.T
+    info = dict(lipschitz=lipschitz, impulse=beta, initial_impulse=beta0,
+                alpha=np.full(len(free), 1.0 / lipschitz))
+    if single:
+        info["impulse"] = beta[0]
+        info["initial_impulse"] = beta0[0]
+        info["alpha"] = 1.0 / lipschitz
+        updated = updated[0]
+    return updated, info
+
+
+def spectral_residual_velocity_cs(free, jacobian, gap, inverse, timestep, regularization,
+                                  temperature, lipschitz):
+    """CasADi form of one spectral residual step. ``lipschitz`` is a parameter."""
+    import casadi as cs
+    diagonal = cs.sum2((jacobian @ inverse) * jacobian) + regularization
+    linear = jacobian @ free + cs.fmax(gap, 0) / timestep
+
+    def softplus_cs(values):
+        return cs.fmax(values, 0) + temperature * cs.log(1 + cs.exp(-cs.fabs(values) / temperature))
+
+    beta0 = softplus_cs(-linear / diagonal)
+    residual = jacobian @ (inverse @ (jacobian.T @ beta0)) + regularization * beta0 + linear
+    beta = softplus_cs(beta0 - residual / lipschitz)
+    return free + inverse @ (jacobian.T @ beta)
 
 
 class ResidualScmEngine(ScmEngine):

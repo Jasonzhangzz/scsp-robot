@@ -65,6 +65,7 @@ class ForceJob:
     object_mass: wp.float64
     max_linear_force_delta_v: wp.float64
     max_angular_force_delta_v: wp.float64
+    delassus_lipschitz: wp.float64
     model: wp.int32
     population: wp.int32
     elites: wp.int32
@@ -79,6 +80,37 @@ def feasible(raw: wp.vec3d, cap: wp.float64, mu: wp.float64):
     y = wp.float64(2.) * wp.clamp(raw[2], wp.float64(0.), wp.float64(1.)) - wp.float64(1.)
     scale = wp.max(wp.float64(1.), wp.abs(x) + wp.abs(y))
     return wp.vec3d(n, mu*n*x/scale, mu*n*y/scale)
+
+
+@wp.func
+def bounded_force(j: ForceJob, c: int, raw: wp.vec3d):
+    """Feasible contact force with the shared per-interval delta-v caps.
+
+    Mirrors ``planning.point_force_prediction.force_commands``: the normal
+    scale ``raw[0]`` multiplies the smallest of the Coulomb-cone normal cap,
+    ``m*dv_lin/(h*|f|)`` and ``dw_ang/(h*|I^-1 (p-c) x f|)`` so one control
+    interval can never deliver more than the configured object delta-v.
+    """
+    direction = feasible(wp.vec3d(wp.float64(1.), raw[1], raw[2]), wp.float64(1.), j.mu)
+    body_force = j.frame[c]*direction
+    angular = j.inverse_inertia*wp.cross(j.point[c]-j.center_of_mass, body_force)
+    cap = wp.min(j.cap, j.object_mass*j.max_linear_force_delta_v/(j.h*wp.max(wp.length(body_force), wp.float64(1.e-30))))
+    cap = wp.min(cap, j.max_angular_force_delta_v/(j.h*wp.max(wp.length(angular), wp.float64(1.e-30))))
+    return direction*(wp.clamp(raw[0], wp.float64(0.), wp.float64(1.))*cap)
+
+
+def inertial_from_mass(mass):
+    """Recover (m, com, I_com) from a body-frame free-joint mass matrix.
+
+    MuJoCo's 6x6 free-joint mass matrix about the body origin is
+    ``[[m I, -m [c]x], [m [c]x, I_origin]]``; this inverts that structure.
+    """
+    mass = np.asarray(mass, dtype=float)
+    m = float(mass[0, 0])
+    skew = -mass[:3, 3:]/m
+    com = np.array([skew[2, 1], skew[0, 2], skew[1, 0]])
+    inertia = mass[3:, 3:]-m*(com@com*np.eye(3)-np.outer(com, com))
+    return m, com, inertia
 
 
 @wp.func
@@ -183,7 +215,7 @@ def evaluate(jobs: wp.array(dtype=ForceJob)):
     j.costs[c,s] = wp.float64(1.e100)
     if j.valid[c] == 0:
         return
-    f = feasible(j.samples[c,s],j.cap,j.mu)
+    f = bounded_force(j,c,j.samples[c,s])
     force = j.frame[c]*f
     torque = wp.cross(j.point[c],force)
     wrench = V6(force[0],force[1],force[2],torque[0],torque[1],torque[2])
@@ -193,23 +225,30 @@ def evaluate(jobs: wp.array(dtype=ForceJob)):
     alpha = wp.float64(1.)
     residual = wp.float64(0.)
     if j.model == 0:
-        numerator = wp.float64(0.)
-        normp = wp.float64(0.)
+        # Paper SCM: diagonal softplus, then one residual step of length 1/lambda_max(W).
+        # Reuse wrench/q so this branch introduces no new vector locals.
         q = V6(wp.float64(0.))
         for r in range(rows):
             row = V6(wp.float64(0.))
             for k in range(6):
                 row[k] = j.jac[r,k]
             g = wp.dot(row,v)+wp.max(j.gap[r],wp.float64(0.))/j.h
-            impulse_trial = -g/(j.diagonal[r]+j.regularization)
-            p = wp.max(impulse_trial,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(impulse_trial)/j.temperature))
+            raw = -g/(j.diagonal[r]+j.regularization)
+            p = wp.max(raw,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(raw)/j.temperature))
+            impulse[r] = p
             q += row*p
-            numerator -= g*p
-            normp += p*p
-        denominator = wp.dot(q,j.inverse*q)+j.regularization*normp
-        if denominator > wp.float64(0.):
-            alpha = wp.clamp(numerator/denominator,wp.float64(0.),wp.float64(1.))
-        v += alpha*(j.inverse*q)
+        wrench = j.inverse*q
+        q = V6(wp.float64(0.))
+        for r in range(rows):
+            row = V6(wp.float64(0.))
+            for k in range(6):
+                row[k] = j.jac[r,k]
+            g = wp.dot(row,v)+wp.max(j.gap[r],wp.float64(0.))/j.h
+            mismatch = wp.dot(row,wrench)+j.regularization*impulse[r]+g
+            raw = impulse[r]-mismatch/j.delassus_lipschitz
+            p = wp.max(raw,wp.float64(0.))+j.temperature*wp.log(wp.float64(1.)+wp.exp(-wp.abs(raw)/j.temperature))
+            q += row*p
+        v += j.inverse*q
     elif j.model == 4:
         q = V6(wp.float64(0.))
         for r in range(rows):
@@ -384,6 +423,8 @@ class GPUForceCEM:
         self.jobs = None
         self.job = j = ForceJob()
         n, pop = self.count,args.population_size
+        self.points_host = np.asarray(points,dtype=float).reshape(-1,3)
+        self.frames_host = np.asarray(frames,dtype=float).reshape(-1,3,3)
         j.point = wp.array(points,dtype=wp.vec3d,device=self.device)
         j.frame = wp.array(frames,dtype=wp.mat33d,device=self.device)
         j.valid = wp.ones(n,dtype=wp.int32,device=self.device)
@@ -413,6 +454,15 @@ class GPUForceCEM:
         j.force_reg,j.tangent_reg = args.force_reg_coef,args.friction_reg_coef
         j.linear_velocity_reg = getattr(args,'linear_velocity_coef',0.)
         j.angular_velocity_reg = getattr(args,'angular_velocity_coef',0.)
+        # Per-interval delta-v caps shared with force_commands; the inertial
+        # terms are filled from the mass matrix given to prepare().
+        j.max_linear_force_delta_v = float(getattr(args,'max_linear_force_delta_v',1e6))
+        j.max_angular_force_delta_v = float(getattr(args,'max_angular_force_delta_v',1e6))
+        j.delassus_lipschitz = 1.
+        self.inertial_host = (1.,np.zeros(3),np.eye(3))
+        j.object_mass = 1.
+        j.center_of_mass = wp.vec3d(0.,0.,0.)
+        j.inverse_inertia = wp.mat33d(np.eye(3))
         j.model = {'scm_corrected':0,'contactsdf':1,'lcp':2,'qp':3,'comfree':4}[model]
         j.population,j.elites = pop,max(2,int(np.ceil(pop*args.cem_elite_fraction)))
         j.iterations,j.tolerance = args.lcp_max_iterations,args.lcp_tolerance
@@ -425,7 +475,20 @@ class GPUForceCEM:
         j.linear_velocity_reg = getattr(self.args,'linear_velocity_coef',0.)*velocity_scale
         j.angular_velocity_reg = getattr(self.args,'angular_velocity_coef',0.)*velocity_scale
         j.inverse,j.free = M6(inverse),V6(free)
-        j.mass = M6(np.linalg.inv(np.asarray(inverse)))
+        if self.model == 'scm_corrected':
+            from examples.mpc.franka.scm.residual_scm import spectral_radius
+            lipschitz = spectral_radius(np.asarray(jac,dtype=float),np.asarray(inverse,dtype=float),
+                                        float(self.args.scm_regularization))[0]
+            j.delassus_lipschitz = float(lipschitz) if lipschitz > 0 else 1.
+        else:
+            j.delassus_lipschitz = 1.
+        mass_matrix = np.linalg.inv(np.asarray(inverse))
+        j.mass = M6(mass_matrix)
+        object_mass,com,inertia = inertial_from_mass(mass_matrix)
+        self.inertial_host = (object_mass,com,np.linalg.inv(inertia))
+        j.object_mass = object_mass
+        j.center_of_mass = wp.vec3d(*com)
+        j.inverse_inertia = wp.mat33d(self.inertial_host[2])
         j.observed = V6(free if observed is None else observed)
         j.pose = wp.transformd(wp.vec3d(*pose[:3]),wp.quatd(*pose[[4,5,6,3]]))
         j.target = wp.transformd(wp.vec3d(*target[:3]),wp.quatd(*target[[4,5,6,3]]))
@@ -475,11 +538,22 @@ class GPUForceCEM:
             wp.launch(update,self.count,inputs=[self.jobs],device=self.device)
 
     def commands(self,raw,indices):
-        raw=np.atleast_2d(raw)
-        normal=np.clip(raw[:,0],0,1)*self.job.cap
-        tangent=2*np.clip(raw[:,1:],0,1)-1
+        """Host mirror of bounded_force for the given contact indices."""
+        raw=np.clip(np.atleast_2d(raw),0,1);indices=np.asarray(indices,dtype=int)
+        mu,h=float(self.args.arm_friction),float(self.args.policy_dt)
+        object_mass,com,inverse_inertia=self.inertial_host
+        tangent=2*raw[:,1:]-1
         tangent/=np.maximum(1.,np.abs(tangent).sum(axis=1,keepdims=True))
-        return np.column_stack((normal,self.job.mu*normal[:,None]*tangent))
+        direction=np.column_stack((np.ones(len(raw)),mu*tangent))
+        frames=self.frames_host[indices];points=self.points_host[indices]
+        body_force=np.einsum('nij,nj->ni',frames,direction)
+        angular=np.cross(points-com,body_force)@inverse_inertia.T
+        cap=np.full(len(raw),float(self.args.max_contact_force)/np.sqrt(1+mu*mu))
+        cap=np.minimum(cap,object_mass*float(getattr(self.args,'max_linear_force_delta_v',1e6))/
+            (h*np.maximum(np.linalg.norm(body_force,axis=1),1e-30)))
+        cap=np.minimum(cap,float(getattr(self.args,'max_angular_force_delta_v',1e6))/
+            (h*np.maximum(np.linalg.norm(angular,axis=1),1e-30)))
+        return direction*(raw[:,0]*cap)[:,None]
 
     def evaluate_raw(self,raw,indices):
         """Batch arbitrary per-contact queries through the same contact law."""
@@ -550,7 +624,7 @@ def native_force(jobs: wp.array(dtype=ForceJob), applied: wp.array2d(dtype=wp.fl
     j = jobs[0]
     c,s = wp.tid()
     world = c*j.population+s
-    f = j.frame[c]*feasible(j.samples[c,s],j.cap,j.mu)
+    f = j.frame[c]*bounded_force(j,c,j.samples[c,s])
     torque = wp.cross(j.point[c],f)
     f = wp.quat_rotate(wp.transform_get_rotation(j.pose),f)
     for k in range(3):
@@ -570,7 +644,7 @@ def native_score(jobs: wp.array(dtype=ForceJob), qacc: wp.array2d(dtype=wp.float
     world = c*j.population+s
     a = wp.quat_rotate_inv(wp.transform_get_rotation(j.pose),wp.vec3d(wp.float64(qacc[world,0]),wp.float64(qacc[world,1]),wp.float64(qacc[world,2])))
     v = j.observed+j.h*V6(a[0],a[1],a[2],wp.float64(qacc[world,3]),wp.float64(qacc[world,4]),wp.float64(qacc[world,5]))
-    f = feasible(j.samples[c,s],j.cap,j.mu)
+    f = bounded_force(j,c,j.samples[c,s])
     j.costs[c,s] = pose_cost(integrate(j.pose,v,j.h),j.target,j.config)+j.force_reg*wp.dot(f,f)+j.tangent_reg*(f[1]*f[1]+f[2]*f[2])
     j.velocities[c,s] = v
     j.poses[c,s] = integrate(j.pose,v,j.h)

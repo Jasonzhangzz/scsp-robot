@@ -142,24 +142,37 @@ class SuccessPlanner(PointForcePlanner):
     def _ipopt(self,iterations):
         """One sparse, separable NLP solves all candidate forces with exact AD."""
         import casadi as cs
-        from models.corrected_scm import corrected_scm_velocity_cs
+        from examples.mpc.franka.scm.residual_scm import spectral_residual_velocity_cs
         from planning.object_pose_cost import object_cost_cs,extended_cost_config
         rows=len(self.problem['gap']);count=len(self.points)
         key=(rows,int(iterations))
         if key not in self._ipopt_solvers:
             fields=[('pose',7,1),('target',7,1),('inverse',6,6),('free',6,1),
-                    ('jac',rows,6),('gap',rows,1),('config',12,1),('vcoef',2,1)]
+                    ('jac',rows,6),('gap',rows,1),('config',12,1),('vcoef',2,1),('lipschitz',1,1)]
             symbols={name:cs.MX.sym(name,n,m) for name,n,m in fields}
             packed=cs.vertcat(*[cs.vec(symbols[name]) for name,_,_ in fields])
             raw=cs.MX.sym('raw',3);frame=cs.MX.sym('frame',3,3);point=cs.MX.sym('point',3)
-            normal=raw[0]*self.args.max_contact_force/np.sqrt(1+self.args.arm_friction**2)
+            # Same feasible set as force_commands/bounded_force: Coulomb cone
+            # cap further limited by the per-interval object delta-v caps.
+            body=self.model.body('obj').id
+            rotation=Rotation.from_quat(self.model.body_iquat[body][[1,2,3,0]]).as_matrix()
+            inverse_inertia=np.linalg.inv(rotation@np.diag(self.model.body_inertia[body])@rotation.T)
             tangent=2*raw[1:]-1
             tangent/=cs.fmax(1,cs.sum1(cs.fabs(tangent)))
-            command=cs.vertcat(normal,self.args.arm_friction*normal*tangent)
+            direction=cs.vertcat(1,self.args.arm_friction*tangent)
+            body_force=frame@direction
+            angular=cs.DM(inverse_inertia)@cs.cross(point-cs.DM(self.model.body_ipos[body]),body_force)
+            cap=cs.fmin(self.args.max_contact_force/np.sqrt(1+self.args.arm_friction**2),
+                float(self.model.body_mass[body])*getattr(self.args,'max_linear_force_delta_v',1e6)/
+                (self.args.policy_dt*cs.fmax(cs.norm_2(body_force),1e-30)))
+            cap=cs.fmin(cap,getattr(self.args,'max_angular_force_delta_v',1e6)/
+                (self.args.policy_dt*cs.fmax(cs.norm_2(angular),1e-30)))
+            command=direction*(raw[0]*cap)
             force=frame@command
             free=symbols['free']+self.args.policy_dt*symbols['inverse']@cs.vertcat(force,cs.cross(point,force))
-            velocity=corrected_scm_velocity_cs(free,symbols['jac'],symbols['gap'],symbols['inverse'],
-                self.args.policy_dt,self.args.scm_regularization,self.args.softplus_temperature)
+            velocity=spectral_residual_velocity_cs(free,symbols['jac'],symbols['gap'],symbols['inverse'],
+                self.args.policy_dt,self.args.scm_regularization,self.args.softplus_temperature,
+                symbols['lipschitz'])
             pose=symbols['pose'];q=pose[3:];q=q/cs.sqrt(cs.sumsqr(q))
             delta=self.args.policy_dt*velocity[:3]
             pos=pose[:3]+delta+2*cs.cross(q[1:],cs.cross(q[1:],delta)+q[0]*delta)
@@ -185,7 +198,8 @@ class SuccessPlanner(PointForcePlanner):
         solver,fields=self._ipopt_solvers[key]
         values=dict(pose=self.pose,target=self.target,inverse=self.problem['inverse'],free=self.free,
             jac=self.problem['jac'],gap=self.problem['gap'],config=extended_cost_config(self.config),
-            vcoef=[self.cost_args.linear_velocity_coef,self.cost_args.angular_velocity_coef])
+            vcoef=[self.cost_args.linear_velocity_coef,self.cost_args.angular_velocity_coef],
+            lipschitz=self.scm_lipschitz)
         packed=np.concatenate([np.asarray(values[name]).reshape(-1,order='F') for name,_,_ in fields]+[self.valid.astype(float)])
         lb=np.zeros((count,3));ub=np.ones((count,3));ub[~self.valid]=0
         solved=solver(x0=self.warm.reshape(-1),lbx=lb.reshape(-1),ubx=ub.reshape(-1),p=packed)

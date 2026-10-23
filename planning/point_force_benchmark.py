@@ -15,7 +15,7 @@ import numpy as np
 import trimesh
 from scipy.spatial.transform import Rotation
 
-from models.corrected_scm import corrected_scm_velocity
+from examples.mpc.franka.scm.residual_scm import spectral_radius, spectral_residual_velocity
 from planning.object_pose_cost import ObjectCostStages, target_up_axis, object_cost_batch_np
 from planning.rollout_timing import distribution
 
@@ -315,6 +315,10 @@ class PointForcePlanner:
         self.cost_args.angular_velocity_coef *= scale
         self.observed_qvel = qvel.copy()
         self.free = p['velocity']+self.args.policy_dt*p['smooth_acceleration']
+        self.scm_lipschitz = 1.
+        if self.name == 'scm_corrected':
+            lipschitz = spectral_radius(p['jac'],p['inverse'],self.args.scm_regularization)[0]
+            self.scm_lipschitz = float(lipschitz) if lipschitz > 0 else 1.
         world = self.points@p['rotation'].T+qpos[:3]
         self.valid = world[:,2]>self.args.ground_height_threshold
         if not self.valid.any():
@@ -341,7 +345,9 @@ class PointForcePlanner:
         free = self.free+a.policy_dt*wrenches@p['inverse'].T
         metadata = {}
         if self.name == 'scm_corrected':
-            velocity,metadata = corrected_scm_velocity(free,p['jac'],p['gap'],p['inverse'],a.policy_dt,a.scm_regularization)
+            velocity,metadata = spectral_residual_velocity(
+                free,p['jac'],p['gap'],p['inverse'],a.policy_dt,a.scm_regularization,
+                a.softplus_temperature,self.scm_lipschitz)
         elif self.name == 'comfree':
             # Pinned upstream forward.py: impulse = efc_mass *
             # max(-damping*Jv - stiffness*(h*Jv + signed_gap), 0).
