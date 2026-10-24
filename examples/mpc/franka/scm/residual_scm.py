@@ -27,7 +27,12 @@ Impulses stay in the same units as the prediction benchmark:
 from __future__ import annotations
 
 import numpy as np
-import warp as wp
+
+try:
+    import warp as wp
+except ImportError:
+    # The NumPy prediction functions are used by CPU backends without Warp.
+    wp = None
 
 try:
     if __package__:

@@ -1,9 +1,10 @@
-"""MuJoCo execution using the reference Isaac lambda contact model.
+"""MuJoCo execution using the paper SCM contact model.
 
-The coupled SCM rollout shares the Isaac factory and its exact prediction
-graph. Optimal point forces drive MuJoCo physics; successful wrench rollouts
-never assign predicted object poses. Legacy algebraic comparison helpers
-remain available separately.
+The SCM prediction path follows ``compare_prediction.py``: four MuJoCo
+pyramid rows, a softplus diagonal impulse estimate, and one spectral residual
+step on the coupled Delassus operator. Optimal point forces drive MuJoCo
+physics; successful wrench rollouts never assign predicted object poses.
+Legacy algebraic comparison helpers remain available separately.
 
 Choose the SCM force solver with --solver acados|ipopt|cma-es|cem.
 """
@@ -50,6 +51,7 @@ from planning.scm_contact_models import (
     lcp_mujoco_motion_accuracy,
     surrogate_response,
 )
+from examples.mpc.franka.scm.residual_scm import spectral_residual_velocity
 from contact.fingertips_collision_detection2 import Contact
 from envs.fingertips_env import MjSimulator
 from examples.mpc.fingertips.test.params import ExplicitMPCParams, mujoco_physical_parameters
@@ -237,9 +239,66 @@ def _integrate_local_pose(qpos, v_plus, h):
     return np.hstack((float(h) * v_plus[:3], qrel))
 
 
+def _active_rows(jacobian, tolerance=1e-12):
+    """Return nonzero four-row MuJoCo pyramid blocks."""
+    jacobian = np.asarray(jacobian, dtype=np.float64)
+    rows = []
+    for start in range(0, jacobian.shape[0], 4):
+        stop = min(start + 4, jacobian.shape[0])
+        if stop - start == 4 and np.linalg.norm(jacobian[start:stop]) > tolerance:
+            rows.extend(range(start, stop))
+    return np.asarray(rows, dtype=np.int64)
+
+
+def _paper_scm_response(optimizer, jacobian, phi, lam, p_local, n_arm, t1, t2,
+                        gravity, regularization=1e-8, temperature=1e-3,
+                        velocity=None, current_pose=None):
+    """Evaluate the paper SCM used by ``compare_prediction.py``."""
+    h = float(optimizer.h)
+    q_inv = np.asarray(optimizer.Q_inv, dtype=np.float64)
+    J_env = np.asarray(jacobian, dtype=np.float64)
+    phi_env = np.asarray(phi, dtype=np.float64).reshape(-1)
+    rows = _active_rows(J_env)
+    J_active = J_env[rows] if rows.size else np.zeros((0, J_env.shape[1]))
+    phi_active = phi_env[rows] if rows.size else np.zeros(0)
+    frame = np.column_stack((n_arm, t1, t2))
+    J_arm = contact_jacobian(p_local)
+    wrench_scale = h if bool(getattr(optimizer, "wrench_is_force", False)) else 1.0
+    b = h * np.asarray(gravity, dtype=np.float64).reshape(6)
+    b += wrench_scale * J_arm.T @ (frame @ np.asarray(lam, dtype=np.float64).reshape(3))
+    base_velocity = np.zeros(6) if velocity is None else np.asarray(velocity, dtype=np.float64).reshape(6)
+    free = base_velocity + q_inv @ b
+    v_plus, info = spectral_residual_velocity(
+        free, J_active, phi_active, q_inv, h,
+        regularization=float(regularization), temperature=float(temperature))
+    impulse = np.zeros(J_env.shape[0], dtype=np.float64)
+    if rows.size:
+        impulse[rows] = np.asarray(info["impulse"], dtype=np.float64).reshape(-1)
+        W = J_active @ q_inv @ J_active.T + float(regularization) * np.eye(rows.size)
+        D = np.diag(np.diag(W))
+    else:
+        W = D = np.zeros((0, 0), dtype=np.float64)
+    pose = (np.array([0., 0., 0., 1., 0., 0., 0.]) if current_pose is None
+            else np.asarray(current_pose, dtype=np.float64).reshape(7))
+    x_plus = np.asarray(optimizer.cs_qposInteg_(pose, v_plus)).reshape(7)
+    if rows.size:
+        residual = float(np.max(np.maximum(
+            W @ np.asarray(info["impulse"]).reshape(-1) +
+            J_active @ free + np.maximum(phi_active, 0.) / h, 0.)))
+    else:
+        residual = 0.0
+    surrogate = dict(v_plus=np.asarray(v_plus), x_plus=x_plus, model="scm",
+                     lambda_env=impulse, v_free=free, W=W, D=D, E=W-D,
+                     rows=rows, blocks=int(rows.size // 4), residual=residual)
+    return dict(selected=surrogate, surrogate=surrogate,
+                regularization=float(regularization),
+                scm_lipschitz=float(info["lipschitz"]))
+
+
 def _model_response(optimizer, jacobian, phi, lam, p_local, n_arm, t1, t2,
                     gravity, mode, coupling_scale=0.0, regularization=1e-8,
-                    velocity=None, current_pose=None, reference_predictor=None):
+                    velocity=None, current_pose=None, reference_predictor=None,
+                    scm_temperature=1e-3):
     h = float(optimizer.h)
     q_inv = np.asarray(optimizer.Q_inv, dtype=np.float64)
     J_arm = contact_jacobian(p_local)
@@ -253,16 +312,19 @@ def _model_response(optimizer, jacobian, phi, lam, p_local, n_arm, t1, t2,
         x_plus = np.asarray(optimizer.cs_qposInteg_(current_pose, v_plus)).reshape(7)
         response = dict(v_plus=v_plus, x_plus=x_plus, model='comfree')
         return dict(selected=response, surrogate=response, regularization=regularization)
-    if reference_predictor is not None:
+    # The paper SCM takes precedence over optional legacy predictor hooks in
+    # this benchmark; otherwise the hook would silently bypass the updated
+    # four-facet residual model.
+    if reference_predictor is not None and optimizer.robot_stiffness is None:
         response = reference_predictor.predict(lam, p_local, frame)
         return dict(selected=response, surrogate_accuracy={}, regularization=regularization)
     if optimizer.robot_stiffness is not None:
         if mode != 'surrogate':
-            raise ValueError('Isaac-compatible execution uses coupled soft-SCM; independent QP/LCP is a different model')
-        response = optimizer.predict_contact_response(
-            lam, p_local, frame, gravity, velocity=velocity, current_pose=current_pose)
-        return dict(selected=response, surrogate=response,
-                    regularization=optimizer.soft_scm_regularization)
+            raise ValueError('Paper SCM evaluation only supports surrogate mode; independent QP/LCP is a different model')
+        return _paper_scm_response(
+            optimizer, jacobian, phi, lam, p_local, n_arm, t1, t2, gravity,
+            regularization=regularization, temperature=scm_temperature,
+            velocity=velocity, current_pose=current_pose)
     wrench_scale = h if bool(getattr(optimizer, "wrench_is_force", False)) else 1.0
     b = h * np.asarray(gravity, dtype=np.float64).reshape(6)
     b = b + wrench_scale * J_arm.T @ (frame @ np.asarray(lam, dtype=np.float64))
@@ -379,8 +441,9 @@ def _solve_step(param, args, env, contact, mode, coupling_scale=1.0,
         optimizer, jac_mat_env, phi, lam, p_local, n_arm, t1, t2, gravity,
         mode, coupling_scale=coupling_scale,
         regularization=float(getattr(args, "scm_regularization", 1e-8)),
-        velocity=velocity, current_pose=current_pose, reference_predictor=predictor)
-    response["surrogate_accuracy"] = {} if direct else appendix_accuracy(
+        velocity=velocity, current_pose=current_pose, reference_predictor=predictor,
+        scm_temperature=float(getattr(args, "scm_softplus_temperature", 1e-3)))
+    response["surrogate_accuracy"] = {} if (direct or "lcp" not in response) else appendix_accuracy(
         optimizer.obj_inertia, optimizer.Q_inv, jac_mat_env,
         response["lcp"]["v_plus"], response["surrogate"]["lambda_env"],
         response["surrogate"]["v_plus"], optimizer.h,
@@ -621,7 +684,7 @@ def _run_rollout(args, mode, obj, seed=0, mass=0.01, lambda_scale=1.0,
     args.solver = getattr(args, 'solver', 'acados')
     construction_args = copy.copy(args)
     if args.solver == 'batched-lm':
-        construction_args.solver = 'torch-gn'
+        construction_args.solver = 'batch-lm'
     param = ExplicitMPCParams(construction_args, rand_seed=int(seed),
                               target_type="ground-rotation", model="explicit")
     param.trial_seed_ = int(seed)
@@ -978,6 +1041,8 @@ def build_parser():
     parser.add_argument("--steps", type=int, default=5000)
     parser.add_argument("--max-steps", type=int, default=5000)
     parser.add_argument("--scm-regularization", type=float, default=1e-8)
+    parser.add_argument("--scm-softplus-temperature", type=float, default=1e-3,
+                        help="Softplus temperature T [N s] for the paper SCM.")
     parser.add_argument('--baseline-maxiter', type=int, default=12,
                         help='QP/LCP per-candidate SLSQP force iteration budget.')
     parser.add_argument("--execution", choices=("pose", "wrench"), default="wrench")

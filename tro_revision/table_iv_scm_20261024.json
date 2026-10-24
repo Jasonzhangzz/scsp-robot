@@ -1,0 +1,428 @@
+{
+  "csv": "/tmp/table_iv_corrected_20261024/table_iv.csv",
+  "markdown": "/tmp/table_iv_corrected_20261024/table_iv.md",
+  "rows": [
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "transition",
+      "contact_count": "1",
+      "value": "$0.50\\pm0.24$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "transition",
+      "contact_count": "2",
+      "value": "$0.44\\pm0.23$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "transition",
+      "contact_count": "3plus",
+      "value": "$0.49\\pm0.21$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "sliding",
+      "contact_count": "1",
+      "value": "$0.04\\pm0.02$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "sliding",
+      "contact_count": "2",
+      "value": "$0.06\\pm0.03$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "sliding",
+      "contact_count": "3plus",
+      "value": "$0.06\\pm0.03$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "sticking",
+      "contact_count": "1",
+      "value": "$0.00\\pm0.00$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "sticking",
+      "contact_count": "2",
+      "value": "$0.00\\pm0.00$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "sticking",
+      "contact_count": "3plus",
+      "value": "$0.00\\pm0.00$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "rotation",
+      "contact_count": "all",
+      "value": "$0.39\\pm0.77$",
+      "n": 17463
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Linear",
+      "category": "flipping",
+      "contact_count": "all",
+      "value": "$0.80\\pm1.50$",
+      "n": 17266
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "transition",
+      "contact_count": "1",
+      "value": "$3.43\\pm2.42$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "transition",
+      "contact_count": "2",
+      "value": "$3.64\\pm1.89$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "transition",
+      "contact_count": "3plus",
+      "value": "$4.21\\pm2.08$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "sliding",
+      "contact_count": "1",
+      "value": "$0.85\\pm0.45$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "sliding",
+      "contact_count": "2",
+      "value": "$0.83\\pm0.59$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "sliding",
+      "contact_count": "3plus",
+      "value": "$0.77\\pm0.56$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "sticking",
+      "contact_count": "1",
+      "value": "$0.01\\pm0.01$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "sticking",
+      "contact_count": "2",
+      "value": "$0.04\\pm0.01$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "sticking",
+      "contact_count": "3plus",
+      "value": "$0.07\\pm0.02$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "rotation",
+      "contact_count": "all",
+      "value": "$43.79\\pm102.52$",
+      "n": 17463
+    },
+    {
+      "comparison": "SCM--MuJoCo",
+      "metric": "Angular",
+      "category": "flipping",
+      "contact_count": "all",
+      "value": "$85.76\\pm165.99$",
+      "n": 17266
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "transition",
+      "contact_count": "1",
+      "value": "$0.28\\pm0.28$",
+      "n": 121
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "transition",
+      "contact_count": "2",
+      "value": "$0.25\\pm0.25$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "transition",
+      "contact_count": "3plus",
+      "value": "$0.28\\pm0.26$",
+      "n": 253
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "sliding",
+      "contact_count": "1",
+      "value": "$0.01\\pm0.00$",
+      "n": 7
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "sliding",
+      "contact_count": "2",
+      "value": "--",
+      "n": 0
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "sliding",
+      "contact_count": "3plus",
+      "value": "$0.02\\pm0.00$",
+      "n": 3
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "sticking",
+      "contact_count": "1",
+      "value": "$0.00\\pm0.00$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "sticking",
+      "contact_count": "2",
+      "value": "$0.00\\pm0.00$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "sticking",
+      "contact_count": "3plus",
+      "value": "$0.00\\pm0.00$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "rotation",
+      "contact_count": "all",
+      "value": "$0.39\\pm0.77$",
+      "n": 17297
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Linear",
+      "category": "flipping",
+      "contact_count": "all",
+      "value": "$0.80\\pm1.50$",
+      "n": 17098
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "transition",
+      "contact_count": "1",
+      "value": "$2.24\\pm2.19$",
+      "n": 121
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "transition",
+      "contact_count": "2",
+      "value": "$2.24\\pm1.98$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "transition",
+      "contact_count": "3plus",
+      "value": "$2.52\\pm2.30$",
+      "n": 253
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "sliding",
+      "contact_count": "1",
+      "value": "$0.49\\pm0.08$",
+      "n": 7
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "sliding",
+      "contact_count": "2",
+      "value": "--",
+      "n": 0
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "sliding",
+      "contact_count": "3plus",
+      "value": "$0.67\\pm0.08$",
+      "n": 3
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "sticking",
+      "contact_count": "1",
+      "value": "$0.01\\pm0.01$",
+      "n": 64
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "sticking",
+      "contact_count": "2",
+      "value": "$0.04\\pm0.01$",
+      "n": 32
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "sticking",
+      "contact_count": "3plus",
+      "value": "$0.07\\pm0.02$",
+      "n": 128
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "rotation",
+      "contact_count": "all",
+      "value": "$43.79\\pm102.52$",
+      "n": 17297
+    },
+    {
+      "comparison": "SCM--IsaacGym",
+      "metric": "Angular",
+      "category": "flipping",
+      "contact_count": "all",
+      "value": "$85.76\\pm165.99$",
+      "n": 17098
+    }
+  ],
+  "matrix": [
+    [
+      "SCM--MuJoCo",
+      "Linear",
+      [
+        "$0.50\\pm0.24$",
+        "$0.44\\pm0.23$",
+        "$0.49\\pm0.21$",
+        "$0.04\\pm0.02$",
+        "$0.06\\pm0.03$",
+        "$0.06\\pm0.03$",
+        "$0.00\\pm0.00$",
+        "$0.00\\pm0.00$",
+        "$0.00\\pm0.00$",
+        "$0.39\\pm0.77$",
+        "$0.80\\pm1.50$"
+      ]
+    ],
+    [
+      "SCM--MuJoCo",
+      "Angular",
+      [
+        "$3.43\\pm2.42$",
+        "$3.64\\pm1.89$",
+        "$4.21\\pm2.08$",
+        "$0.85\\pm0.45$",
+        "$0.83\\pm0.59$",
+        "$0.77\\pm0.56$",
+        "$0.01\\pm0.01$",
+        "$0.04\\pm0.01$",
+        "$0.07\\pm0.02$",
+        "$43.79\\pm102.52$",
+        "$85.76\\pm165.99$"
+      ]
+    ],
+    [
+      "SCM--IsaacGym",
+      "Linear",
+      [
+        "$0.28\\pm0.28$",
+        "$0.25\\pm0.25$",
+        "$0.28\\pm0.26$",
+        "$0.01\\pm0.00$",
+        "--",
+        "$0.02\\pm0.00$",
+        "$0.00\\pm0.00$",
+        "$0.00\\pm0.00$",
+        "$0.00\\pm0.00$",
+        "$0.39\\pm0.77$",
+        "$0.80\\pm1.50$"
+      ]
+    ],
+    [
+      "SCM--IsaacGym",
+      "Angular",
+      [
+        "$2.24\\pm2.19$",
+        "$2.24\\pm1.98$",
+        "$2.52\\pm2.30$",
+        "$0.49\\pm0.08$",
+        "--",
+        "$0.67\\pm0.08$",
+        "$0.01\\pm0.01$",
+        "$0.04\\pm0.01$",
+        "$0.07\\pm0.02$",
+        "$43.79\\pm102.52$",
+        "$85.76\\pm165.99$"
+      ]
+    ]
+  ]
+}

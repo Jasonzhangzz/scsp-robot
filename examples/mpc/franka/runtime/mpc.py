@@ -55,7 +55,10 @@ from examples.mpc.fingertips.test.test_0902 import (
     _segment_hits_core,
     _travel_orbit_radius,
 )
-from planning.screenshot import create_isaacgym_svg_screenshot_recorder
+from planning.screenshot import (
+    create_isaacgym_mp4_recorder,
+    create_isaacgym_svg_screenshot_recorder,
+)
 from examples.mpc.franka.runtime.contact import (
     FRANKA_QD_NULLSPACE,
     resolve_nullspace_stiffness,
@@ -396,6 +399,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self.dyn_paused_ = False
         self.viewer_ = None
         self.svg_screenshot_recorder_ = None
+        self.video_recorder_ = None
         self.show_ghost_object_ = bool(getattr(self.param_, "show_ghost_object_", False))
 
         self.gym = gymapi.acquire_gym()
@@ -504,6 +508,34 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 f"size={int(getattr(self.param_, 'svg_screenshot_width_', 1280))}x"
                 f"{int(getattr(self.param_, 'svg_screenshot_height_', 960))}"
             )
+
+        video_output_path = getattr(self.param_, "video_output_path_", None)
+        if video_output_path:
+            try:
+                self.video_recorder_ = create_isaacgym_mp4_recorder(
+                    gym=self.gym,
+                    sim=self.sim,
+                    env=self.env,
+                    output_path=video_output_path,
+                    camera_position=SVG_SCREENSHOT_CAMERA_POSITION,
+                    camera_target=SVG_SCREENSHOT_CAMERA_TARGET,
+                    fps=float(getattr(self.param_, "video_fps_", 20.0)),
+                    width=int(getattr(self.param_, "video_width_", 1280)),
+                    height=int(getattr(self.param_, "video_height_", 960)),
+                    encoder_preset=str(getattr(self.param_, "video_encoder_preset_", "veryfast")),
+                    encoder_crf=int(getattr(self.param_, "video_crf_", 20)),
+                    wall_clock_timing=bool(getattr(self.param_, "video_wall_clock_timing_", False)),
+                    capture_on_start=True,
+                )
+                print(
+                    "[IsaacFrankaOSCSimulator] MP4 capture enabled: "
+                    f"path={video_output_path}, fps={float(getattr(self.param_, 'video_fps_', 20.0)):.2f}, "
+                    f"size={int(getattr(self.param_, 'video_width_', 1280))}x"
+                    f"{int(getattr(self.param_, 'video_height_', 960))}"
+                )
+            except RuntimeError as exc:
+                self.video_recorder_ = None
+                print(f"[IsaacFrankaOSCSimulator] MP4 capture disabled: {exc}")
 
         self.R_d = np.eye(3)
         cartesian_stiffness = getattr(self.param_, "cartesian_stiffness_", DEFAULT_CARTESIAN_STIFFNESS)
@@ -861,13 +893,23 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._contact_info_cache = None
 
         graphics_stepped = False
-        if draw and (self.viewer_ is not None or self.svg_screenshot_recorder_ is not None):
+        if draw and (
+            self.viewer_ is not None
+            or self.svg_screenshot_recorder_ is not None
+            or self.video_recorder_ is not None
+        ):
             self._sync_pose_axes()
             self.gym.step_graphics(self.sim)
             graphics_stepped = True
 
         if draw and self.svg_screenshot_recorder_ is not None:
             self.svg_screenshot_recorder_.capture_if_due(
+                sim_time=float(self.gym.get_sim_time(self.sim)),
+                step_graphics=not graphics_stepped,
+            )
+
+        if draw and self.video_recorder_ is not None:
+            self.video_recorder_.capture_if_due(
                 sim_time=float(self.gym.get_sim_time(self.sim)),
                 step_graphics=not graphics_stepped,
             )
@@ -1773,6 +1815,13 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         if self.svg_screenshot_recorder_ is not None:
             self.svg_screenshot_recorder_.close()
             self.svg_screenshot_recorder_ = None
+        if self.video_recorder_ is not None:
+            try:
+                saved_video_path = self.video_recorder_.close()
+                if saved_video_path is not None:
+                    print(f"[IsaacFrankaOSCSimulator] saved mp4: {saved_video_path}")
+            finally:
+                self.video_recorder_ = None
         super().close()
 
 
@@ -1983,8 +2032,7 @@ def adapt_param_for_cartesian_solver(param, args, build_optimizer=True):
     # Rebuilding after DyWA would score patches with the randomized sim mass.
     if build_optimizer and getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
-    if param.lambda_optimizer is not None:
-        param.lambda_optimizer.solver = concrete_backend
+    # --solver-backend selects the CPO NLP solver only; CSO is the GPU CEM.
     param.sol_guess_ = None
     return param
 
@@ -2679,6 +2727,17 @@ def _add_rollout_policy_args(parser):
     parser.add_argument("--svg-screenshot-interval", type=float, default=0.2)
     parser.add_argument("--svg-screenshot-width", type=int, default=1280)
     parser.add_argument("--svg-screenshot-height", type=int, default=960)
+    parser.add_argument("--video-output-path", type=str, default="",
+                        help="Write an Isaac Gym MP4 from the fixed main camera view.")
+    parser.add_argument("--video-output-dir", type=str, default="",
+                        help="Per-object/trial root for MP4 output (obj/<trial>/video.mp4).")
+    parser.add_argument("--video-fps", type=float, default=20.0)
+    parser.add_argument("--video-width", type=int, default=1280)
+    parser.add_argument("--video-height", type=int, default=960)
+    parser.add_argument("--video-encoder-preset", type=str, default="veryfast")
+    parser.add_argument("--video-crf", type=int, default=20)
+    parser.add_argument("--video-wall-clock-timing", action="store_true",
+                        help="Repeat frames to preserve wall-clock delays; default samples simulation time.")
     parser.add_argument("--cartesian_stiffness", type=float, nargs="+", default=DEFAULT_CARTESIAN_STIFFNESS.tolist())
     parser.add_argument("--cartesian_damping", type=float, nargs="+", default=None)
     parser.add_argument("--effort-joint-damping", type=float, default=DEFAULT_EFFORT_JOINT_DAMPING)
@@ -2688,6 +2747,15 @@ def _add_rollout_policy_args(parser):
         default="acados",
         help=argparse.SUPPRESS,
     )
+    # CSO: GPU-parallel CEM with the paper SCM over all contact candidates.
+    parser.add_argument("--population-size", type=int, default=24,
+                        help="CSO CEM samples per generation per contact candidate.")
+    parser.add_argument("--population-iterations", type=int, default=12,
+                        help="CSO CEM generations.")
+    parser.add_argument("--cem-elite-fraction", type=float, default=0.25)
+    parser.add_argument("--softplus-temperature", type=float, default=1e-3,
+                        help="SCM softplus temperature T (N s).")
+    parser.add_argument("--scm-regularization", type=float, default=1e-8)
     parser.add_argument(
         "--table-clearance",
         type=float,

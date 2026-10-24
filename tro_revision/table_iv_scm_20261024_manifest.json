@@ -1,0 +1,207 @@
+{
+  "experiment": "mujoco_ground_truth_contact_prediction_error",
+  "arguments": {
+    "headless": true,
+    "preview_seconds": 0.6,
+    "display_pause": 0.02,
+    "reference_engine": "mujoco",
+    "engines": [
+      "scm",
+      "isaacgym"
+    ],
+    "modes": [
+      "transition",
+      "sliding",
+      "sticking"
+    ],
+    "shapes": [
+      "elephant",
+      "stanford_bunny2",
+      "teapot",
+      "foam_brick",
+      "rubber_duck",
+      "mug",
+      "piggy_bank"
+    ],
+    "samples_per_mode": 32,
+    "frictions": [
+      0.5
+    ],
+    "timesteps": [
+      0.002
+    ],
+    "mass": 0.15,
+    "seed": 42,
+    "settle_steps": 1500,
+    "contact_stiffness": 0.1,
+    "contact_damping": 0.001,
+    "scm_regularization": 1e-08,
+    "scm_motion": "dynamic",
+    "scm_response_time": 0.008,
+    "scm_damping_ratio": 0.25,
+    "scm_softplus_temperature": 0.0001,
+    "scm_correction_steps": 1,
+    "contactsdf_sigma": 120.0,
+    "lcp_regularization": 1e-08,
+    "lcp_tolerance": 1e-08,
+    "lcp_max_iterations": 2000,
+    "lcp_solver": "lemke",
+    "slip_threshold": 0.001,
+    "normal_threshold": 0.01,
+    "force_threshold": 0.0001,
+    "direction_threshold": 1e-05,
+    "device": "cuda:0",
+    "nconmax": 128,
+    "njmax": 2048,
+    "output_dir": "/tmp/table_iv_corrected_20261024",
+    "replay_dir": null,
+    "no_plots": true,
+    "rollout_samples": 10,
+    "rollout_steps": 250,
+    "update_table_iv": false,
+    "continue_on_error": true
+  },
+  "python": "/home/lab423/miniconda3/bin/python",
+  "mujoco": "3.12.0",
+  "warp": null,
+  "mode_definition": "input contact-point velocities at solve pose, with MuJoCo solve-time normal load; outcome modes use post-impulse velocity separately",
+  "upstream_commit": "ba8b9969f5f7859d51b1f738f458f8d2f49be080",
+  "reference": "mujoco",
+  "paper_section_iv": {
+    "A": "all-contact penetration population mean/std",
+    "B": "torsional angular-speed and rolling COM-speed decay curves; separate compare_physics scenes",
+    "C": "horizontal speed, height and kinetic energy diagnostics",
+    "D": "full-step synchronized wall time, excluding readback/rendering, single world here",
+    "E": "parallel throughput is not measured by this single-step experiment"
+  },
+  "backend_status": {
+    "elephant_mu0.5_h0.002": {
+      "mujoco": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "scm": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "isaacgym": {
+        "isaacgym_fallback": true,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": "Isaac Gym backend requested but isaacgym is unavailable. Use `conda run -n acc ...` or omit isaacgym."
+      }
+    },
+    "stanford_bunny2_mu0.5_h0.002": {
+      "mujoco": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "scm": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "isaacgym": {
+        "isaacgym_fallback": true,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": "Isaac Gym backend requested but isaacgym is unavailable. Use `conda run -n acc ...` or omit isaacgym."
+      }
+    },
+    "teapot_mu0.5_h0.002": {
+      "mujoco": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "scm": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "isaacgym": {
+        "isaacgym_fallback": true,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": "Isaac Gym backend requested but isaacgym is unavailable. Use `conda run -n acc ...` or omit isaacgym."
+      }
+    },
+    "foam_brick_mu0.5_h0.002": {
+      "mujoco": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "scm": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "isaacgym": {
+        "isaacgym_fallback": true,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": "Isaac Gym backend requested but isaacgym is unavailable. Use `conda run -n acc ...` or omit isaacgym."
+      }
+    },
+    "rubber_duck_mu0.5_h0.002": {
+      "mujoco": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "scm": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "isaacgym": {
+        "isaacgym_fallback": true,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": "Isaac Gym backend requested but isaacgym is unavailable. Use `conda run -n acc ...` or omit isaacgym."
+      }
+    },
+    "mug_mu0.5_h0.002": {
+      "mujoco": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "scm": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "isaacgym": {
+        "isaacgym_fallback": true,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": "Isaac Gym backend requested but isaacgym is unavailable. Use `conda run -n acc ...` or omit isaacgym."
+      }
+    },
+    "piggy_bank_mu0.5_h0.002": {
+      "mujoco": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "scm": {
+        "isaacgym_fallback": false,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": null
+      },
+      "isaacgym": {
+        "isaacgym_fallback": true,
+        "isaacgym_geometry_fallback": false,
+        "isaacgym_error": "Isaac Gym backend requested but isaacgym is unavailable. Use `conda run -n acc ...` or omit isaacgym."
+      }
+    }
+  },
+  "configurations": [
+    "elephant_mu0.5_h0.002",
+    "stanford_bunny2_mu0.5_h0.002",
+    "teapot_mu0.5_h0.002",
+    "foam_brick_mu0.5_h0.002",
+    "rubber_duck_mu0.5_h0.002",
+    "mug_mu0.5_h0.002",
+    "piggy_bank_mu0.5_h0.002"
+  ]
+}

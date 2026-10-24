@@ -1,5 +1,5 @@
 \begin{figure*}
- \centerline{\includegraphics[width=\textwidth]{figures/framework.pdf}}
+ \centerline{\includegraphics[width=\textwidth]{figures/framework_rev.pdf}}
 \caption{Framework structure of SCSP. SCSP consists of Contact Selection Optimization (CSO) and Contact Planning Optimization (CPO). CSO discretizes nonsmooth geometry through the Sampling \& Exchange method and introduces a surrogate contact model for efficient approximation of contact dynamics. CSO online computes the \rev{optimal contact location among candidate contact set} $\boldsymbol{\hat{p}}_{\text{r}}^*$ as contact prior. The ranking strategy in CPO further evaluates whether the nearest point $\boldsymbol{p}_{\text{near}}$ can serve as a \textcolor{red}{sufficiently competitive} suboptimal substitute for $\boldsymbol{\hat{p}}_{\text{r}}^*$ as the reference contact location, after which trajectory optimization is solved online to generate the approach and contact trajectories.}
 \label{fig:framework}
 \end{figure*}
@@ -120,7 +120,7 @@ The sampling strategy transforms the original optimization into a discrete–con
 \end{assumption}
 
 \begin{assumption}[Multi-Contact Decoupling]
- The contact between the object and the environment can be approximated by independent spring–damper systems, neglecting higher-order dynamic couplings between different contact locations. \rev{This assumption is used only to construct an initial impulse estimate; the residual correction in \eqref{eq:scm_single_step_projection} reintroduces the coupling through the full Delassus matrix.} \label{assumption:decoupling}
+ The contact between the object and the environment can be approximated by independent spring–damper systems, neglecting higher-order dynamic couplings between different contact locations. \rev{This assumption is used only to replace each Delassus block by its diagonal; the single Gauss--Seidel sweep in \eqref{eq:scm_single_step_projection} partially restores the coupling between contacts.} \label{assumption:decoupling}
 \end{assumption}
 
 We reformulate the object dynamics in (\ref{equ.quasi_dyn_1}) \rev{at the velocity level, retaining the current object velocity $\boldsymbol{v}_k$ so that the model matches the dynamic rollout used in CSO, where $\boldsymbol{M}_o$ is the object mass matrix and $\boldsymbol{v}_o^{+}$ is the post-step object velocity}:
@@ -129,9 +129,9 @@ We reformulate the object dynamics in (\ref{equ.quasi_dyn_1}) \rev{at the veloci
  \rev{\boldsymbol{M}_o\boldsymbol{v}_k+}h(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i} + \sum\nolimits_{j=1}^{n_{\text{env}}}{\boldsymbol{\tilde{J}}}_{\text{env},j}^{\top}\boldsymbol{\lambda}_{\text{env},j}),
  \label{eq:simplified}
 \end{equation}
-and we denote \rev{the force-level free term $\boldsymbol{\tilde{b}}_o=\boldsymbol{M}_o\boldsymbol{v}_k/h+\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i}$, which includes the momentum term $\boldsymbol{M}_o\boldsymbol{v}_k/h$, so that \eqref{eq:simplified} reads $\boldsymbol{M}_o\boldsymbol{v}_o^{+}=h(\boldsymbol{\tilde{b}}_o+\sum\nolimits_{j=1}^{n_{\text{env}}}{\boldsymbol{\tilde{J}}}_{\text{env},j}^{\top}\boldsymbol{\lambda}_{\text{env},j})$. Following the friction-pyramid parameterization in Section~\ref{preliminaries:complementarity_free}, the environment contact force at contact $j$ is represented by $n_d$ nonnegative facet multipliers $\boldsymbol{\lambda}_{\text{env},j}\in\mathbb{R}^{n_d}_{\geq 0}$ with the facet Jacobian $\boldsymbol{\tilde{J}}_{\text{env},j}\in\mathbb{R}^{n_d\times 6}$, whose rows are $\boldsymbol{J}_j^{n}-\mu_j\boldsymbol{J}_{j,l}^{t}$, $l=1,\dots,n_d$ (our implementation uses $n_d=4$).} Similar to (\ref{equ.dual_prob_relax}), the physically consistent environment contact force can be obtained by solving the following dual problem \rev{(written in force units by dividing the impulse-level dual by $h^2$)}:
+and we denote \rev{the force-level free term $\boldsymbol{\tilde{b}}_o=\boldsymbol{M}_o\boldsymbol{v}_k/h+\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i}$, which includes the momentum term $\boldsymbol{M}_o\boldsymbol{v}_k/h$, so that \eqref{eq:simplified} reads $\boldsymbol{M}_o\boldsymbol{v}_o^{+}=h(\boldsymbol{\tilde{b}}_o+\sum\nolimits_{j=1}^{n_{\text{env}}}{\boldsymbol{\tilde{J}}}_{\text{env},j}^{\top}\boldsymbol{\lambda}_{\text{env},j})$.} \rev{The environment contact force at contact $j$ is expressed in its contact frame as $\boldsymbol{\lambda}_{\text{env},j}=(\lambda^{n}_{\text{env},j},\lambda^{t1}_{\text{env},j},\lambda^{t2}_{\text{env},j})\in\mathcal{K}_j$, where $\mathcal{K}_j=\{\lambda^{n}\geq 0,\ |\lambda^{t1}|\leq\mu_j\lambda^{n},\ |\lambda^{t2}|\leq\mu_j\lambda^{n}\}$ is the Coulomb box used for the robot contacts in \eqref{equ:csqp}, with the contact Jacobian $\boldsymbol{\tilde{J}}_{\text{env},j}\in\mathbb{R}^{3\times 6}$ whose rows are $\boldsymbol{J}^{n}_j$, $\boldsymbol{J}^{t1}_j$, $\boldsymbol{J}^{t2}_j$; we write $\mathcal{K}=\prod_j\mathcal{K}_j$.} Similar to (\ref{equ.dual_prob_relax}), the physically consistent environment contact force can be obtained by solving the following dual problem \rev{(written in force units by dividing the impulse-level dual by $h^2$)}:
 \begin{multline}
-\max_{\boldsymbol{\lambda}_{\text{env}}\geq \boldsymbol{0}}\quad
+\max_{\boldsymbol{\lambda}_{\text{env}}\rev{\in\mathcal{K}}}\quad
  -\frac{1}{2} \boldsymbol{\lambda}_{\text{env}}^\top
  \left(
  \boldsymbol{\tilde{J}}_{\text{env}} \boldsymbol{M}_o^{-1} \boldsymbol{\tilde{J}}_{\text{env}}^\top
@@ -147,13 +147,13 @@ and we denote \rev{the force-level free term $\boldsymbol{\tilde{b}}_o=\boldsymb
  \rev{\boldsymbol{\tilde{b}}_o},
  \label{eq:dual_problem}
 \end{multline}
-and the solution satisfies the complementarity condition
+and the solution satisfies the \rev{cone-complementarity} condition
 \begin{equation}
-\boldsymbol{0}\leq \boldsymbol{\lambda}_{\text{env}} \perp
+\rev{\mathcal{K}\ni} \boldsymbol{\lambda}_{\text{env}} \perp
 \boldsymbol{W}_{\text{env}}
 \boldsymbol{\lambda}_{\text{env}}
 +\boldsymbol{g}_{\text{env}}
-\geq \boldsymbol{0}.
+\rev{\in\mathcal{K}^{*}}.
 \label{eq:env_complementarity}
 \end{equation}
 where
@@ -167,7 +167,7 @@ where
 \right).
 \label{eq:delassus_def}
 \end{equation}
-Here $\boldsymbol{W}_{\text{env}}$ is the Delassus matrix associated with object–environment contact. \rev{Since the contact force at each contact point is represented by its $n_d$ facet multipliers $\boldsymbol{\lambda}_{\text{env},i}\in\mathbb{R}^{n_d}$}, the Delassus matrix $\boldsymbol{W}_{\text{env}}$ admits a block structure
+Here $\boldsymbol{W}_{\text{env}}$ is the Delassus matrix associated with object–environment contact. \rev{Since the contact force at each contact point is represented by its \rev{three contact-frame components $\boldsymbol{\lambda}_{\text{env},i}\in\mathbb{R}^{3}$}}, the Delassus matrix $\boldsymbol{W}_{\text{env}}$ admits a block structure
 \begin{equation*}
  \boldsymbol{W}_{\text{env}} =
 \begin{bmatrix}
@@ -177,7 +177,7 @@ Here $\boldsymbol{W}_{\text{env}}$ is the Delassus matrix associated with object
 \boldsymbol{W}_{n_{\text{env}}1} & \boldsymbol{W}_{n_{\text{env}}2} & \cdots & \boldsymbol{W}_{n_{\text{env}} n_{\text{env}}}
 \end{bmatrix},
 \end{equation*}
-where each block $\boldsymbol{W}_{ij} \in \mathbb{R}^{\rev{n_d\times n_d}}$ is
+where each block $\boldsymbol{W}_{ij} \in \mathbb{R}^{\rev{3\times 3}}$ is
 \begin{equation*}
 \boldsymbol{W}_{ij}
 =
@@ -189,14 +189,14 @@ where each block $\boldsymbol{W}_{ij} \in \mathbb{R}^{\rev{n_d\times n_d}}$ is
 \end{equation*}
 The diagonal blocks $\boldsymbol{W}_{ii}$ describe local effective inertia, while the off-diagonal blocks $\boldsymbol{W}_{ij}$ ($i \neq j$) represent coupling between contacts. Under Assumption \ref{assumption:decoupling}, we neglect these couplings and decompose \eqref{eq:env_complementarity} into contact-wise subproblems:
 \begin{equation}
-\boldsymbol{0} \leq \boldsymbol{\lambda}_{\text{env},i} \perp \boldsymbol{W}_{ii} \boldsymbol{\lambda}_{\text{env},i} + (\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}\rev{\boldsymbol{\tilde{b}}_o} + \boldsymbol{\tilde{\phi}}_i\rev{/h^2}) \geq \boldsymbol{0}.
+\rev{\mathcal{K}_i\ni} \boldsymbol{\lambda}_{\text{env},i} \perp \boldsymbol{W}_{ii} \boldsymbol{\lambda}_{\text{env},i} + (\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}\rev{\boldsymbol{\tilde{b}}_o} + \boldsymbol{\tilde{\phi}}_i\rev{/h^2}) \rev{\in\mathcal{K}_i^{*}}.
 \label{equ:contact_i_complementarity}
 \end{equation}
-We approximate each diagonal block $\boldsymbol{W}_{ii}$ by a diagonal matrix $\boldsymbol{D}$, with a small residual $\boldsymbol{E}$. Under this approximation, \eqref{equ:contact_i_complementarity} has the \rev{smooth approximate} closed-form solution below. \rev{Here, $\operatorname{softplus}_T(x)=T\log(1+e^{x/T})$ is a componentwise smooth ($C^\infty$) approximation of $\max(x,0)$ with smoothing parameter $T>0$; its derivative is the logistic function $\sigma(x/T)=1/(1+e^{-x/T})$. The temperature $T$ is specified in impulse units ($\mathrm{N\,s}$), so the force-level relation uses $T/h$:}
+We approximate each diagonal block $\boldsymbol{W}_{ii}$ by a diagonal matrix $\boldsymbol{D}$, with a small residual $\boldsymbol{E}$. Under this approximation, \eqref{equ:contact_i_complementarity} has the \rev{smooth approximate} closed-form solution below. \rev{Here, $\operatorname{softplus}_T(x)=T\log(1+e^{x/T})$ is a componentwise smooth ($C^\infty$) approximation of $\max(x,0)$ with smoothing parameter $T>0$; its derivative is the logistic function $\sigma(x/T)=1/(1+e^{-x/T})$. The temperature $T$ is specified in impulse units ($\mathrm{N\,s}$), so the force-level relation uses $T/h$\rev{.}} \rev{The smooth projection $\Pi^{T}_{\mathcal{K}_i}$ onto $\mathcal{K}_i$ applies $\operatorname{softplus}_T$ to the normal component and $\operatorname{clip}_T(x,c)=x-\operatorname{softplus}_T(x-c)+\operatorname{softplus}_T(-x-c)$, a $C^\infty$ approximation of the projection onto $[-c,c]$, to each tangential component with $c=\mu_i\hat{\lambda}^{n}_{\text{env},i}$:}
 \begin{equation}
 \boldsymbol{\hat{\lambda}}_{\text{env}, i}
 =
-\rev{\operatorname{softplus}_{T/h}}
+\rev{\Pi^{T/h}_{\mathcal{K}_i}}
 \left(
 -
 \boldsymbol{D}^{-1}
@@ -218,7 +218,7 @@ where $\epsilon$ is \rev{the regularization coefficient, so that $\boldsymbol{D}
 \begin{equation}
 \boldsymbol{\hat{\lambda}}_{\text{env}, i}
 =
-\rev{\operatorname{softplus}_{T/h}}
+\rev{\Pi^{T/h}_{\mathcal{K}_i}}
 \!\bigl(
 -
 \boldsymbol{D}^{-1}
@@ -230,34 +230,31 @@ where $\epsilon$ is \rev{the regularization coefficient, so that $\boldsymbol{D}
 \end{lemma}
 \begin{proof}
  \renewcommand{\qedsymbol}{}
- \textcolor{red}{Assumption~\ref{assumption:mode} provides the condition $\boldsymbol{\tilde{\phi}}_i\equiv\boldsymbol{0}$ for every environment contact $i$ during the rollout. Substituting $\boldsymbol{\tilde{\phi}}_i=\boldsymbol{0}$ and the definition of $\boldsymbol{\tilde{b}}_o$ into \eqref{eq:quasi-closed_form_solution_nonsmooth} removes the gap term and expresses the argument of $\operatorname{softplus}_{T/h}$ as an affine function of the robot contact forces, which gives \eqref{eq:quasi-closed_form_solution}.} Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \rev{the fixed-contact map is the composition of an affine map with the $C^\infty$ function $\operatorname{softplus}_{T/h}$ and is smooth in $\boldsymbol{\lambda}_{\text{r}}$; nonsmoothness arises only when the contact set changes}.
+ \textcolor{red}{Assumption~\ref{assumption:mode} provides the condition $\boldsymbol{\tilde{\phi}}_i\equiv\boldsymbol{0}$ for every environment contact $i$ during the rollout. Substituting $\boldsymbol{\tilde{\phi}}_i=\boldsymbol{0}$ and the definition of $\boldsymbol{\tilde{b}}_o$ into \eqref{eq:quasi-closed_form_solution_nonsmooth} removes the gap term and expresses the argument of $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ as an affine function of the robot contact forces, which gives \eqref{eq:quasi-closed_form_solution}.} Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \rev{the fixed-contact map is the composition of an affine map with the $C^\infty$ function $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ and is smooth in $\boldsymbol{\lambda}_{\text{r}}$; nonsmoothness arises only when the contact set changes}.
 \end{proof}
- \addrev{To partially compensate for the neglected inter-contact coupling, we apply a single smooth residual correction to the diagonal impulse estimate, which avoids hard clipping and additional inner iterations.} \rev{We retain only the nonnegative part of the signed contact distance, $\boldsymbol{d}_{\mathrm{env}}=\max(\boldsymbol{\tilde{\phi}}_{\mathrm{env}},\boldsymbol{0})$, to avoid strong repulsion from instantaneous penetration, trading some physical fidelity for greater robustness to contact estimation errors and improved optimization behavior; for the touching contacts of Assumption~\ref{assumption:mode}, $\boldsymbol{d}_{\mathrm{env}}=\boldsymbol{0}$, and $\boldsymbol{d}_{\mathrm{env}}$ is evaluated once from the current state $\boldsymbol{x}_k$, independently of $\boldsymbol{\lambda}_{\text{r}}$. We define the corresponding residual $\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}}=\boldsymbol{\tilde{J}}_{\mathrm{env}}\boldsymbol{v}_{\mathrm{free}}+\boldsymbol{d}_{\mathrm{env}}/h$, where $\boldsymbol{v}_{\mathrm{free}}$\rev{$=h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o=\boldsymbol{v}_k+h\boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i})$} is the free-motion velocity, \rev{i.e., the post-step object velocity without environment contact, so that $\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}}=h\boldsymbol{g}_{\mathrm{env}}$ with $\boldsymbol{d}_{\mathrm{env}}$ in place of $\boldsymbol{\tilde{\phi}}_{\mathrm{env}}$}. Writing the diagonal approximation in \eqref{eq:quasi-closed_form_solution_nonsmooth} in impulse form \rev{($\boldsymbol{\beta}_{\mathrm{env}}=h\boldsymbol{\lambda}_{\mathrm{env}}$)} gives the initial estimate $\boldsymbol{\beta}^{(0)}_{\mathrm{env}}=\operatorname{softplus}_T(-\boldsymbol{D}^{-1}\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}})$, with $T=10^{-4}\,\mathrm{N\,s}$. The \addrev{corrected} impulse is then computed as}
+ \rev{To partially compensate for the neglected inter-contact coupling, we evaluate the diagonal estimate in a single Gauss--Seidel sweep over the contacts in a fixed order: the force of each contact is computed from the object velocity already updated by the preceding contacts.} \rev{We retain only the nonnegative part of the signed contact distance, $\boldsymbol{d}_{\mathrm{env}}=\max(\boldsymbol{\tilde{\phi}}_{\mathrm{env}},\boldsymbol{0})$, to avoid strong repulsion from instantaneous penetration, trading some physical fidelity for greater robustness to contact estimation errors and improved optimization behavior; for the touching contacts of Assumption~\ref{assumption:mode}, $\boldsymbol{d}_{\mathrm{env}}=\boldsymbol{0}$, and $\boldsymbol{d}_{\mathrm{env}}$ is evaluated once from the current state $\boldsymbol{x}_k$, independently of $\boldsymbol{\lambda}_{\text{r}}$. \rev{Let} $\boldsymbol{v}_{\mathrm{free}}$\rev{$=h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o=\boldsymbol{v}_k+h\boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i})$} \rev{be} the free-motion velocity, \rev{i.e., the post-step object velocity without environment contact}. \rev{Starting from $\boldsymbol{v}^{(0)}=\boldsymbol{v}_{\mathrm{free}}$ and using $\boldsymbol{d}_{\mathrm{env}}$ in place of $\boldsymbol{\tilde{\phi}}_{\mathrm{env}}$ in \eqref{eq:quasi-closed_form_solution_nonsmooth}, the sweep computes for $i=1,\dots,n_{\mathrm{env}}$, with $T=10^{-4}\,\mathrm{N\,s}$,}}
 
 \begin{equation}
 \textcolor{red}{
 \begin{cases}
-\boldsymbol{r}_{\mathrm{env}}
-=\boldsymbol{W}_{\mathrm{env}}\boldsymbol{\beta}^{(0)}_{\mathrm{env}}
-+\boldsymbol{g}^{\mathrm{step}}_{\mathrm{env}},\\
-\hat{\boldsymbol{\beta}}_{\mathrm{env}}
-=\operatorname{softplus}_T\!\left(
-\boldsymbol{\beta}^{(0)}_{\mathrm{env}}-\frac{\boldsymbol{r}_{\mathrm{env}}}{L}\right),
-\quad L=\lambda_{\max}(\boldsymbol{W}_{\mathrm{env}}),
+\hat{\boldsymbol{\lambda}}_{\mathrm{env},i}
+=\Pi^{T/h}_{\mathcal{K}_i}\!\left(
+-\boldsymbol{D}^{-1}\bigl(\boldsymbol{\tilde{J}}_{\mathrm{env},i}\boldsymbol{v}^{(i-1)}/h+\boldsymbol{d}_{\mathrm{env},i}/h^2\bigr)\right),\\
+\boldsymbol{v}^{(i)}
+=\boldsymbol{v}^{(i-1)}+h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{J}}_{\mathrm{env},i}^{\top}\hat{\boldsymbol{\lambda}}_{\mathrm{env},i},
 \end{cases}}
 \label{eq:scm_single_step_projection}
 \end{equation}
-\addrev{where $\boldsymbol{W}_{\mathrm{env}}$ is the full coupled Delassus matrix in \eqref{eq:delassus_def} rather than its block-diagonal approximation.}
- \rev{The corrected impulse $\hat{\boldsymbol{\beta}}_{\mathrm{env}}$ is the environment contact impulse output by SCM and is used to predict object motion in \eqref{equ:scm}.} \rev{With $\boldsymbol{R}=\epsilon\boldsymbol{I}$ and $\epsilon=10^{-8}$,} \addrev{the product $\boldsymbol{W}_{\mathrm{env}}\boldsymbol{\beta}$ is evaluated as $\boldsymbol{\tilde{J}}_{\mathrm{env}}\boldsymbol{M}_o^{-1}(\boldsymbol{\tilde{J}}_{\mathrm{env}}^{\top}\boldsymbol{\beta})+\epsilon\boldsymbol{\beta}$.} \rev{This computation avoids forming or inverting the full Delassus matrix}\addrev{; since $\boldsymbol{W}_{\mathrm{env}}$ depends only on the contact geometry, $L$ is independent of $\boldsymbol{\lambda}_{\text{r}}$ and is obtained by power iteration with the same matrix--vector products once per contact configuration, then reused for every force evaluation of that CSO update}\rev{. Because $\boldsymbol{D}$, $\boldsymbol{W}_{\mathrm{env}}$, $L$, and $\boldsymbol{d}_{\mathrm{env}}$ are constant for a fixed contact set and $\operatorname{softplus}_T$ is $C^\infty$, the map $\boldsymbol{\lambda}_{\text{r}}\mapsto\hat{\boldsymbol{\beta}}_{\mathrm{env}}$ is smooth; it is neither piecewise linear nor piecewise smooth in $\boldsymbol{\lambda}_{\text{r}}$, and the only remaining nonsmoothness is the change of the contact set between rollout steps or CSO updates.}
+ \rev{where $\boldsymbol{D}$ is the diagonal of the Delassus block $\boldsymbol{W}_{ii}$ in \eqref{equ:max_decomposition}, so that each contact performs one projected step of \eqref{eq:quasi-closed_form_solution_nonsmooth} on the velocity $\boldsymbol{v}^{(i-1)}$ left by the preceding contacts ($\boldsymbol{v}^{(0)}/h=\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o$). The stacked force $\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ is the environment contact force output by SCM and is used to predict object motion in \eqref{equ:scm}. With $\boldsymbol{R}=\epsilon\boldsymbol{I}$ and $\epsilon=10^{-8}$, this computation avoids forming or inverting the full Delassus matrix. Because $\boldsymbol{D}$ and $\boldsymbol{d}_{\mathrm{env}}$ are constant for a fixed contact set and $\Pi^{T/h}_{\mathcal{K}_i}$ is $C^\infty$, the sweep is an explicit finite composition of affine maps and smooth projections, so the map $\boldsymbol{\lambda}_{\text{r}}\mapsto\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ is smooth, and the only remaining nonsmoothness is the change of the contact set between rollout steps or CSO updates.}
 
-Substituting \textcolor{red}{the corrected impulse from \eqref{eq:scm_single_step_projection}} into \eqref{eq:simplified}, we obtain a lightweight model:
+Substituting \textcolor{red}{the \rev{Gauss--Seidel force} from \eqref{eq:scm_single_step_projection}} into \eqref{eq:simplified}, we obtain a lightweight model:
 \begin{equation}
  f_{\text{SCM}}:\begin{cases}
  \boldsymbol{\hat{v}}^+ =
 \rev{h}\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o
 +
-\boldsymbol{M}_o^{-1}\sum_{i=1}^{n_\text{env}} \boldsymbol{\tilde{J}}_{\text{env},i}^\top
-\textcolor{red}{\hat{\boldsymbol{\beta}}_{\mathrm{env},i}},
+\rev{h}\boldsymbol{M}_o^{-1}\sum_{i=1}^{n_\text{env}} \boldsymbol{\tilde{J}}_{\text{env},i}^\top
+\textcolor{red}{\rev{\hat{\boldsymbol{\lambda}}_{\mathrm{env},i}}},
  \\
  \boldsymbol{\hat{x}}_{k+1}=
  \boldsymbol{x}_{k}
@@ -294,16 +291,19 @@ Integrating SCM into \eqref{equ:inner_loop}, we can obtain the formulation of CS
 The contact dynamics in \eqref{equ:inner_loop} are non-differentiable because of complementarity constraints and changes in the contact set. With the SCM, \eqref{equ:csqp} becomes a finite candidate search with a continuous force-optimization subproblem for each candidate. For a fixed contact set, differentiating \eqref{equ:scm} with respect to the robot contact force gives
 \begin{equation}
 \frac{\partial\boldsymbol{\hat{x}}_{k+1}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}
-=h\boldsymbol{M}_o^{-1}\!\left(h\boldsymbol{J}_{\mathrm r,i}^{\top}+\boldsymbol{\tilde J}_{\mathrm{env}}^{\top}
-\frac{\partial\hat{\boldsymbol{\beta}}_{\mathrm{env}}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}\right),
+=\rev{h^2}\boldsymbol{M}_o^{-1}\!\left(\boldsymbol{J}_{\mathrm r,i}^{\top}+\boldsymbol{\tilde J}_{\mathrm{env}}^{\top}
+\frac{\partial\rev{\hat{\boldsymbol{\lambda}}_{\mathrm{env}}}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}\right),
 \label{eq:scm_state_gradient}
 \end{equation}
-where the first term is the direct robot-force effect and the second is the induced environment-impulse effect. Let $\boldsymbol{G}_i=\boldsymbol{\tilde{J}}_{\mathrm{env}}\boldsymbol{M}_o^{-1}\boldsymbol{J}_{\mathrm r,i}^{\top}$, and let $\boldsymbol{\Sigma}^{(0)}$ and $\boldsymbol{\Sigma}^{(1)}$ denote the diagonal softplus-derivative matrices evaluated at the initial and corrected impulse estimates, respectively. Applying the chain rule to the two softplus projections in \eqref{eq:scm_single_step_projection} gives
+where the first term is the direct robot-force effect and the second is the induced environment-\rev{force} effect. \rev{Let $\boldsymbol{\Sigma}_j=\partial\Pi^{T/h}_{\mathcal{K}_j}/\partial\boldsymbol{x}$ denote the $3\times 3$ Jacobian of the smooth projection evaluated at the argument of \eqref{eq:scm_single_step_projection}. Applying the chain rule along the sweep in \eqref{eq:scm_single_step_projection} gives the recursion over $j=1,\dots,n_{\mathrm{env}}$}
 \begin{equation}
-\frac{\partial\hat{\boldsymbol{\beta}}_{\mathrm{env}}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}
-=-h\boldsymbol{\Sigma}^{(1)}\!\left[\left(\boldsymbol{I}-\frac{\boldsymbol{W}_{\mathrm{env}}}{L}\right)\boldsymbol{\Sigma}^{(0)}\boldsymbol{D}^{-1}+\frac{1}{L}\boldsymbol{I}\right]\boldsymbol{G}_i .
+\textcolor{red}{
+\frac{\partial\hat{\boldsymbol{\lambda}}_{\mathrm{env},j}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}
+=-\boldsymbol{\Sigma}_j\boldsymbol{D}^{-1}\boldsymbol{\tilde J}_{\mathrm{env},j}\boldsymbol{M}_o^{-1}\!\left(\boldsymbol{J}_{\mathrm r,i}^{\top}+\sum_{l<j}\boldsymbol{\tilde J}_{\mathrm{env},l}^{\top}
+\frac{\partial\hat{\boldsymbol{\lambda}}_{\mathrm{env},l}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}\right),}
 \label{eq:scm_impulse_gradient}
 \end{equation}
+\rev{whose stacked form is $\partial\hat{\boldsymbol{\lambda}}_{\mathrm{env}}/\partial\boldsymbol{\lambda}_{\mathrm r,i}$ in \eqref{eq:scm_state_gradient}.}
 For a fixed contact set, the SCM rollout is smooth in the robot contact forces. GPU-parallel CEM uses forward evaluations of \eqref{equ:scm}, and the gradients support alternative gradient solvers.
 
 \section{Contact Planning Optimization}\label{sec:cpo}

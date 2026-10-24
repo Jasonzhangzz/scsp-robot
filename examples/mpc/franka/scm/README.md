@@ -1,8 +1,10 @@
+> 2026-10-24 更新：`compare_prediction.py --engines scm` 现在是 `tro_revision/method.tex` 的 SCM（每接触 4 个棱锥面行、`softplus_T` 对角初值、`d=max(phi,0)`、一步 `1/lambda_max(W)` 残差修正，默认 `T=1e-3 N s`），与 `planning/point_force_gpu.py` 中 MPC/CSO 使用的接触律相同，CPU float64 实现；旧的 3 行 Gauss–Seidel + 全局幅值修正保留为 `scm_corrected`/`diagonal_contact`。`isaacgym` 后端重写：用 MuJoCo 编译后的几何（网格凸包/基本体）、质量、质心和惯性张量重建 PhysX 刚体，外力经 `apply_body_forces` 施加在质心，体坐标/世界坐标角速度和 wxyz/xyzw 四元数均做转换，`dt=h`、单子步。因为 Isaac Gym 只有 Python 3.8（MuJoCo ≤3.2.3）版本，而参考需要当前 MuJoCo，PhysX 默认在 `acc` 环境的 worker 进程中运行（`isaacgym_worker.py`，可用 `SCSP_ISAACGYM_PYTHON` 指定解释器）；Isaac 不可用时仍回退为 MuJoCo 并在 manifest 记录。`scm_vs_isaacgym` 配对行改为与 MuJoCo 行相同的输入状态模式/接触数分组。
+>
 > 2026-10-22 更新：`scm_soft_corrected` 使用 softplus 冲量和 `d=max(phi,0)`，接触及穿透点距离严格为零；初始冲量和全局幅值修正均已更新。推导、与相同 GT 的配对评估见 [NONNEGATIVE_SCM.md](NONNEGATIVE_SCM.md)。硬 `scm_corrected` 保留作对照。
 >
 > 2026-10-17 更新：可独立运行的未修正 `scm` 已移除，默认与 `three` 组合改用 `scm_corrected`。下面涉及原始 SCM 的数值表、推导和旧命令属于历史记录；重现实验应显式选择仍保留的 corrected/soft 分支。七物体点力闭环实验见 `examples/mpc/fingertips/test/README_scm_solvers.md`。其他 MPC 的 softSCM 保留。
 
-# ComFree / MJWarp / SCM 接触预测对比
+# MuJoCo / IsaacGym / SCM 接触预测对比
 
 迁移来源：[asu-iris/comfree_warp](https://github.com/asu-iris/comfree_warp)，固定到
 `ba8b9969f5f7859d51b1f738f458f8d2f49be080`。
@@ -16,7 +18,7 @@
 本目录迁移了抓取控制流程、Franka 场景及全部所需网格，以及三个基础物理场景。
 新增了相同初始状态和相同预设输入的成对运行、默认可视化、轨迹导出、几何穿透和状态差异统计。
 公开上游没有找到论文中的穿透汇总、摩擦曲线或稳定性扫描实验脚本；这里新增的统计不能直接称为论文实验的复现。
-新增 `compare_prediction.py` 比较 separation、sliding、sticking 三种状态下的共享状态单步预测，包含 SCM。
+新增 `compare_prediction.py` 以 MuJoCo 原生接触求解作为 ground truth（固定 $h=0.002$ s），并比较 SCM 和 IsaacGym。单步统计按 contact transition、sliding、sticking 以及 $n_c=1,2,\geq3$ 分组；rotation/flipping rollout 采用与 `test_scm_mujoco.py` / `test_mpc_isaac.py` 相同的位姿成功阈值，并逐步记录下一步速度误差。
 `compare_physics.py` 记录连续仿真的穿透与摩擦诊断，也支持 SCM。
 
 ## 环境与运行
@@ -55,6 +57,19 @@ python compare_prediction.py --headless --shapes box sphere cylinder capsule ell
   --samples-per-mode 100 --output-dir outputs/prediction_modes
 ```
 
+生成 Table IV 所需的完整七物体批次：
+
+```bash
+python compare_prediction.py --headless --reference-engine mujoco \
+  --engines scm isaacgym --shapes elephant stanford_bunny2 teapot foam_brick \
+  rubber_duck mug piggy_bank --modes transition sliding sticking \
+  --samples-per-mode 32 --rollout-samples 10 --rollout-steps 250 \
+  --continue-on-error --update-table-iv --output-dir outputs/table_iv
+```
+
+`table_iv.csv`、`table_iv.md`、`table_iv.json` 和每个配置下的
+`rollouts.jsonl` 保存按接触数拆分的线/角速度误差。Isaac Gym 插件不可用时会保留 IsaacGym 行并在 `metrics.json` 中记录 fallback 原因。
+
 也支持仓库 `envs/assets/objects/` 的六个 STL 物体：
 `elephant`、`stanford_bunny2`、`teapot`、`foam_brick`、`rubber_duck`、`mug`。
 `stanford_bunn2` 是 `stanford_bunny2` 的兼容别名。默认仍是 box/sphere，六物体运行命令为：
@@ -90,7 +105,7 @@ python compare_prediction.py --engines mjwarp scm \
 `--contact-stiffness`、`--contact-damping` 改 ComFree 增益，`--scm-regularization` 改 SCM 的 r。
 `--seed` 默认 42。同一输出配置目录已存在时拒绝覆盖，应换一个 `--output-dir`。
 
-每个配置先由 MJWarp 自由落下至静止，再生成三组初始条件：
+每个配置先由 MuJoCo 自由落下至静止，再生成三组初始条件：
 
 - separation：空中运动或从接触面离开。
 - sliding：支撑位姿上赋予随机方向的切向速度、少量角速度和切向外力。
@@ -101,9 +116,9 @@ sliding 的小角速度绕世界 z 轴，随后转换为 free-joint 局部角速
 
 各模型获得完全相同的位姿、速度、外力和时间步长。每次查询重置求解器 warm start，
 只推进一轮；预测结果不用于生成下一个查询。因此这些误差不包含长轨迹累积误差。
-MJWarp 是数值参考，比较结果不等同于真实物理测量误差。
+MuJoCo 是数值 ground truth，比较结果不等同于真实物理测量误差。
 
-分析分组采用**输入状态的接触模式**，由 MJWarp 在该输入位姿的求解接触点、接触载荷和输入速度测量：
+分析分组采用**输入状态的接触模式**，由 MuJoCo 在该输入位姿的求解接触点、接触载荷和输入速度测量：
 法向载荷小于 `--force-threshold`（默认 1e-4 N）时为 separation；
 有载荷且切向速度超过 `--slip-threshold`（默认 1e-3 m/s）时为 sliding，否则为 sticking。
 有载荷且输入法向速度超过 `--normal-threshold`（默认 1e-2 m/s）时单列 transition。

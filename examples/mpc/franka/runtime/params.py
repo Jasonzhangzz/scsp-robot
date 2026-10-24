@@ -219,62 +219,47 @@ def add_lambda_predictor_args(parser):
 
 
 def build_lambda_optimizer(param, args):
-    """Same acados contact NLP as examples/mpc/fingertips/test/params.py."""
+    """CSO over the sampled contact candidates with the paper SCM.
+
+    Every visible candidate is solved by the GPU-parallel CEM
+    (``planning.contact_force_gpu_cem``): diagonal softplus_T SCM with one
+    residual correction on the coupled Delassus operator, evaluated on the
+    physical one-step object model with the simulated mass and inertia.
+    """
     if getattr(param, 'contact_model', '') == 'contactsdf':
         raise ValueError('ContactSDF uses the independent official MPC, without Lambda/CSO')
-    runtime_cost = bool(getattr(param, 'runtime_object_cost_', False))
-    grouped_response = bool(getattr(param, 'grouped_contact_response_', False))
     extracted = bool(getattr(param, "_collision_mesh_extracted", False))
-    shared = None
-    if getattr(param, 'shared_contact_dynamics_', False):
-        shared = dict(mass=np.r_[np.full(3, param.sim_obj_mass_), param.sim_obj_inertia_diag_,
-                                  np.full(3, getattr(args, 'mpc_tip_effective_mass', 2.5))].tolist(),
-            h=param.h_, tip_mass=float(getattr(args, 'mpc_tip_effective_mass', 2.5)),
-            damping=float(getattr(args, 'mpc_tip_damping', 40.)),
-            response_time=param.soft_scm_response_time, rigid_response_time=.01,
-            damping_ratio=param.soft_scm_damping_ratio, regularization=param.soft_scm_regularization,
-            blend_speed=.005, variant=param.contact_dynamics_variant_)
     opt = LambdaContactControlOptimizer(
         mesh_path=param.mesh_path_,
         obj_mass=float(getattr(param, "lambda_obj_mass_", 0.01)),
         arm_friction=getattr(param, 'mu_fingertip_object_', param.mu_object_),
         friction_cone='pyramid',
         contact_stiffness=param.model_params,
-        time_step=(param.h_ if runtime_cost else getattr(param, 'lambda_h_', .05)),
-        max_contacts=4 if grouped_response else 10,
+        time_step=param.h_,
+        max_contacts=4,
         sample_num=args.sample_num,
         top_k=getattr(args, "top_k", 2),
         pos_coef=args.pos_coef,
         ori_coef=args.ori_coef,
         friction_reg_coef=getattr(args, "friction_reg_coef", DEFAULT_TANGENTIAL_FORCE_PENALTY),
         force_reg_coef=getattr(args, "force_reg_coef", 0.01),
-        max_contact_force=(contact_command_force_limit(args, CARTESIAN_TASK_STIFFNESS) if runtime_cost else contact_force_limit(args)),
+        max_contact_force=contact_command_force_limit(args, CARTESIAN_TASK_STIFFNESS),
         contact_switch_radius=getattr(args, "contact_switch_radius", 0.03),
         contact_switch_margin_ratio=getattr(args, "contact_switch_margin_ratio", 0.2),
         contact_switch_margin_abs=getattr(args, "contact_switch_margin_abs", 1e-3),
         fingertip_clearance=getattr(args, "fingertip_clearance", 0.011),
         normal_stability_cos=getattr(args, "normal_stability_cos", 0.95),
-        solver=resolve_solver_backend(
-            getattr(args, "solver_backend", getattr(args, "solver", "auto"))
-        ),
-        torch_max_iter=getattr(args, "torch_max_iter", 100),
+        # A5 is the explicit CPU CMA-ES ablation. The normal runtime keeps
+        # the GPU CEM backend; do not let that default erase A5's solver.
+        solver=('cma-es' if getattr(args, 'ablation_mode', '') == 'a5' else 'cem-gpu'),
         population_size=getattr(args, 'population_size', 24),
         population_iterations=getattr(args, 'population_iterations', 12),
         population_seed=int(getattr(param, 'trial_seed_', 0)) + int(getattr(args, 'solver_seed', 0)),
         cem_elite_fraction=getattr(args, 'cem_elite_fraction', 0.25),
-        obj_inertia=param.obj_inertia_ if runtime_cost else None,
-        wrench_is_force=runtime_cost,
-        contact_dynamics='quasi-dynamic' if runtime_cost else None,
-        grouped_contact_response=grouped_response,
-        robot_stiffness=CARTESIAN_TASK_STIFFNESS if grouped_response else None,
-        contact_model=getattr(param, 'contact_model', 'soft-scm'),
-        soft_scm_response_time=getattr(param, 'soft_scm_response_time', SOFT_SCM_RESPONSE_TIME),
-        soft_scm_damping_ratio=getattr(param, 'soft_scm_damping_ratio', SOFT_SCM_DAMPING_RATIO),
-        soft_scm_regularization=getattr(param, 'soft_scm_regularization', SOFT_SCM_REGULARIZATION),
+        wrench_is_force=True,
         collision_hull=(bool(getattr(param, "collision_hull", True)) and not extracted),
         surface_sampling=getattr(param, 'contact_sampling_', 'vertices') == 'surface',
         collision_part_paths=getattr(param, 'collision_mesh_paths_', None),
-        shared_response=shared,
     )
     guidance = str(getattr(args, "cso_guidance", "cso"))
     if guidance not in ("cso", "pose", "random", "nearest"):
@@ -282,6 +267,13 @@ def build_lambda_optimizer(param, args):
     opt.cso_guidance = guidance
     # One stream per trial so random guidance is reproducible across matched runs.
     opt._cso_rng = np.random.default_rng(int(getattr(param, "trial_seed_", 0)))
+    opt.configure_gpu_cem(
+        float(getattr(param, 'sim_obj_mass_', getattr(param, 'lambda_obj_mass_', 0.01))),
+        np.asarray(getattr(param, 'sim_obj_inertia_diag_', np.full(3, 1e-6)), dtype=float),
+        softplus_temperature=float(getattr(args, 'softplus_temperature', 1e-3)),
+        scm_regularization=float(getattr(args, 'scm_regularization', 1e-8)),
+        max_linear_force_delta_v=float(getattr(args, 'max_linear_force_delta_v', .3)),
+        max_angular_force_delta_v=float(getattr(args, 'max_angular_force_delta_v', 3.)))
     return opt
 
 

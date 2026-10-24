@@ -177,7 +177,12 @@ class TrialRecorder:
             "interrupted": bool(aborted),
             "num_samples": len(self.samples),
             "object_pose_wxyz": [
-                {"step": sample["step"], "xyz": sample["xyz"], "quat_wxyz": sample["quat_wxyz"]}
+                {
+                    "step": sample["step"],
+                    "sim_time_s": sample["sim_time_s"],
+                    "xyz": sample["xyz"],
+                    "quat_wxyz": sample["quat_wxyz"],
+                }
                 for sample in self.samples
             ],
             "target_pose_wxyz": {"xyz": self.goal_xyz, "quat_wxyz": self.goal_quat_wxyz},

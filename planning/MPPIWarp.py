@@ -491,7 +491,6 @@ def adapt_param_for_cartesian_ranking(param, args):
     param.planner_solver_ = concrete_backend
     if getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
-    param.lambda_optimizer.solver = concrete_backend
     param.sol_guess_ = None
     return param
 
@@ -539,9 +538,6 @@ def adapt_param_for_joint_mppi(param, args):
 
     if getattr(param, "lambda_optimizer", None) is None:
         param.lambda_optimizer = build_lambda_optimizer(param, args)
-    param.lambda_optimizer.solver = resolve_solver_backend(
-        getattr(args, "solver_backend", "auto")
-    )
     param.sol_guess_ = None
     return param
 

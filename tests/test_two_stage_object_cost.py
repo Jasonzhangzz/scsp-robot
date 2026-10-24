@@ -186,13 +186,10 @@ def test_mpc_runtime_parameters_and_disabled_signature():
     assert path.size_in(2)[0] == legacy_path.size_in(2)[0] + 7 + 12
 
 
-@pytest.mark.parametrize('backend', ['ipopt', 'acados', 'torch-lbfgs'])
+@pytest.mark.parametrize('backend', ['ipopt', 'acados'])
 def test_lambda_solver_switches_without_rebuild(tmp_path, backend, monkeypatch):
     import trimesh
     from planning.mlqp_point import LambdaContactControlOptimizer
-    if backend == 'torch-lbfgs':
-        import torch
-        monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
     mesh = tmp_path / 'box.stl'
     trimesh.creation.box(extents=[.08, .08, .08]).export(str(mesh))
     opt = LambdaContactControlOptimizer(str(mesh), solver=backend, sample_num=12,
@@ -213,11 +210,9 @@ def test_lambda_solver_switches_without_rebuild(tmp_path, backend, monkeypatch):
         assert result is not None
         if backend == 'acados':
             assert opt.last_solver_status == 'acados'
-        elif backend == 'torch-lbfgs':
-            assert opt.last_solver_status == 'torch-lbfgs'
         force = np.asarray(result['lam_arm_opt']).reshape(3)
         expected = object_cost_np(np.asarray(result['x_plus_opt']).reshape(7), target, c) + .01 * force @ force
-        assert float(result['cost']) == pytest.approx(expected, abs=2e-6 if backend == 'torch-lbfgs' else 1e-7)
+        assert float(result['cost']) == pytest.approx(expected, abs=1e-7)
         assert opt._pose_cost(current, target) == pytest.approx(object_cost_np(current, target, c))
         results.append(force)
     assert id(opt.acados_solver) == solver_id
@@ -336,15 +331,12 @@ def test_flip_stage_weights_position_and_up_then_restores_full_pose():
     assert stage.progress_scale() == pytest.approx(.8)
 
 
-@pytest.mark.parametrize('backend', ['ipopt', 'acados', 'torch-lbfgs'])
+@pytest.mark.parametrize('backend', ['ipopt', 'acados'])
 @pytest.mark.parametrize('grouped,drive_robot', [(False,False),(True,False),(True,True)])
 def test_runtime_force_cap_and_quasi_prediction_match_mpc(tmp_path, backend, monkeypatch, grouped, drive_robot):
     import trimesh
     from planning.mlqp_point import LambdaContactControlOptimizer
     from models.explicit_model import ExplicitModel
-    if backend == 'torch-lbfgs':
-        import torch
-        monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
     mesh = tmp_path/'box.stl'
     trimesh.creation.box(extents=[.08]*3).export(str(mesh))
     opt = LambdaContactControlOptimizer(str(mesh), solver=backend, sample_num=8,

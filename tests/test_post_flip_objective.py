@@ -156,12 +156,9 @@ def test_measured_one_step_gain_does_not_force_mpc_withdrawal(stage, confidence,
     assert opt.last_executed_cost == pytest.approx(opt.normalize_pose_cost(raw - .01))
 
 
-@pytest.mark.parametrize('backend', ['ipopt', 'acados', 'torch-lbfgs'])
+@pytest.mark.parametrize('backend', ['ipopt', 'acados'])
 def test_contact_solver_explores_pressure_across_disengaged_branch(tmp_path, monkeypatch, backend):
     import trimesh
-    if backend == 'torch-lbfgs':
-        import torch
-        monkeypatch.setattr(torch.cuda, 'is_available', lambda: False)
     from examples.mpc.franka.runtime.contact import support_patch_jacobians
     mesh = tmp_path/'box.stl'
     trimesh.creation.box(extents=[.08]*3).export(str(mesh))

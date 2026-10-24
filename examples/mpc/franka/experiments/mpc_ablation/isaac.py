@@ -198,6 +198,27 @@ def build_osc_param(args, trial_count):
     param.svg_screenshot_width_ = int(getattr(args, "svg_screenshot_width", 1280))
     param.svg_screenshot_height_ = int(getattr(args, "svg_screenshot_height", 960))
     param.svg_screenshot_prefix_ = f"trial_{int(trial_count):03d}"
+    video_output_path = getattr(args, "video_output_path", "") or ""
+    video_output_dir = getattr(args, "video_output_dir", "") or ""
+    if video_output_path:
+        output_path = video_output_path
+        if int(getattr(args, "trial_num", 1)) != 1:
+            stem, suffix = os.path.splitext(output_path)
+            output_path = f"{stem}_trial_{int(trial_count):03d}{suffix or '.mp4'}"
+        param.video_output_path_ = output_path
+    elif video_output_dir:
+        param.video_output_path_ = os.path.join(
+            video_output_dir, str(getattr(args, "obj", "object")),
+            f"{int(trial_count):03d}", "video.mp4",
+        )
+    else:
+        param.video_output_path_ = None
+    param.video_fps_ = float(getattr(args, "video_fps", 20.0))
+    param.video_width_ = int(getattr(args, "video_width", 1280))
+    param.video_height_ = int(getattr(args, "video_height", 960))
+    param.video_encoder_preset_ = str(getattr(args, "video_encoder_preset", "veryfast"))
+    param.video_crf_ = int(getattr(args, "video_crf", 20))
+    param.video_wall_clock_timing_ = bool(getattr(args, "video_wall_clock_timing", False))
     param.control_substeps_ = int(getattr(args, "control_substeps", 0))
     param.physx_use_gpu_ = bool(getattr(args, "gpu_physx", False))
     param.viewer_hz_ = float(getattr(args, "viewer_hz", 60.0))

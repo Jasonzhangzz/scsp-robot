@@ -1,10 +1,6 @@
 import time
 import numpy as np
 import casadi as cs
-try:
-    import torch
-except ImportError:  # keep the IPOPT backend usable in non-Torch installs
-    torch = None
 import os
 import sys
 import ctypes
@@ -49,7 +45,7 @@ def _acados_codegen_cache_is_current(json_file, shared_file):
 from models.scm_parameters import (scaled_inverse_cs, scaled_inverse_numpy,
     friction_jacobian_cs, friction_jacobian_numpy, response_cs, validate_theta)
 
-from planning.object_pose_cost import (cost_config, object_cost_cs, object_cost_np, object_cost_torch,
+from planning.object_pose_cost import (cost_config, object_cost_cs, object_cost_np,
                                        extended_cost_config, OBJECT_COST_CONFIG_SIZE)
 
 class LambdaContactControlOptimizer:
@@ -67,7 +63,7 @@ class LambdaContactControlOptimizer:
                  scale_factors=[1.0, 1.0, 1.0],
                  collision_hull=False,
                  normal_stability_cos=0.90,
-                 solver='acados', torch_max_iter=100,
+                 solver='acados',
                  fingertip_clearance=0.011,
                  obj_inertia=None,
                  dynamics_scale=None,
@@ -79,12 +75,10 @@ class LambdaContactControlOptimizer:
                  soft_scm_regularization=SOFT_SCM_REGULARIZATION,
                  contact_dynamics=None, grouped_contact_response=False, robot_stiffness=None,
                  surface_sampling=False, collision_part_paths=None, fingertip_radius=.01,
-                 shared_response=None, friction_cone='box',
+                 friction_cone='box',
                  population_size=24, population_iterations=12,
                  population_seed=0, cem_elite_fraction=0.25):
-        self.shared_response = shared_response
         self.rank_object_velocity = np.zeros(6)
-        self.rank_tip_velocity = np.zeros(3)
         # 系统参数
         self.m = obj_mass
         self.mu_arm_obj = arm_friction
@@ -107,8 +101,6 @@ class LambdaContactControlOptimizer:
         self.soft_scm_regularization = float(soft_scm_regularization)
         if self.contact_model == 'diagonal-contact':
             self.soft_scm_a, self.soft_scm_b = 1., 0.
-            if shared_response is not None:
-                raise ValueError('Diagonal contact is a separate model; shared-response variants are unsupported')
         else:
             self.soft_scm_a, self.soft_scm_b = soft_scm_coefficients(
                 self.h, self.soft_scm_response_time, self.soft_scm_damping_ratio,
@@ -212,8 +204,10 @@ class LambdaContactControlOptimizer:
         self.max_normal_force = self.max_contact_force / np.sqrt(1.0 + self._friction_force_cap_factor * self.mu_arm_obj ** 2)
         if self.max_normal_force <= 0.001:
             raise ValueError('max_contact_force is too small for the minimum normal force')
-        # Prefer acados; IPOPT remains the compiled fallback.
-        # The Torch backend is selected explicitly by ``torch-lbfgs``.
+        # ``cem-gpu`` is the CUDA CEM with the paper SCM (Franka runtime).
+        # acados/IPOPT per-candidate NLPs and the CPU population search remain
+        # for the MuJoCo benchmarks and ablations; ``batch-lm`` is installed by
+        # planning.scm_batched_lm.
         solver = str(solver).strip().lower()
         if solver == 'snopt':
             solver = 'acados'
@@ -222,7 +216,12 @@ class LambdaContactControlOptimizer:
         self.population_search = (ForcePopulationSearch(
             solver, population_size, population_iterations, population_seed,
             cem_elite_fraction) if solver in ('cma-es', 'cem') else None)
-        self.torch_max_iter = int(torch_max_iter)
+        # GPU-parallel CEM over all candidates (paper SCM); attached by
+        # configure_gpu_cem once the physical object mass is known.
+        self.gpu_cem = None
+        self._gpu_cem_settings = dict(
+            population_size=int(population_size), population_iterations=int(population_iterations),
+            elite_fraction=float(cem_elite_fraction), seed=int(population_seed))
         self.last_solver_status = 'ipopt'
         # Diagnostics for rollout timing.  Acados normally solves each
         # candidate in a few milliseconds; a failed QP falls back to the
@@ -344,7 +343,7 @@ class LambdaContactControlOptimizer:
             self._precompile_optimization_function(build_solver=False)
         self.acados_solver = None
         self.acados_error = None
-        if self.solver not in ('ipopt', 'torch-lbfgs', 'torch-gn', 'cma-es', 'cem'):
+        if self.solver not in ('ipopt', 'batch-lm', 'cma-es', 'cem', 'cem-gpu'):
             try:
                 self.acados_solver = self._build_acados_contact_solver()
                 self.solver = 'acados'
@@ -368,13 +367,6 @@ class LambdaContactControlOptimizer:
                                for s1, s2 in ((1, 1), (1, -1), (-1, 1), (-1, -1))])
         return cs.vertcat(force[1]-mu*force[0], -force[1]-mu*force[0],
                           force[2]-mu*force[0], -force[2]-mu*force[0])
-
-    def _bounded_tangents_torch(self, raw):
-        """Map single or batched proposals into the same cone as native solvers."""
-        tangent = torch.tanh(raw)
-        if self.friction_cone == 'pyramid':
-            tangent = tangent / tangent.abs().sum(dim=-1, keepdim=True).clamp_min(1.0)
-        return tangent
 
     def _project_contact_force(self, force, force_limit):
         """Remove numerical constraint violations before reporting RTI predictions."""
@@ -409,6 +401,26 @@ class LambdaContactControlOptimizer:
             raise ValueError('contact force limit must be finite and > .002')
         self.max_contact_force = limit
         self.max_normal_force = limit / np.sqrt(1 + self._friction_force_cap_factor*self.mu_arm_obj**2)
+
+    def configure_gpu_cem(self, mass, inertia_diag, **settings):
+        """Attach the CUDA CEM backend (``solver='cem-gpu'``).
+
+        ``mass`` / ``inertia_diag`` are the physical object parameters of the
+        one-step model used by the paper SCM; they are independent of the
+        quasi-dynamic mobility matrix used by the acados/IPOPT ranking.
+        """
+        from planning.contact_force_gpu_cem import GPUContactCEM
+        kwargs = dict(self._gpu_cem_settings)
+        kwargs.update(settings)
+        self.gpu_cem = GPUContactCEM(self, mass, inertia_diag, **kwargs)
+        return self.gpu_cem
+
+    def _gpu_cem_ready(self):
+        if getattr(self, 'solver', None) != 'cem-gpu':
+            return False
+        if self.gpu_cem is None:
+            raise RuntimeError('solver cem-gpu requires configure_gpu_cem(mass, inertia_diag)')
+        return True
 
     def update_Jacobian(self, J_tilde=None, phi=None):
         required_rows = 4 * self.max_contacts
@@ -920,7 +932,7 @@ class LambdaContactControlOptimizer:
             masses = reduced_row_masses(J_tilde, self.Q_inv, self.env_phi)
         return np.vstack([np.diag(masses[4*i:4*i+4]) for i in range(self.max_contacts)])
 
-    def _arm_velocity_cs(self, velocity, tau, force, point, frame, env_j, phi, inverse, theta, arm_gap=0., full_velocity=False, tip_velocity=None, return_impulses=False):
+    def _arm_velocity_cs(self, velocity, tau, force, point, frame, env_j, phi, inverse, theta, arm_gap=0., full_velocity=False, return_impulses=False):
         """Predict the driven fingertip contact using MPC's nine-DoF mobility.
 
         The decision is an actuator wrench, not a wrench applied directly to
@@ -938,17 +950,6 @@ class LambdaContactControlOptimizer:
         n, t1, t2 = frame[:, 0], frame[:, 1], frame[:, 2]
         pyramid = cs.vertcat((n+mu*t1).T, (n+mu*t2).T, (n-mu*t1).T, (n-mu*t2).T)
         j = cs.vertcat(cs.horzcat(env_j, cs.DM.zeros(env_j.size1(), 3)), pyramid@relative)
-        if getattr(self, 'shared_response', None) is not None:
-            if return_impulses:
-                raise ValueError('Contact impulse export is not available for shared-response variants')
-            from models.cartesian_contact_response import contact_response_cs
-            settings = dict(self.shared_response)
-            physical_inverse = cs.DM(np.diag(1 / np.asarray(settings.pop('mass'))))
-            tip_velocity = cs.DM.zeros(3) if tip_velocity is None else tip_velocity
-            result, _ = contact_response_cs(velocity, tip_velocity, force, tau,
-                j, cs.vertcat(phi, cs.repmat(arm_gap, 4, 1)), physical_inverse, qi,
-                **settings)
-            return result if full_velocity else result[:6]
         free = cs.vertcat(velocity + self.gravity_velocity_scale*inverse@tau,
                           force/(self.h*self.robot_stiffness))
         if self.contact_model == 'diagonal-contact':
@@ -1014,11 +1015,6 @@ class LambdaContactControlOptimizer:
                     model='coupled-quasi-dynamic-'+self.contact_model)
 
     def _arm_velocity_numpy(self, velocity, tau, force, point, frame, env_j, phi):
-        if getattr(self, 'shared_response', None) is not None:
-            result = self._arm_velocity_cs(cs.DM(velocity), cs.DM(tau), cs.DM(force),
-                cs.DM(point), cs.DM(frame), cs.DM(env_j), cs.DM(phi), cs.DM(self.Q_inv),
-                cs.DM(self.scm_theta), tip_velocity=cs.DM(self.rank_tip_velocity))
-            return np.asarray(result).reshape(6)
         from models.soft_scm_contact import grouped_contact_velocity_numpy
         qi = np.zeros((9, 9)); qi[:6, :6] = self.Q_inv
         qi[6:, 6:] = np.eye(3)/self.robot_stiffness
@@ -1037,38 +1033,6 @@ class LambdaContactControlOptimizer:
                 self.h, self.soft_scm_regularization)[:6]
         return grouped_contact_velocity_numpy(free, j, np.r_[phi, np.zeros(4)], qi,
             self.h, self.soft_scm_a, self.soft_scm_b, self.soft_scm_regularization)[:6]
-
-    def _arm_velocity_torch(self, velocity, tau, force, point, frame, env_j, phi, inverse):
-        from models.soft_scm_contact import grouped_contact_velocity_torch
-        qi = torch.block_diag(inverse, torch.eye(3, device=inverse.device, dtype=inverse.dtype)/self.robot_stiffness)
-        free = torch.cat([velocity + self.gravity_velocity_scale*(inverse@tau),
-                          force/(self.h*self.robot_stiffness)])
-        zero = point[0]*0
-        skew = torch.stack([torch.stack([zero,-point[2],point[1]]),
-                            torch.stack([point[2],zero,-point[0]]),
-                            torch.stack([-point[1],point[0],zero])])
-        relative = torch.cat([torch.eye(3, device=point.device, dtype=point.dtype), -skew,
-                              -torch.eye(3, device=point.device, dtype=point.dtype)], dim=1)
-        n,t1,t2 = frame.T
-        mu = self.mu_arm_obj
-        pyramid = torch.stack([n+mu*t1,n+mu*t2,n-mu*t1,n-mu*t2])
-        blocks = env_j.reshape(-1,4,6); normal = blocks.mean(dim=1,keepdim=True)
-        env_j = (normal + float(np.exp(self.scm_theta[5]))*(blocks-normal)).reshape(env_j.shape)
-        j = torch.cat([torch.cat([env_j, env_j.new_zeros((env_j.shape[0],3))],dim=1), pyramid@relative])
-        if self.contact_model == 'diagonal-contact':
-            from models.diagonal_contact import diagonal_contact_velocity_torch
-            return diagonal_contact_velocity_torch(free,j,torch.cat([phi,phi.new_zeros(4)]),qi,
-                self.h,self.soft_scm_regularization)[:6]
-        if getattr(self, 'shared_response', None) is not None:
-            from models.cartesian_contact_response import contact_response_torch
-            settings = dict(self.shared_response)
-            physical_inverse = torch.diag(1/torch.as_tensor(settings.pop('mass'), dtype=inverse.dtype, device=inverse.device))
-            tip_velocity = torch.as_tensor(self.rank_tip_velocity, dtype=inverse.dtype, device=inverse.device)
-            result, _ = contact_response_torch(velocity, tip_velocity, force, tau,
-                j, torch.cat([phi, phi.new_zeros(4)]), physical_inverse, qi, **settings)
-            return result[:6]
-        return grouped_contact_velocity_torch(free,j,torch.cat([phi,phi.new_zeros(4)]),qi,
-            self.h,self.soft_scm_a,self.soft_scm_b,self.soft_scm_regularization)[:6]
 
     def _contact_velocity_cs(self, smooth, jacobian, weights, phi, inverse=None, theta=None):
         if self.contact_model == 'diagonal-contact':
@@ -1118,29 +1082,6 @@ class LambdaContactControlOptimizer:
             velocity += self.Q_inv @ J.T @ impulse
         return velocity
 
-    def _contact_velocity_torch(self, smooth, jacobian, weights, phi, inverse):
-        if self.contact_model == 'diagonal-contact':
-            from models.diagonal_contact import diagonal_contact_velocity_torch
-            return diagonal_contact_velocity_torch(smooth, jacobian, phi, inverse,
-                self.h, self.soft_scm_regularization)
-        if self.contact_model == 'comfree':
-            return self._comfree_velocity_torch(smooth, jacobian, weights, phi, inverse)
-        if hasattr(self, "scm_theta"):
-            blocks = jacobian.reshape(-1, 4, jacobian.shape[1])
-            normal = blocks.mean(dim=1, keepdim=True)
-            jacobian = (normal + float(np.exp(self.scm_theta[5]))*(blocks-normal)).reshape(jacobian.shape)
-        if getattr(self, 'grouped_contact_response', False):
-            from models.soft_scm_contact import grouped_contact_velocity_torch
-            return grouped_contact_velocity_torch(smooth, jacobian, phi, inverse, self.h, self.soft_scm_a, self.soft_scm_b, self.soft_scm_regularization)
-        velocity = smooth
-        for i in range(self.max_contacts):
-            sl = slice(4*i, 4*(i+1))
-            J = jacobian[sl]
-            residual = self.soft_scm_a * (smooth @ J.T) + self.soft_scm_b * phi[sl] / self.h
-            impulse = torch.clamp(-(residual @ weights[sl].T), min=0)
-            velocity = velocity + impulse @ (J @ inverse.T)
-        return velocity
-
     def _comfree_velocity_cs(self, smooth, jacobian, masses, phi):
         velocity = smooth
         for i in range(self.max_contacts):
@@ -1164,17 +1105,6 @@ class LambdaContactControlOptimizer:
             velocity += self.h*self.Q_inv @ J.T @ force
         return velocity
 
-    def _comfree_velocity_torch(self, smooth, jacobian, masses, phi, inverse):
-        velocity = smooth
-        for i in range(self.max_contacts):
-            sl = slice(4*i, 4*(i+1)); J = jacobian[sl]
-            speed = smooth @ J.T
-            acceleration = -(self.comfree_damping/self.h)*speed
-            acceleration = acceleration - (self.K_contact/self.h)*(self.h*speed + phi[sl])
-            force = torch.clamp(acceleration @ masses[sl].T, min=0)
-            velocity = velocity + self.h*(force @ (J @ inverse.T))
-        return velocity
-
     def _precompile_optimization_function(self, build_solver=True):
         """预编译优化函数 - 同时优化接触力和接触点位置"""
         opti = cs.Opti()
@@ -1183,7 +1113,6 @@ class LambdaContactControlOptimizer:
         x_d = opti.parameter(7)
         current_x = opti.parameter(7)
         v_last = opti.parameter(6)
-        tip_velocity = opti.parameter(3) if getattr(self, 'shared_response', None) is not None else None
         J_tilde = opti.parameter(4 * self.max_contacts, 6)
         D_inv = opti.parameter(4 * self.max_contacts, 4)
         env_phi = opti.parameter(4 * self.max_contacts)
@@ -1227,7 +1156,7 @@ class LambdaContactControlOptimizer:
             v_now = self._contact_velocity_cs(v_last + qi @ b, J_tilde, D_inv, env_phi)
 
         if self.robot_stiffness is not None:
-            v_now = self._arm_velocity_cs(v_last, tau_o_np, R_contact@lam_arm, p_arm, R_contact, J_tilde, env_phi, qi, scm_theta, tip_velocity=tip_velocity)
+            v_now = self._arm_velocity_cs(v_last, tau_o_np, R_contact@lam_arm, p_arm, R_contact, J_tilde, env_phi, qi, scm_theta)
 
         # 计算预测位姿x+
         x_plus = self.cs_qposInteg_(current_x, v_now)
@@ -1257,10 +1186,10 @@ class LambdaContactControlOptimizer:
         # graph without constructing or calling an NLP solver.
         inputs = [x_d, current_x, v_last, J_tilde, D_inv, tau_o_np, n_arm,
                   t1, t2, p_arm, curr_ori_coef, env_phi, scm_theta,
-                  object_config, force_limit] + ([tip_velocity] if tip_velocity is not None else [])
+                  object_config, force_limit]
         names = ['x_d', 'current_x', 'v_last', 'J_tilde', 'D_inv', 'tau_o_np',
                  'n_arm', 't1', 't2', 'p_arm', 'curr_ori_coef', 'env_phi',
-                 'scm_theta', 'object_config', 'force_limit'] + (['tip_velocity'] if tip_velocity is not None else [])
+                 'scm_theta', 'object_config', 'force_limit']
         self.force_objective_fn = cs.Function(
             'contact_force_objective', [lam_arm] + inputs, [x_plus, objective],
             ['lam_arm'] + names, ['x_plus_opt', 'cost'])
@@ -1567,12 +1496,22 @@ class LambdaContactControlOptimizer:
         return geo
 
     def _solve_optimization(self, **kwargs):
-        if getattr(self, 'shared_response', None) is not None:
-            kwargs.setdefault('tip_velocity', self.rank_tip_velocity)
         kwargs.setdefault('object_config', self.object_cost_config())
         kwargs.setdefault('force_limit', self.max_contact_force)
         kwargs.setdefault('env_phi', self.env_phi)
         kwargs.setdefault('scm_theta', getattr(self, 'scm_theta', np.zeros(6)))
+        if self._gpu_cem_ready():
+            try:
+                result = self.gpu_cem.solve_point(
+                    x_d=kwargs['x_d'], current_x=kwargs['current_x'], tau_o=kwargs['tau_o_np'],
+                    v_last=kwargs['v_last'], p_arm=kwargs['p_arm'], n_arm=kwargs['n_arm'],
+                    t1=kwargs['t1'], t2=kwargs['t2'], env_phi=kwargs['env_phi'],
+                    force_limit=kwargs['force_limit'], config=kwargs['object_config'])
+                self.last_solver_status = 'cem-gpu'
+                return result
+            except (RuntimeError, ValueError, FloatingPointError):
+                self.last_solver_status = 'cem-gpu-failed'
+                return None
         if self.solver in ('cma-es', 'cem'):
             try:
                 result = self.population_search.solve(self, kwargs)
@@ -1581,7 +1520,7 @@ class LambdaContactControlOptimizer:
             except (RuntimeError, ValueError, FloatingPointError):
                 self.last_solver_status = self.solver + '-failed'
                 return None
-        if self.acados_solver is not None and self.solver not in ('ipopt', 'torch-lbfgs', 'torch-gn'):
+        if self.acados_solver is not None and self.solver not in ('ipopt', 'batch-lm'):
             self.acados_solve_count += 1
             try:
                 result = self._solve_optimization_acados(**kwargs)
@@ -1605,22 +1544,6 @@ class LambdaContactControlOptimizer:
             except RuntimeError:
                 self.last_solver_status = 'failed'
                 return None
-        if self.solver in ('torch-lbfgs', 'torch-gn'):
-            try:
-                result = self._solve_optimization_torch(**kwargs)
-                self.last_solver_status = 'torch-lbfgs'
-                return result
-            except (RuntimeError, ValueError, FloatingPointError):
-                # Keep the original IPOPT problem as a per-contact fallback.
-                # This is important during rollout when a degenerate Jacobian
-                # can make the small Torch problem temporarily non-finite.
-                try:
-                    result = self._ipopt_optimization(**kwargs)
-                    self.last_solver_status = 'ipopt-fallback'
-                    return result
-                except RuntimeError:
-                    self.last_solver_status = 'failed'
-                    return None
         try:
             result = self._ipopt_optimization(**kwargs)
             self.last_solver_status = 'ipopt'
@@ -1636,15 +1559,13 @@ class LambdaContactControlOptimizer:
         # Fast path: N=1 SQP_RTI with lambda as the control.  One QP per
         # candidate. Each patch gets its own primal/dual initial iterate.
         cs_p = cs.SX.sym('xd', 7); cs_v = cs.SX.sym('vlast', 6)
-        cs_tip = cs.SX.sym('tip_velocity', 3) if getattr(self, 'shared_response', None) is not None else None
         cs_j = cs.SX.sym('Jenv', 4 * self.max_contacts, 6); cs_d = cs.SX.sym('Dinv', 4 * self.max_contacts, 4)
         cs_tau = cs.SX.sym('tau', 6); cs_n = cs.SX.sym('n', 3); cs_t1 = cs.SX.sym('t1', 3); cs_t2 = cs.SX.sym('t2', 3); cs_cp = cs.SX.sym('p', 3)
         cs_phi = cs.SX.sym('phi', 4*self.max_contacts)
         scm_theta = cs.SX.sym('scm_theta', 6)
         object_config = cs.SX.sym('object_config', OBJECT_COST_CONFIG_SIZE)
         force_limit = cs.SX.sym('force_limit')
-        prm = cs.vertcat(cs_phi, cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp, scm_theta, object_config,
-                         *([cs_tip] if cs_tip is not None else []), force_limit)
+        prm = cs.vertcat(cs_phi, cs_p, cs_v, cs.reshape(cs_j, -1, 1), cs.reshape(cs_d, -1, 1), cs_tau, cs_n, cs_t1, cs_t2, cs_cp, scm_theta, object_config, force_limit)
         x = cs.SX.sym('x', 7); u = cs.SX.sym('u', 3)
         Jc = cs.SX.zeros(3, 6); Jc[:3, :3] = cs.SX.eye(3); Jc[0,4],Jc[0,5]=cs_cp[2],-cs_cp[1]; Jc[1,3],Jc[1,5]=-cs_cp[2],cs_cp[0]; Jc[2,3],Jc[2,4]=cs_cp[1],-cs_cp[0]
         wrench_scale = self.wrench_velocity_scale
@@ -1652,7 +1573,7 @@ class LambdaContactControlOptimizer:
         vn = (self._contact_velocity_cs(cs_v+qib, cs_j, cs_d, cs_phi, qinv, scm_theta)
               if self.contact_model == "soft-scm" else self._contact_velocity_cs(cs_v+qib, cs_j, cs_d, cs_phi))
         if self.robot_stiffness is not None:
-            vn = self._arm_velocity_cs(cs_v, cs_tau, Rct@u, cs_cp, Rct, cs_j, cs_phi, qinv, scm_theta, tip_velocity=cs_tip)
+            vn = self._arm_velocity_cs(cs_v, cs_tau, Rct@u, cs_cp, Rct, cs_j, cs_phi, qinv, scm_theta)
         quat=x[3:7]; H=cs.vertcat(cs.horzcat(-quat[1],quat[0],quat[3],-quat[2]),cs.horzcat(-quat[2],-quat[3],quat[0],quat[1]),cs.horzcat(-quat[3],quat[2],-quat[1],quat[0])).T
         qn=cs.vertcat(x[:3]+self.h*vn[:3], quat+0.5*self.h*H@vn[3:6]); qn=cs.vertcat(qn[:3],qn[3:7]/cs.norm_2(qn[3:7]))
         self._acados_candidate_fn = cs.Function('contact_candidate', [x, u, prm],
@@ -1662,9 +1583,6 @@ class LambdaContactControlOptimizer:
         # discrete transition).  Putting qn itself here is rejected because
         # a terminal cost may not depend on ``u``.
         mass_key = hashlib.sha1(np.r_[np.asarray(self.Q_inv).reshape(-1), self.h, self.K_contact, self.comfree_damping, self.soft_scm_response_time, self.soft_scm_damping_ratio, self.soft_scm_regularization, float(self.wrench_is_force), self.gravity_velocity_scale, self.wrench_velocity_scale, float(self.grouped_contact_response), self.robot_stiffness or 0., self.pos_coef, self.ori_coef, self.friction_reg_coef, self.force_reg_coef].astype('<f8').tobytes() + cs.__version__.encode()).hexdigest()[:10]
-        if getattr(self, 'shared_response', None) is not None:
-            import json
-            mass_key = hashlib.sha1((mass_key + json.dumps(self.shared_response, sort_keys=True)).encode()).hexdigest()[:10]
         if self.friction_cone == 'pyramid':
             mass_key = hashlib.sha1((mass_key + '_l1_pyramid').encode()).hexdigest()[:10]
         mu_key = int(round(float(self.mu_arm_obj) * 1000.0))
@@ -1701,7 +1619,6 @@ class LambdaContactControlOptimizer:
                           np.asarray(kwargs['t2']).reshape(-1),
                           np.asarray(kwargs['p_arm']).reshape(-1), np.asarray(kwargs.get('scm_theta', self.scm_theta)).reshape(-1),
                           extended_cost_config(kwargs.get('object_config', self.object_cost_config())),
-                          *([np.asarray(kwargs.get('tip_velocity', self.rank_tip_velocity)).reshape(3)] if getattr(self, 'shared_response', None) is not None else []),
                           [kwargs.get('force_limit', self.max_contact_force)]])
         solver.reset()
         solver.set(0,'x',xcur); solver.set(0,'lbx',xcur); solver.set(0,'ubx',xcur)
@@ -1733,166 +1650,9 @@ class LambdaContactControlOptimizer:
             raise FloatingPointError('non-finite contact prediction')
         return {'lam_arm_opt':lam,'x_plus_opt':qnext,'cost':cost}
 
-    def _solve_optimization_torch(self, x_d, current_x, v_last, J_tilde, D_inv,
-                                  tau_o_np, n_arm, t1, t2, p_arm, curr_ori_coef, env_phi=None, scm_theta=None, object_config=None, force_limit=None):
-        """Solve the single-contact problem with differentiable Torch L-BFGS.
-
-        This mirrors ``_precompile_optimization_function``: the optimized
-        variable is the 3D contact wrench ``[fn, ft1, ft2]`` and the same
-        projected environment response and quaternion integration are used.
-        Friction and normal-force bounds are enforced by a smooth
-        parameterization, avoiding the unconstrained/oversized fingertip
-        forces that otherwise make the rollout jump.
-        """
-        if torch is None:
-            raise RuntimeError('Torch is not installed')
-        dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        dt = torch.float32
-        t = lambda x: torch.as_tensor(np.asarray(x), device=dev, dtype=dt)
-        xd, xc, vl = t(x_d).reshape(-1), t(current_x).reshape(-1), t(v_last).reshape(-1)
-        Jenv, D = t(J_tilde), t(D_inv)
-        phi = t(self.env_phi if env_phi is None else env_phi)
-        tau, n, tt1, tt2, p = map(t, (tau_o_np, n_arm, t1, t2, p_arm))
-        qinv = t(self.Q_inv)
-
-        # Contact Jacobian [I, -skew(p)] in the convention used above.
-        Jc = torch.zeros((3, 6), device=dev, dtype=dt)
-        Jc[:, :3] = torch.eye(3, device=dev, dtype=dt)
-        Jc[0, 4], Jc[0, 5] = p[2], -p[1]
-        Jc[1, 3], Jc[1, 5] = -p[2], p[0]
-        Jc[2, 3], Jc[2, 4] = p[1], -p[0]
-        Rcontact = torch.stack((n, tt1, tt2), dim=1)
-
-        normal_cap = (self.max_contact_force if force_limit is None else float(force_limit)) / np.sqrt(1 + self._friction_force_cap_factor*self.mu_arm_obj**2)
-        # Match the active-contact initial guess used by the native solvers.
-        initial_normal = .9 * normal_cap if self.robot_stiffness is not None else .01
-        fn0 = (initial_normal - 1e-6) / (normal_cap - 1e-6)
-        fn0 = float(np.clip(fn0, 1e-4, 1.0 - 1e-4))
-        z0 = torch.zeros(3, device=dev, dtype=dt)
-        z0[0] = torch.log(torch.tensor(fn0 / (1.0 - fn0), device=dev, dtype=dt))
-        z = torch.nn.Parameter(z0)
-        opt = torch.optim.LBFGS(
-            [z], max_iter=self.torch_max_iter, tolerance_grad=1e-5,
-            tolerance_change=1e-9, line_search_fn='strong_wolfe')
-
-        def evaluate():
-            fn = 1e-6 + (normal_cap - 1e-6) * torch.sigmoid(z[0])
-            lam = torch.cat((fn.reshape(1), self.mu_arm_obj * fn * self._bounded_tangents_torch(z[1:])))
-            wrench_scale = self.wrench_velocity_scale
-            b = self.gravity_velocity_scale * tau + wrench_scale * (Jc.T @ (Rcontact @ lam))
-            qinv_b = qinv @ b
-            vnow = self._contact_velocity_torch(vl+qinv_b, Jenv, D, phi, qinv)
-            if self.robot_stiffness is not None:
-                vnow = self._arm_velocity_torch(vl, tau, Rcontact@lam, p, Rcontact, Jenv, phi, qinv)
-            quat = xc[3:7]
-            Ht = torch.stack((
-                torch.stack((-quat[1], quat[0], quat[3], -quat[2])),
-                torch.stack((-quat[2], -quat[3], quat[0], quat[1])),
-                torch.stack((-quat[3], quat[2], -quat[1], quat[0])),
-            ), dim=0).T
-            qnext = torch.cat((xc[:3] + self.h * vnow[:3],
-                               quat + 0.5 * self.h * (Ht @ vnow[3:6])))
-            qnext = torch.cat((qnext[:3], qnext[3:7] / torch.linalg.vector_norm(qnext[3:7]).clamp_min(1e-8)))
-            friction_cost = torch.sum(lam[1:] * lam[1:])
-            force_cost = torch.sum(lam * lam)
-            cost = (object_cost_torch(qnext[:3], qnext[3:7], xd, self.object_cost_config() if object_config is None else object_config) + self.friction_reg_coef * friction_cost +
-                    self.force_reg_coef * force_cost)
-            return cost, lam, qnext
-
-        def closure():
-            opt.zero_grad()
-            cost, _, _ = evaluate()
-            if not torch.isfinite(cost):
-                raise FloatingPointError('non-finite Torch contact objective')
-            cost.backward()
-            return cost
-
-        opt.step(closure)
-        with torch.no_grad():
-            cost, lam, qnext = evaluate()
-        if not (torch.isfinite(cost) and torch.isfinite(lam).all() and torch.isfinite(qnext).all()):
-            raise FloatingPointError('non-finite Torch contact solution')
-        return {'lam_arm_opt': lam.detach().cpu().numpy(),
-                'x_plus_opt': qnext.detach().cpu().numpy(),
-                'cost': float(cost.detach().cpu())}
-
-    def _choose_contact_points_torch_batch(self, x_d, current_x, tau_o, visible_face_idx,
-                                           v_last, D_inv):
-        """Evaluate all visible contact candidates in one Torch L-BFGS solve.
-
-        The old implementation launched one optimizer (and repeatedly copied
-        six small arrays to Torch) per face.  A batched objective has identical
-        independent rows, but lets BLAS/GPU evaluate all candidates together.
-        """
-        if torch is None:
-            raise RuntimeError('Torch is not installed')
-        dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        dt = torch.float32
-        t = lambda x: torch.as_tensor(np.asarray(x), device=dev, dtype=dt)
-        xd, xc, vl = t(x_d).reshape(-1), t(current_x).reshape(-1), t(v_last).reshape(-1)
-        Jenv, D = t(self.J_tilde), t(D_inv)
-        phi = t(self.env_phi)
-        ids = np.asarray(visible_face_idx, dtype=np.int32).reshape(-1)
-        n = t(self.normal[ids]); tt1 = t(self.t1[ids]); tt2 = t(self.t2[ids]); p = t(self.sample_point[ids])
-        tau, qinv = t(tau_o).reshape(-1), t(self.Q_inv)
-        count = ids.size
-
-        Jc = torch.zeros((count, 3, 6), device=dev, dtype=dt)
-        Jc[:, :, :3] = torch.eye(3, device=dev, dtype=dt).expand(count, -1, -1)
-        Jc[:, 0, 4], Jc[:, 0, 5] = p[:, 2], -p[:, 1]
-        Jc[:, 1, 3], Jc[:, 1, 5] = -p[:, 2], p[:, 0]
-        Jc[:, 2, 3], Jc[:, 2, 4] = p[:, 1], -p[:, 0]
-        Rcontact = torch.stack((n, tt1, tt2), dim=2)
-
-        initial_normal = .9 * self.max_normal_force if self.robot_stiffness is not None else .01
-        fn0 = (initial_normal - 1e-6) / (self.max_normal_force - 1e-6)
-        fn0 = float(np.clip(fn0, 1e-4, 1.0 - 1e-4))
-        z = torch.nn.Parameter(torch.zeros((count, 3), device=dev, dtype=dt))
-        z.data[:, 0] = torch.log(torch.tensor(fn0 / (1.0 - fn0), device=dev, dtype=dt))
-        opt = torch.optim.LBFGS([z], max_iter=self.torch_max_iter,
-                                tolerance_grad=1e-5, tolerance_change=1e-9,
-                                line_search_fn='strong_wolfe')
-
-        def evaluate():
-            fn = 1e-6 + (self.max_normal_force - 1e-6) * torch.sigmoid(z[:, 0])
-            lam = torch.cat((fn[:, None], self.mu_arm_obj * fn[:, None] * self._bounded_tangents_torch(z[:, 1:])), dim=1)
-            wrench = torch.bmm(Rcontact, lam[:, :, None]).squeeze(-1)
-            wrench_scale = self.wrench_velocity_scale
-            b = self.gravity_velocity_scale * tau[None, :] + wrench_scale * torch.bmm(Jc.transpose(1, 2), wrench[:, :, None]).squeeze(-1)
-            qinv_b = torch.matmul(b, qinv.T)
-            vnow = self._contact_velocity_torch(qinv_b+vl[None, :], Jenv, D, phi, qinv)
-            if self.robot_stiffness is not None:
-                vnow = torch.stack([self._arm_velocity_torch(vl, tau, wrench[i], p[i], Rcontact[i], Jenv, phi, qinv) for i in range(count)])
-            quat = xc[3:7]
-            Ht = torch.stack((
-                torch.stack((-quat[1], quat[0], quat[3], -quat[2])),
-                torch.stack((-quat[2], -quat[3], quat[0], quat[1])),
-                torch.stack((-quat[3], quat[2], -quat[1], quat[0])),
-            ), dim=0).T
-            qpos = xc[:3][None, :] + self.h * vnow[:, :3]
-            qrot = quat[None, :] + 0.5 * self.h * torch.matmul(vnow[:, 3:6], Ht.T)
-            qrot = qrot / torch.linalg.vector_norm(qrot, dim=1, keepdim=True).clamp_min(1e-8)
-            friction_cost = torch.sum(lam[:, 1:] * lam[:, 1:], dim=1)
-            force_cost = torch.sum(lam * lam, dim=1)
-            costs = (object_cost_torch(qpos, qrot, xd, self.object_cost_config()) + self.friction_reg_coef * friction_cost +
-                     self.force_reg_coef * force_cost)
-            return costs, lam, torch.cat((qpos, qrot), dim=1)
-
-        def closure():
-            opt.zero_grad()
-            costs, _, _ = evaluate()
-            if not torch.isfinite(costs).all():
-                raise FloatingPointError('non-finite batched Torch contact objective')
-            costs.sum().backward()
-            return costs.sum()
-
-        opt.step(closure)
-        with torch.no_grad():
-            costs, lam, qnext = evaluate()
-        if not (torch.isfinite(costs).all() and torch.isfinite(lam).all() and torch.isfinite(qnext).all()):
-            raise FloatingPointError('non-finite batched Torch contact solution')
-        self.last_solver_status = 'torch-lbfgs'
-        return ids, costs.cpu().numpy(), lam.cpu().numpy(), qnext.cpu().numpy()
+    def _choose_contact_points_batch(self, x_d, current_x, tau_o, visible_face_idx, v_last, D_inv):
+        """Batched ranking hook for ``solver='batch-lm'`` (planning.scm_batched_lm)."""
+        raise RuntimeError('no batched contact ranking backend installed')
 
     def init_utils(self):
         # -------------------------------
@@ -1933,7 +1693,9 @@ class LambdaContactControlOptimizer:
         if p_arm is None:
             p_arm = np.array([-1, 0, 0])
         if v_last is None:
-            v_last = self.rank_object_velocity.copy() if getattr(self, 'shared_response', None) is not None else np.zeros(6)
+            v_last = (self.rank_object_velocity.copy()
+                      if getattr(self, 'solver', None) == 'cem-gpu'
+                      else np.zeros(6))
 
         ori_align_sq = cs.dot(current_x[3:7], x_d[3:7]) ** 2
         th = 0.85
@@ -2027,12 +1789,42 @@ class LambdaContactControlOptimizer:
             # 确保返回不是None
             return self.sample_point[0], self.normal[0], 1, 1, 1
         if v_last is None:
-            v_last = self.rank_object_velocity.copy() if getattr(self, 'shared_response', None) is not None else np.zeros(6)
+            v_last = (self.rank_object_velocity.copy()
+                      if getattr(self, 'solver', None) == 'cem-gpu'
+                      else np.zeros(6))
 
-        if self.solver in ('torch-lbfgs', 'torch-gn'):
+        if self._gpu_cem_ready():
+            # One batched CUDA launch over every visible candidate.
+            ids, raw_costs, force_buffer, x_plus_buffer = self.gpu_cem.rank(
+                x_d, current_x, tau_o, visible_face_idx, v_last)
+            self.last_solver_status = 'cem-gpu'
+            costs = self._rescore_candidate_costs(ids, raw_costs, x_plus_buffer, x_d, current_x)
+            self._store_candidate_buffers(ids, costs, x_plus_buffer, force_buffer, raw_costs=raw_costs)
+            finite_mask = np.isfinite(costs)
+            if not np.any(finite_mask):
+                fallback_idx = int(ids[0])
+                self.last_best_x_plus = None
+                self.last_best_cost = float('inf')
+                self.last_best_delta = None
+                return self.sample_point[fallback_idx], self.normal[fallback_idx], 1, 1, 1
+            finite_costs = costs[finite_mask]
+            min_error, max_error = float(np.min(finite_costs)), float(np.max(finite_costs))
+            selected_idx, _, _, selected_local = self._select_contact_candidate(
+                ids, costs, force_buffer=force_buffer,
+                contact_anchor_local=contact_anchor_local,
+                contact_anchor_idx=contact_anchor_idx,
+                force_required=force_required)
+            self.last_best_idx = int(selected_idx)
+            self.last_best_force = np.asarray(force_buffer[int(selected_local)], dtype=np.float32)
+            self.last_best_x_plus = np.asarray(x_plus_buffer[int(selected_local)], dtype=np.float64).reshape(7)
+            self.last_best_cost = float(costs[int(selected_local)])
+            self._record_global_delta()
+            return self.sample_point[selected_idx], self.normal[selected_idx], min_error, max_error, 1
+
+        if self.solver == 'batch-lm':
             D_inv = self.compute_env_diag_inverse(self.J_tilde)
             try:
-                ids, costs, force_buffer, x_plus_buffer = self._choose_contact_points_torch_batch(
+                ids, costs, force_buffer, x_plus_buffer = self._choose_contact_points_batch(
                     x_d, current_x, tau_o, visible_face_idx, v_last, D_inv)
                 raw_costs = np.asarray(costs, dtype=np.float64).reshape(-1)
                 costs = self._rescore_candidate_costs(

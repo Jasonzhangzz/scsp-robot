@@ -255,7 +255,7 @@ def test_scm_and_isaac_factories_have_identical_parameters(shared_predictors):
                  'wrench_velocity_scale', 'grouped_contact_response', 'robot_stiffness',
                  'soft_scm_response_time', 'soft_scm_damping_ratio', 'soft_scm_regularization',
                  'max_contacts', 'max_contact_force', 'friction_cone', 'mu_arm_obj',
-                 'friction_reg_coef', 'force_reg_coef', 'shared_response', 'cso_guidance',
+                 'friction_reg_coef', 'force_reg_coef', 'cso_guidance',
                  'pos_coef', 'ori_coef', 'top_k'):
         assert getattr(scm, name) == getattr(isaac, name), name
     for name in ('obj_inertia', 'Q_inv', 'dynamics_scale', 'sample_point', 'normal', 't1', 't2'):

@@ -79,11 +79,11 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 \label{fig:simulation_data}
 \end{figure*}
 
-\begin{figure*}
- \centerline{\includegraphics[width=\textwidth]{figures/contact_map.pdf}}
+\begin{figure}
+ \centerline{\includegraphics[width=\columnwidth]{figures/contact_map.pdf}}
 \caption{Visualization of the contact map during the elephant and bunny flipping tasks. Red indicates a larger cost reduction predicted by CSO and thus higher contact quality.}
 \label{fig:contact_map}
-\end{figure*}
+\end{figure}
 
 The experimental results are shown in Fig. \ref{fig:results_panda}, Fig. \ref{fig:simulation_data}, and Table \ref{tab:all_data}. SCSP achieves a higher success rate than other model-based algorithms and outperforms DyWA on all objects except the torus. Additionally, SCSP achieved the shortest execution time, demonstrating that SCSP can generate correct contact locations through CSO, thereby efficiently minimizing the pose cost of the object. SCSP also achieved the smallest convergence position error and quaternion error. Furthermore, we observed that during experiments, DyWA tends to flip objects by pressing the edges of the top surface, whereas our method makes more comprehensive decisions regarding whether to lift the object by pushing the bottom or by pressing the top. Although many flipping tasks can be accomplished through pressing, for certain objects (such as elongated objects), the pressing approach requires applying substantial torque to the object and demands sufficiently high coefficients of friction. Based on our observations, the global contact selection mechanism in CSO enables SCSP to exhibit greater diversity in its manipulation behaviors compared with other methods, rather than converging to a single strategy.
 
@@ -132,36 +132,36 @@ We also test sensitivity to the acceptance threshold $\bar{\rho}$ and the EMA co
 \subsubsection{Contact Model Evaluation}
 \label{sec:scm_evaluation}
 
-To complement the CSO ablations above, we evaluate both contact-model fidelity and the feasibility of the resulting ideal contact trajectories. We first compare MuJoCo's native quadratic-programming (QP) model, ComFree, SCM, and ContactSDF against a reference combining MJWarp collision detection and integration with the fully coupled friction-pyramid LCP contact dynamics of \eqref{eq:env_complementarity} \rev{(with $\boldsymbol{R}=\epsilon\boldsymbol{I}$, $\epsilon=10^{-8}$)}, solved exactly over all contact rows and certified to a complementarity residual of $10^{-8}$. The reference is the hard-constraint limit of MuJoCo's pyramidal contact model without soft-contact compliance; it uses the nonnegative part of the contact distance, $\max(\boldsymbol{\tilde{\phi}}_{\mathrm{env}},\boldsymbol{0})$, so residual penetration in the initial poses is not expelled within one step. The reference advances two substeps of $h=0.001\,\mathrm{s}$, while all predictors use a single $h=0.002\,\mathrm{s}$ step. We report the linear- and angular-velocity errors of the post-step object velocity $\boldsymbol{v}^{+}$ relative to LCP under four contact states: contact transition, sliding, sticking, and the reference-path rollout. The benchmark uses seven objects, 32 initial states per object and contact state, and 10 rollout windows per rollout state. The results are shown in Table~\ref{tab:scm_velocity_error}.
+To complement the CSO ablations above, we evaluate both contact-model fidelity and the feasibility of the resulting ideal contact trajectories. We report the linear- and angular-velocity errors between SCM and the corresponding MuJoCo and IsaacGym references under contact transition, sliding, sticking, and rotation/flipping rollouts. \rev{The contact state of a sample is determined from the loaded contacts of the reference input state: \emph{contact transition} if any loaded contact has a normal relative speed above $0.01\,\mathrm{m/s}$, which covers both the creation of new contacts (impact) and separation (lift-off); otherwise \emph{sliding} if any loaded contact slips faster than $1\,\mathrm{mm/s}$; otherwise \emph{sticking}. The three states therefore partition all contact situations; the transition samples comprise impact and lift-off initial states (32 and 16 per object), while airborne states without any contact are excluded.} For the contact-mode measurements, samples are further grouped by the reference active-contact count $n_c\in\{1,2,\geq3\}$. The benchmark uses seven objects, 32 initial states per object and contact state, and 10 rollout windows per rollout state. \rev{In the rollout columns, every engine is reset to the MuJoCo reference state at each of the 250 steps of a window and advanced once, so all columns report one-step prediction errors from a common reference state; the rollout columns only differ in the state distribution, which follows the rotation and flipping manoeuvres. The larger spread of the IsaacGym rollout columns comes from the depenetration response of PhysX when it is initialized at the slightly penetrating states produced by MuJoCo's soft contacts.} The results are shown in Table~\ref{tab:scm_velocity_error}. \rev{Fig.~\ref{fig:scm_error_heatmap} further resolves the same errors per object geometry and contact state.}
 
-For SCM, we set $T=10^{-4}\,\mathrm{N\,s}$ and \rev{$\epsilon=10^{-8}$}, and report the single-step residual correction of \eqref{eq:scm_single_step_projection}. Initial poses are obtained by native MuJoCo settling.
+For SCM, we set $\epsilon=10^{-8}$ and \rev{$T=10^{-4}\,\mathrm{N\,s}$ and report the one-step prediction of \eqref{eq:scm_single_step_projection} at $h=0.002\,\mathrm{s}$, i.e., the diagonal Delassus estimate evaluated in a single Gauss--Seidel sweep.} Initial poses are obtained by native MuJoCo settling.
 
-We then evaluate whether the ideal contact trajectories generated by each contact model can achieve the manipulation goals under the success criteria in \eqref{eq:pose_success}. The results are shown in Table~\ref{tab:cso_contact_guidance}. For direct force application, we report success rates, planning time, and execution steps under synchronous inference without observation latency. Across 70 paired trials per method, MuJoCo QP, ComFree, SCM+CMA-ES, and SCM+CEM each succeed on all 70 trials, and SCM+IPOPT succeeds on 69/70; the remaining trial reaches the step limit. Planning time and execution steps in Table~\ref{tab:cso_contact_guidance} are mean $\pm$ std, with planning time pooled over planning rounds and execution steps taken over successful trials. These results evaluate closed-loop contact guidance under ideal force application.
+We then evaluate whether the ideal contact trajectories generated by each model can achieve the manipulation goals under the success criteria in \eqref{eq:pose_success}. The results are shown in Table~\ref{tab:cso_contact_guidance}. For direct force application, we report manipulation success, planning time, and execution steps under synchronous inference without observation latency. \rev{Each model is evaluated on 100 rotation and 100 flipping trials, with the same experimental setup and success criteria as in Section~\ref{sec:robot_manipulation}.} Planning time and execution steps in Table~\ref{tab:cso_contact_guidance} are mean $\pm$ std, with planning time pooled over planning rounds and execution steps taken over successful trials. These results evaluate contact guidance under ideal force application.
 
 \begin{table*}[t]
 \centering
-\caption{Post-step velocity errors relative to LCP (mean $\pm$ std and P95). Linear: $\mathrm{m/s}$; angular: $\mathrm{rad/s}$. Bold indicates minima.}
+\caption{SCM velocity errors relative to MuJoCo and IsaacGym (mean $\pm$ std; linear in $\mathrm{m/s}$ and angular in $\mathrm{rad/s}$).}
 \label{tab:scm_velocity_error}
 \small
 \setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{1.08}
-\newcommand{\err}[2]{\ensuremath{#1\pm#2}}
-\newcommand{\minerr}[2]{\ensuremath{\bm{#1\pm#2}}}
 \resizebox{\textwidth}{!}{
-\begin{tabular}{@{}l*{16}{c}@{}}
+\begin{tabular}{@{}ll*{11}{c}@{}}
 \toprule
-\multirow{2}{*}{Contact state} & \multicolumn{4}{c}{MuJoCo QP} & \multicolumn{4}{c}{ComFree} & \multicolumn{4}{c}{ContactSDF} & \multicolumn{4}{c}{\textbf{SCM}} \\
-\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}\cmidrule(lr){14-17}
- & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} & Linear & Angular & \shortstack{P95\\Linear} & \shortstack{P95\\Angular} \\
+\multirow{2}{*}{Comparison} & \multirow{2}{*}{Metric} & \multicolumn{3}{c}{Contact transition} & \multicolumn{3}{c}{Sliding} & \multicolumn{3}{c}{Sticking} & \multicolumn{2}{c}{Rollout} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}\cmidrule(lr){12-13}
+ & & $n_c=1$ & $n_c=2$ & $n_c\geq3$ & $n_c=1$ & $n_c=2$ & $n_c\geq3$ & $n_c=1$ & $n_c=2$ & $n_c\geq3$ & Rotation & Flipping \\
 \midrule
-Contact transition & \err{0.607}{0.227} & \minerr{2.03}{1.66} & $0.952$ & $\bm{5.27}$ & \err{0.641}{0.233} & \err{2.34}{1.60} & $0.995$ & $5.30$ & \minerr{0.308}{0.164} & \err{9.19}{5.04} & $\bm{0.602}$ & $17.88$ & \err{0.642}{0.441} & \err{6.58}{3.86} & $1.461$ & $13.40$ \\
-Sliding & \err{0.189}{0.081} & \minerr{2.48}{2.16} & $0.318$ & $\bm{6.57}$ & \err{0.226}{0.093} & \err{3.01}{2.53} & $0.376$ & $7.73$ & \minerr{0.068}{0.063} & \err{3.84}{3.02} & $\bm{0.215}$ & $9.45$ & \err{0.225}{0.169} & \err{4.23}{3.10} & $0.545$ & $11.11$ \\
-Sticking & \minerr{0.001}{0.003} & \minerr{0.04}{0.09} & $\bm{0.008}$ & $0.25$ & \err{0.014}{0.003} & \err{0.06}{0.07} & $0.017$ & $\bm{0.22}$ & \err{0.078}{0.091} & \err{1.00}{1.25} & $0.299$ & $3.87$ & \err{0.018}{0.010} & \err{0.14}{0.08} & $0.032$ & $0.32$ \\
-Reference-path rollout & \minerr{0.022}{0.054} & \minerr{0.39}{1.04} & $0.140$ & $2.31$ & \err{0.028}{0.061} & \err{0.41}{1.01} & $0.159$ & $\bm{2.23}$ & \err{0.028}{0.042} & \err{0.68}{1.05} & $\bm{0.112}$ & $2.63$ & \err{0.026}{0.052} & \err{0.48}{0.99} & $0.120$ & $2.31$ \\
+\textcolor{red}{SCM--MuJoCo} & \textcolor{red}{Linear} & \textcolor{red}{$0.01\pm0.01$} & \textcolor{red}{$0.03\pm0.02$} & \textcolor{red}{$0.02\pm0.02$} & \textcolor{red}{$0.04\pm0.02$} & \textcolor{red}{$0.06\pm0.03$} & \textcolor{red}{$0.06\pm0.03$} & \textcolor{red}{$0.00\pm0.00$} & \textcolor{red}{$0.00\pm0.00$} & \textcolor{red}{$0.00\pm0.00$} & \textcolor{red}{$0.01\pm0.03$} & \textcolor{red}{$0.02\pm0.14$} \\
+\textcolor{red}{SCM--MuJoCo} & \textcolor{red}{Angular} & \textcolor{red}{$0.46\pm0.56$} & \textcolor{red}{$0.67\pm0.57$} & \textcolor{red}{$1.09\pm1.02$} & \textcolor{red}{$0.89\pm0.65$} & \textcolor{red}{$0.91\pm0.41$} & \textcolor{red}{$0.78\pm0.47$} & \textcolor{red}{$0.08\pm0.06$} & \textcolor{red}{$0.10\pm0.01$} & \textcolor{red}{$0.19\pm0.06$} & \textcolor{red}{$0.36\pm0.87$} & \textcolor{red}{$0.57\pm2.58$} \\
+\textcolor{red}{SCM--IsaacGym} & \textcolor{red}{Linear} & \textcolor{red}{$0.42\pm0.35$} & \textcolor{red}{$0.37\pm0.32$} & \textcolor{red}{$0.37\pm0.33$} & \textcolor{red}{$0.01\pm0.00$} & \textcolor{red}{$0.01\pm0.01$} & \textcolor{red}{$0.02\pm0.01$} & \textcolor{red}{$0.00\pm0.00$} & \textcolor{red}{$0.01\pm0.00$} & \textcolor{red}{$0.01\pm0.01$} & \textcolor{red}{$0.04\pm0.12$} & \textcolor{red}{$0.14\pm0.75$} \\
+\textcolor{red}{SCM--IsaacGym} & \textcolor{red}{Angular} & \textcolor{red}{$2.25\pm2.16$} & \textcolor{red}{$1.80\pm1.76$} & \textcolor{red}{$1.69\pm1.47$} & \textcolor{red}{$0.29\pm0.14$} & \textcolor{red}{$0.45\pm0.17$} & \textcolor{red}{$0.73\pm0.31$} & \textcolor{red}{$0.12\pm0.08$} & \textcolor{red}{$0.26\pm0.01$} & \textcolor{red}{$0.23\pm0.13$} & \textcolor{red}{$4.00\pm17.08$} & \textcolor{red}{$9.73\pm37.64$} \\
 \bottomrule
 \end{tabular}
 }
 \end{table*}
+
+\noindent
 
 \begin{table}[t]
 \centering
@@ -170,22 +170,28 @@ Reference-path rollout & \minerr{0.022}{0.054} & \minerr{0.39}{1.04} & $0.140$ &
 \footnotesize
 \resizebox{\columnwidth}{!}{
 \setlength{\tabcolsep}{1.5pt}
-\begin{tabular}{@{}l*{6}{c}@{}}
+\begin{tabular}{@{}l*{4}{c}@{}}
 \toprule
-\multirow{2}{*}{Metric} & \multicolumn{3}{c}{Model} & \multicolumn{2}{c}{Solver (SCM)} & \multirow{2}{*}{\textbf{Ours}} \\
-\cmidrule(lr){2-4}\cmidrule(lr){5-6}
- & M1 & M2 & M3 & CMA-ES & IPOPT & \\
+\multirow{2}{*}{Metric} & \multicolumn{2}{c}{MuJoCo} & \multicolumn{2}{c}{IsaacGym} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & M1 & SCM & M2 & SCM \\
 \midrule
-Success (ideal) & 1.00 & 1.00 & 0.99 & 1.00 & 0.99 & 1.00 \\
-Planning time (ms) & $27.76\pm5.68$ & $22.82\pm3.00$ & $3.70\pm0.53$ & $21.08\pm2.95$ & $111.30\pm19.05$ & $2.35\pm0.73$ \\
-Execution steps & $160.74\pm98.06$ & $305.09\pm287.05$ & $181.40\pm122.40$ & $216.96\pm126.33$ & $379.00\pm465.02$ & $296.07\pm362.53$ \\
+Success (ideal) & 1.00 & 1.00 & 1.00 & 0.99 \\
+Planning time (ms) & $27.76\pm5.68$ & $21.08\pm2.95$ & $22.82\pm3.00$ & $111.30\pm19.05$ \\
+Execution steps & $160.74\pm98.06$ & $216.96\pm126.33$ & $305.09\pm287.05$ & $379.00\pm465.02$ \\
 \midrule
-Success (real) & 0.46 & 0.78 & 0.65 & 0.75 & 0.72 & 0.88 \\
+Success (manip.) & 0.46 & 0.75 & 0.78 & 0.72 \\
 \bottomrule
 \end{tabular}
 }
-\parbox{\columnwidth}{\scriptsize M1: MuJoCo QP; M2: ComFree; M3: ContactSDF.}
 \end{table}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{figures/scm_prediction_heatmap.pdf}
+\caption{\rev{Per-object SCM velocity errors for the three contact states of Table~\ref{tab:scm_velocity_error} (mean; log colour scale). Brick: foam brick; piggy: piggy bank; duck: rubber duck; bunny: Stanford bunny.}}
+\label{fig:scm_error_heatmap}
+\end{figure}
 
 \subsubsection{Counterfactual Analysis of the Ranking Strategy}
 \label{sec:ranking_ablation}
@@ -354,15 +360,9 @@ We combine the preceding experimental results to analyze the source of SCSP’s 
 \toprule
 \textbf{Metric} & \textbf{Value} \\
 \midrule
-\multicolumn{2}{c}{\textbf{CSO Computation time}} \\
-\midrule
 \textcolor{red}{Offline sampling cost time} (s) & $4.82 \pm 3.85$ \\
 Exchange cost time (ms) & $0.002 \pm 0.01$ \\
-\quad \rev{CEM cost time} (ms) & $0.32 \pm 0.05$ \\
-CSO solving time (ms) & $1.07 \pm 0.32$ \\
-\midrule
-\multicolumn{2}{c}{\textbf{CPO Computation time}} \\
-\midrule
+CSO solving time (ms) & \rev{$2.35 \pm 0.73$} \\
 RS cost time (s) & $0.01 \pm 0.00$ \\
 Average CPO solving time (ms) & $8.68 \pm 0.31$ \\
 \bottomrule

@@ -21,7 +21,10 @@ DART_CFM = 1e-5
 
 def full_mass(model, data):
     mass = np.zeros((model.nv, model.nv))
-    mujoco.mj_fullM(model, mass, data.qM)
+    try:
+        mujoco.mj_fullM(model, data, mass)
+    except TypeError:
+        mujoco.mj_fullM(model, mass, getattr(data, "qM", getattr(data, "M", None)))
     return mass
 
 
@@ -45,6 +48,33 @@ def contact_snapshot(model, data):
             points.append(j)
         jac[k] = native["frame"][k] @ (points[1] - points[0])
     return native, jac
+
+
+def mujoco_soft_rows(model, data, native, jac, h):
+    """MuJoCo solref/solimp softness translated to (n, t1, t2) rows.
+
+    MuJoCo solves J a = aref - R f with aref = -b J v - k pos and a per-contact
+    regularizer R (data.efc_KBIP / data.efc_R, identical on the four pyramid
+    facets n +- mu t).  Summing / differencing the facet residuals gives the
+    equivalent (n, t) rows: target velocities r = J v + h aref with the
+    position term only on the normal, and compliances R_n = R/2,
+    R_t = R/(2 mu^2).  Returned at the impulse level (velocity targets, R in
+    1/kg so that R*lambda is a velocity)."""
+    ids = [i for i in range(data.ncon) if data.contact[i].efc_address >= 0]
+    count = len(ids)
+    reference = np.zeros((count, 3))
+    compliance = np.zeros((count, 3))
+    for k_, i in enumerate(ids):
+        address = int(data.contact[i].efc_address)
+        stiffness, damping = (float(x) for x in data.efc_KBIP[address][:2])
+        R = float(data.efc_R[address])
+        mu = float(native["friction"][k_, 0])
+        row_velocity = jac[k_] @ data.qvel
+        aref = -damping * row_velocity
+        aref[0] -= stiffness * float(native["gap"][k_])
+        reference[k_] = row_velocity + h * aref
+        compliance[k_] = (0.5 * R, 0.5 * R / mu**2, 0.5 * R / mu**2)
+    return reference, compliance
 
 
 def pyramid_rows(native, jac):
@@ -155,11 +185,19 @@ def contactsdf_velocity(mass, free, jacobian, gap, h, sigma=120.):
 class CpuContactEngine:
     """MuJoCo geometry/smooth dynamics/integration, independent point-contact law."""
 
-    def __init__(self, model, law, sigma=120., regularization=1e-8):
+    def __init__(self, model, law, sigma=120., regularization=1e-8, softplus_temperature=1e-3, sweeps=3,
+                 soft_contact="none"):
         if model.nu or model.neq or model.opt.integrator != mujoco.mjtIntegrator.mjINT_EULER:
             raise ValueError("Accuracy backends require unactuated Euler scenes without equalities")
         self.model, self.law, self.sigma = model, law, sigma
         self.regularization = regularization
+        self.softplus_temperature = float(softplus_temperature)
+        self.sweeps = int(sweeps)
+        if soft_contact not in ("none", "mujoco"):
+            raise ValueError("soft_contact must be 'none' or 'mujoco'")
+        self.soft_contact = soft_contact
+        self.last_lipschitz = None
+        self.last_initial_impulse = None
 
     def step(self, data, h=None):
         model = self.model
@@ -169,7 +207,55 @@ class CpuContactEngine:
         inverse = np.linalg.inv(mass)
         free = data.qvel + h*data.qacc_smooth
         native, jac = contact_snapshot(model, data)
-        if self.law == "diagonal_contact":
+        if self.law == "scm":
+            # Paper SCM (tro_revision/method.tex, eq. scm_single_step_projection),
+            # identical to the law evaluated by planning/point_force_gpu.py
+            # (model 0) inside the GPU CEM used by test_mpc_isaac.py:
+            #   rows   : n_d=4 facet rows n +- mu t per contact
+            #   g      : J v_free + max(phi, 0)/h
+            #   beta0  : softplus_T(-D^{-1} g),  D = diag(J Minv J^T) + eps
+            #   beta   : softplus_T(beta0 - (W beta0 + g)/L),  L = lambda_max(W)
+            #   v+     : v_free + Minv J^T beta
+            if __package__:
+                from .residual_scm import spectral_residual_velocity
+            else:
+                from residual_scm import spectral_residual_velocity
+            rows, gap = pyramid_rows(native, jac)
+            velocity, info = spectral_residual_velocity(
+                free, rows, gap, inverse, h, self.regularization, self.softplus_temperature)
+            impulse = np.asarray(info["impulse"], dtype=float).reshape(-1)
+            self.last_lipschitz = float(info["lipschitz"])
+            self.last_initial_impulse = np.asarray(info["initial_impulse"], dtype=float)
+            edges = impulse.reshape(-1, 4) / h
+            native["force"][:, 0] = edges.sum(axis=1)
+            native["force"][:, 1] = (edges[:, 0] - edges[:, 1]) * native["friction"][:, 0]
+            native["force"][:, 2] = (edges[:, 2] - edges[:, 3]) * native["friction"][:, 1]
+        elif self.law == "scm_box":
+            # Smooth 3-row Coulomb-box SCM, K unrolled Gauss-Seidel sweeps
+            # (models/soft_box_contact.py). Explicit finite composition of
+            # softplus / soft-clip maps: closed form and differentiable.
+            from pathlib import Path
+            import sys
+            root = str(Path(__file__).resolve().parents[4])
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            from models.soft_box_contact import soft_box_contact_velocity_numpy
+            if np.any(data.contact.dim[:data.ncon] > 3):
+                raise ValueError("scm_box implements point friction only (condim <= 3)")
+            if len(native["gap"]) and not np.allclose(native["friction"][:, 0], native["friction"][:, 1]):
+                raise ValueError("scm_box requires equal tangent friction coefficients")
+            reference = compliance = None
+            if self.soft_contact == "mujoco":
+                reference, compliance = mujoco_soft_rows(model, data, native, jac, h)
+            velocity, impulses = soft_box_contact_velocity_numpy(
+                free, jac, native["gap"], inverse, h, native["friction"][:, 0],
+                temperature=self.softplus_temperature, regularization=self.regularization,
+                sweeps=self.sweeps, return_impulses=True,
+                reference=reference, compliance=compliance)
+            rows = jac.reshape(-1, model.nv)
+            impulse = impulses.reshape(-1)
+            native["force"][:, :3] = impulses / h
+        elif self.law in ("diagonal_contact", "scm_corrected"):
             # The planner uses cyclic rays; native force diagnostics use n,t1,t2.
             from pathlib import Path
             import sys
@@ -187,6 +273,19 @@ class CpuContactEngine:
                 self.regularization, return_impulses=True, friction=native['friction'][:, 0])
             impulse = np.array([np.r_[n, t] for n, t in impulses]).reshape(-1)
             rows = jac.reshape(-1, model.nv)
+            rows = jac.reshape(-1, model.nv)
+            if self.law == "scm_corrected":
+                gap_phys = np.zeros(3 * len(native["gap"]))
+                gap_phys[::3] = np.maximum(native["gap"], 0.) / h
+                g = rows @ free + gap_phys
+                generalized = rows.T @ impulse
+                denominator = float(generalized @ inverse @ generalized
+                                    + self.regularization * (impulse @ impulse))
+                numerator = float(g @ impulse)
+                alpha = 1.0 if denominator <= 0. else float(np.clip(-numerator / denominator, 0., 1.))
+                impulse *= alpha
+                velocity = free + inverse @ rows.T @ impulse
+                self.last_amplitude_scale = alpha
             native['force'][:, :3] = impulse.reshape(-1, 3)/h
         elif self.law == "dart":
             # DART creates constraints only for touching/penetrating contacts.

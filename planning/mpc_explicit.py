@@ -1461,7 +1461,7 @@ def handle_mpc_request(args, param, mpc, trackers, msg):
     gravity = gravity_wrench_object_frame(
         param.gravity_[:3], ranking_mass, r_obj_to_world, support_normal,
     )
-    if getattr(param.lambda_optimizer, 'shared_response', None) is not None:
+    if getattr(param.lambda_optimizer, 'solver', None) == 'cem-gpu':
         param.lambda_optimizer.rank_object_velocity = np.r_[
             r_obj_to_world.T @ np.asarray(msg.get('object_linear_velocity', np.zeros(3))),
             r_obj_to_world.T @ np.asarray(msg.get('object_angular_velocity', np.zeros(3)))]

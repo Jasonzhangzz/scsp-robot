@@ -18,7 +18,7 @@ def test_gpu_contact_map_matches_current_casadi_graph(model, monkeypatch):
 
     monkeypatch.setenv('MUJOCO_HEADLESS', '1')
     args = build_parser().parse_args(['--contact-model', model])
-    args.rollout, args.solver = True, 'torch-gn'
+    args.rollout, args.solver = True, 'batch-lm'
     param = ExplicitMPCParams(args, rand_seed=0, target_type='ground-rotation', model='explicit')
     param.trial_seed_ = 0
     env = MjSimulator(param)

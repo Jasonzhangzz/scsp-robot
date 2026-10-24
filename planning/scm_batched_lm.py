@@ -200,7 +200,6 @@ def accept(job:Job):
 
 class GPUExactBatchLM:
  def __init__(self,opt,iterations=20):
-  if opt.shared_response is not None:raise ValueError('Shared response unsupported')
   if opt.max_contacts>10:raise ValueError('At most ten environment contact blocks')
   self.opt=opt;self.iterations=iterations;self.cache={};self.validations=[];self.calls=0
   self.device=wp.get_device('cuda:0')
@@ -283,8 +282,8 @@ class GPUExactBatchLM:
   self.calls+=1;opt.last_solver_status='batch-lm-gpu-exact-'+opt.contact_model
   return ids,cost,forces,poses
  def install(self):
-  opt=self.opt;opt.solver='torch-gn'
+  opt=self.opt;opt.solver='batch-lm'
   def batch(instance,*args,**kwargs):return self.solve(*args,**kwargs)
-  opt._choose_contact_points_torch_batch=MethodType(batch,opt)
+  opt._choose_contact_points_batch=MethodType(batch,opt)
   def no_fallback(instance,**kwargs):raise RuntimeError('GPU batch LM failed: scalar fallback disabled')
   opt._solve_optimization=MethodType(no_fallback,opt)

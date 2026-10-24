@@ -87,7 +87,10 @@ from examples.mpc.fingertips.test.test_0902 import (
     _segment_hits_core,
     _travel_orbit_radius,
 )
-from planning.screenshot import create_isaacgym_svg_screenshot_recorder
+from planning.screenshot import (
+    create_isaacgym_mp4_recorder,
+    create_isaacgym_svg_screenshot_recorder,
+)
 from examples.mpc.franka.runtime.contact import (
     FRANKA_QD_NULLSPACE,
     clip_mpc_action as _clip_mpc_action,
@@ -405,6 +408,7 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self.dyn_paused_ = False
         self.viewer_ = None
         self.svg_screenshot_recorder_ = None
+        self.video_recorder_ = None
         self.show_ghost_object_ = bool(getattr(self.param_, "show_ghost_object_", False))
 
         self.gym = gymapi.acquire_gym()
@@ -513,6 +517,31 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
                 f"size={int(getattr(self.param_, 'svg_screenshot_width_', 1280))}x"
                 f"{int(getattr(self.param_, 'svg_screenshot_height_', 960))}"
             )
+
+        video_output_path = getattr(self.param_, "video_output_path_", None)
+        if video_output_path:
+            try:
+                self.video_recorder_ = create_isaacgym_mp4_recorder(
+                    gym=self.gym,
+                    sim=self.sim,
+                    env=self.env,
+                    output_path=video_output_path,
+                    camera_position=SVG_SCREENSHOT_CAMERA_POSITION,
+                    camera_target=SVG_SCREENSHOT_CAMERA_TARGET,
+                    fps=float(getattr(self.param_, "video_fps_", 20.0)),
+                    width=int(getattr(self.param_, "video_width_", 1280)),
+                    height=int(getattr(self.param_, "video_height_", 960)),
+                    capture_on_start=True,
+                )
+                print(
+                    "[IsaacFrankaOSCSimulator] MP4 capture enabled: "
+                    f"path={video_output_path}, fps={float(getattr(self.param_, 'video_fps_', 20.0)):.2f}, "
+                    f"size={int(getattr(self.param_, 'video_width_', 1280))}x"
+                    f"{int(getattr(self.param_, 'video_height_', 960))}"
+                )
+            except RuntimeError as exc:
+                self.video_recorder_ = None
+                print(f"[IsaacFrankaOSCSimulator] MP4 capture disabled: {exc}")
 
         self.R_d = np.eye(3)
         cartesian_stiffness = getattr(self.param_, "cartesian_stiffness_", DEFAULT_CARTESIAN_STIFFNESS)
@@ -860,13 +889,23 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         self._contact_info_cache = None
 
         graphics_stepped = False
-        if draw and (self.viewer_ is not None or self.svg_screenshot_recorder_ is not None):
+        if draw and (
+            self.viewer_ is not None
+            or self.svg_screenshot_recorder_ is not None
+            or self.video_recorder_ is not None
+        ):
             self._sync_pose_axes()
             self.gym.step_graphics(self.sim)
             graphics_stepped = True
 
         if draw and self.svg_screenshot_recorder_ is not None:
             self.svg_screenshot_recorder_.capture_if_due(
+                sim_time=float(self.gym.get_sim_time(self.sim)),
+                step_graphics=not graphics_stepped,
+            )
+
+        if draw and self.video_recorder_ is not None:
+            self.video_recorder_.capture_if_due(
                 sim_time=float(self.gym.get_sim_time(self.sim)),
                 step_graphics=not graphics_stepped,
             )
@@ -1545,6 +1584,13 @@ class IsaacFrankaOSCSimulator(IsaacFrankaSimulator):
         if self.svg_screenshot_recorder_ is not None:
             self.svg_screenshot_recorder_.close()
             self.svg_screenshot_recorder_ = None
+        if self.video_recorder_ is not None:
+            try:
+                saved_video_path = self.video_recorder_.close()
+                if saved_video_path is not None:
+                    print(f"[IsaacFrankaOSCSimulator] saved mp4: {saved_video_path}")
+            finally:
+                self.video_recorder_ = None
         super().close()
 
 
@@ -2381,6 +2427,8 @@ def _add_rollout_policy_args(parser):
     parser.add_argument('--ranking-metrics-jsonl', default='',
                         help='Append whole-trial outcomes and terminal rewards to this JSONL file; '
                              'paired counterfactual advantages require separate matched rollouts.')
+    parser.add_argument('--trial-output', default='',
+                        help='Write per-sample object pose/error/time records under the selected method.')
     parser.add_argument('--contact-model', choices=('scm_corrected', 'scm-corrected', 'soft-scm', 'comfree'), default='soft-scm',
                         help='Contact predictor for both CSO ranking and explicit MPC.')
     parser.add_argument('--soft-scm-response-time', type=float, default=SOFT_SCM_RESPONSE_TIME,
@@ -2442,6 +2490,13 @@ def _add_rollout_policy_args(parser):
     parser.add_argument("--svg-screenshot-interval", type=float, default=0.2)
     parser.add_argument("--svg-screenshot-width", type=int, default=1280)
     parser.add_argument("--svg-screenshot-height", type=int, default=960)
+    parser.add_argument("--video-output-path", type=str, default="",
+                        help="Write an Isaac Gym MP4 from the fixed main camera view.")
+    parser.add_argument("--video-output-dir", type=str, default="",
+                        help="Per-object/trial root for MP4 output (obj/<trial>/video.mp4).")
+    parser.add_argument("--video-fps", type=float, default=20.0)
+    parser.add_argument("--video-width", type=int, default=1280)
+    parser.add_argument("--video-height", type=int, default=960)
     parser.add_argument("--cartesian_stiffness", type=float, nargs="+", default=DEFAULT_CARTESIAN_STIFFNESS.tolist())
     parser.add_argument("--cartesian_damping", type=float, nargs="+", default=None)
     parser.add_argument("--effort-joint-damping", type=float, default=DEFAULT_EFFORT_JOINT_DAMPING)
@@ -2477,6 +2532,10 @@ def _add_rollout_policy_args(parser):
     )
     parser.set_defaults(target_type="ground-rotation")
     parser.add_argument("--trial-start", type=int, default=0)
+    parser.add_argument('--target-position', type=float, nargs=3, default=None,
+                        help='Override target xyz for matched replay conditions.')
+    parser.add_argument('--target-quaternion-wxyz', type=float, nargs=4, default=None,
+                        help='Override target quaternion (wxyz) for matched replay conditions.')
     parser.add_argument(
         "--control-substeps",
         type=int,
@@ -2610,6 +2669,12 @@ def run_mpc_planner(bus, args):
             mpc_model="explicit",
         )
         param = _apply_dywa_physics_to_param(param)
+        if args.target_position is not None:
+            param.target_p_ = np.asarray(args.target_position, dtype=np.float64)
+        if args.target_quaternion_wxyz is not None:
+            target_q = np.asarray(args.target_quaternion_wxyz, dtype=np.float64)
+            target_q /= np.linalg.norm(target_q)
+            param.target_q_ = target_q
         param.use_jax_contact_ = False
         param = adapt_param_for_cartesian_solver(param, args)
         param = _configure_rollout_param(param, args)
@@ -2629,6 +2694,9 @@ def run_mpc_planner(bus, args):
         if obs is None:
             viewer_quit = True
             break
+        trial_recorder = metrics.open_trial_recorder(
+            args, trial_count, param.target_p_, param.target_q_, method=args.ablation_mode,
+        )
         if trace_path:
             opt = plan_param.lambda_optimizer
             with open(trace_path, 'a') as trace:
@@ -2674,6 +2742,10 @@ def run_mpc_planner(bus, args):
                 viewer_quit = True
                 break
             curr_q = np.asarray(obs["policy_q"], dtype=np.float32)
+            if trial_recorder is not None:
+                trial_recorder.observe(
+                    rollout_step, curr_q[:7], curr_q[7:], sim_time=obs.get('sim_time'),
+                )
             if trace_path:
                 with open(trace_path, 'a') as trace:
                     trace.write(json.dumps(dict(event='pose', trial=trial_count, step=int(rollout_step),
@@ -2877,6 +2949,11 @@ def run_mpc_planner(bus, args):
                 break
 
         trial_wall_time = time.perf_counter() - trial_wall_start
+        if trial_recorder is not None:
+            trial_recorder.finish(
+                trial_success, aborted=viewer_quit, execution_steps=rollout_step,
+                policy_interval_s=POLICY_INTERVAL,
+            )
         identifier = trackers.get('scm_identifier')
         if identifier is not None:
             if obs is not None:

@@ -632,7 +632,6 @@ class ExplicitMPCParams:
                                                 fingertip_clearance=getattr(args, 'fingertip_clearance', 0.011),
                                                 normal_stability_cos=getattr(args, 'normal_stability_cos', 0.95),
                                                 solver=getattr(args, 'solver', 'ipopt'),
-                                                torch_max_iter=getattr(args, 'torch_max_iter', 100),
                                                 # Use measured MuJoCo generalized mass. The optimizer
                                                 # applies dynamics_scale internally so small physical
                                                 # rotational inertias remain well conditioned while

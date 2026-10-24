@@ -1,0 +1,66 @@
+{
+  "source_root": "/home/lab423/scsp/scsp-robot/output/trials/trajectories",
+  "mapping": {
+    "DyWA": "a5",
+    "Sampling": "a4",
+    "ContactSDF": "a2",
+    "STOCS": "a7",
+    "CF-MPC": "a6"
+  },
+  "objects": {
+    "piggy_bank": {
+      "trial": 0,
+      "cached_trials": {
+        "SCSP*": true,
+        "Sampling": true,
+        "DyWA": true,
+        "ContactSDF": true,
+        "STOCS": true,
+        "CF-MPC": true
+      },
+      "successful_trials": {
+        "SCSP*": [
+          0
+        ],
+        "Sampling": [
+          0
+        ],
+        "DyWA": [
+          0
+        ],
+        "ContactSDF": [],
+        "STOCS": [],
+        "CF-MPC": [
+          0
+        ]
+      },
+      "matched_initial_and_target_pose": true
+    },
+    "foam_brick": {
+      "trial": 1,
+      "cached_trials": {
+        "SCSP*": true,
+        "Sampling": true,
+        "DyWA": true,
+        "ContactSDF": true,
+        "STOCS": true,
+        "CF-MPC": true
+      },
+      "successful_trials": {
+        "SCSP*": [
+          1
+        ],
+        "Sampling": [
+          1
+        ],
+        "DyWA": [],
+        "ContactSDF": [],
+        "STOCS": [],
+        "CF-MPC": [
+          1
+        ]
+      },
+      "matched_initial_and_target_pose": true
+    }
+  }
+}

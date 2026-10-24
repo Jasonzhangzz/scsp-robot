@@ -8,6 +8,22 @@ import sys
 def main():
     root = Path(__file__).resolve().parents[4]
     sys.path.insert(0, str(root))
+    # The legacy runner contains the A7 MPPI implementation. Keep the public
+    # --a7 spelling available through this unified entry point while retaining
+    # the newer A1--A6 runner for the other modes.
+    flags = list(sys.argv[1:])
+    mode_index = flags.index('--ablation-mode') if '--ablation-mode' in flags else -1
+    if '--a7' in flags or '--ablation-mode=a7' in flags or (
+            mode_index >= 0 and mode_index + 1 < len(flags) and flags[mode_index + 1] == 'a7'):
+        normalized = []
+        for flag in flags:
+            if flag == '--a7':
+                normalized.extend(['--ablation-mode', 'a7'])
+            else:
+                normalized.append(flag)
+        flags = normalized
+        legacy = root / 'examples/mpc/franka/experiments/ik2/test_mpc_isaac_ablation.py'
+        os.execv(sys.executable, [sys.executable, '-u', str(legacy), *flags])
     from planning.dywa.dispatch import dispatch as dispatch_dywa
     dispatch_dywa(root, sys.argv[1:])
     from models.contactsdf import dispatch_standalone

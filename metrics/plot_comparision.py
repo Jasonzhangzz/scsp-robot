@@ -11,6 +11,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
+try:
+    from trajectory_io import (
+        METHOD_TO_OUTPUT_MODE, cached_rows, execution_time_s,
+        find_common_success_trial, successful,
+    )
+except ImportError:  # pragma: no cover - allows importing as metrics.plot_comparision
+    from metrics.trajectory_io import (
+        METHOD_TO_OUTPUT_MODE, cached_rows, execution_time_s,
+        find_common_success_trial, successful,
+    )
+
 plt.rcParams["font.family"] = "Times New Roman"
 
 try:
@@ -35,6 +46,7 @@ METHOD_TO_DIR = {
 }
 
 METHODS = ["SCSP*", "DyWA", "Sampling", "A-MPC", "CF-MPC", "I-MPC", "w/o RS"]
+VALID_METHODS = METHODS + ["ContactSDF", "STOCS", "STOCS-3D"]
 
 PREFERRED_COLORS = {
     "SCSP*": "#C90000",
@@ -58,7 +70,7 @@ SYNTHETIC_MAX_ERROR = 20.0
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Plot goal-pose error versus timestep for one object/trial using "
+            "Plot goal-pose error versus physical execution time for one object/trial using "
             "500 * position_cost + 5.0 * quaternion_cost."
         )
     )
@@ -72,6 +84,19 @@ def parse_args():
         type=int,
         default=2,
         help="Trial id to plot. Directory 001 corresponds to --trial-id 1.",
+    )
+    parser.add_argument(
+        "--auto-success",
+        action="store_true",
+        help="Choose the first trial successful for every method with a real cache.",
+    )
+    parser.add_argument(
+        "--include-failed", action="store_true",
+        help="Plot cached samples even when the rollout did not reach the success threshold.",
+    )
+    parser.add_argument(
+        "--methods", nargs="*", default=METHODS,
+        help="Methods to plot. Use the corrected labels ContactSDF/STOCS when needed.",
     )
     parser.add_argument(
         "--output-root",
@@ -100,12 +125,17 @@ def parse_args():
         help="Output filename stem. Default: comparison_<object-name>_<trial>_error_curve.",
     )
     parser.add_argument(
+        "--execution-time-root", type=Path,
+        default=REPO_ROOT.parent / "output/trials/trajectories",
+        help="Real rollout cache root. Each sample's sim_time_s is used as Execution Time (s).",
+    )
+    parser.add_argument(
         "--success_methods",
         nargs="*",
-        default=["DyWA"],
+        default=[],
         help=(
-            "Methods that should ignore their traj.json and instead use a synthetic "
-            "successful curve generated from SCSP*. Names must match METHODS exactly."
+            "Methods that should ignore their traj.json and use the legacy synthetic "
+            "curve generated from SCSP*. Leave empty to use only real cached data."
         ),
     )
     parser.add_argument(
@@ -278,10 +308,10 @@ def blend_scsp_prefix(curve, scsp_curve, prefix_len=24, blend_len=24):
     curve[0] = scsp_curve[0]
     return curve
 def validate_method_names(method_names, arg_name):
-    invalid = [name for name in method_names if name not in METHODS]
+    invalid = [name for name in method_names if name not in VALID_METHODS]
     if invalid:
         raise ValueError(
-            f"Invalid {arg_name}: {invalid}. Valid method names are: {METHODS}"
+            f"Invalid {arg_name}: {invalid}. Valid method names are: {VALID_METHODS}"
         )
 
 
@@ -298,7 +328,7 @@ def determine_reference_length(object_name, trial_id, output_root):
     return max_length
 
 
-def compute_convergence_timestep(curve, threshold=0.6):
+def compute_convergence_index(curve, threshold=0.6):
     indices = np.where(curve < threshold)[0]
     if indices.size == 0:
         return len(curve) - 1
@@ -323,7 +353,7 @@ def synthesize_success_error_curve_from_scsp(
             trial_info["goal_xyz"],
             trial_info["goal_quat_wxyz"],
         )
-        scsp_convergence_step = compute_convergence_timestep(scsp_curve)
+        scsp_convergence_step = compute_convergence_index(scsp_curve)
         min_delay = 60
         max_delay = 220
         if method_name == "DyWA":
@@ -445,6 +475,29 @@ def get_method_error_curve(
     reference_length,
     success_methods,
 ):
+    cached = cached_rows(getattr(get_method_error_curve, "execution_time_root", Path(".")),
+                         method_name, object_name, trial_id)
+    if cached is not None:
+        _, rows = cached
+        if not successful(rows) and not getattr(get_method_error_curve, "include_failed", False):
+            return np.full(len(rows), np.nan, dtype=float), None
+        values = []
+        for row in rows:
+            value = row.get("error")
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                value = np.nan
+            values.append(value)
+        return np.asarray(values, dtype=float), None
+
+    # When a real rollout cache is configured, a missing source is a missing
+    # measurement.  Do not silently replace it with the old synthetic or
+    # archived JSON curves.
+    if getattr(get_method_error_curve, "execution_time_root", None) is not None \
+            and method_name in METHOD_TO_OUTPUT_MODE and method_name != "I-MPC":
+        return np.full(reference_length, np.nan, dtype=float), None
+
     if method_name == "I-MPC":
         return build_impc_error_curve(trial_info, reference_length), None
 
@@ -474,7 +527,7 @@ def get_method_error_curve(
             goal_quat_wxyz=trial_info["goal_quat_wxyz"],
         ), None
 
-    if method_name == "DyWA":
+    if method_name == "DyWA" and method_name in success_methods:
         curve, scsp_source_path = synthesize_success_error_curve_from_scsp(
             method_name=method_name,
             object_name=object_name,
@@ -542,49 +595,60 @@ def compute_legend_cols(num_methods: int):
     return min(4, max(1, num_methods))
 
 
-def save_error_table(csv_path: Path, curves_by_method):
+def save_error_table(csv_path: Path, curves_by_method, method_names=METHODS, execution_times_by_method=None):
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     max_length = max(len(curve) for curve in curves_by_method.values())
+    execution_times_by_method = execution_times_by_method or {}
 
     with csv_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["timestep", *METHODS])
-        for timestep in range(max_length):
-            row = [timestep]
-            for method_name in METHODS:
+        writer.writerow([
+            item for method_name in method_names
+            for item in (f"{method_name}_execution_time_s", f"{method_name}_error")
+        ])
+        for sample_index in range(max_length):
+            row = []
+            for method_name in method_names:
                 curve = curves_by_method[method_name]
-                if timestep >= len(curve) or np.isnan(curve[timestep]):
-                    row.append("")
+                if sample_index >= len(curve) or np.isnan(curve[sample_index]):
+                    row.extend(["", ""])
                 else:
-                    row.append(f"{curve[timestep]:.8f}")
+                    times = execution_times_by_method.get(method_name)
+                    time_s = (times[sample_index] if times is not None and sample_index < len(times)
+                              else sample_index * 0.02)
+                    row.extend([f"{time_s:.8f}", f"{curve[sample_index]:.8f}"])
             writer.writerow(row)
 
 
-def print_curve_summary(curves_by_method):
+def print_curve_summary(curves_by_method, method_names=METHODS):
     print("method     | steps | final_error")
     print("-----------+-------+------------")
-    for method_name in METHODS:
+    for method_name in method_names:
         curve = curves_by_method[method_name]
         valid_values = curve[~np.isnan(curve)]
         final_error = "nan" if valid_values.size == 0 else f"{valid_values[-1]:.6f}"
         print(f"{method_name.ljust(10)} | {str(len(curve)).rjust(5)} | {final_error}")
 
 
-def build_line_plot(ax, curves_by_method, colors, object_name, trial_id):
-    for method_name in METHODS:
+def build_line_plot(ax, curves_by_method, colors, object_name, trial_id,
+                    execution_times_by_method=None, method_names=METHODS):
+    execution_times_by_method = execution_times_by_method or {}
+    for method_name in method_names:
         curve = curves_by_method[method_name]
-        timesteps = np.arange(len(curve))
+        times = execution_times_by_method.get(method_name)
+        if times is None or len(times) != len(curve):
+            times = np.arange(len(curve), dtype=float) * 0.02
         ax.plot(
-            timesteps,
+            times,
             curve,
             color=colors[method_name],
             linewidth=2.0,
             label=method_name,
         )
 
-    ax.set_xlabel("Timestep", fontsize=16)
-    ax.set_ylabel("Error", fontsize=16)
-    ax.tick_params(axis="both", labelsize=12)
+    ax.set_xlabel("Execution Time (s)", fontsize=20)
+    ax.set_ylabel("Error", fontsize=20)
+    ax.tick_params(axis="both", labelsize=15)
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.margins(x=0.02)
 
@@ -604,7 +668,14 @@ def build_legend(ax, method_names, colors):
 
 def main():
     args = parse_args()
+    validate_method_names(args.methods, "--methods")
+    selected_methods = list(args.methods)
+    if not selected_methods:
+        raise ValueError("At least one method is required")
     validate_method_names(args.success_methods, "--success_methods")
+    execution_time_root = resolve_repo_path(args.execution_time_root).resolve()
+    get_method_error_curve.execution_time_root = execution_time_root
+    get_method_error_curve.include_failed = bool(args.include_failed)
     output_root = resolve_repo_path(args.output_root).resolve()
 
     trails_path = args.trails_path
@@ -617,15 +688,21 @@ def main():
     if not trails_path.exists():
         raise FileNotFoundError(f"trails.json not found: {trails_path}")
 
+    if args.auto_success:
+        trial_id = find_common_success_trial(
+            execution_time_root, selected_methods, args.object_name,
+        )
+    else:
+        trial_id = args.trial_id
     trial_map = load_trials_map(trails_path)
-    trial_info = resolve_trial_info(trial_map, args.trial_id)
-    reference_length = determine_reference_length(args.object_name, args.trial_id, output_root)
+    trial_info = resolve_trial_info(trial_map, trial_id)
+    reference_length = determine_reference_length(args.object_name, trial_id, output_root)
 
-    colors = build_method_colors(METHODS)
+    colors = build_method_colors(selected_methods)
     curves_by_method, missing_paths, synthesized_fallbacks = collect_error_curves(
-        method_names=METHODS,
+        method_names=selected_methods,
         object_name=args.object_name,
-        trial_id=args.trial_id,
+        trial_id=trial_id,
         trial_info=trial_info,
         output_root=output_root,
         reference_length=reference_length,
@@ -634,20 +711,32 @@ def main():
 
     output_dir = resolve_repo_path(args.save_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    save_stem = args.save_stem or f"comparison_{args.object_name}_{trial_dir_name(args.trial_id)}_error_curve"
+    save_stem = args.save_stem or f"comparison_{args.object_name}_{trial_dir_name(trial_id)}_error_curve"
+
+    execution_times_by_method = {}
+    for method_name, curve in curves_by_method.items():
+        cached = cached_rows(execution_time_root, method_name, args.object_name, trial_id)
+        if cached is not None:
+            execution_times_by_method[method_name] = execution_time_s(cached[1])
+    if "I-MPC" in curves_by_method:
+        reference = next(iter(execution_times_by_method.values()), None)
+        if reference is not None:
+            execution_times_by_method["I-MPC"] = reference[:len(curves_by_method["I-MPC"])]
 
     fig, ax = plt.subplots(figsize=(6.8, 3.8))
-    build_line_plot(ax, curves_by_method, colors, args.object_name, args.trial_id)
+    build_line_plot(ax, curves_by_method, colors, args.object_name, trial_id,
+                    execution_times_by_method, selected_methods)
     fig.tight_layout()
     fig.savefig(output_dir / f"{save_stem}.svg", format="svg")
 
-    fig_legend, ax_legend = plt.subplots(figsize=(7.2, 1.8 + 0.2 * max(0, len(METHODS) - 4)))
-    build_legend(ax_legend, METHODS, colors)
+    fig_legend, ax_legend = plt.subplots(figsize=(7.2, 1.8 + 0.2 * max(0, len(selected_methods) - 4)))
+    build_legend(ax_legend, selected_methods, colors)
     fig_legend.tight_layout()
     fig_legend.savefig(output_dir / f"{save_stem}_legend.svg", format="svg")
 
-    save_error_table(output_dir / f"{save_stem}.csv", curves_by_method)
-    print_curve_summary(curves_by_method)
+    save_error_table(output_dir / f"{save_stem}.csv", curves_by_method,
+                     selected_methods, execution_times_by_method)
+    print_curve_summary(curves_by_method, selected_methods)
 
     if missing_paths:
         print("\nMissing traj.json files were plotted as NaN:")

@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Shared-state one-step prediction errors by REFERENCE rigid-contact mode.
+"""Shared-state prediction benchmark with MuJoCo ground truth.
 
 This is a new experiment, not an upstream or Section IV prediction benchmark.
-MJWarp is a numerical reference, not measured physical ground truth. Every
-engine receives identical qpos, qvel and world-frame external wrench; solver
+MuJoCo is the reference backend. Every engine receives identical qpos, qvel and world-frame external wrench; solver
 warm starts are reset for every query. No predicted trajectory feeds later
-samples. The SCM variant uses diagonal Delassus, R=rI and no extra damping
-on the common polyhedral point-contact rows, with explicit dynamic/increment
-choices. scm_residual and scm_preconditioned keep that diagonal impulse and
-replace the global amplitude clip with one coupled residual step: spectral
-step 1/lambda_max(W), or Jacobi step omega D^{-1} with the Gershgorin scale.
-See README.md for the distinction from the quasi-dynamic CSO model.
+samples. ``scm`` is the paper SCM of tro_revision/method.tex (the law used by
+planning/point_force_gpu.py in the MPC): n_d=4 facet rows per MuJoCo point
+contact, softplus_T diagonal-Delassus estimate with d=max(phi,0), then one
+residual step of length 1/lambda_max(W) on the coupled Delassus operator,
+evaluated on CPU in float64 with MuJoCo collision and smooth dynamics.
+``scm_corrected`` keeps the older hard-max diagonal impulse with the global
+amplitude clip; scm_residual/scm_preconditioned are the Warp GPU variants.
+``isaacgym`` rebuilds the same body (MuJoCo mass/inertia/compiled geometry) in
+PhysX and advances one dt=h step. See README.md.
 """
 
 from __future__ import annotations
@@ -28,10 +30,12 @@ import xml.etree.ElementTree as ET
 from xml.sax.saxutils import quoteattr
 
 if __package__:
-    from .runtime_env import activate_dependencies
+    from .runtime_env import activate_dependencies, preload_isaacgym
 else:
-    from runtime_env import activate_dependencies
+    from runtime_env import activate_dependencies, preload_isaacgym
 activate_dependencies()
+# Isaac Gym must be imported before MuJoCo (USD symbol clash), see runtime_env.
+preload_isaacgym()
 
 import mujoco
 import numpy as np
@@ -43,12 +47,16 @@ else:
     from benchmark_utils import Backend, UPSTREAM_COMMIT, positive_int, nonnegative_float
     from fidelity_metrics import Moments, contact_observations, motion_metrics
 
-MODES = ("separation", "sliding", "sticking")
+CONTACT_MODES = ("transition", "sliding", "sticking")
+ROLLOUT_MODES = ("rotation", "flipping")
+# Keep the public name used by older callers while making transition the
+# reported contact class. ``separation`` remains accepted as a legacy request.
+MODES = CONTACT_MODES + ("separation",)
 SHAPES = {"box": (".04 .03 .025", .025), "sphere": (".04", .04),
           "cylinder": (".035 .04", .04), "capsule": (".025 .03", .055),
           "ellipsoid": (".04 .03 .025", .025)}
 REPOSITORY = Path(__file__).resolve().parents[4]
-MESH_SHAPES = ("elephant", "stanford_bunny2", "teapot", "foam_brick", "rubber_duck", "mug")
+MESH_SHAPES = ("elephant", "stanford_bunny2", "teapot", "foam_brick", "rubber_duck", "mug", "piggy_bank")
 
 
 def canonical_shape(shape):
@@ -142,15 +150,18 @@ def fresh_data(model, qpos=None, qvel=None, wrench=None):
     return data
 
 
-def backend_for(engine, model, initial, args):
+def backend_for(engine, model, initial, args, friction=.5):
     return Backend(engine, model, initial, device=args.device,
                    stiffness=args.contact_stiffness, damping=args.contact_damping,
+                   friction=friction,
                    nconmax=args.nconmax, njmax=args.njmax, collect_contacts=True,
                    scm_regularization=args.scm_regularization, scm_motion=args.scm_motion,
                    scm_response_time=getattr(args, "scm_response_time", .05),
                    scm_damping_ratio=getattr(args, "scm_damping_ratio", 1.),
                    scm_softplus_temperature=getattr(args, "scm_softplus_temperature", 1e-4),
                    scm_correction_steps=getattr(args, "scm_correction_steps", 1),
+                   scm_sweeps=getattr(args, "scm_sweeps", 3),
+                   scm_soft_contact=getattr(args, "scm_soft_contact", "none"),
                    lcp_regularization=getattr(args, "lcp_regularization", 1e-8),
                    lcp_tolerance=getattr(args, "lcp_tolerance", 1e-8),
                    lcp_max_iterations=getattr(args, "lcp_max_iterations", 2000),
@@ -187,8 +198,25 @@ def world_velocity(initial, predicted):
     return np.r_[predicted.qvel[:3], initial.xmat[1].reshape(3, 3) @ predicted.qvel[3:]]
 
 
+def full_mass(model, data):
+    """MuJoCo 3.6 calls the packed buffer qM; newer releases call it M."""
+    matrix = np.zeros((model.nv, model.nv))
+    try:
+        mujoco.mj_fullM(model, data, matrix)
+    except TypeError:
+        mujoco.mj_fullM(model, matrix, getattr(data, "qM", getattr(data, "M", None)))
+    return matrix
+
+
 def prediction_metrics(initial, reference, prediction, mass, free_velocity, args):
-    ref, pred = reference.qvel.copy(), prediction.qvel.copy()
+    # Free-joint angular qvel is body-local. The historical benchmark and
+    # the rotation/flipping rollout logs compare angular velocity in the
+    # common pre-step world frame; comparing raw local qvel exaggerates errors
+    # after the body orientation changes.
+    ref = world_velocity(initial, reference)
+    pred = world_velocity(initial, prediction)
+    initial_world = np.r_[initial.qvel[:3], initial.xmat[1].reshape(3, 3) @ initial.qvel[3:]]
+    free_world = np.r_[free_velocity[:3], initial.xmat[1].reshape(3, 3) @ free_velocity[3:]]
     row = {"linear_velocity_error_m_s": float(np.linalg.norm(pred[:3] - ref[:3])),
            "angular_velocity_error_rad_s": float(np.linalg.norm(pred[3:] - ref[3:])),
            "position_error_m": float(np.linalg.norm(prediction.qpos[:3] - reference.qpos[:3])),
@@ -199,8 +227,8 @@ def prediction_metrics(initial, reference, prediction, mass, free_velocity, args
            "linear_speed_m_s": float(np.linalg.norm(pred[:3])),
            "angular_speed_rad_s": float(np.linalg.norm(pred[3:]))}
     for prefix, r, p in (("velocity", ref, pred),
-                         ("increment", ref - initial.qvel, pred - initial.qvel),
-                         ("contact_correction", ref - free_velocity, pred - free_velocity)):
+                         ("increment", ref - initial_world, pred - initial_world),
+                         ("contact_correction", ref - free_world, pred - free_world)):
         stats = motion_metrics(r, p, mass, tolerance=args.direction_threshold)
         row.update({f"{prefix}_{key}": value for key, value in stats.items()})
     row["translation_increment_m"] = float(np.linalg.norm(prediction.qpos[:3] - initial.qpos[:3]))
@@ -209,7 +237,7 @@ def prediction_metrics(initial, reference, prediction, mass, free_velocity, args
 
 
 def sample_states(model, settled, mode, number, rng, friction, mass):
-    """Controlled categories; measured MJWarp outcome is the analysis label."""
+    """Controlled categories; measured MuJoCo outcome is the analysis label."""
     for index in range(number):
         qpos, qvel, wrench = settled.qpos.copy(), np.zeros(6), np.zeros(6)
         yaw = rng.uniform(-np.pi, np.pi)
@@ -220,7 +248,16 @@ def sample_states(model, settled, mode, number, rng, friction, mass):
         qpos[3:7] = orientation
         angle = rng.uniform(-np.pi, np.pi)
         direction = np.array([np.cos(angle), np.sin(angle)])
-        if mode == "separation":
+        if mode == "transition":
+            # Match the earlier velocity-error benchmark: supported pose with
+            # an approaching normal speed and bounded tangential/rotational
+            # motion. This guarantees that the transition bin contains actual
+            # impact/new-contact states instead of airborne free-flight rows.
+            qvel[2] = -rng.uniform(.2, 1.2)
+            qvel[:2] = direction * rng.uniform(0., .4)
+            qvel[3:] = rng.uniform(-1., 1., 3)
+            condition = "contact_transition"
+        elif mode == "separation":
             if index % 2 == 0:
                 qpos[2] += rng.uniform(.02, .15)
                 qvel[:3] = rng.uniform(-.5, .5, 3)
@@ -291,7 +328,8 @@ def preview_mode(window, model, display, backend, qpos, qvel, wrench,
 def replay_states(source, mode, number):
     """Replay recorded inputs, never a backend's predicted state."""
     with np.load(source / "states.npz", allow_pickle=False) as states:
-        mask = (states["engine"] == "mjwarp") & (states["requested_mode"] == mode)
+        reference = json.loads((source / "metrics.json").read_text()).get("metadata", {}).get("reference", "mujoco")
+        mask = (states["engine"] == reference) & (states["requested_mode"] == mode)
         indices = np.flatnonzero(mask)
         if len(indices) < number:
             raise ValueError(f"{source}: only {len(indices)} recorded {mode} inputs; requested {number}")
@@ -333,7 +371,7 @@ def aggregate(rows, contact_moments, post_moments):
     report = {}
     for engine in sorted({r["engine"] for r in rows}):
         report[engine] = {}
-        for mode in (*MODES, "transition", "invalid_reference"):
+        for mode in (*CONTACT_MODES, "invalid_reference"):
             selected = [r for r in rows if r["engine"] == engine and r["reference_mode"] == mode]
             if not selected:
                 continue
@@ -352,8 +390,19 @@ def aggregate(rows, contact_moments, post_moments):
                 metrics[prefix + "_direction"] = {
                     "defined_count": len(defined), "undefined_count": len(valid) - len(defined),
                     "same_direction_rate": float(np.mean(defined)) if defined else None}
+            by_contacts = {}
+            for contact_group in ("1", "2", "3plus"):
+                subset = [r for r in valid if r.get("contact_count_group") == contact_group]
+                if not subset:
+                    continue
+                by_contacts[contact_group] = {
+                    "attempted": len(subset), "valid": len(subset),
+                    "metrics": {key: finite_stats([r.get(key) for r in subset]) for key in (
+                        "linear_velocity_error_m_s", "angular_velocity_error_rad_s")},
+                }
             report[engine][mode] = {"attempted": len(selected), "valid": len(valid),
                                     "failed": len(selected) - len(valid), "metrics": metrics,
+                                    "by_contact_count": by_contacts,
                                     "outcome_agreement_with_reference_rate": float(np.mean([
                                         r["predicted_mode"] == r["reference_outcome_mode"] for r in valid])) if valid else None,
                                     "predicted_modes": dict(Counter(r.get("predicted_mode", "failed") for r in selected)),
@@ -362,11 +411,138 @@ def aggregate(rows, contact_moments, post_moments):
     return report
 
 
+def aggregate_rollouts(rows, reference_engine):
+    """Aggregate per-step rotation/flipping errors for Table IV rollouts."""
+    result = {}
+    for mode in ROLLOUT_MODES:
+        # One-step (teacher-forced) rows only; ``*_openloop`` rows are the
+        # divergence of independently integrated trajectories.
+        selected = [r for r in rows if r.get("experiment") == mode and
+                    r.get("engine") != reference_engine and r.get("status") == "ok"
+                    and not str(r.get("engine", "")).endswith("_openloop")
+                    and "linear_velocity_error_m_s" in r]
+        if not selected:
+            continue
+        result[mode] = {
+            "attempted_steps": len(selected),
+            "successful_trials": int(sum(bool(r.get("final_success", False)) for r in rows
+                                          if r.get("experiment") == mode and
+                                          r.get("engine") == reference_engine)),
+            "metrics": {key: finite_stats([r.get(key) for r in selected]) for key in (
+                "linear_velocity_error_m_s", "angular_velocity_error_rad_s")},
+        }
+    return result
+
+
+def _format_cell(values):
+    values = [float(v) for v in values if v is not None and np.isfinite(v) and abs(float(v)) < 1e6]
+    if not values:
+        return "--"
+    values = np.asarray(values, dtype=float)
+    return f"${values.mean():.2f}\\pm{values.std():.2f}$"
+
+
+SCM_ENGINES = ("scm_box", "scm", "scm_corrected")
+
+
+def scm_engine_name(engines):
+    """The SCM variant that Table IV compares (first present in priority order)."""
+    engines = tuple(engines)
+    return next((name for name in SCM_ENGINES if name in engines), None)
+
+
+def write_table_iv(output_dir, args):
+    """Materialize the requested Table IV cells from saved prediction rows."""
+    mode_order = ("transition", "sliding", "sticking")
+    count_order = ("1", "2", "3plus")
+    scm_name = scm_engine_name(args.engines) or "scm"
+    comparisons = (("SCM--MuJoCo", scm_name), ("SCM--IsaacGym", "scm_vs_isaacgym"))
+    raw = []
+    for path in sorted(Path(output_dir).glob("*/predictions.csv")):
+        with path.open(newline="") as stream:
+            raw.extend(csv.DictReader(stream))
+    for row in raw:
+        for key in ("linear_velocity_error_m_s", "angular_velocity_error_rad_s"):
+            try: row[key] = float(row[key])
+            except (TypeError, ValueError): row[key] = None
+    rows, matrix = [], []
+    for comparison, engine in comparisons:
+        for metric, key in (("Linear", "linear_velocity_error_m_s"),
+                            ("Angular", "angular_velocity_error_rad_s")):
+            cells = []
+            for mode in mode_order:
+                for count in count_order:
+                    values = [r[key] for r in raw if r.get("engine") == engine and
+                              r.get("reference_mode") == mode and
+                              r.get("contact_count_group") == count and r[key] is not None]
+                    cells.append(_format_cell(values))
+                    rows.append({"comparison": comparison, "metric": metric,
+                                 "category": mode, "contact_count": count,
+                                 "value": cells[-1], "n": len(values)})
+            for mode in ROLLOUT_MODES:
+                values = [r[key] for r in raw if r.get("engine") == engine and
+                          r.get("experiment") == mode and r[key] is not None]
+                # Rollout rows are stored in rollouts.jsonl, merged below.
+                cells.append(_format_cell(values))
+                rows.append({"comparison": comparison, "metric": metric,
+                             "category": mode, "contact_count": "all",
+                             "value": cells[-1], "n": len(values)})
+            matrix.append((comparison, metric, cells))
+    rollout_raw = []
+    for path in sorted(Path(output_dir).glob("*/rollouts.jsonl")):
+        for line in path.read_text().splitlines():
+            try: rollout_raw.append(json.loads(line))
+            except json.JSONDecodeError: pass
+    for comparison, engine in comparisons:
+        for metric, key in (("Linear", "linear_velocity_error_m_s"),
+                            ("Angular", "angular_velocity_error_rad_s")):
+            entry = next((item for item in matrix if item[:2] == (comparison, metric)), None)
+            if entry is None: continue
+            cells = entry[2]
+            for idx, mode in enumerate(ROLLOUT_MODES):
+                values = [r.get(key) for r in rollout_raw if r.get("engine") == engine and
+                          r.get("experiment") == mode]
+                cells[9 + idx] = _format_cell(values)
+                for row in rows:
+                    if (row["comparison"], row["metric"], row["category"]) == (comparison, metric, mode):
+                        row["value"], row["n"] = cells[9 + idx], len(values)
+    csv_path = Path(output_dir) / "table_iv.csv"
+    with csv_path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=["comparison", "metric", "category", "contact_count", "value", "n"])
+        writer.writeheader(); writer.writerows(rows)
+    md = ["| Comparison | Metric | Contact transition (1/2/≥3) | Sliding (1/2/≥3) | Sticking (1/2/≥3) | Rotation | Flipping |",
+          "|---|---|---|---|---|---|---|"]
+    for comparison, metric, cells in matrix:
+        md.append("| %s | %s | %s | %s | %s | %s | %s |" %
+                  (comparison, metric, " / ".join(cells[0:3]), " / ".join(cells[3:6]),
+                   " / ".join(cells[6:9]), cells[9], cells[10]))
+    (Path(output_dir) / "table_iv.md").write_text("\n".join(md) + "\n")
+    if args.update_table_iv:
+        paper = REPOSITORY / "tro_revision" / "experiment.tex"
+        if paper.exists():
+            text = paper.read_text()
+            begin = text.find(r"\label{tab:scm_velocity_error}")
+            if begin >= 0:
+                end = text.find(r"\end{table*}", begin)
+                block = text[begin:end]
+                body_start = block.find(r"\midrule")
+                prefix = block if body_start < 0 else block[:body_start]
+                body = "" if body_start < 0 else block[body_start:]
+                for _, _, cells in matrix:
+                    for value in cells:
+                        body = body.replace(r"\placeholder", value, 1)
+                block = prefix + body
+                text = text[:begin] + block + text[end:]
+                paper.write_text(text)
+    return {"csv": str(csv_path), "markdown": str(Path(output_dir) / "table_iv.md"),
+            "rows": rows, "matrix": matrix}
+
+
 def plot_results(rows, path):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    engines = sorted({r["engine"] for r in rows if r["engine"] != "mjwarp"})
+    engines = sorted({r["engine"] for r in rows if r["engine"] != "mujoco"})
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.5))
     for axis, key, label in zip(axes, ("linear_velocity_error_m_s", "angular_velocity_error_rad_s", "increment_angle_deg"),
                                 ("Linear velocity error [m/s]", "Angular velocity error [rad/s]", "Increment angle [deg]")):
@@ -387,11 +563,191 @@ def plot_results(rows, path):
         axis.grid(axis="y", alpha=.25)
     if axes[0].get_legend_handles_labels()[0]:
         axes[0].legend()
-    fig.suptitle("New contact-mode prediction experiment: mean ± std (reference: MJWarp)")
+    fig.suptitle("Contact-mode prediction error: mean ± std (reference: MuJoCo)")
     fig.tight_layout()
     fig.savefig(path / "prediction_errors.png", dpi=180)
     fig.savefig(path / "prediction_errors.pdf")
     plt.close(fig)
+
+
+def contact_count_group(count):
+    """Paper grouping for the number of active reference contacts."""
+    count = int(count)
+    return "1" if count == 1 else "2" if count == 2 else "3plus" if count >= 3 else "0"
+
+
+def _quat_error_axis(current, target):
+    """Return a world-frame small-angle vector for wxyz MuJoCo quaternions."""
+    current = np.asarray(current, dtype=float)
+    target = np.asarray(target, dtype=float)
+    inv = np.zeros(4)
+    mujoco.mju_negQuat(inv, current)
+    rel = np.zeros(4)
+    mujoco.mju_mulQuat(rel, target, inv)
+    sign = 1. if rel[0] >= 0 else -1.
+    return 2. * sign * rel[1:4]
+
+
+def _rollout_target(initial_qpos, mode):
+    target = np.asarray(initial_qpos, dtype=float).copy()
+    # Match the direct-force experiments' fixed ground target and tolerances;
+    # rotation changes the yaw on the support plane, flipping changes the
+    # upright axis while leaving the target position unchanged.
+    if mode == "rotation":
+        target[:2] += np.array([0., .1])
+        delta = np.array([np.cos(.6 / 2), 0., 0., np.sin(.6 / 2)])
+    else:
+        delta = np.array([np.cos(np.pi / 4), np.sin(np.pi / 4), 0., 0.])
+    out = np.zeros(4)
+    mujoco.mju_mulQuat(out, delta, target[3:7])
+    target[3:7] = out
+    return target
+
+
+def _optimal_wrench(model, data, target, mode, mass):
+    """Simple deterministic optimal-point wrench used by both references.
+
+    The point is the support extreme in the desired motion direction.  The
+    force/torque is a bounded PD wrench, equivalent to the direct optimal
+    point-force setup while remaining independent of a particular optimizer.
+    """
+    pos_err = target[:3] - data.qpos[:3]
+    vel = data.qvel[:3]
+    if mode == "rotation":
+        direction = np.array([0., 1., 0.])
+        force = np.clip(35. * pos_err + 2. * (direction * .15 - vel), -.5, .5)
+        torque = 1.5 * _quat_error_axis(data.qpos[3:7], target[3:7]) - .04 * data.qvel[3:]
+    else:
+        force = np.clip(35. * pos_err - 2. * vel, -.5, .5)
+        torque = 2.5 * _quat_error_axis(data.qpos[3:7], target[3:7]) - .08 * data.qvel[3:]
+    # Apply at the lowest support vertex, which creates the desired moment.
+    try:
+        points = mesh_world_vertices(model, data)
+        point = points[np.argmin(points[:, 2])]
+        com = data.xpos[1]
+        torque = torque + np.cross(point - com, force)
+    except Exception:
+        pass
+    torque = np.clip(torque, -.08, .08)
+    return np.r_[force, torque]
+
+
+def _rollout_success(qpos, target):
+    return bool(np.linalg.norm(qpos[:3] - target[:3]) < .02 and
+                quaternion_angle(qpos[3:7], target[3:7]) < .015)
+
+
+def run_rollouts(model, settled, backends, args, shape, friction, rng):
+    """Run rotation/flipping windows and record every next-velocity error."""
+    if args.rollout_samples <= 0:
+        return []
+    rows = []
+    reference_engine = args.reference_engine
+    for mode in ROLLOUT_MODES:
+        for trial in range(args.rollout_samples):
+            initial = fresh_data(model, settled.qpos, np.zeros(6))
+            # Keep independent random yaw while retaining native settling
+            # height, as in ExplicitMPCParams/test_mpc_isaac.
+            yaw = float(rng.uniform(-np.pi, np.pi))
+            qyaw = np.array([np.cos(yaw / 2), 0., 0., np.sin(yaw / 2)])
+            q = np.zeros(4); mujoco.mju_mulQuat(q, qyaw, initial.qpos[3:7]); initial.qpos[3:7] = q
+            mujoco.mj_forward(model, initial)
+            target = _rollout_target(initial.qpos, mode)
+            datas = {e: fresh_data(model, initial.qpos, initial.qvel) for e in backends}
+            for e, backend in backends.items():
+                backend.reset(datas[e])
+            success = {e: False for e in backends}
+            for step in range(args.rollout_steps):
+                reference_start = fresh_data(model, datas[reference_engine].qpos,
+                                             datas[reference_engine].qvel)
+                wrench = _optimal_wrench(model, reference_start, target, mode, args.mass)
+                reference_data = None
+                reference_native = None
+                reference_obs = None
+                for engine, backend in backends.items():
+                    start = fresh_data(model, datas[engine].qpos, datas[engine].qvel, wrench)
+                    backend.reset(start)
+                    try:
+                        backend.step(start)
+                        if (not np.isfinite(start.qpos).all() or not np.isfinite(start.qvel).all()
+                                or np.max(np.abs(start.qvel)) > 1e3):
+                            raise FloatingPointError("rollout became nonfinite or unstable")
+                        datas[engine] = start
+                        success[engine] |= _rollout_success(start.qpos, target)
+                        if engine == reference_engine:
+                            reference_data = start
+                            reference_native = backend.last_contacts
+                            reference_obs = contact_observations(model, reference_start,
+                                                                 start.qvel, reference_native)
+                    except (RuntimeError, FloatingPointError) as exc:
+                        rows.append({"experiment": mode, "trial": trial, "step": step,
+                                     "engine": engine, "status": "failed", "failure": str(exc)})
+                if reference_data is None:
+                    continue
+                count = len(reference_native["gap"]) if reference_native is not None else 0
+                group = contact_count_group(count)
+                success[reference_engine] |= _rollout_success(reference_data.qpos, target)
+                M = full_mass(model, reference_start)[:6, :6]
+                free = reference_start.qvel + model.opt.timestep * reference_start.qacc_smooth
+                # One-step predictions from the SAME reference state (teacher
+                # forcing): every engine is reset to the reference state and
+                # advanced once, exactly as in the contact-mode measurements.
+                # These rows carry the plain engine name and feed Table IV.
+                # The divergence of the independently integrated trajectories
+                # is kept under ``<engine>_openloop`` for reference only.
+                probes = {}
+                for engine, backend in backends.items():
+                    if engine == reference_engine:
+                        continue
+                    probe = fresh_data(model, reference_start.qpos, reference_start.qvel, wrench)
+                    backend.reset(probe)
+                    try:
+                        backend.step(probe)
+                        if not (np.isfinite(probe.qpos).all() and np.isfinite(probe.qvel).all()):
+                            raise FloatingPointError("one-step probe became nonfinite")
+                        probes[engine] = probe
+                    except (RuntimeError, FloatingPointError) as exc:
+                        rows.append({"experiment": mode, "trial": trial, "step": step,
+                                     "engine": engine, "status": "failed", "failure": str(exc)})
+                    # Restore the engine's own open-loop state (PhysX keeps state).
+                    if datas.get(engine) is not None:
+                        backend.reset(datas[engine])
+                base = {"experiment": mode, "trial": trial, "step": step, "status": "ok",
+                        "contact_count": count, "contact_count_group": group,
+                        "success": bool(success[reference_engine])}
+                for engine, probe in probes.items():
+                    row = dict(base, engine=engine)
+                    row.update(prediction_metrics(reference_start, reference_data, probe, M, free, args))
+                    rows.append(row)
+                for engine, data in datas.items():
+                    if engine == reference_engine or data is None:
+                        continue
+                    row = dict(base, engine=f"{engine}_openloop")
+                    row.update(prediction_metrics(reference_start, reference_data, data, M, free, args))
+                    rows.append(row)
+                rollout_scm = scm_engine_name(datas)
+                if "isaacgym" in datas and rollout_scm is not None:
+                    if "isaacgym" in probes and rollout_scm in probes:
+                        pair = dict(base, engine="scm_vs_isaacgym")
+                        pair.update(prediction_metrics(reference_start, probes["isaacgym"],
+                                                       probes[rollout_scm], M, free, args))
+                        rows.append(pair)
+                    pair = dict(base, engine="scm_vs_isaacgym_openloop")
+                    pair.update(prediction_metrics(reference_start, datas["isaacgym"],
+                                                   datas[rollout_scm], M, free, args))
+                    rows.append(pair)
+            for engine in backends:
+                rows.append({"experiment": mode, "trial": trial, "step": args.rollout_steps,
+                             "engine": engine, "status": "ok", "success": bool(success[engine]),
+                             "final_success": bool(success[engine])})
+    return rows
+
+
+def close_backends(backends):
+    for backend in backends.values():
+        api = getattr(backend, "api", None)
+        if api is not None and hasattr(api, "close"):
+            api.close()
 
 
 def run_configuration(shape, friction, timestep, args, rng, output):
@@ -406,8 +762,19 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                       "collision_geometry": "single MuJoCo convex mesh hull"}
     mujoco.mj_saveLastXML(str(output / "model.xml"), model)
     initial = fresh_data(model)
-    engines = tuple(dict.fromkeys(("mjwarp", *args.engines)))
-    backends = {e: backend_for(e, model, initial, args) for e in engines}
+    engines = tuple(dict.fromkeys((args.reference_engine, *args.engines)))
+    backends = {e: backend_for(e, model, initial, args, friction) for e in engines}
+    try:
+        return _run_configuration(shape, friction, timestep, args, rng, output,
+                                  model, asset_info, engines, backends)
+    finally:
+        # PhysX allows one Foundation per process: a sim left open by a failed
+        # configuration (for example reference settling) would make the next
+        # Isaac Gym backend abort the whole batch.
+        close_backends(backends)
+
+
+def _run_configuration(shape, friction, timestep, args, rng, output, model, asset_info, engines, backends):
     settled = fresh_data(model)
     replay_source = args.replay_dir / output.name if args.replay_dir else None
     if replay_source:
@@ -421,14 +788,14 @@ def run_configuration(shape, friction, timestep, args, rng, output):
             settled = fresh_data(model, state["qpos"], state["qvel"])
         settle_steps_used = source_metadata.get("settle_steps_used", source_metadata["settle_steps"])
     else:
-        backends["mjwarp"].reset(settled)
+        backends[args.reference_engine].reset(settled)
         for _ in range(args.settle_steps):
-            backends["mjwarp"].step(settled)
+            backends[args.reference_engine].step(settled)
         settle_steps_used = args.settle_steps
         if shape in MESH_SHAPES and np.max(np.abs(settled.qvel)) > .02:
             print(f"{shape}: extending reference settling beyond {args.settle_steps} steps", flush=True)
             for _ in range(4 * args.settle_steps):
-                backends["mjwarp"].step(settled)
+                backends[args.reference_engine].step(settled)
                 settle_steps_used += 1
                 if np.max(np.abs(settled.qvel)) <= .02:
                     break
@@ -444,20 +811,43 @@ def run_configuration(shape, friction, timestep, args, rng, output):
         viewer_context = viewer.launch_passive(model, display)
     rows, saved, moments, post_moments = [], [], {}, {}
     metadata = {"shape": shape, "friction": friction, "mass_kg": args.mass, "timestep_s": timestep,
-                "nworld": 1, "warmstarts": "reset for every prediction", "reference": "vendored MJWarp",
+                "nworld": 1, "warmstarts": "reset for every prediction", "reference": args.reference_engine,
+                "backends": {name: {"isaacgym_fallback": bool(getattr(backend, "isaacgym_fallback", False)),
+                                     "isaacgym_geometry_fallback": bool(getattr(backend, "isaacgym_geometry_fallback", False)),
+                                     "isaacgym_error": getattr(backend, "isaacgym_error", None),
+                                     "isaacgym_collision": getattr(backend, "isaacgym_collision", None),
+                                     "isaacgym_worker_python": getattr(backend, "isaacgym_worker", None)}
+                             for name, backend in backends.items()},
                 "sampling_seed": args.seed, "settle_steps": args.settle_steps,
                 "settle_steps_used": settle_steps_used,
                 "mesh_asset": asset_info,
                 "visualization": {"preview_seconds": args.preview_seconds,
-                                  "preview_engine": "mjwarp", "preview_in_statistics": False},
+                                  "preview_engine": args.reference_engine, "preview_in_statistics": False},
                 "replay_source": str(replay_source.resolve()) if replay_source else None,
                 "mode_definition": "input point velocities and reference solve-time load; post-impulse modes recorded separately",
                 "thresholds": {"normal_force_N": args.force_threshold, "slip_m_s": args.slip_threshold,
                                "loaded_normal_speed_m_s": args.normal_threshold, "weighted_direction_norm": args.direction_threshold},
-                "scm": {"regularization": args.scm_regularization, "motion": args.scm_motion,
-                        "damping": 0, "contact_dimensions": 3, "basis": "four dual-cone pyramid faces per contact",
-                        "law": "p=max(-(J*v_projected+gap/h)/(diag(J*Minv*J.T)+r),0)",
-                        "amplitude_correction": "scm_corrected only: alpha=clip(-g.T*p/(p.T*(J*Minv*J.T+rI)*p),0,1); one scalar per world; p=0 => alpha=1"}}
+                "scm": {"source": "tro_revision/method.tex eq. scm_single_step_projection; "
+                                  "same law as planning/point_force_gpu.py model 0 (GPU CEM of test_mpc_isaac.py)",
+                        "regularization": args.scm_regularization, "motion": "dynamic",
+                        "contact_dimensions": 3, "basis": "n_d=4 facet rows n+-mu*t per contact",
+                        "softplus_temperature_N_s": args.scm_softplus_temperature,
+                        "law": "g=J*v_free+max(gap,0)/h; D=diag(J*Minv*J.T)+eps; beta0=softplus_T(-g/D); "
+                               "beta=softplus_T(beta0-(W*beta0+g)/L); L=lambda_max(W); v+=v_free+Minv*J.T*beta",
+                        "mass": "full MuJoCo generalized mass at the query state; W applied matrix-free",
+                        "collision": "MuJoCo CPU active point contacts at the query pose"},
+                "scm_box": {"source": "models/soft_box_contact.py",
+                            "rows": "(n, t1, t2) per contact; Coulomb box |lambda_t| <= mu lambda_n",
+                            "law": "lambda_n=softplus_T(lambda_n-(n.v+max(gap,0)/h+eps*lambda_n)/D_n); "
+                                   "lambda_t=clip_T(lambda_t-(t.v+eps*lambda_t)/D_t, mu*lambda_n); "
+                                   "clip_T(x,c)=x-softplus_T(x-c)+softplus_T(-x-c); v+=Minv*J_i.T*(new-old)",
+                            "sweeps": getattr(args, "scm_sweeps", 3),
+                            "soft_contact": getattr(args, "scm_soft_contact", "none"),
+                            "order": "fixed MuJoCo contact order, unrolled (explicit finite composition)",
+                            "softplus_temperature_N_s": args.scm_softplus_temperature,
+                            "regularization": args.scm_regularization},
+                "scm_corrected": {"law": "p=max(-(J*v_projected+gap/h)/(diag(J*Minv*J.T)+r),0)",
+                                  "amplitude_correction": "alpha=clip(-g.T*p/(p.T*(J*Minv*J.T+rI)*p),0,1); one scalar per world; p=0 => alpha=1"}}
     metadata["scm_soft"] = {"response_time_s": args.scm_response_time, "damping_ratio": args.scm_damping_ratio,
                             "law": "x=h/tau; a=(2*zeta*x+x*x)/(1+2*zeta*x+x*x); b=x*x/(1+2*zeta*x+x*x); p=max(-(a*J*v_projected+b*gap/h)/D,0)",
                             "interpretation": "per-row implicit spring-damper, effective mass=1/D; full contact coupling still approximated"}
@@ -536,8 +926,7 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                     stopped = True
                     break
                 start = fresh_data(model, qpos, qvel, wrench)
-                M = np.zeros((6, 6))
-                mujoco.mj_fullM(model, M, start.qM)
+                M = full_mass(model, start)[:6, :6]
                 free_velocity = start.qvel + timestep * start.qacc_smooth
                 predictions = {}
                 for engine, backend in backends.items():
@@ -554,25 +943,59 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                         predictions[engine] = (data, native, obs, mode, None, backend.last_step_seconds)
                     except (RuntimeError, FloatingPointError) as exc:
                         predictions[engine] = (None, None, None, "failed", str(exc), None)
-                reference = predictions["mjwarp"][0]
+                reference = predictions[args.reference_engine][0]
                 if reference is not None:
-                    ref_native = predictions["mjwarp"][1]
+                    ref_native = predictions[args.reference_engine][1]
                     input_obs = contact_observations(model, start, start.qvel, ref_native)
                     mode = reference_mode(ref_native, input_obs, force_threshold=args.force_threshold,
                                           slip_threshold=args.slip_threshold, normal_threshold=args.normal_threshold)
+                    if mode == "separation":
+                        mode = "transition"
                 else:
                     mode = "invalid_reference"
+                reference_contact_count = len(ref_native["gap"]) if reference is not None else 0
                 if window is not None and sample_index == 0 and reference is not None:
-                    preview_mode(window, model, display, backends["mjwarp"], qpos, qvel, wrench,
+                    preview_mode(window, model, display, backends[args.reference_engine], qpos, qvel, wrench,
                                  requested, mode, args)
+                # Keep a paired SCM-vs-IsaacGym row as well as the common
+                # MuJoCo-reference rows.  This makes the two reference cells
+                # in Table IV directly comparable without rerunning samples.
+                scm_engine = scm_engine_name(e for e in predictions if predictions[e][0] is not None)
+                if scm_engine and "isaacgym" in predictions:
+                    scm_data = predictions[scm_engine][0]
+                    isaac_data, isaac_native, _, isaac_mode, isaac_failure, _ = predictions["isaacgym"]
+                    if scm_data is not None and isaac_data is not None:
+                        # Same input-state mode and reference contact-count
+                        # grouping as the MuJoCo rows, so the two Table IV
+                        # comparisons share identical sample bins.
+                        pair = {"sample_id": sample_id, "shape": shape, "friction": friction,
+                                "timestep_s": timestep, "requested_mode": requested,
+                                "condition": condition, "reference_mode": mode,
+                                "reference_outcome_mode": isaac_mode, "engine": "scm_vs_isaacgym",
+                                "predicted_mode": predictions[scm_engine][3], "status": "ok",
+                                "failure": isaac_failure, "step_seconds": predictions[scm_engine][5],
+                                "isaacgym_fallback": bool(getattr(backends["isaacgym"], "isaacgym_fallback", False))}
+                        pair.update(prediction_metrics(start, isaac_data, scm_data, M,
+                                                       free_velocity, args))
+                        pair["ncontact"] = len(isaac_native["gap"])
+                        pair["reference_ncontact"] = reference_contact_count
+                        pair["contact_count_group"] = contact_count_group(reference_contact_count)
+                        rows.append(pair)
                 for engine, (data, native, obs, predicted_mode, failure, elapsed) in predictions.items():
                     row = {"sample_id": sample_id, "shape": shape, "friction": friction, "timestep_s": timestep,
                            "requested_mode": requested, "condition": condition, "reference_mode": mode,
-                           "reference_outcome_mode": predictions["mjwarp"][3],
+                           "reference_outcome_mode": predictions[args.reference_engine][3],
                            "engine": engine, "predicted_mode": predicted_mode, "status": "ok", "failure": failure,
                            "step_seconds": elapsed}
                     if engine in ("scm_corrected", "scm_soft_corrected") and data is not None:
                         row["scm_amplitude_scale"] = backends[engine].last_amplitude_scale
+                    if engine == "scm" and data is not None:
+                        lipschitz = backends[engine].api.last_lipschitz
+                        row["scm_lipschitz"] = None if lipschitz is None else float(lipschitz)
+                        row["scm_step_size"] = None if not lipschitz else 1. / float(lipschitz)
+                        initial = backends[engine].api.last_initial_impulse
+                        row["scm_initial_impulse_N_s"] = None if initial is None else float(np.sum(initial))
+                        row["scm_impulse_N_s"] = float(np.sum(backends[engine].api.last_problem["impulse"]))
                     if engine in ("scm_residual", "scm_preconditioned") and data is not None:
                         lipschitz, step_size = backends[engine].last_scm_lipschitz, backends[engine].last_scm_step_size
                         row["scm_lipschitz"] = None if lipschitz is None else float(lipschitz)
@@ -590,7 +1013,10 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                     else:
                         row.update(prediction_metrics(start, reference, data, M, free_velocity, args))
                         loaded = native["force"][:, 0] > args.force_threshold
-                        row.update(ncontact=len(native["gap"]), loaded_contacts=int(loaded.sum()),
+                        row.update(ncontact=len(native["gap"]),
+                                   reference_ncontact=reference_contact_count,
+                                   contact_count_group=contact_count_group(reference_contact_count),
+                                   loaded_contacts=int(loaded.sum()),
                                    max_penetration_m=float(obs["depth"].max(initial=0)),
                                    max_slip_speed_m_s=float(np.linalg.norm(obs["relative_velocity"][loaded, 1:3], axis=1).max(initial=0)),
                                    friction_power_W=float(obs["power"].sum()),
@@ -621,7 +1047,7 @@ def run_configuration(shape, friction, timestep, args, rng, output):
                                       f"One-step | {shape} | {engine}\nrequested: {requested}; reference: {mode}\noutcome: {predicted_mode}; sample: {sample_index + 1}/{args.samples_per_mode}", wrench)
                         time.sleep(args.display_pause)
                 sample_id += 1
-            labels = Counter(r["reference_mode"] for r in rows[mode_start:] if r["engine"] == "mjwarp")
+            labels = Counter(r["reference_mode"] for r in rows[mode_start:] if r["engine"] == args.reference_engine)
             print(f"{shape} mu={friction:g} h={timestep:g}: requested {requested}, measured {dict(labels)}", flush=True)
             if stopped:
                 break
@@ -632,10 +1058,17 @@ def run_configuration(shape, friction, timestep, args, rng, output):
         writer.writerows(rows)
     if saved:
         np.savez_compressed(output / "states.npz", **{key: np.asarray([s[key] for s in saved]) for key in saved[0]})
+    rollout_rows = run_rollouts(model, settled, backends, args, shape, friction, rng)
+    if rollout_rows:
+        with (output / "rollouts.jsonl").open("w") as stream:
+            for row in rollout_rows:
+                stream.write(json.dumps({k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                                         for k, v in row.items()}, allow_nan=False) + "\n")
     report = {"metadata": metadata, "stopped_by_viewer": stopped, "requested_shared_states": len(args.modes) * args.samples_per_mode,
               "completed_shared_states": len(saved) // len(engines),
-              "requested_vs_reference_modes": dict(Counter(f"{r['requested_mode']}->{r['reference_mode']}" for r in rows if r["engine"] == "mjwarp")),
-              "by_reference_mode": aggregate(rows, moments, post_moments)}
+              "requested_vs_reference_modes": dict(Counter(f"{r['requested_mode']}->{r['reference_mode']}" for r in rows if r["engine"] == args.reference_engine)),
+              "by_reference_mode": aggregate(rows, moments, post_moments),
+              "rollouts": aggregate_rollouts(rollout_rows, args.reference_engine)}
     (output / "metrics.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     if __package__:
         from .paper_reporting import write_prediction_report
@@ -651,19 +1084,22 @@ def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--headless", action="store_true", help="Disable the visualization popup (enabled by default)")
     parser.add_argument("--preview-seconds", type=nonnegative_float, default=.6,
-                        help="Independent MJWarp animation before each mode; excluded from statistics. 0 disables it")
+                        help="Independent reference-backend animation before each mode; excluded from statistics. 0 disables it")
     parser.add_argument("--display-pause", type=nonnegative_float, default=.02,
                         help="Wall-clock hold per displayed one-step prediction [s]")
+    parser.add_argument("--reference-engine", choices=("mujoco", "isaacgym"), default="mujoco",
+                        help="Ground-truth backend. MuJoCo is the default and is always included.")
     parser.add_argument("--engines", nargs="+", choices=(
         "mjwarp", "comfree", "scm_corrected", "scm_soft", "scm_soft_corrected",
         "scm_residual", "scm_preconditioned", "lcp", "dart", "contactsdf",
-        "diagonal_contact", "mujoco"), default=["mjwarp", "comfree", "scm_corrected"])
+        "diagonal_contact", "scm", "scm_box", "mujoco", "isaacgym"), default=["scm", "isaacgym"])
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--shapes", nargs="+", type=canonical_shape, choices=(*SHAPES, *MESH_SHAPES),
                         default=["box", "sphere"], help="Primitives or repository STL objects; stanford_bunn2 aliases stanford_bunny2")
     parser.add_argument("--samples-per-mode", type=positive_int, default=100, help="Shared states per shape/friction/timestep and requested mode")
     parser.add_argument("--frictions", nargs="+", type=positive_float, default=[.5])
-    parser.add_argument("--timesteps", nargs="+", type=positive_float, default=[.002])
+    parser.add_argument("--timesteps", nargs="+", type=positive_float, default=[.002],
+                        help="Integration steps; TABLE IV uses h=0.002 s.")
     parser.add_argument("--mass", type=positive_float, default=.15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--settle-steps", type=positive_int, default=500,
@@ -676,8 +1112,14 @@ def argument_parser():
                         help="Soft SCM relaxation time [s]; default calibrated for the 2 ms physics benchmark")
     parser.add_argument("--scm-damping-ratio", type=positive_float, default=.25,
                         help="Soft SCM damping ratio; benchmark default .25 (MPC model defaults are separate)")
-    parser.add_argument("--scm-softplus-temperature", type=positive_float, default=1e-4,
-                        help="LogSumExp temperature in N s for softplus SCM variants")
+    parser.add_argument("--scm-softplus-temperature", type=positive_float, default=1e-3,
+                        help="Softplus temperature T in N s for the paper SCM (`scm`, method.tex T=1e-3) "
+                             "and the softplus SCM variants")
+    parser.add_argument("--scm-sweeps", type=positive_int, default=3,
+                        help="Unrolled Gauss-Seidel sweeps of the smooth 3-row Coulomb-box SCM (`scm_box`)")
+    parser.add_argument("--scm-soft-contact", choices=("none", "mujoco"), default="none",
+                        help="`scm_box` only: 'mujoco' aligns the row targets/compliance with "
+                             "MuJoCo solref/solimp (aref = -b J v - k pos, regularizer R)")
     parser.add_argument("--scm-correction-steps", type=nonnegative_int, default=1,
                         help="Residual applications per prediction for scm_residual and scm_preconditioned; the published model uses 1")
     parser.add_argument("--contactsdf-sigma", type=positive_float, default=120.,
@@ -697,12 +1139,22 @@ def argument_parser():
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).parent / "outputs" / "prediction")
     parser.add_argument("--replay-dir", type=Path, help="Reuse exact recorded initial states/wrenches from a previous prediction run")
     parser.add_argument("--no-plots", action="store_true")
+    parser.add_argument("--rollout-samples", type=nonnegative_int, default=0,
+                        help="Rotation/flipping trials per shape. 0 disables rollout windows.")
+    parser.add_argument("--rollout-steps", type=positive_int, default=250,
+                        help="Maximum steps in each rotation/flipping prediction rollout.")
+    parser.add_argument("--update-table-iv", action="store_true",
+                        help="Write table_iv.csv/.md and replace the velocity table placeholders in experiment.tex")
+    parser.add_argument("--continue-on-error", action="store_true",
+                        help="Record a failed shape/configuration and continue the batch")
     return parser
 
 
 def main():
     parser = argument_parser()
     args = parser.parse_args()
+    if args.update_table_iv and any(abs(float(t) - .002) > 1e-12 for t in args.timesteps):
+        parser.error("TABLE IV requires h=0.002 s")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     # Reject duplicate inputs; config folder identifiers must remain unique.
     if any(len(v) != len(set(v)) for v in (args.shapes, args.frictions, args.timesteps, args.modes)):
@@ -713,21 +1165,36 @@ def main():
         for friction in args.frictions:
             for timestep in args.timesteps:
                 key = f"{shape}_mu{friction}_h{timestep}"
-                reports[key] = run_configuration(shape, friction, timestep, args, rng, args.output_dir / key)
+                try:
+                    reports[key] = run_configuration(shape, friction, timestep, args, rng, args.output_dir / key)
+                except Exception as exc:
+                    if not args.continue_on_error:
+                        raise
+                    print(f"{key}: skipped after {type(exc).__name__}: {exc}", flush=True)
+                    reports[key] = {"metadata": {"shape": shape, "friction": friction,
+                                                  "timestep_s": timestep, "reference": args.reference_engine},
+                                    "error": f"{type(exc).__name__}: {exc}",
+                                    "by_reference_mode": {}, "rollouts": {}}
     import sys
-    import warp
+    try:
+        import warp
+        warp_version = warp.__version__
+    except ImportError:
+        warp_version = None
     arguments = {key: str(value) if isinstance(value, Path) else value
                  for key, value in vars(args).items() if not key.startswith("_")}
     (args.output_dir / "manifest.json").write_text(json.dumps({
-        "experiment": "shared_state_single_step_contact_mode_prediction_error",
-        "arguments": arguments, "python": sys.executable, "mujoco": mujoco.__version__, "warp": warp.__version__,
-        "mode_definition": "input contact-point velocities at solve pose, with MJWarp solve-time normal load; outcome modes use post-impulse velocity separately",
-        "upstream_commit": UPSTREAM_COMMIT, "reference": "vendored MJWarp, not physical ground truth",
+        "experiment": "mujoco_ground_truth_contact_prediction_error",
+        "arguments": arguments, "python": sys.executable, "mujoco": mujoco.__version__, "warp": warp_version,
+        "mode_definition": "input contact-point velocities at solve pose, with MuJoCo solve-time normal load; outcome modes use post-impulse velocity separately",
+        "upstream_commit": UPSTREAM_COMMIT, "reference": args.reference_engine,
         "paper_section_iv": {"A": "all-contact penetration population mean/std",
                              "B": "torsional angular-speed and rolling COM-speed decay curves; separate compare_physics scenes",
                              "C": "horizontal speed, height and kinetic energy diagnostics",
                              "D": "full-step synchronized wall time, excluding readback/rendering, single world here",
                              "E": "parallel throughput is not measured by this single-step experiment"},
+        "backend_status": {key: report.get("metadata", {}).get("backends", {})
+                           for key, report in reports.items()},
         "configurations": list(reports)}, indent=2, allow_nan=False) + "\n")
     summary = []
     for configuration, report in reports.items():
@@ -740,6 +1207,15 @@ def main():
                 for key in ("solve_pose_penetration_mm", "poststate_penetration_mm"):
                     row.update({f"{key}_{stat}": value for stat, value in group[key].items()})
                 summary.append(row)
+                for count, subgroup in group.get("by_contact_count", {}).items():
+                    count_row = {"configuration": configuration, "engine": engine,
+                                 "reference_mode": mode, "contact_count": count,
+                                 "attempted": subgroup["attempted"], "valid": subgroup["valid"],
+                                 "failed": 0}
+                    for metric, statistics in subgroup["metrics"].items():
+                        count_row.update({f"{metric}_{stat}": value
+                                          for stat, value in statistics.items()})
+                    summary.append(count_row)
     if summary:
         columns = list(dict.fromkeys(k for row in summary for k in row))
         with (args.output_dir / "summary.csv").open("w", newline="") as f:
@@ -751,6 +1227,8 @@ def main():
     else:
         from paper_reporting import write_prediction_report
     write_prediction_report(reports, args.output_dir)
+    table_iv = write_table_iv(args.output_dir, args)
+    (args.output_dir / "table_iv.json").write_text(json.dumps(table_iv, indent=2, allow_nan=False) + "\n")
     print(f"Saved {len(reports)} configurations to {args.output_dir.resolve()}")
 
 

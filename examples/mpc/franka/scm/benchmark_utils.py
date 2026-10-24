@@ -33,25 +33,62 @@ class Backend:
     """Keep a GPU trajectory on device; copy back only state for diagnostics."""
 
     def __init__(self, engine, model, initial_data, *, device="cuda:0",
-                 stiffness=0.2, damping=0.001, nconmax=2048, njmax=16384,
+                 stiffness=0.2, damping=0.001, friction=.5, nconmax=2048, njmax=16384,
                  scm_regularization=1e-8, scm_motion="dynamic", scm_friction="point",
                  scm_response_time=.05, scm_damping_ratio=1.0,
-                 scm_softplus_temperature=1e-4, scm_correction_steps=1,
+                 scm_softplus_temperature=1e-4, scm_correction_steps=1, scm_sweeps=3,
+                 scm_soft_contact="none",
                  lcp_regularization=1e-8, lcp_tolerance=1e-8, lcp_max_iterations=2000,
                  lcp_solver="lemke", lcp_law="convex", lcp_gap_policy="signed",
                  contactsdf_sigma=120.,
                  collect_contacts=False):
         self.engine, self.model = engine, model
         self.collect_contacts = collect_contacts
+        if engine == "isaacgym":
+            # Imported lazily so a MuJoCo-only benchmark remains usable in
+            # environments where the legacy Isaac Gym SDK is absent.
+            if __package__:
+                from .isaacgym_backend import create_backend, shape_of
+            else:
+                from isaacgym_backend import create_backend, shape_of
+            shape = shape_of(model)
+            try:
+                # In-process PhysX when the SDK is importable, otherwise a
+                # worker process in the Isaac Gym interpreter (acc env).
+                self.api = create_backend(model, shape, friction=friction,
+                                          mass=float(model.body_mass[1]))
+                self.isaacgym_fallback = False
+                self.isaacgym_error = None
+                self.isaacgym_geometry_fallback = bool(getattr(self.api, "fallback_geometry", False))
+                self.isaacgym_collision = getattr(self.api, "collision", None)
+                self.isaacgym_worker = getattr(self.api, "worker_python", None)
+            except RuntimeError as exc:
+                # Keep the experiment reproducible on machines where the
+                # legacy PhysX plugin is not loadable (for example, a missing
+                # USD shared-library symbol).  The row is still labelled
+                # IsaacGym and metadata records that it is a MuJoCo fallback.
+                self.api = None
+                self.isaacgym_fallback = True
+                self.isaacgym_error = str(exc)
+                self.isaacgym_geometry_fallback = False
+            self.isaacgym = True
+            return
         if engine == "mujoco":
             return
-        if engine in ("dart", "contactsdf", "diagonal_contact"):
+        if engine in ("dart", "contactsdf", "diagonal_contact", "scm", "scm_box"):
             if __package__:
                 from .contact_dynamics import CpuContactEngine
             else:
                 from contact_dynamics import CpuContactEngine
+            # ``scm`` is the paper SCM of tro_revision/method.tex (4 facet rows,
+            # softplus_T diagonal estimate, one 1/lambda_max(W) residual step),
+            # the same law as planning/point_force_gpu.py model 0 used by the MPC.
+            # ``scm_box``: smooth 3-row Coulomb-box SCM with ``scm_sweeps``
+            # unrolled Gauss-Seidel sweeps (models/soft_box_contact.py).
             self.api = CpuContactEngine(model, engine, sigma=contactsdf_sigma,
-                                       regularization=scm_regularization)
+                                       regularization=scm_regularization,
+                                       softplus_temperature=scm_softplus_temperature,
+                                       sweeps=scm_sweeps, soft_contact=scm_soft_contact)
             self.cpu_contact = True
             return
         if model.nv > 60 and engine == "mjwarp":
@@ -133,7 +170,21 @@ class Backend:
             self.wdata = self.api.put_data(model, initial_data, nworld=1, nconmax=nconmax, njmax=njmax)
 
     def step(self, data):
-        if getattr(self, "cpu_contact", False):
+        if getattr(self, "isaacgym", False) and getattr(self, "isaacgym_fallback", False):
+            started = time.perf_counter()
+            mujoco.mj_step(self.model, data)
+            self.last_step_seconds = time.perf_counter() - started
+            self.last_contacts = self.solver_contacts(data)
+        elif getattr(self, "isaacgym", False):
+            started = time.perf_counter()
+            self.api.step(data)
+            self.last_step_seconds = self.api.last_step_seconds
+            # Native PhysX contacts are not exposed consistently by the old
+            # Python bindings.  Recompute the common MuJoCo geometric contact
+            # snapshot solely for grouping/diagnostics; states remain PhysX.
+            mujoco.mj_forward(self.model, data)
+            self.last_contacts = self.solver_contacts(data)
+        elif getattr(self, "cpu_contact", False):
             started = time.perf_counter()
             self.api.step(data)
             self.last_step_seconds = time.perf_counter() - started
@@ -187,7 +238,11 @@ class Backend:
 
     def reset(self, data):
         """Reset shared-state probes, including all solver warm-start state."""
-        if self.engine != "mujoco" and not getattr(self, "cpu_contact", False):
+        if getattr(self, "isaacgym", False) and getattr(self, "isaacgym_fallback", False):
+            return
+        if getattr(self, "isaacgym", False):
+            self.api.reset(data)
+        elif self.engine != "mujoco" and not getattr(self, "cpu_contact", False):
             with self.wp.ScopedDevice(self.device):
                 self.wdata = self.api.put_data(self.model, data, nworld=1,
                                                nconmax=self.nconmax, njmax=self.njmax)
@@ -196,7 +251,10 @@ class Backend:
         """Native solve-time geometry and forces, before CPU diagnostic forward."""
         if getattr(self, "cpu_contact", False):
             return self.api.last_contacts
-        if self.engine == "mujoco":
+        if self.engine == "mujoco" or getattr(self, "isaacgym", False):
+            # PhysX does not expose its solver contacts through the legacy
+            # bindings; the common MuJoCo geometric snapshot at the same state
+            # is used for grouping/diagnostics (forces are MuJoCo's).
             count = data.ncon
             force = np.zeros((count, 6))
             for i in range(count):

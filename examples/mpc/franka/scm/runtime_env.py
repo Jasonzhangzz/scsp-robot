@@ -7,11 +7,32 @@ import sys
 DEPENDENCIES = Path(__file__).resolve().parent / ".deps"
 
 
+def preload_isaacgym(argv=None):
+    """Import Isaac Gym before MuJoCo when the benchmark requests it.
+
+    MuJoCo wheels (>=3.2) bundle their own USD libraries. If they are loaded
+    first, Isaac Gym's ``libcarb.gym.plugin.so`` fails with an undefined
+    ``pxrInternal_v0_19`` symbol and ``acquire_gym`` returns an unusable
+    interface, forcing the MuJoCo fallback. Importing the legacy SDK first
+    avoids the symbol clash. Only done when ``isaacgym`` is actually requested.
+    """
+    argv = sys.argv[1:] if argv is None else argv
+    if "isaacgym" not in argv or "mujoco" in sys.modules:
+        return False
+    try:
+        import isaacgym  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def activate_dependencies():
-    if Path(sys.prefix).name != "pi0":
-        raise RuntimeError("Run with the pi0 environment: conda run -n pi0 python <script>.")
+    # The original benchmark was tied to the author's ``pi0`` environment.
+    # The CPU MuJoCo/Isaac comparison is intentionally usable in a regular
+    # environment as well; GPU backends still fail with their own actionable
+    # dependency message when selected.
     if not (DEPENDENCIES / "comfree_warp").is_dir():
-        raise RuntimeError("Install benchmark dependencies: python -m pip install --target .deps --no-deps -r requirements.txt")
+        return
     for name in ("mujoco", "warp", "comfree_warp"):
         module = sys.modules.get(name)
         if module is not None and not Path(module.__file__).resolve().is_relative_to(DEPENDENCIES):
