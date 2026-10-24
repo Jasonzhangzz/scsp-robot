@@ -1,3 +1,5 @@
+\begingroup
+\setlength{\textfloatsep}{10pt}
 \section{Generalization to Multiple Tasks}\label{sec:generalize}
 
 We further implement SCSP in different scenarios to evaluate its \madd{cross-task} generalization. Using multi-contact and \rev{articulated-object manipulation tasks} as examples, we demonstrate \rev{online contact selection} for underactuated objects.
@@ -9,7 +11,7 @@ SCSP \madd{provides a potential framework for extending contact selection and pl
 We use a soccer dribbling task to demonstrate \rev{the performance of SCSP in dynamic scenarios}. In this task, SCSP plans contact with the ball using one of the two feet and drives it toward the goal through multi-contact manipulation. The main challenges lie in the highly dynamic behavior of the ball, which makes stable and sustained contact difficult, and in coordinating the two feet effectively. We read the ball position $\boldsymbol{p}_k$ and estimate its velocity $\boldsymbol{v}_k$ from the simulation using a Kalman filter. The 3D model of the ball is then input to the SCSP to compute the actions $\boldsymbol{u} \in \mathbb{R}^{2\times 4}$ for both feet, where the control vector for each foot is $\left [ x,y,z,\theta_{\mathrm{yaw}} \right ] $. We define activation triggers separately for the left and right feet: using the midpoint between both feet as the center, the space is divided into left and right half-spaces. When $\boldsymbol{x}_k$ appears in a half-space, the corresponding left or right foot is activated. Additionally, workspace constraints (represented as semi-transparent cubes) are imposed on each foot to prevent singular gait patterns. The number of CSO sampling points is set to $n_s=70$, and points close to the ground $\left \{ p_i\in\mathcal{I}_{\text{obj}} \ | \ z_i < 0.02\mathrm{m} \right \}$ are masked out. We randomly selected 10 goal positions for the soccer ball, and SCSP continuously controlled the robot’s feet to dribble the ball to each target, achieving a 100\% success rate. The experimental results are shown in Fig. \ref{fig:soccer}. This experiment serves as a toy example, simulating the approaching and contact phases in humanoid soccer dribbling. In the future, we plan to extend SCSP to more complex motion planners to realize a more complete demonstration \cite{yin2025visualmimic, kong2026learning}.
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/soccer2.pdf}}
-\caption{Soccer dribbling task. (a) Experiment setup. The task is to kick the soccer to the target (translucent). Red and green cubes show footworkspaces, and the yellow point indicates CSO-planned contact locations. (b) Gribbling trajectory.}
+\caption{Soccer dribbling task. (a) Experiment setup. The task is to kick the soccer to the target (translucent). Red and green cubes show foot workspaces, and the yellow point indicates CSO-planned locations. (b) Dribbling trajectory.}
 \label{fig:soccer}
 \end{figure}
 \subsubsection{Tilted Pushing}
@@ -26,17 +28,17 @@ SCSP can also be applied to predict grasping poses, such as bimanual grasping an
  \begin{aligned}
 \min_{\boldsymbol{\hat{\lambda}}_r \in \mathcal{K}}
 \quad &
-\sum_{j=1}^{N_d} \left\| \xi \boldsymbol{w}^{(j)} - \boldsymbol{J}_o \boldsymbol{\hat{\lambda}}_r^{(j)} \right\|_2^2
+\sum_{j=1}^{n_d} \left\| \xi \boldsymbol{w}^{(j)} - \boldsymbol{J}_o \boldsymbol{\hat{\lambda}}_r^{(j)} \right\|_2^2
 \;+\;
 w_{\lambda} \sum_{j=1}^{n_d} \left\| \boldsymbol{\hat{\lambda}}_r^{(j)} \right\|_2^2 \\
 \text{s.t.}\quad
-& \sum_{i=1}^{K} \hat{\lambda}_r^{(j),n} \ge \zeta, \
+& \sum_{i=1}^{n_c} \hat{\lambda}_{r,i}^{(j),n} \ge \zeta, \
 \forall j=1,\dots,n_d.
 \end{aligned}
 \end{equation}
-where $n_c$ is the number of robot contact points, $n_d$ denotes the number of sampled disturbance wrenches, $\boldsymbol{w}^{(j)} \in \mathbb{R}^6$ represents the $j$-th disturbance wrench. $\boldsymbol{\lambda}_r^{(j)}$ denotes the robot contact force corresponding to disturbance $\boldsymbol{w}^{(j)}$. $\xi$ is the disturbance scaling factor, $\zeta$ the minimum total normal force required to maintain an active grasp and $w_{\lambda}=0.1$. During each rollout, the CSO in SCSP solves \eqref{equ:force_closure} for the nearest points $\boldsymbol{p}_{\text{near}}^i$ to the robot end-effector or Allegro fingers additional to the top 5 pairs of potential grasping pairs, thereby searching for grasping poses online. We use an open-loop baseline that computes the optimal grasping locations offline using CSO and executes them online with CPO for comparison. For bi-manual and multi-finger grasping, we selected five objects each, placed them on a pedestal (black), randomly perturbed their yaw angles $\theta_{\text{yaw}}$ and scaled their sizes by a random factor $\varsigma \in \left \{ 0.5,1,1.5,2 \right \} $, conducting 20 trials for each task. The results are shown in Table~\ref{tab:generalization_tasks_result} and Fig.~\ref{fig:grasping}. \madd{SCSP substantially outperforms the open-loop baseline in bi-manual grasping and achieves a slight advantage in multi-finger grasping. In the additional successful cases, we observed small in-hand adjustments after grasp slippage.}
+where $n_c$ is the number of robot contact points, $n_d$ denotes the number of sampled disturbance wrenches, $\boldsymbol{w}^{(j)} \in \mathbb{R}^6$ represents the $j$-th disturbance wrench\rev{, and $\boldsymbol{J}_o$ is the stacked object contact Jacobian}. $\boldsymbol{\hat{\lambda}}_r^{(j)}$ denotes the robot contact force corresponding to disturbance $\boldsymbol{w}^{(j)}$\rev{, with normal component $\hat{\lambda}_{r,i}^{(j),n}$ at contact $i$}. $\xi$ is the disturbance scaling factor, $\zeta$ the minimum total normal force required to maintain an active grasp and $w_{\lambda}=0.1$. During each rollout, the CSO in SCSP solves \eqref{equ:force_closure} for the nearest points $\boldsymbol{p}_{\text{near}}^i$ to the robot end-effector or Allegro fingers additional to the top 5 pairs of potential grasping pairs, thereby searching for grasping poses online. We use an open-loop baseline that computes the optimal grasping locations offline using CSO and executes them online with CPO for comparison. For bi-manual and multi-finger grasping, we selected five objects each, placed them on a pedestal (black), randomly perturbed their yaw angles $\theta_{\text{yaw}}$ and scaled their sizes by a random factor $\varsigma \in \left \{ 0.5,1,1.5,2 \right \} $, conducting 20 trials for each task. The results are shown in Table~\ref{tab:generalization_tasks_result} and Fig.~\ref{fig:grasping}. \madd{SCSP substantially outperforms the open-loop baseline in bi-manual grasping and achieves a slight advantage in multi-finger grasping. In the additional successful cases, we observed small in-hand adjustments after grasp slippage.}
 \begin{figure}[!t]
- \centerline{\includegraphics[width=\columnwidth]{figures/grasping.pdf}}
+ \centerline{\includegraphics[width=\columnwidth,trim=0 66bp 0 0,clip]{figures/grasping.pdf}}
 \caption{Snapshots of the multi-contact grasping tasks. (a) Bi-manual grasping of an elephant with the size scaling factor $\varsigma=1$. (b) Multi-finger grasping of a duck with $\varsigma=1.5$.}
 \label{fig:grasping}
 \end{figure}
@@ -91,3 +93,4 @@ where $n_c$ is the number of robot contact points, $n_d$ denotes the number of s
 \bottomrule
 \end{tabular*}
 \end{table*}
+\endgroup

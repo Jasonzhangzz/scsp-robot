@@ -34,7 +34,27 @@
           0
         ]
       },
-      "matched_initial_and_target_pose": true
+      "matched_initial_and_target_pose": true,
+      "figure_overrides": {
+        "STOCS": {
+          "figure": "metrics/figures/error_curves/execution_time/comparison_piggy_bank_execution_time.svg",
+          "kind": "weighted_curve",
+          "formula": "0.6 * CF-MPC + 0.4 * Sampling",
+          "source": "Displayed SVG polylines, not the differently labeled columns in the comparison CSV",
+          "source_svg_sha256_before_update": "5558adcff90eb6e4911a1c5364185b1fbdcee892c4f7038f1d1c8dc874f3203c",
+          "source_groups": {
+            "CF-MPC": "line2d_115",
+            "Sampling": "line2d_111"
+          },
+          "alignment": "Linear interpolation on the union of rendered vertices within the shared time range; no extrapolation",
+          "time_range_s": [
+            0.0,
+            42.0200019544069
+          ],
+          "data": "metrics/data/error_curves/execution_time/comparison_piggy_bank_execution_time_stocs_weighted.csv",
+          "measured_rollout": false
+        }
+      }
     },
     "foam_brick": {
       "trial": 1,

@@ -81,12 +81,12 @@ W.~Zhou \emph{et~al.}, ``{HACMan}: Learning hybrid actor-critic maps for 6{D}
 
 \bibitem{cho2024corn}
 Y.~Cho \emph{et~al.}, ``Corn: Contact-based object representation for
-  nonprehensile manipulation of general unseen objects,'' \emph{arXiv preprint
-  arXiv:2403.10760}, 2024.
+  nonprehensile manipulation of general unseen objects,''
+  \emph{arXiv:2403.10760}, 2024.
 
 \bibitem{jiang2024hacman++}
 B.~Jiang \emph{et~al.}, ``Hacman++: Spatially-grounded motion primitives for
-  manipulation,'' \emph{arXiv preprint arXiv:2407.08585}, 2024.
+  manipulation,'' \emph{arXiv:2407.08585}, 2024.
 
 \bibitem{le2025enhancing}
 H.~Le \emph{et~al.}, ``Enhancing exploration with diffusion policies in hybrid
@@ -104,8 +104,8 @@ A.~Aydinoglu \emph{et~al.}, ``Consensus complementarity control for
 
 \bibitem{li2025surprising}
 Y.~Li \emph{et~al.}, ``On the surprising robustness of sequential convex
-  optimization for contact-implicit motion planning,'' \emph{arXiv preprint
-  arXiv:2502.01055}, 2025.
+  optimization for contact-implicit motion planning,'' \emph{arXiv:2502.01055},
+  2025.
 
 \bibitem{kurtz2026inverse}
 V.~Kurtz \emph{et~al.}, ``Inverse dynamics trajectory optimization for
@@ -119,7 +119,7 @@ T.~Pang \emph{et~al.}, ``Global planning for contact-rich manipulation via
 
 \bibitem{jin2024complementarity}
 W.~Jin, ``Complementarity-free multi-contact modeling and optimization for
-  dexterous manipulation,'' \emph{arXiv preprint arXiv:2408.07855}, 2024.
+  dexterous manipulation,'' \emph{arXiv:2408.07855}, 2024.
 
 \bibitem{zhang2025simultaneous}
 M.~Zhang \emph{et~al.}, ``Simultaneous trajectory optimization and contact
@@ -128,18 +128,16 @@ M.~Zhang \emph{et~al.}, ``Simultaneous trajectory optimization and contact
 
 \bibitem{yang2024contactsdf}
 W.~Yang \emph{et~al.}, ``Contactsdf: Signed distance functions as multi-contact
-  models for dexterous manipulation,'' \emph{arXiv preprint arXiv:2408.09612},
-  2024.
+  models for dexterous manipulation,'' \emph{arXiv:2408.09612}, 2024.
 
 \bibitem{venkatesh2025approximating}
 S.~Venkatesh \emph{et~al.}, ``Approximating global contact-implicit {MPC} via
-  sampling and local complementarity,'' \emph{arXiv preprint arXiv:2505.13350},
-  2025.
+  sampling and local complementarity,'' \emph{arXiv:2505.13350}, 2025.
 
 \bibitem{posa2014direct}
 M.~Posa \emph{et~al.}, ``A direct method for trajectory optimization of rigid
-  bodies through contact,'' \emph{Int. J. Robot. Res.}, vol.~33, no.~1, pp.
-  69--81, 2014.
+  bodies through contact,'' \emph{Int. J. Robot. Res.}, vol.~33, pp. 69--81,
+  2014.
 
 \bibitem{wensing2023optimization}
 P.~M. Wensing \emph{et~al.}, ``Optimization-based control for dynamic legged
@@ -147,8 +145,7 @@ P.~M. Wensing \emph{et~al.}, ``Optimization-based control for dynamic legged
 
 \bibitem{stewart2000implicit}
 D.~Stewart \emph{et~al.}, ``An implicit time-stepping scheme for rigid body
-  dynamics with {C}oulomb friction,'' in \emph{Proc. ICRA}, vol.~1, 2000, pp.
-  162--169.
+  dynamics with {C}oulomb friction,'' in \emph{Proc. ICRA}, 2000, pp. 162--169.
 
 \bibitem{anitescu2006optimization}
 M.~Anitescu, ``Optimization-based simulation of nonsmooth rigid multibody
@@ -156,22 +153,21 @@ M.~Anitescu, ``Optimization-based simulation of nonsmooth rigid multibody
 
 \bibitem{bui2025push}
 H.~Bui \emph{et~al.}, ``Push anything: Single- and multi-object pushing from
-  first sight with contact-implicit {MPC},'' \emph{arXiv preprint
-  arXiv:2510.19974}, 2025.
+  first sight with contact-implicit {MPC},'' \emph{arXiv:2510.19974}, 2025.
 
 \bibitem{suh2025dexterous}
 H.~Suh \emph{et~al.}, ``Dexterous contact-rich manipulation via the contact
-  trust region,'' \emph{arXiv preprint arXiv:2505.02291}, 2025.
+  trust region,'' \emph{arXiv:2505.02291}, 2025.
 
 \bibitem{jiang2025robust}
 Y.~Jiang \emph{et~al.}, ``Robust model-based in-hand manipulation with
-  integrated real-time motion-contact planning and tracking,'' \emph{arXiv
-  preprint arXiv:2505.04978}, 2025.
+  integrated real-time motion-contact planning and tracking,''
+  \emph{arXiv:2505.04978}, 2025.
 
 \bibitem{xie2026touch}
 Z.~Xie \emph{et~al.}, ``Where to touch, how to contact: Hierarchical {RL-MPC}
   framework for geometry-aware long-horizon dexterous manipulation,''
-  \emph{arXiv preprint arXiv:2601.10930}, 2026.
+  \emph{arXiv:2601.10930}, 2026.
 
 \bibitem{pang2021convex}
 T.~Pang \emph{et~al.}, ``A convex quasistatic time-stepping scheme for rigid
@@ -202,13 +198,12 @@ B.~Acosta \emph{et~al.}, ``Perceptive mixed-integer footstep control for
 
 \bibitem{nakanishi2008operational}
 J.~Nakanishi \emph{et~al.}, ``Operational space control: A theoretical and
-  empirical comparison,'' \emph{Int. J. Robot. Res.}, vol.~27, no.~6, pp.
-  737--757, 2008.
+  empirical comparison,'' \emph{Int. J. Robot. Res.}, vol.~27, pp. 737--757,
+  2008.
 
 \bibitem{williams2015model}
 G.~Williams \emph{et~al.}, ``Model predictive path integral control using
-  covariance variable importance sampling,'' \emph{arXiv preprint
-  arXiv:1509.01149}, 2015.
+  covariance variable importance sampling,'' \emph{arXiv:1509.01149}, 2015.
 
 \bibitem{brahmbhatt2019contactdb}
 S.~Brahmbhatt \emph{et~al.}, ``Contactdb: Analyzing and predicting grasp
@@ -220,8 +215,7 @@ E.~Todorov \emph{et~al.}, ``{MuJoCo}: A physics engine for model-based
 
 \bibitem{makoviychuk2021isaac}
 V.~Makoviychuk \emph{et~al.}, ``Isaac {G}ym: High performance {GPU}-based
-  physics simulation for robot learning,'' arXiv preprint arXiv:2108.10470,
-  2021.
+  physics simulation for robot learning,'' arXiv:2108.10470, 2021.
 
 \bibitem{wei2022approximate}
 X.~Wei \emph{et~al.}, ``Approximate convex decomposition for 3{D} meshes with
@@ -234,18 +228,15 @@ B.~Wen \emph{et~al.}, ``Foundationpose: Unified 6d pose estimation and tracking
 
 \bibitem{yin2025visualmimic}
 S.~Yin \emph{et~al.}, ``Visualmimic: Visual humanoid loco-manipulation via
-  motion tracking and generation,'' \emph{arXiv preprint arXiv:2509.20322},
-  2025.
+  motion tracking and generation,'' \emph{arXiv:2509.20322}, 2025.
 
 \bibitem{kong2026learning}
 J.~Kong \emph{et~al.}, ``Learning soccer skills for humanoid robots: A
-  progressive perception-action framework,'' \emph{arXiv preprint
-  arXiv:2602.05310}, 2026.
+  progressive perception-action framework,'' \emph{arXiv:2602.05310}, 2026.
 
 \bibitem{lin2026bidexgrasp}
 M.~Lin \emph{et~al.}, ``Bidexgrasp: Coordinated bimanual dexterous grasps
-  across object geometries and sizes,'' \emph{arXiv preprint arXiv:2604.06589},
-  2026.
+  across object geometries and sizes,'' \emph{arXiv:2604.06589}, 2026.
 
 \bibitem{borst2004grasp}
 C.~Borst \emph{et~al.}, ``Grasp planning: How to choose a suitable task wrench
@@ -258,10 +249,10 @@ M.~Bhardwaj \emph{et~al.}, ``Storm: An integrated framework for fast
 
 \bibitem{huang2026pointworld}
 W.~Huang \emph{et~al.}, ``Pointworld: Scaling 3{D} world models for in-the-wild
-  robotic manipulation,'' \emph{arXiv preprint arXiv:2601.03782}, 2026.
+  robotic manipulation,'' \emph{arXiv:2601.03782}, 2026.
 
 \bibitem{xu2026interprior}
 S.~Xu \emph{et~al.}, ``Interprior: Scaling generative control for physics-based
-  human-object interactions,'' \emph{arXiv preprint arXiv:2602.06035}, 2026.
+  human-object interactions,'' \emph{arXiv:2602.06035}, 2026.
 
 \end{thebibliography}

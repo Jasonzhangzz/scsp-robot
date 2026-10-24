@@ -29,7 +29,7 @@ z
 " style="fill: #ffffff"/>
   </g>
   <g id="axes_1">
-   <g id="legend_1">
+   <g id="legend_1" transform="translate(48.175156 -0.144531)">
     <g id="line2d_1">
      <path d="M 55.080937 62.19 
 L 67.080937 62.19 
@@ -819,13 +819,13 @@ z
       <use xlink:href="#STIXGeneral-Regular-53" transform="translate(255.59996 0)"/>
      </g>
     </g>
-    <g id="line2d_6">
+    <g id="line2d_6" transform="translate(-94.942499 17.004375)">
      <path d="M 370.570312 62.19 
 L 382.570312 62.19 
 L 394.570312 62.19 
 " style="fill: none; stroke: #00bfd8; stroke-width: 2; stroke-linecap: square"/>
     </g>
-    <g id="text_6">
+    <g id="text_6" transform="translate(-94.942499 17.004375)">
      <!-- CF-MPC -->
      <g transform="translate(404.170313 66.39) scale(0.12 -0.12)">
       <defs>

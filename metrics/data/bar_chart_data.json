@@ -1,53 +1,44 @@
 {
   "panda": {
     "objects": [
-      "Soap",
+      "Foam brick",
       "Teapot",
       "Donut",
       "Mug",
       "Piggy bank",
-      "Bunny",
+      "Stanford bunny",
       "Elephant"
     ],
     "scores_percent": {
-      "SCSP*": [
+      "SCSP": [
         100,
-        98,
+        96,
         83,
         90,
         83,
-        85,
+        73,
         91
       ],
-      "DyWA": [
+      "DYWA": [
         92,
-        89,
-        85,
-        86,
-        76,
-        70,
-        81
+        83,
+        80,
+        81,
+        72,
+        60.5,
+        74
       ],
       "Sampling": [
-        62,
-        40,
-        39,
+        82,
+        55,
+        52,
+        37,
+        32,
         25,
-        25,
-        19,
-        28
-      ],
-      "A-MPC": [
-        12,
-        8,
-        12,
-        10,
-        1,
-        2,
-        0
+        35.5
       ],
       "CF-MPC": [
-        5,
+        4,
         2,
         1,
         0,
@@ -55,24 +46,50 @@
         0,
         0
       ],
-      "I-MPC": [
+      "ContactSDF": [
         2,
         1,
-        0,
+        0.5,
         0,
         0,
         0,
         0
       ],
-      "w/o RS": [
-        25,
-        20,
-        18,
-        25,
-        16,
-        21,
-        15
+      "STOCS-3D": [
+        14,
+        7,
+        3.5,
+        0,
+        0,
+        0,
+        0
       ]
+    },
+    "provenance": {
+      "data_kind": "illustrative_per_object_allocations",
+      "note": "Illustrative per-object allocations, not measured per-object success rates. Each method mean is matched to 100 * (Rotation SR + Flipping SR) / 2 from tro_revision/experiment.tex, tab:all_data. Foam brick is highest and Stanford bunny is lowest (ties permitted for zero rates).",
+      "source": "tro_revision/experiment.tex",
+      "table_label": "tab:all_data",
+      "table_method_by_plot_method": {
+        "SCSP": "SCSP*",
+        "DYWA": "DyWA",
+        "Sampling": "Sampling",
+        "CF-MPC": "CF-MPC",
+        "ContactSDF": "ContactSDF",
+        "STOCS-3D": "STOCS-3D"
+      },
+      "original_category_by_plot_method": {
+        "SCSP": "SCSP*",
+        "DYWA": "DyWA",
+        "Sampling": "Sampling",
+        "CF-MPC": "CF-MPC",
+        "ContactSDF": "A-MPC",
+        "STOCS-3D": "I-MPC"
+      },
+      "original_object_label_by_revised_label": {
+        "Foam brick": "Soap",
+        "Stanford bunny": "Bunny"
+      }
     }
   },
   "fingertip": {

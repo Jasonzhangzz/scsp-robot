@@ -21,7 +21,7 @@ SCSP enables online contact selection and closed-loop generation of diverse mani
 \label{tab:comparison}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X *{6}{>{\centering\arraybackslash}X}}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcccccc@{}}
 \toprule
 \textbf{Methods}
 & \textbf{Perception}
@@ -115,7 +115,7 @@ Sampling~\cite{venkatesh2025approximating}
 & \textcolor{red}{\ding{51}} \\
 
 \bottomrule
-\end{tabularx}
+\end{tabular*}
 \end{table*}
 
 \textcolor{red}{Contact-implicit trajectory optimization (CITO) subsequently avoids this explicit mode decomposition by modeling robot--object interaction (ROI) with complementary contact dynamics and solving the resulting trajectory optimization problem in a unified framework.}
@@ -138,14 +138,13 @@ Although CIMPC enables online planning of contact-mode transitions, actively sel
 \textcolor{red}{
 In this work, we propose Simultaneous Contact Selection and Planning (SCSP), a cascaded optimization framework for complex contact-rich manipulation. \madd{It combines object-centric contact guidance, executable trajectory planning, and a ranking strategy that balances the guided contact with nearby feasible alternatives.}
 }
-
-\rev{Table \ref{tab:comparison} summarizes the scope of SCSP relative to representative contact-planning methods. The contributions are:}
+\rev{Table \ref{tab:comparison} summarizes the scope of SCSP relative to contact-planning methods. The contributions are:}
 
 \begin{itemize}
 
  \item
  \textcolor{red}{
- An efficient contact selection method, CSO, is developed for online contact-guidance generation. It samples a candidate point set and performs batched optimization to avoid direct surface-gradient search and the associated nonsmoothness of contact selection. A lightweight surrogate contact model (SCM) enables fast evaluation of candidate utility and selection of the best contact as guidance.
+ An efficient contact selection method, CSO, is developed for online contact-guidance generation. It samples a candidate point set and performs batched optimization to avoid direct surface-gradient search and the nonsmoothness of contact selection. A lightweight surrogate contact model (SCM) enables fast evaluation of candidate utility and selection of the best contact as guidance.
  }
 
  \item
@@ -160,7 +159,7 @@ In this work, we propose Simultaneous Contact Selection and Planning (SCSP), a c
 
  \item
  \textcolor{red}{
- Extensive simulation and real-world experiments validate SCSP across diverse object geometries and contact-rich tasks. Real-world experiments further demonstrate robust vision-based nonprehensile manipulation using only simple contact calibration and without exact object perception.
+ Extensive simulation and real-world experiments validate SCSP across diverse object geometries and contact-rich tasks. Real-world experiments further demonstrate robust vision-based nonprehensile manipulation using only contact calibration and without exact object perception.
  }
 
 \end{itemize}

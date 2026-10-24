@@ -1,0 +1,129 @@
+{
+  "description": "Approximate digitization of raster Fig. 8(b), archived in 论文所有图.pptx, ppt/media/image177.png through image180.png. Not original trial data. All text uses Times New Roman. Mean smoothed for display with Gaussian sigma 6 timesteps and blend 0.8; visible source standard-deviation band retained. User-specified timestep scaling: case 1 x0.016; case 2 x0.013. These factors are not recovered execution-time measurements.",
+  "font_family": "Times New Roman",
+  "font_file": "Times.TTF",
+  "smooth_sigma_steps": 6.0,
+  "smooth_blend": 0.8,
+  "plots": [
+    {
+      "image": 177,
+      "case": 1,
+      "metric": "pos",
+      "factor": 0.016,
+      "x_pixels": [
+        340.5,
+        1632.5
+      ],
+      "x_values": [
+        0,
+        1200
+      ],
+      "y_pixels": [
+        1121,
+        142
+      ],
+      "y_values": [
+        0,
+        0.175
+      ],
+      "ylim": [
+        -0.008,
+        0.195
+      ],
+      "source_sha256": "d90d2f681118fbb98f595660ba19900086e22f34175273f0910aef3ee1c284b7",
+      "final_time_s": 19.660681114551085,
+      "mean_total_variation": 0.6808733401430028,
+      "display_total_variation": 0.5167413670774543
+    },
+    {
+      "image": 178,
+      "case": 1,
+      "metric": "quat",
+      "factor": 0.016,
+      "x_pixels": [
+        300,
+        1641
+      ],
+      "x_values": [
+        0,
+        1200
+      ],
+      "y_pixels": [
+        966,
+        80
+      ],
+      "y_values": [
+        0,
+        1
+      ],
+      "ylim": [
+        -0.225,
+        1.06
+      ],
+      "source_sha256": "ae8c94b56ae694f792be15a10b7e6629c9e5761eb248f15a78386eaf84c5ab77",
+      "final_time_s": 19.658165548098435,
+      "mean_total_variation": 5.66196388261851,
+      "display_total_variation": 3.017657109636117
+    },
+    {
+      "image": 179,
+      "case": 2,
+      "metric": "pos",
+      "factor": 0.013,
+      "x_pixels": [
+        340.5,
+        1386
+      ],
+      "x_values": [
+        0,
+        1500
+      ],
+      "y_pixels": [
+        1118,
+        115.5
+      ],
+      "y_values": [
+        0,
+        0.2
+      ],
+      "ylim": [
+        -0.009,
+        0.2175
+      ],
+      "source_sha256": "69a60deb383b3ac3029dc5cf1c77d13bcfe114000899403be7321175c4c4c0db",
+      "final_time_s": 24.675753228120517,
+      "mean_total_variation": 1.0218453865336659,
+      "display_total_variation": 0.8316177816040524
+    },
+    {
+      "image": 180,
+      "case": 2,
+      "metric": "quat",
+      "factor": 0.013,
+      "x_pixels": [
+        279.5,
+        1380
+      ],
+      "x_values": [
+        0,
+        1500
+      ],
+      "y_pixels": [
+        1097.5,
+        131.5
+      ],
+      "y_values": [
+        0,
+        1
+      ],
+      "ylim": [
+        -0.038,
+        1.107
+      ],
+      "source_sha256": "be32b1122b11ffcc99b7573aa1422eaff46f3fa59c1a5236ae73b5ba4b3deafe",
+      "final_time_s": 24.665152203543844,
+      "mean_total_variation": 9.18064182194617,
+      "display_total_variation": 7.179438527125736
+    }
+  ]
+}
