@@ -218,18 +218,20 @@ As a representative method, CIMPC is formulated as:
 \end{equation}
 in which $\boldsymbol{x}_k$ is the system state, including the object pose $q_k$ and robot configuration, and $f$ denotes the contact dynamics.
 The stage cost $\ell$ can take various forms and is typically used to guide the process of approaching the contact location.
-The terminal cost $V_f$ is usually defined as the error between the object pose and the desired pose:
+\textreplace{The terminal cost $V_f$ is usually defined as the error between the object pose and the desired pose:}{The object pose cost $\ell_{\mathrm{pose}}$ measures the full position and quaternion error, and CPO uses $V_f=w_{\mathrm{cso}}\ell_{\mathrm{pose}}$ as its terminal cost:}
 \begin{equation}
 \label{equ:obj_pose_cost}
+\begin{aligned}
 \ell_{\mathrm{pose}}
-=
+&=
 w_{\mathrm{pos}}
 \left\|
 \boldsymbol{p}_{\mathrm{obj}}
 -
 \boldsymbol{p}_{\mathrm{goal}}
 \right\|_2^2
-+
+\\[-2pt]
+&\quad+
 w_{\mathrm{quat}}
 \left(
 1-
@@ -238,6 +240,7 @@ w_{\mathrm{quat}}
 \boldsymbol{\psi}_{\mathrm{goal}}
 \right)^2
 \right).
+\end{aligned}
 \end{equation}
 
 \textcolor{red}{
@@ -290,11 +293,11 @@ in which $\boldsymbol{R}$ is a small regularization term commonly used to enhanc
 \begin{bmatrix}
  \boldsymbol{J}_1^n-\mu_1\boldsymbol{J}_{1,1}^t\\
  \vdots\\
- \boldsymbol{J}_1^n-\mu_1\boldsymbol{J}_{1,n_t}^t\\
+ \boldsymbol{J}_1^n-\mu_1\boldsymbol{J}_{1,\mathreplace{n_t}{n_d}}^t\\
  \vdots\\
  \boldsymbol{J}_{n_c}^n-\mu_{n_c}\boldsymbol{J}_{n_c,1}^t\\
  \vdots\\
- \boldsymbol{J}_{n_c}^n-\mu_{n_c}\boldsymbol{J}_{n_c,n_t}^t
+ \boldsymbol{J}_{n_c}^n-\mu_{n_c}\boldsymbol{J}_{n_c,\mathreplace{n_t}{n_d}}^t
 \end{bmatrix},
 \boldsymbol{\widetilde{\phi}}
 =

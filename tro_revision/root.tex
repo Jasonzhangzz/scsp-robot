@@ -32,18 +32,18 @@
 \newcommand{\cb}{\color{black}}
 \newcommand{\rev}[1]{\textcolor{red}{#1}}
 \newcommand{\revul}[1]{\textcolor{red}{#1}}
-\newcommand{\delrev}[1]{\textcolor{red}{\sout{#1}}}
+\newcommand{\delrev}[1]{}
 \newcommand{\addrev}[1]{\textcolor{red}{#1}}
-\newcommand{\mdel}[1]{\textcolor{red}{\sout{\mbox{$#1$}}}}
+\newcommand{\mdel}[1]{}
 \newcommand{\madd}[1]{\textcolor{red}{#1}}
 \usepackage{xcolor}
 \makeatletter
 \newcommand{\revisionoldtext}[2]{#1 #2}
 \newcommand{\revisionoldmath}[2]{#1\,#2}
-\DeclareRobustCommand{\deletedtext}[1]{\begingroup\color{black}\let\textcolor\@secondoftwo\let\rev\@firstofone\let\revul\@firstofone\let\addrev\@firstofone\let\madd\@firstofone\let\textreplace\revisionoldtext\let\mathreplace\revisionoldmath\sout{#1}\endgroup}
-\DeclareRobustCommand{\mathreplace}[2]{\text{\deletedtext{\ensuremath{#1}}}\mkern2mu\textcolor{blue}{#2}}
-\DeclareRobustCommand{\textreplace}[2]{\deletedtext{#1}\allowbreak\hspace{0.15em}\textcolor{blue}{#2}}
-\newcommand{\bluerev}[1]{\textcolor{blue}{#1}}
+\DeclareRobustCommand{\deletedtext}[1]{}
+\DeclareRobustCommand{\mathreplace}[2]{\textcolor{red}{#2}}
+\DeclareRobustCommand{\textreplace}[2]{\textcolor{red}{#2}}
+\newcommand{\bluerev}[1]{\textcolor{red}{#1}}
 \makeatother
 \usepackage{tabularx}
 \usepackage[noprefix]{nomencl} \usepackage{pifont}

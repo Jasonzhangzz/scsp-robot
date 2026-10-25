@@ -24,13 +24,13 @@ We formulate contact selection separately. As illustrated in Fig. \ref{fig:frame
 \begin{equation}
  \begin{aligned}
  \min_{\boldsymbol{p}_{\text{r}} \in \partial \mathcal{O}, \boldsymbol{\lambda} \in \mathcal{K}} &
- \ell_{\text{cso}}(\boldsymbol{x}_{\textcolor{red}{T}}) \\
+ \ell_{\text{pose}}(\boldsymbol{x}_{\textcolor{red}{T}}) \\
  \text{s.t.} \quad
  & \boldsymbol{x}_{k+1} = f(\boldsymbol{x}_k, \boldsymbol{p}_{\text{r}}, \boldsymbol{\lambda}),
  \quad k = 0, \dots, T-1.
  \end{aligned}\label{scsp}
 \end{equation}
-where $\mathcal{K}$ is the set of feasible contact forces and $\ell_{\text{cso}}(\cdot)$ is the objective of contact selection. $\boldsymbol{p}_{\text{r}} \in \mathbb{R}^{3 \times n_{\text{r}}}$ represents the locations where the robot applies contacts to the object, with $n_{\text{r}}$ denotes the number of robot contacts. \eqref{scsp} addresses the gradient sparsity issue arising from hybrid planning in the original contact-rich manipulation problem by defining CSO to solve for \rev{low-cost sampled contact locations} and contact forces on $\mathcal{S}_{\text{contact}}$. The neglected process of the robot approaching $\mathcal{S}_{\text{contact}}$ from its current state is the primary source of the gradient sparsity. Note that \eqref{scsp} is hard to solve due to the coupling of contact location $\boldsymbol{p}_{\text{r}}$ and the contact force $\boldsymbol{\lambda}=\left [ \boldsymbol{\lambda}_{\text{env}}, \boldsymbol{\lambda}_{\text{r}} \right ]$. Therefore, we adopt a commonly used simplification for handling nonconvex optimization problems to reformulate (\ref{scsp}) as subproblems:
+where $\mathcal{K}$ is the set of feasible contact forces and $\ell_{\text{pose}}(\cdot)$ is the objective of contact selection. $\boldsymbol{p}_{\text{r}} \in \mathbb{R}^{3 \times n_{\text{r}}}$ represents the locations where the robot applies contacts to the object, with $n_{\text{r}}$ denotes the number of robot contacts. \eqref{scsp} addresses the gradient sparsity issue arising from hybrid planning in the original contact-rich manipulation problem by defining CSO to solve for \rev{low-cost sampled contact locations} and contact forces on $\mathcal{S}_{\text{contact}}$. The neglected process of the robot approaching $\mathcal{S}_{\text{contact}}$ from its current state is the primary source of the gradient sparsity. Note that \eqref{scsp} is hard to solve due to the coupling of contact location $\boldsymbol{p}_{\text{r}}$ and the contact force $\boldsymbol{\lambda}=\left [ \boldsymbol{\lambda}_{\text{env}}, \boldsymbol{\lambda}_{\text{r}} \right ]$. Therefore, we adopt a commonly used simplification for handling nonconvex optimization problems to reformulate (\ref{scsp}) as subproblems:
 \begin{equation}
  \min_{\boldsymbol{p}_{\text{r}} \in \partial \mathcal{O}}
  \quad V(\boldsymbol{p}_{\text{r}})\label{equ:outer_loop},
@@ -40,7 +40,7 @@ in which:
 \begin{aligned}
 V(\boldsymbol{p}_{\text{r}})
 := \min_{\boldsymbol{\lambda}_{\text{r}} \in \mathcal{K}} \quad &
-\ell_{\text{cso}}(\boldsymbol{x}_{\textcolor{red}{T}}) \\
+\ell_{\text{pose}}(\boldsymbol{x}_{\textcolor{red}{T}}) \\
 \text{s.t.} \quad
 & \boldsymbol{x}_{k+1}
 = f(\boldsymbol{x}_k, \boldsymbol{p}_{\text{r}}, \boldsymbol{\lambda}_{\text{r}}, \boldsymbol{\lambda}_{\text{env}}),
@@ -233,7 +233,9 @@ where $\epsilon$ is \rev{the regularization coefficient, so that $\boldsymbol{D}
  \textcolor{red}{Assumption~\ref{assumption:mode} provides the condition $\boldsymbol{\tilde{\phi}}_i\equiv\boldsymbol{0}$ for every environment contact $i$ during the rollout. Substituting $\boldsymbol{\tilde{\phi}}_i=\boldsymbol{0}$ and the definition of $\boldsymbol{\tilde{b}}_o$ into \eqref{eq:quasi-closed_form_solution_nonsmooth} removes the gap term and expresses the argument of $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ as an affine function of the robot contact forces, which gives \eqref{eq:quasi-closed_form_solution}.} Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \rev{the fixed-contact map is the composition of an affine map with the $C^\infty$ function $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ and is smooth in $\boldsymbol{\lambda}_{\text{r}}$; nonsmoothness arises only when the contact set changes}.
 \end{proof}
  \rev{To partially compensate for the neglected inter-contact coupling, we refine the diagonal estimate with $K=3$ unrolled Gauss--Seidel sweeps over the contacts in a fixed order: the force of each contact is computed from the object velocity already updated by the preceding contacts and by the previous sweeps.} \rev{We retain only the nonnegative part of the signed contact distance, $\boldsymbol{d}_{\mathrm{env}}=\max(\boldsymbol{\tilde{\phi}}_{\mathrm{env}},\boldsymbol{0})$, to avoid strong repulsion from instantaneous penetration, trading some physical fidelity for greater robustness to contact estimation errors and improved optimization behavior; for the touching contacts of Assumption~\ref{assumption:mode}, $\boldsymbol{d}_{\mathrm{env}}=\boldsymbol{0}$, and $\boldsymbol{d}_{\mathrm{env}}$ is evaluated once from the current state $\boldsymbol{x}_k$, independently of $\boldsymbol{\lambda}_{\text{r}}$. \rev{Let} $\boldsymbol{v}_{\mathrm{free}}$\rev{$=h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o=\boldsymbol{v}_k+h\boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i})$} \rev{be} the free-motion velocity, \rev{i.e., the post-step object velocity without environment contact}. \rev{Starting from $\hat{\boldsymbol{\lambda}}^{(0)}_{\mathrm{env}}=\boldsymbol{0}$ and $\boldsymbol{v}^{(1,0)}=\boldsymbol{v}_{\mathrm{free}}$ and using $\boldsymbol{d}_{\mathrm{env}}$ in place of $\boldsymbol{\tilde{\phi}}_{\mathrm{env}}$ in \eqref{eq:quasi-closed_form_solution_nonsmooth}, sweep $k=1,\dots,K$ computes for $i=1,\dots,n_{\mathrm{env}}$}}
-
+\begingroup
+\setlength{\abovedisplayskip}{3pt}
+\setlength{\abovedisplayshortskip}{3pt}
 \begin{equation}
 \textcolor{red}{
 \begin{cases}
@@ -247,6 +249,7 @@ where $\epsilon$ is \rev{the regularization coefficient, so that $\boldsymbol{D}
 \end{cases}}
 \label{eq:scm_single_step_projection}
 \end{equation}
+\endgroup
  \rev{where $\boldsymbol{v}^{(k+1,0)}=\boldsymbol{v}^{(k,n_{\mathrm{env}})}$ and $\boldsymbol{D}$ is the diagonal of the Delassus block $\boldsymbol{W}_{ii}$ in \eqref{equ:max_decomposition}, so that each contact performs one projected step of \eqref{eq:quasi-closed_form_solution_nonsmooth} on the velocity $\boldsymbol{v}^{(k,i-1)}$ left by the preceding contacts and sweeps ($\boldsymbol{v}^{(1,0)}/h=\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o$). The stacked force $\hat{\boldsymbol{\lambda}}_{\mathrm{env}}=\hat{\boldsymbol{\lambda}}^{(K)}_{\mathrm{env}}$ is the environment contact force output by SCM and is used to predict object motion in \eqref{equ:scm}. With $\boldsymbol{R}=\epsilon\boldsymbol{I}$, this computation avoids forming or inverting the full Delassus matrix. Because $\boldsymbol{D}$ and $\boldsymbol{d}_{\mathrm{env}}$ are constant for a fixed contact set and $\Pi^{T/h}_{\mathcal{K}_i}$ is $C^\infty$, the unrolled sweeps are an explicit finite composition of affine maps and smooth projections, so the map $\boldsymbol{\lambda}_{\text{r}}\mapsto\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ is smooth, and the only remaining nonsmoothness is the change of the contact set between rollout steps or CSO updates.}
 
 Substituting \textcolor{red}{the \rev{Gauss--Seidel force} from \eqref{eq:scm_single_step_projection}} into \eqref{eq:simplified}, we obtain a lightweight model:
@@ -269,7 +272,7 @@ Substituting \textcolor{red}{the \rev{Gauss--Seidel force} from \eqref{eq:scm_si
 This Surrogate Contact Model converts the original contact dynamics into a computationally efficient formulation, \rev{and enables the continuous force subproblem to be solved by GPU-parallel CEM for each sampled candidate}.
 
 \begin{figure}[!t]
- \centerline{\includegraphics[width=\columnwidth]{figures/surrogate_contact_model.pdf}}
+ \centerline{\includegraphics[width=\columnwidth]{figures/surrogate_contact_model_rev.pdf}}
 \caption{Illustration of SCM. SCM is a lightweight approximation of the object-environment contact, enabling fast contact selection optimization.}
 \label{fig:stick1}
 \end{figure}
@@ -279,7 +282,7 @@ Integrating SCM into \eqref{equ:inner_loop}, we can obtain the formulation of CS
 \begin{equation}
 \begin{aligned}
 \min_{\boldsymbol{\hat{p}}_{\text{r}} \in \mathcal{I}_{\text{avail}}}\min_{\boldsymbol{\hat{\lambda}}_{\text{r}} \in \mathcal{K}} & \quad
-\ell_{\text{cso}}\big(\boldsymbol{x}_{\textcolor{red}{T}}\big) \\
+\ell_{\text{pose}}\big(\boldsymbol{x}_{\textcolor{red}{T}}\big) \\
 \text{s.t.} \quad
 & \boldsymbol{\hat{x}}_{k+1}
 = f_{\text{SCM}}(\boldsymbol{x}_k, \boldsymbol{\hat{p}}_{\text{r}}, \boldsymbol{\hat{\lambda}}_{\text{r}}),
@@ -288,16 +291,16 @@ Integrating SCM into \eqref{equ:inner_loop}, we can obtain the formulation of CS
 & 0 \le \hat{\lambda}^n_{r,i} \le \hat{\lambda}^n_{\text{max}}, \quad i = 1, \dots, n_{\text{r}}.
 \end{aligned}\label{equ:csqp}
 \end{equation}
- By solving this discrete-continuous optimization problem, we can obtain the \rev{optimal contact location among candidate contact set $\boldsymbol{\hat{p}}_r^* \in \mathcal{I}_{\text{avail}}$} as guidance for the lower-level contact planning. \rev{The CSO objective $\ell_{\text{cso}}$ is the object pose cost $\ell_{\text{pose}}$ in \eqref{equ:obj_pose_cost}; the task-specific weights are given in Section~\ref{sec:robot_manipulation}.}
+ By solving this discrete-continuous optimization problem, we can obtain the \rev{optimal contact location among candidate contact set $\boldsymbol{\hat{p}}_r^* \in \mathcal{I}_{\text{avail}}$} as guidance for the lower-level contact planning. \rev{The CSO objective is the object pose cost $\ell_{\text{pose}}$ in \eqref{equ:obj_pose_cost}; the task-specific weights are given in Section~\ref{sec:robot_manipulation}.}
 
 The contact dynamics in \eqref{equ:inner_loop} are non-differentiable because of complementarity constraints and changes in the contact set. With the SCM, \eqref{equ:csqp} becomes a finite candidate search with a continuous force-optimization subproblem for each candidate. For a fixed contact set, differentiating \eqref{equ:scm} with respect to the robot contact force gives
 \begin{equation}
 \frac{\partial\boldsymbol{\hat{x}}_{k+1}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}
-=\rev{h^2}\boldsymbol{M}_o^{-1}\!\left(\boldsymbol{J}_{\mathrm r,i}^{\top}+\boldsymbol{\tilde J}_{\mathrm{env}}^{\top}
+=\rev{h^2}\bluerev{\boldsymbol{G}_k}\boldsymbol{M}_o^{-1}\!\left(\boldsymbol{J}_{\mathrm r,i}^{\top}+\boldsymbol{\tilde J}_{\mathrm{env}}^{\top}
 \frac{\partial\rev{\hat{\boldsymbol{\lambda}}_{\mathrm{env}}}}{\partial\boldsymbol{\lambda}_{\mathrm r,i}}\right),
 \label{eq:scm_state_gradient}
 \end{equation}
-where the first term is the direct robot-force effect and the second is the induced environment-\rev{force} effect. \rev{The latter follows by differentiating the sweeps in \eqref{eq:scm_single_step_projection}: with $\boldsymbol{\Lambda}^{(k)}_j=\partial\hat{\boldsymbol{\lambda}}^{(k)}_{\mathrm{env},j}/\partial\boldsymbol{\lambda}_{\mathrm r,i}$, $\boldsymbol{V}^{(k,j)}=\partial\boldsymbol{v}^{(k,j)}/\partial\boldsymbol{\lambda}_{\mathrm r,i}$, and $\boldsymbol{\Sigma}^{(k)}_j$ the Jacobian of $\Pi^{T/h}_{\mathcal{K}_j}$ at its argument in sweep $k$,}
+where \bluerev{$\boldsymbol{G}_k=\partial(\boldsymbol{x}_k\oplus\boldsymbol{\delta})/\partial\boldsymbol{\delta}\in\mathbb{R}^{7\times6}$ is the Jacobian of the pose update in \eqref{equ:scm} at $\boldsymbol{\delta}=h\hat{\boldsymbol{v}}^+$,} the first term is the direct robot-force effect and the second is the induced environment-\rev{force} effect. \rev{The latter follows by differentiating the sweeps in \eqref{eq:scm_single_step_projection}: with $\boldsymbol{\Lambda}^{(k)}_j=\partial\hat{\boldsymbol{\lambda}}^{(k)}_{\mathrm{env},j}/\partial\boldsymbol{\lambda}_{\mathrm r,i}$, $\boldsymbol{V}^{(k,j)}=\partial\boldsymbol{v}^{(k,j)}/\partial\boldsymbol{\lambda}_{\mathrm r,i}$, and $\boldsymbol{\Sigma}^{(k)}_j$ the Jacobian of $\Pi^{T/h}_{\mathcal{K}_j}$ at its argument in sweep $k$,}
 \begin{equation}
 \textcolor{red}{
 \boldsymbol{\Lambda}^{(k)}_j
@@ -471,7 +474,7 @@ During the placing phase, when the robot reaches a position above $\hat{\boldsym
 \begin{equation}\label{equ:lp_cost}
  \ell_{\text{lp}} = (1-\gamma) \ell_{\text{lift}} + \gamma \ell_{\text{place}},
 \end{equation}
-\textcolor{red}{Since $\gamma$ is binary and held fixed during each CPO solve, one phase cost is active at a time, consistently with Algorithm~\ref{algo:ranking}.} where $\ell_{\text{lp}}$ is incorporated into the stage cost $\ell_{\text{cpo}}$ in \eqref{equ:origin_cpo_problem}. By defining the terminal cost \addrev{$V_f(\boldsymbol{x}_N)=w_{\mathrm{cso}}\ell_{\mathrm{cso}}(\boldsymbol{x}_N)$ on the predicted terminal state}, the CPO formulation is obtained as:
+\textcolor{red}{Since $\gamma$ is binary and held fixed during each CPO solve, one phase cost is active at a time, consistently with Algorithm~\ref{algo:ranking}.} where $\ell_{\text{lp}}$ is incorporated into the stage cost $\ell_{\text{cpo}}$ in \eqref{equ:origin_cpo_problem}. By defining the terminal cost \addrev{$V_f(\boldsymbol{x}_N)=w_{\mathrm{cso}}\ell_{\mathrm{pose}}(\boldsymbol{x}_N)$ on the predicted terminal state}, the CPO formulation is obtained as:
 \begin{equation}\label{equ:cpo_formulation}
  \begin{aligned}
 \rev{\min_{\boldsymbol{u}_{0:N-1}}} \quad &
@@ -490,7 +493,7 @@ During the placing phase, when the robot reaches a position above $\hat{\boldsym
 \end{figure}
 
 \begin{figure}[!t]
- \centerline{\includegraphics[width=\columnwidth]{figures/contact_planning_process.pdf}}
+ \centerline{\includegraphics[width=\columnwidth]{figures/contact_planning_process_rev.pdf}}
 \caption{Illustration of the CPO-based contact planning module. (a) Ranking strategy. \textcolor{red}{The evaluation runs continuously in real time; its binary outcome $\kappa_t$ is filtered into $\bar{\kappa}_t$ and thresholded at $1/2$ to obtain the phase variable $\gamma_t$.} (b) Lifting phase (\textcolor{red}{$\gamma_t=0$}): \textcolor{red}{$\boldsymbol{p}_{\text{near}}$ is not sufficiently competitive, and} the potential field guides the robot to $\boldsymbol{p}_{\text{lift}}$ \textcolor{red}{toward $\boldsymbol{\hat{p}}_r^*$}. (c) Placing phase (\textcolor{red}{$\gamma_t=1$}): once above $\hat{\boldsymbol{p}}_r^*$ or when $\boldsymbol{p}_{\text{near}}$ is \textcolor{red}{accepted by the ranking strategy}, an attractive potential guides the robot to contact with the object.}
 \label{fig:task_requirements}
 \end{figure}
