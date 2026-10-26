@@ -402,17 +402,28 @@ class LambdaContactControlOptimizer:
         self.max_contact_force = limit
         self.max_normal_force = limit / np.sqrt(1 + self._friction_force_cap_factor*self.mu_arm_obj**2)
 
-    def configure_gpu_cem(self, mass, inertia_diag, **settings):
-        """Attach the CUDA CEM backend (``solver='cem-gpu'``).
+    def configure_gpu_cem(self, mass, inertia_diag, predictor='scm', **settings):
+        """Attach GPU CEM with ``predictor='scm'`` or native ``'physx'``.
 
         ``mass`` / ``inertia_diag`` are the physical object parameters of the
-        one-step model used by the paper SCM; they are independent of the
+        one-step physical model; they are independent of the
         quasi-dynamic mobility matrix used by the acados/IPOPT ranking.
+        PhysX also requires ``scene`` with collision meshes; callers supply
+        the support plane in the evaluation frame before every query.
         """
-        from planning.contact_force_gpu_cem import GPUContactCEM
+        if predictor == 'scm':
+            from planning.contact_force_gpu_cem import GPUContactCEM as Backend
+        elif predictor == 'physx':
+            from planning.contact_force_physx_cem import PhysXContactCEM as Backend
+        else:
+            raise ValueError('GPU CEM predictor must be scm or physx')
         kwargs = dict(self._gpu_cem_settings)
         kwargs.update(settings)
-        self.gpu_cem = GPUContactCEM(self, mass, inertia_diag, **kwargs)
+        previous = getattr(self, 'gpu_cem', None)
+        if previous is not None and hasattr(previous, 'close'):
+            previous.close()
+        self.gpu_cem = Backend(self, mass, inertia_diag, **kwargs)
+        self.gpu_cem_predictor = predictor
         return self.gpu_cem
 
     def _gpu_cem_ready(self):

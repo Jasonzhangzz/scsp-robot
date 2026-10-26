@@ -1,0 +1,103 @@
+{
+  "renderer": "MuJoCo native offscreen EGL",
+  "mujoco_version": "3.6.0",
+  "changes": "camera, lighting, material appearance and neutral floor color only; saved state and geometry unchanged",
+  "images": [
+    {
+      "object": "cube",
+      "sample_id": "cube_s42_000005",
+      "frame": 4,
+      "filename": "collision_scene_cube",
+      "azimuth_offset": 35.0,
+      "elevation": -24.0,
+      "png": "/home/zz/scsp-robot/tro_revision/figures/collision_prediction_scenes/collision_scene_cube.png",
+      "pdf": "/home/zz/scsp-robot/tro_revision/figures/collision_prediction_scenes/collision_scene_cube.pdf",
+      "source_model": "/home/zz/scsp-robot/outputs/collision_prediction_final_20261026/cube/model.xml",
+      "source_query": "/home/zz/scsp-robot/outputs/collision_prediction_final_20261026/cube/queries/cube_s42_000005.npz",
+      "model_sha256": "d92fc3dcabfeb7d559320057b83589dc52174c38017dc8af2a36b043c2323ea5",
+      "query_sha256": "6ccee6ab84a1840614f14c76f79c7395be1e6c6f0d9f285ffdb9de73ed41d691",
+      "time_s": 0.008,
+      "measured_window_mode": "contact_establishment",
+      "force_N": 0.05,
+      "qpos": [
+        1.2412045862220111e-06,
+        3.9816091884858906e-05,
+        0.042372364550828934,
+        0.6529441475868225,
+        0.2706720530986786,
+        0.2704828679561615,
+        0.6536356806755066,
+        -0.044572655111551285,
+        0.0067375111393630505,
+        0.054305076599121094,
+        1.0,
+        2.851342859738759e-12,
+        -5.4661070808537104e-11,
+        4.946184781196017e-11
+      ],
+      "camera": {
+        "azimuth": 386.4546389639544,
+        "elevation": -24.0,
+        "lookat": [
+          -0.0040536769202886465,
+          -0.0019778847895676865,
+          0.04438888572104657
+        ],
+        "orthographic_height_m": 0.12817094140400526
+      },
+      "size_px": [
+        2400,
+        1800
+      ],
+      "dpi": 300
+    },
+    {
+      "object": "stanford_bunny2",
+      "sample_id": "stanford_bunny2_s42_000005",
+      "frame": 3,
+      "filename": "collision_scene_bunny",
+      "azimuth_offset": 35.0,
+      "elevation": -24.0,
+      "png": "/home/zz/scsp-robot/tro_revision/figures/collision_prediction_scenes/collision_scene_bunny.png",
+      "pdf": "/home/zz/scsp-robot/tro_revision/figures/collision_prediction_scenes/collision_scene_bunny.pdf",
+      "source_model": "/home/zz/scsp-robot/outputs/collision_prediction_final_20261026/stanford_bunny2/model.xml",
+      "source_query": "/home/zz/scsp-robot/outputs/collision_prediction_final_20261026/stanford_bunny2/queries/stanford_bunny2_s42_000005.npz",
+      "model_sha256": "9714c92a37055f823494576ecd0d90cb713cfe529e05b19178bcaa12c1a77e69",
+      "query_sha256": "7112c47200899d809015ac926006747c05449e7b26e79652818e520fe4f906a0",
+      "time_s": 0.006,
+      "measured_window_mode": "mixed_transition",
+      "force_N": 0.05,
+      "qpos": [
+        1.2702518006335595e-06,
+        2.688847757781332e-07,
+        0.0319993831217289,
+        0.883375346660614,
+        0.0008607277413830161,
+        -0.0010329881915822625,
+        -0.4686643183231354,
+        0.01966610737144947,
+        0.02292594313621521,
+        0.02186962589621544,
+        1.0,
+        -1.5123477123402118e-11,
+        -1.7956513012618025e-11,
+        -9.094062169978656e-10
+      ],
+      "camera": {
+        "azimuth": 264.37816825813724,
+        "elevation": -24.0,
+        "lookat": [
+          -0.0016328415151964804,
+          -3.674629312440522e-05,
+          0.03546198122446748
+        ],
+        "orthographic_height_m": 0.1182262043697644
+      },
+      "size_px": [
+        2400,
+        1800
+      ],
+      "dpi": 300
+    }
+  ]
+}

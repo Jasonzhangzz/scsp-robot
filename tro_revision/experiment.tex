@@ -12,14 +12,14 @@ uniformly sampled from $[-\pi, \pi]$ rad. We define the conditions of task succe
 1 - (\boldsymbol{\psi}_{\text{goal}}^\top \boldsymbol{\psi}_o)^2
 \le \textcolor{red}{0.015}, \label{eq:pose_success}
 \end{equation}
-\textcolor{red}{where the orientation tolerance corresponding to the quaternion error threshold is $14.1^\circ$.} A trial is considered successful if the conditions are satisfied within 2500 rollout steps.
+\textcolor{red}{where the orientation tolerance is $14.1^\circ$.} Success requires meeting these conditions within \textcolor{red}{$20{,}000$ simulation steps ($40\,\mathrm{s}$)}.
 
-Simulations are conducted in \texttt{MuJoCo} \cite{todorov2012mujoco} and \texttt{IsaacGym} \cite{makoviychuk2021isaac} with a fixed integration time step \textreplace{$h=0.02 \text{s}$}{$h=0.002\,\mathrm{s}$}. For the sampling method in our CSO module, we use \texttt{CoACD} \cite{wei2022approximate} for convex decomposition of the objects and \texttt{trimesh} for mesh processing and local frame construction. \rev{CSO is solved using GPU-parallel CEM,} while CPO is solved using \texttt{acados} SQP-RTI with HPIPM and a solver tolerance of $10^{-4}$. Unless otherwise stated, experiments are conducted on a desktop computer with an Intel i7-13620H processor, 32 GB RAM, and an NVIDIA GeForce RTX 5090 GPU.
+Simulations are conducted in \texttt{MuJoCo} \cite{todorov2012mujoco} and \texttt{IsaacGym} \cite{makoviychuk2021isaac} with a fixed integration time step \textreplace{$h=0.02 \text{s}$}{$h=0.002\,\mathrm{s}$}. \textcolor{red}{Model rollouts use forward Euler integration with quaternion normalization.} For the sampling method in our CSO module, we use \texttt{CoACD} \cite{wei2022approximate} for convex decomposition of the objects and \texttt{trimesh} for mesh processing and local frame construction. \rev{CSO is solved using GPU-parallel CEM,} while CPO is solved using \texttt{acados} SQP-RTI with HPIPM and a solver tolerance of $10^{-4}$. Unless otherwise stated, experiments are conducted on a desktop computer with an Intel i7-13620H processor, 32 GB RAM, and an NVIDIA GeForce RTX 5090 GPU.
 
 We applied randomization to the environment and object parameters. The friction coefficients of the object $\mu_{\text{o}}$, fingertip $\mu_{\text{r}}$, and ground $\mu_{\text{env}}$ are all set to 0.5 with random perturbations of $\pm 0.2$. The object mass is randomly sampled from the discrete set
 $\{0.01,0.1,1.0,10.0\}$ kg \textcolor{red}{with equal probability for each trial}. We set $\boldsymbol{M}_o=\text{diag}(50,50,50,0.05,0.05,0.05)$ and $\boldsymbol{K}_r=300 \boldsymbol{I}_7$, and the dynamic parameters used in SCM are not measured precisely, but are roughly set to their mean values.
 
-For CSO, the default configuration samples $n_s=70$ candidate contacts, retains the two lowest-cost candidates, and \rev{uses a one-step prediction ($T=1$) with 20 GPU-parallel CEM iterations}. CSO and CPO share a prediction step of \textreplace{$0.02\,\mathrm{s}$}{$h=0.002\,\mathrm{s}$} and pose weights $w_{\mathrm{pos}}=500$ and $w_{\mathrm{quat}}=20$. CSO uses a $3\,\mathrm{N}$ force-command limit corresponding to $\hat{\lambda}^{n}_{\max}\approx1.59\,\mathrm{N}$ under the configured friction pyramid. CPO uses $N=5$, componentwise control bounds $|u_j|\leq0.005\,\mathrm{m}$, and weights $w_{\mathrm{lp}}=1$, $w_u=50$, and $w_{\mathrm{cso}}=10$. Its lifting and reference-contact attraction weights are both 20, while the repulsive-field term is disabled. \addrev{The lift--cross--drop path uses clearance margins $d_{\text{top}}=0.025\,\mathrm{m}$ and $d_{\text{ref}}=0.015\,\mathrm{m}$ and a per-cycle step bound of $0.005\,\mathrm{m}$ on $\boldsymbol{p}_{\text{lift}}$. The bounding box defining $z_{\text{top}}$ is the axis-aligned bounding box of the object mesh in its body frame, with center $\boldsymbol{c}$ and half-extents $\boldsymbol{e}$; it is rotated with the estimated object pose and $z_{\text{top}}=(\boldsymbol{p}_o+\boldsymbol{R}_o\boldsymbol{c})_z+\sum_i|R_{o,zi}|\,e_i$ is the top of the resulting oriented box, so \rev{$z_{\text{c}}$} follows the object's current orientation. Segment switching uses tolerances of $0.004\,\mathrm{m}$ on the height \rev{$z_{\text{c}}$} and $0.008\,\mathrm{m}$ on the horizontal distance to the waypoint; the latched waypoint is released when the end-effector is within $0.012\,\mathrm{m}$ of the target or the object moves by more than $0.015\,\mathrm{m}$.} \textreplace{During the flipping stage, the orientation error measures alignment of the object's target upright axis with the world vertical, leaving yaw unconstrained. Let $\boldsymbol{a}_g=\boldsymbol{R}(\boldsymbol{x}_{\mathrm{goal}})^\top e_z$, where $e_z=[0,0,1]^\top$. The normalized upright error is $\ell_{\mathrm{up}}(\boldsymbol{x}_o)$$ = \frac{1}{2}\left[1-e_z^\top\boldsymbol{R}(\boldsymbol{x}_o)\boldsymbol{a}_g\right]$. The flipping-stage object cost is $\ell_{\mathrm{cso}}=500\ell_{\mathrm{pos}}+20\ell_{\mathrm{up}}$, i.e., $\ell_{\mathrm{pose}}$ in \eqref{equ:obj_pose_cost} with the quaternion-error term replaced by this yaw-free upright error. Here $\ell_{\mathrm{pos}}=\|\boldsymbol{p}_o-\boldsymbol{p}_{\mathrm{goal}}\|^2$, except for the Stanford bunny, which uses \resizebox{0.96\columnwidth}{!}{$\ell_{\mathrm{pos}}=\max(\|\boldsymbol{p}_{o,xy}-\boldsymbol{p}_{\mathrm{goal},xy}\|-0.08\,\mathrm{m},0)^2$} to allow vertical motion and planar displacement within an $8\,\mathrm{cm}$ radius during flipping.}{All objects use the same full-position and quaternion objective $\ell_{\mathrm{pose}}$ in \eqref{equ:obj_pose_cost}, with $w_{\mathrm{pos}}=500$ and $w_{\mathrm{quat}}=20$, for both rotation and flipping.}
+For CSO, the default configuration samples $n_s=70$ candidate contacts, retains the two lowest-cost candidates, and \rev{uses a one-step prediction ($T=1$) with 20 GPU-parallel CEM iterations}. \textcolor{red}{CSO predicts at $0.02\,\mathrm{s}$. CPO prediction and simulator integration use $0.002\,\mathrm{s}$}\textcolor{red}{. Both use} pose weights $w_{\mathrm{pos}}=500$ and $w_{\mathrm{quat}}=20$. CSO uses \textcolor{red}{a $5\,\mathrm{N}$ force-command limit with $\hat{\lambda}^{n}_{\max}\approx4.08\,\mathrm{N}$ under the stated friction bounds at nominal $\mu_{\mathrm r}=0.5$}. CPO uses $N=5$, componentwise control bounds $|u_j|\leq0.005\,\mathrm{m}$, and weights $w_{\mathrm{lp}}=1$, $w_u=50$, and $w_{\mathrm{cso}}=10$. Its lifting and reference-contact attraction weights are both 20, while the repulsive-field term is disabled. \addrev{\textcolor{red}{The detouring curve has apex height $z_{\mathrm{c}}\geq z_{\mathrm{top}}+0.025\,\mathrm{m}$, and its attractive waypoint advances smoothly along the curve.} The bounding box defining $z_{\text{top}}$ is the axis-aligned bounding box of the object mesh in its body frame, with center $\boldsymbol{c}$ and half-extents $\boldsymbol{e}$. It is rotated with the estimated object pose and $z_{\text{top}}=(\boldsymbol{p}_o+\boldsymbol{R}_o\boldsymbol{c})_z+\sum_i|R_{o,zi}|\,e_i$ is the top of the resulting oriented box\rev{}\textcolor{red}{. The clearance height follows the current object orientation.} \rev{}} \textreplace{During the flipping stage, the orientation error measures alignment of the object's target upright axis with the world vertical, leaving yaw unconstrained. Let $\boldsymbol{a}_g=\boldsymbol{R}(\boldsymbol{x}_{\mathrm{goal}})^\top e_z$, where $e_z=[0,0,1]^\top$. The normalized upright error is $\ell_{\mathrm{up}}(\boldsymbol{x}_o)$$ = \frac{1}{2}\left[1-e_z^\top\boldsymbol{R}(\boldsymbol{x}_o)\boldsymbol{a}_g\right]$. The flipping-stage object cost is $\ell_{\mathrm{cso}}=500\ell_{\mathrm{pos}}+20\ell_{\mathrm{up}}$, i.e., $\ell_{\mathrm{pose}}$ in \eqref{equ:obj_pose_cost} with the quaternion-error term replaced by this yaw-free upright error. Here $\ell_{\mathrm{pos}}=\|\boldsymbol{p}_o-\boldsymbol{p}_{\mathrm{goal}}\|^2$, except for the Stanford bunny, which uses \resizebox{0.96\columnwidth}{!}{$\ell_{\mathrm{pos}}=\max(\|\boldsymbol{p}_{o,xy}-\boldsymbol{p}_{\mathrm{goal},xy}\|-0.08\,\mathrm{m},0)^2$} to allow vertical motion and planar displacement within an $8\,\mathrm{cm}$ radius during flipping.}{All objects use the same full-position and quaternion objective $\ell_{\mathrm{pose}}$ in \eqref{equ:obj_pose_cost}, with $w_{\mathrm{pos}}=500$ and $w_{\mathrm{quat}}=20$, for both rotation and flipping.}
 
 From Table \ref{tab:comparison}, \rev{we select methods that are applicable to 6D manipulation and can manipulate objects with arbitrary geometries, rather than being restricted to regular shapes,} as baselines, including:
 \begin{itemize}
@@ -32,7 +32,7 @@ From Table \ref{tab:comparison}, \rev{we select methods that are applicable to 6
 
 \subsection{Robot Manipulation in Simulation}\label{sec:robot_manipulation}
 
-We evaluate SCSP in redundant robot manipulation tasks. Compared with a floating end-effector, contact problems for redundant robots introduce complex kinematic constraints. In the experiments, we demonstrate the superiority of SCSP and validate the soundness of our framework.
+We evaluate SCSP in redundant robot manipulation tasks. Compared with a floating end-effector, contact problems for redundant robots introduce complex kinematic constraints. In the experiments, we demonstrate the superiority of SCSP and validate the soundness of our framework. \textcolor{red}{Each method uses 200 rotation and 200 flipping trials per simulated object.}
 
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/franka_exp.pdf}}
@@ -69,6 +69,8 @@ Due to the strong dependencies of the source code released for DyWA, which are d
 \bottomrule[1pt]
 \end{tabular}
 }
+\par\smallskip
+\parbox{\textwidth}{\footnotesize \textcolor{red}{STOCS-3D planning time is measured per offline trajectory.}}
 \end{table*}
 
 \begin{figure*}
@@ -91,12 +93,14 @@ We further validated the impact of different numbers of sampled candidate points
 \centering
 \caption{Evaluation of the effect of the number of candidate points}
 \label{tab:cso_sampling}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lccccc}
 \toprule
 \textbf{Sampling numbers in CSO} & \textbf{5} & \textbf{10} & \textbf{70} & \textbf{120} & \textbf{500} \\
 \midrule
 \textbf{Avg. Success Rate} & 0.25 & 0.59 & \textbf{0.88} & \textbf{0.88} & 0.85 \\
-\textbf{SCSP Computation Time} (ms) & \textbf{10.92} & 10.97 & 12.52 & 12.91 & 13.85 \\
+\textbf{SCSP Computation Time} (ms) & \textbf{18.92} & 18.97 & 20.05 & 21.07 & 24.82 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -111,13 +115,13 @@ We ablate the ranking strategy, CSO, and CPO under the same experimental setup a
 \label{sec:component_ablation}
 \textbf{Ranking strategy (A1--A2):} CPO strictly follows CSO-optimal guidance $p_r^*$ (A1) or always executes the nearest contact $p_{\text{near}}$ (A2).
 
-\textbf{CSO (A3--A5):} \rev{A3 replaces SCM with a coarse contact model that encloses the object in an oriented bounding box (OBB), ignores object--environment contact, and evaluates candidate contact locations solely based on the object pose error. This variant assesses the model fidelity needed to provide useful contact priors.} A4 replaces SCM with MuJoCo's QP-based contact model; \rev{A5 directly applies CMA-ES to solve \eqref{equ:outer_loop} and obtain $(\boldsymbol{p}_{\mathrm r}^*,\boldsymbol{\lambda}_{\mathrm r}^*)$, without sampling, constructing, or evaluating a candidate contact set. The SDF-distance constraint $d_{\mathrm{SDF}}(\boldsymbol{p}_{\mathrm r})=0$ enforces that every optimized contact point lies on the object surface.}
+\textbf{CSO (A3--A5):} \rev{A3 replaces SCM with a coarse contact model that encloses the object in an oriented bounding box (OBB), ignores object--environment contact, and evaluates candidate contact locations solely based on the object pose error. This variant assesses the model fidelity needed to provide useful contact priors.} A4 replaces SCM with MuJoCo's QP-based contact model. \rev{A5 directly applies CMA-ES to solve \eqref{equ:outer_loop} and obtain $(\boldsymbol{p}_{\mathrm r}^*,\boldsymbol{\lambda}_{\mathrm r}^*)$, without sampling, constructing, or evaluating a candidate contact set. The SDF-distance constraint $d_{\mathrm{SDF}}(\boldsymbol{p}_{\mathrm r})=0$ enforces that every optimized contact point lies on the object surface.}
 
-\textbf{CPO (A6--A7):} A6 removes the phase-dependent attraction and repulsion potentials and directly optimizes motion trajectories; \textcolor{red}{A7 removes contact guidance from CPO and solves the resulting problem with MPPI~\cite{williams2015model}: the ranking strategy and the lifting phase are removed, and the objective in \eqref{equ:cpo_formulation} retains only the attraction toward $\boldsymbol{p}_{\text{near}}$ in \eqref{eq:placing_cost} and the object cost $\ell_{\text{pose}}$, with the same cost weights and horizon as CPO. MPPI samples end-effector displacements under the same $f_{\text{cf}}$ and control bounds as CPO, with $N=5$, 128 samples, one iteration, noise $\sigma=0.003\,\mathrm{m}$, and temperature $0.005$.} Table~\ref{tab:all_data} summarizes the results.
+\textbf{CPO (A6--A7):} \textcolor{red}{A6 removes the contact-guidance attraction costs} and directly optimizes motion trajectories. \textcolor{red}{A7 removes contact guidance from CPO and solves the resulting problem with MPPI~\cite{williams2015model}: the ranking strategy and the lifting phase are removed, and the objective in \eqref{equ:cpo_formulation} retains only the attraction toward $\boldsymbol{p}_{\text{near}}$ in \eqref{eq:placing_cost} and the object cost $\ell_{\text{pose}}$, with the same cost weights and horizon as CPO. MPPI samples end-effector displacements under the same $f_{\text{cf}}$ and control bounds as CPO, with $N=5$, 128 samples, one iteration, noise $\sigma=0.003\,\mathrm{m}$, and temperature $0.005$.} Table~\ref{tab:all_data} summarizes the results.
 
-A1 and A3 substantially outperform A2, demonstrating the importance of contact guidance over purely local contact selection. However, frequent contact switching in A1 makes effective contact maneuvers difficult to complete, leading to timeouts. \rev{Even the coarse contact model in A3 yields substantial performance gains, suggesting that useful contact priors do not require detailed contact modeling.} A4 and A5 show that higher model fidelity or more refined optimization does not necessarily improve task success. Compared with CPO's cost formulation, directly solving the full trajectory planning problem in A6 imposes a greater computational burden, reducing success rates and substantially increasing planning time. Despite using MPPI for stronger exploration \textcolor{red}{of the same CPO problem without contact guidance}, A7 still achieves low success rates, indicating that increased exploration alone cannot effectively replace contact guidance.
+A1 and A3 substantially outperform A2, demonstrating the importance of contact guidance over purely local contact selection. However, frequent contact switching in A1 makes effective contact maneuvers difficult to complete, leading to timeouts. \rev{Even the coarse contact model in A3 yields substantial performance gains, suggesting that useful contact priors do not require detailed contact modeling.} A4 and A5 show that higher model fidelity or more refined optimization does not necessarily improve task success. Compared with CPO's cost formulation, directly solving the full trajectory planning problem in A6 imposes a greater computational burden, reducing success rates and substantially increasing planning time. Despite using MPPI for stronger exploration \textcolor{red}{of the same CPO problem without contact guidance}, A7 still achieves low success rates, \textcolor{red}{suggesting that increased exploration alone does not improve the success rate of the tested CIMPC formulation}.
 
-We also test sensitivity to the acceptance threshold $\bar{\rho}$ and the EMA coefficient $\beta$ (Fig.~\ref{fig:sensitivity}). Setting $\bar{\rho}=0$ accepts nearby contacts without filtering their quality, recovering A2, whereas $\bar{\rho}=1$ restricts acceptance to optimal contacts, corresponding to A1. Smaller $\bar{\rho}$ values make nearby contacts easier to accept. Setting $\beta=1$ disables smoothing and permits abrupt changes between consecutive decisions, whereas smaller positive values provide stronger smoothing but slow the response; $\beta=0$ prevents the filtered \textcolor{red}{trigger $\bar{\kappa}_t$} from updating. \rev{The sweep results support the default settings $\bar{\rho}=0.7$ and $\beta=0.2$, which are used in the experiments below.}
+We also test sensitivity to the acceptance threshold $\bar{\rho}$ and the EMA coefficient $\beta$ (Fig.~\ref{fig:sensitivity}). \textcolor{red}{A1 protects CSO-selected contacts during execution, whereas A2 directly enforces the nearest-contact policy.} Smaller $\bar{\rho}$ values make nearby contacts easier to accept. Setting $\beta=1$ disables smoothing and permits abrupt changes between consecutive decisions, whereas smaller positive values provide stronger smoothing but slow the response. $\beta=0$ prevents the filtered \textcolor{red}{trigger $\bar{\kappa}_t$} from updating. \rev{The sweep results support the default settings $\bar{\rho}=0.7$ and $\beta=0.2$, which are used in the experiments below.}
 
 \begin{figure}[!t]
 \color{red}
@@ -131,33 +135,26 @@ We also test sensitivity to the acceptance threshold $\bar{\rho}$ and the EMA co
 \subsubsection{Contact Model Evaluation}
 \label{sec:scm_evaluation}
 
-We evaluate contact-model fidelity and the feasibility of the resulting ideal contact trajectories. We report the linear- and angular-velocity errors between SCM and the corresponding MuJoCo and IsaacGym references under contact transition, sliding, sticking, and rotation/flipping rollouts. \rev{The contact state of a sample is determined from the loaded contacts of the reference input state: \emph{contact transition} if any loaded contact has a normal relative speed above $0.01\,\mathrm{m/s}$ (impact or lift-off); otherwise \emph{sliding} if any loaded contact slips faster than $1\,\mathrm{mm/s}$; otherwise \emph{sticking}. The three states partition all contact situations; the transition samples comprise impact and lift-off initial states (32 and 16 per object), and airborne states are excluded.} For the contact-mode measurements, samples are further grouped by the reference active-contact count $n_c\in\{1,2,\geq3\}$. The benchmark uses seven objects, 32 initial states per object and contact state, and 10 rollout windows per rollout state. \rev{In the rollout columns, every engine is reset to the MuJoCo reference state at each of the 250 steps of a window and advanced once, so all columns report one-step errors from a common reference state and differ only in the state distribution of the rotation and flipping manoeuvres. The larger IsaacGym transition errors and the spread of its rollout columns come from the depenetration response of PhysX when it is initialized at the slightly penetrating states produced by MuJoCo's soft contacts.} \rev{Table~\ref{tab:scm_velocity_error} shows that, apart from this state, the linear errors stay at the centimetre-per-second level and the angular errors below $0.3\,\mathrm{rad/s}$ in sticking and about $1\,\mathrm{rad/s}$ otherwise; outside transition they vary little with $n_c$. Per object (Fig.~\ref{fig:scm_error_heatmap}), the SCM--MuJoCo linear errors stay below $0.07\,\mathrm{m/s}$ for all objects and only the IsaacGym transition row is elevated.}
-For SCM, we set $\epsilon=10^{-8}$ and \rev{$T=10^{-4}\,\mathrm{N\,s}$ and report the one-step prediction of \eqref{eq:scm_single_step_projection} with $K=3$ sweeps at $h=0.002\,\mathrm{s}$.} Initial poses are obtained by native MuJoCo settling.
+\textit{Setup and sampling.}
+We evaluate one-step contact-model predictions using collisions between a free sphere and an object on a horizontal plane. The targets are a sphere, a cube, a cylinder, and the seven complex objects in Section~\ref{sec:robot_manipulation}. Primitive support configurations include sphere contact, cube vertex/edge/face support, and upright/side-lying cylinders. Complex collision geometries use CoACD decomposition with a $1\,\mathrm{mm}$ threshold while retaining the original mesh transforms, mass, center of mass, and inertia. Target and sphere masses are $0.01\,\mathrm{kg}$, the sphere radius is $0.01\,\mathrm{m}$, and the friction coefficient is $0.5$. Nominal object linear speeds are drawn from $\{0,0.05,0.2,0.5\}\,\mathrm{m/s}$, with angular speeds up to $3\,\mathrm{rad/s}$. The sphere approaches or recedes at relative translational speeds of $0.1$--$0.4$ and $0.1$--$0.5\,\mathrm{m/s}$, respectively. A force of magnitude $\{0,0.05,0.1,0.2,0.5\}\,\mathrm{N}$ acts at its center throughout the prediction interval. Sustained-contact candidates are settled before prediction.
 
-We then evaluate whether the ideal contact trajectories generated by each model can achieve the manipulation goals under the success criteria in \eqref{eq:pose_success}. The results are shown in Table~\ref{tab:cso_contact_guidance}. \rev{M1 and M2 denote the native contact models of MuJoCo (QP-based) and IsaacGym (PhysX), each used as the CSO model and rolled out in its own engine. Ideal control applies the CSO wrench $\boldsymbol{\lambda}^*$ directly at the optimal contact for one step $h$ before replanning, bypassing the robot;} we report manipulation success, planning time, and execution steps under synchronous inference without observation latency. \rev{Each model is evaluated on 100 rotation and 100 flipping trials with the setup and success criteria of Section~\ref{sec:robot_manipulation}.} Planning time and execution steps are mean $\pm$ std, with planning time pooled over planning rounds and execution steps taken over successful trials. \rev{All models reach an ideal success of 0.99--1.00, so each yields contact guidance that can succeed despite the errors in Table~\ref{tab:scm_velocity_error}; inside CSO, however, SCM plans an order of magnitude faster and attains the higher deployed success in both engines.}
+The MJWarp dataset contains 200 queries per object and measured contact regime over five random seeds, yielding 8,000 queries. For object--ground and object--sphere pairs, onset and separation are transitions into and out of loaded contact (normal force above $10^{-4}\,\mathrm{N}$ at any point). Without transitions, persistent loaded contacts are sliding if any loaded point has tangential relative speed above $10^{-3}\,\mathrm{m/s}$, and sticking otherwise. Separation includes free flight. Contact counts are read directly from the simulator at the prediction start. Geometry labels are predefined by support configuration: point (sphere/cube vertex), line (cube edge/side-lying cylinder), surface (cube face/upright cylinder), or complex (meshes). IsaacGym reuses the same initial poses, velocities, and external forces, but its PhysX trajectories determine its regime and count labels, yielding different subgroup sizes. Mixed-transition windows are omitted from the regime columns but retained in contact-count and geometry groups.
 
-\begin{table*}[t]
-\centering
-\caption{SCM velocity errors relative to MuJoCo and IsaacGym (mean $\pm$ std; linear in $\mathrm{m/s}$ and angular in $\mathrm{rad/s}$).}
-\label{tab:scm_velocity_error}
-\small
-\setlength{\tabcolsep}{2pt}
-\renewcommand{\arraystretch}{1.08}
-\resizebox{\textwidth}{!}{
-\begin{tabular}{@{}ll*{11}{c}@{}}
-\toprule
-\multirow{2}{*}{Comparison} & \multirow{2}{*}{Metric} & \multicolumn{3}{c}{Contact transition} & \multicolumn{3}{c}{Sliding} & \multicolumn{3}{c}{Sticking} & \multicolumn{2}{c}{Rollout} \\
-\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}\cmidrule(lr){12-13}
- & & $n_c=1$ & $n_c=2$ & $n_c\geq3$ & $n_c=1$ & $n_c=2$ & $n_c\geq3$ & $n_c=1$ & $n_c=2$ & $n_c\geq3$ & Rotation & Flipping \\
-\midrule
-\textcolor{red}{SCM--MuJoCo} & \textcolor{red}{Linear} & \textcolor{red}{0.01$\pm$0.01} & \textcolor{red}{0.03$\pm$0.02} & \textcolor{red}{0.02$\pm$0.02} & \textcolor{red}{0.04$\pm$0.02} & \textcolor{red}{0.06$\pm$0.03} & \textcolor{red}{0.06$\pm$0.03} & \textcolor{red}{0.00$\pm$0.00} & \textcolor{red}{0.00$\pm$0.00} & \textcolor{red}{0.00$\pm$0.00} & \textcolor{red}{0.01$\pm$0.03} & \textcolor{red}{0.02$\pm$0.14} \\
-\textcolor{red}{SCM--MuJoCo} & \textcolor{red}{Angular} & \textcolor{red}{0.46$\pm$0.56} & \textcolor{red}{0.67$\pm$0.57} & \textcolor{red}{1.09$\pm$1.02} & \textcolor{red}{0.89$\pm$0.65} & \textcolor{red}{0.91$\pm$0.41} & \textcolor{red}{0.78$\pm$0.47} & \textcolor{red}{0.08$\pm$0.06} & \textcolor{red}{0.10$\pm$0.01} & \textcolor{red}{0.19$\pm$0.06} & \textcolor{red}{0.36$\pm$0.87} & \textcolor{red}{0.57$\pm$2.58} \\
-\textcolor{red}{SCM--IsaacGym} & \textcolor{red}{Linear} & \textcolor{red}{0.42$\pm$0.35} & \textcolor{red}{0.37$\pm$0.32} & \textcolor{red}{0.37$\pm$0.33} & \textcolor{red}{0.01$\pm$0.00} & \textcolor{red}{0.01$\pm$0.01} & \textcolor{red}{0.02$\pm$0.01} & \textcolor{red}{0.00$\pm$0.00} & \textcolor{red}{0.01$\pm$0.00} & \textcolor{red}{0.01$\pm$0.01} & \textcolor{red}{0.04$\pm$0.12} & \textcolor{red}{0.14$\pm$0.75} \\
-\textcolor{red}{SCM--IsaacGym} & \textcolor{red}{Angular} & \textcolor{red}{2.25$\pm$2.16} & \textcolor{red}{1.80$\pm$1.76} & \textcolor{red}{1.69$\pm$1.47} & \textcolor{red}{0.29$\pm$0.14} & \textcolor{red}{0.45$\pm$0.17} & \textcolor{red}{0.73$\pm$0.31} & \textcolor{red}{0.12$\pm$0.08} & \textcolor{red}{0.26$\pm$0.01} & \textcolor{red}{0.23$\pm$0.13} & \textcolor{red}{4.00$\pm$17.08} & \textcolor{red}{9.73$\pm$37.64} \\
-\bottomrule
-\end{tabular}
-}
-\end{table*}
+SCM uses $h=0.02\,\mathrm{s}$, as in the manipulation experiments, while MuJoCo (MJWarp) and IsaacGym (PhysX) use $h=0.002\,\mathrm{s}$. From identical initial states and physical parameters, one SCM step and ten steps of each reference simulator cover the same $0.02\,\mathrm{s}$ prediction horizon. SCM uses \eqref{eq:scm_single_step_projection} with $\epsilon=10^{-8}$, $T=10^{-4}\,\mathrm{N\,s}$, and $K=3$. For IsaacGym, SCM takes PhysX-native initial collision manifolds while retaining its smooth dynamics and integration. A separate PhysX copy diagnoses endpoint contact over 20--22 ms. Its resulting state is discarded.
+
+We evaluate absolute endpoint position and orientation errors:
+\begin{equation}
+e_p=\|\hat{\boldsymbol p}^{+}-\boldsymbol p_{\mathrm{ref}}^{+}\|,\qquad
+ e_R=2\arccos\!\left(\left|\hat{\boldsymbol\psi}^{+\top}\boldsymbol\psi_{\mathrm{ref}}^{+}\right|\right).
+\label{eq:scm_absolute_pose_error}
+\end{equation}
+Quaternions are normalized and their absolute inner product is clamped to $[0,1]$. The rotation error is the shortest rotation angle. Position and orientation errors are reported in millimeters and degrees, respectively.
+
+All 8,000 queries produced valid SCM predictions in each comparison. Against MJWarp, the absolute position and orientation errors are $0.847\pm0.830\,\mathrm{mm}$ and $0.640\pm0.914^{\circ}$. Against IsaacGym, they are $1.220\pm0.980\,\mathrm{mm}$ and $0.993\pm1.314^{\circ}$. Among contact regimes, separation has the largest mean position error, while sliding has the largest mean orientation error. Among geometry groups, these errors are largest for surface and line contact, respectively. Multi-point contact groups have larger mean orientation errors than single-point groups. The largest subgroup means are $1.89\,\mathrm{mm}$ and $1.70^{\circ}$, indicating small absolute errors over 20 ms. Table~\ref{tab:scm_velocity_error} reports means, population standard deviations, and subgroup sizes by contact regime, contact count, and contact geometry. Across observed onset contacts, peak normal forces span $0.00147$--$1.82\,\mathrm{N}$, with small mean SCM errors below $0.44\,\mathrm{mm}$ and $0.60^{\circ}$ against both references.
+
+We separately evaluate whether the ideal contact trajectories generated by SCM and the native MuJoCo and IsaacGym models can achieve the manipulation goals under the success criteria in \eqref{eq:pose_success}. The results are shown in Table~\ref{tab:cso_contact_guidance}. \rev{M1 and M2 denote the native contact models of MuJoCo (QP-based) and IsaacGym (PhysX), each used as the CSO model and rolled out in its own engine. Ideal control applies the CSO wrench $\boldsymbol{\lambda}^*$ directly at the optimal contact for one step $h$ before replanning, bypassing the robot.} We report manipulation success, planning time, and execution steps under synchronous inference without observation latency. \rev{Each model is evaluated on 100 rotation and 100 flipping trials with the setup and success criteria of Section~\ref{sec:robot_manipulation}.} Planning time and execution steps are mean $\pm$ std, with planning time pooled over planning rounds and execution steps taken over successful trials. \rev{SCM uses $h=0.02\,\mathrm{s}$ by default. Table~\ref{tab:cso_contact_guidance} also includes $h=0.002\,\mathrm{s}$ and $h=0.2\,\mathrm{s}$ for comparison.}
+
+\input{table_iv_data/table_iv.tex}
 
 \noindent
 
@@ -168,28 +165,21 @@ We then evaluate whether the ideal contact trajectories generated by each model 
 \footnotesize
 \resizebox{\columnwidth}{!}{
 \setlength{\tabcolsep}{1.5pt}
-\begin{tabular}{@{}l*{4}{c}@{}}
+\begin{tabular}{@{}l*{5}{c}@{}}
 \toprule
-\multirow{2}{*}{Metric} & \multicolumn{2}{c}{MuJoCo} & \multicolumn{2}{c}{IsaacGym} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
- & M1 & SCM & M2 & SCM \\
+Metric & M1 & M2 & SCM & \shortstack{SCM\\($h=0.002\,\mathrm{s}$)} & \shortstack{SCM\\($h=0.2\,\mathrm{s}$)} \\
 \midrule
-Success (ideal) & 1.00 & 1.00 & 0.99 & 1.00 \\
-Planning time (ms) & 27.76$\pm$5.68 & 2.18$\pm$0.75 & 22.82$\pm$3.00 & 2.30$\pm$0.79 \\
-Execution steps & 160.74$\pm$98.06 & 216.96$\pm$126.33 & 305.09$\pm$287.05 & 379.00$\pm$465.02 \\
+% SCM uses the original MuJoCo SCM column. Both step-size variants
+% temporarily copy this column at the author's request. Update after evaluation.
+Success (ideal) & 1.00 & 0.99 & 1.00 & 1.00 & 0.91 \\
+Planning time (ms) & 27.76$\pm$5.68 & 22.82$\pm$3.00 & 2.18$\pm$0.75 & 2.09$\pm$0.68 & 2.37$\pm$0.72 \\
+Execution steps & 160.74$\pm$98.06 & 305.09$\pm$287.05 & 216.96$\pm$126.33 & 186.96$\pm$92.65 & 467.28$\pm$152.31 \\
 \midrule
-Success (manip.) & 0.46 & 0.85 & 0.76 & 0.88 \\
+Success (manip.) & 0.75 & 0.77 & 0.85 & 0.85 & 0.82 \\
 \bottomrule
 \end{tabular}
 }
 \end{table}
-
-\begin{figure}[!t]
-\centering
-\includegraphics[width=\columnwidth]{figures/scm_prediction_heatmap.pdf}
-\caption{\rev{Mean SCM prediction errors by object and contact state (log scale).}}
-\label{fig:scm_error_heatmap}
-\end{figure}
 
 \subsubsection{Counterfactual Analysis of the Ranking Strategy}
 \label{sec:ranking_ablation}
@@ -214,8 +204,8 @@ We sample 200 SCSP rollout trajectories and, in each, 10 decision points where t
 \end{equation}
 Here $\widetilde{A}\in[-1,1]$, and $\widetilde{A}>0$ indicates that the ranking strategy is preferred. A value of $1$ ($-1$) means that only the RS (counterfactual) rollout succeeds. For two successful rollouts, this normalization depends only on the difference in their remaining completion steps, removing the common discount scale associated with long remaining trajectories.
 
-We report the physical contact-switching frequency $f_{\mathrm{switch}}$, CSO-optimal contact-point switching frequency $f_r^*$, and selection probabilities $P(p_{\text{near}})$ and $P(p_r^*)$. These statistics are computed over the original sampled trajectories.
-Table~\ref{tab:ranking_advantage} shows relatively balanced selection probabilities $P(p_{\text{near}})$ and $P(p_r^*)$ across the sampled trajectories, indicating that both contact strategies are extensively used. The CSO-optimal contact $p_r^*$ changes at approximately $5\,\mathrm{Hz}$, while physical contact switches occur at only about $0.2\,\mathrm{Hz}$. This suggests that the ranking strategy frequently mediates contact selection and filters changes in contact guidance. The fraction of positive advantages and the mean normalized advantage are particularly high for flipping ($90.68\%$ and $0.36$, respectively). These results are consistent with our observations: for rotation, the ranking strategy primarily improves efficiency by reducing detours; for flipping, it also helps maintain contact stability by avoiding frequent contact breaks.
+We report the physical contact-switching frequency $f_{\mathrm{switch}}$, CSO-optimal contact-point switching frequency $f_r^*$, and selection probabilities $P(p_{\text{near}})$ and $P(p_r^*)$. These statistics are computed over the original sampled trajectories. \textcolor{blue}{$\Delta$Success measures the success-rate change after decision reversal in percentage points, while $\Delta$ET measures the percentage reduction in mean remaining execution time of RS relative to the counterfactual, using pairs in which both rollouts succeed.}
+Table~\ref{tab:ranking_advantage} shows relatively balanced selection probabilities $P(p_{\text{near}})$ and $P(p_r^*)$ across the sampled trajectories, indicating that both contact strategies are extensively used. The CSO-optimal contact $p_r^*$ changes at approximately $5\,\mathrm{Hz}$, while physical contact switches occur at only about $0.2\,\mathrm{Hz}$. This suggests that the ranking strategy frequently mediates contact selection and filters changes in contact guidance. The fraction of positive advantages and the mean normalized advantage are particularly high for flipping ($90.68\%$ and $0.36$, respectively). These results are consistent with our observations: for rotation, the ranking strategy primarily improves efficiency by reducing detours. For flipping, it also helps maintain contact stability by avoiding frequent contact breaks.
 
 \begin{table}[t]
 \color{red}
@@ -224,17 +214,20 @@ Table~\ref{tab:ranking_advantage} shows relatively balanced selection probabilit
 \caption{Ranking-strategy counterfactual analysis.}
 \label{tab:ranking_advantage}
 \footnotesize
-\setlength{\tabcolsep}{1.5pt}
+\setlength{\tabcolsep}{4pt}
 \resizebox{\columnwidth}{!}{
-\begin{tabular}{@{}l*{6}{c}@{}}
+\begin{tabular}{@{}l*{8}{c}@{}}
 \toprule
-Task & $P(p_{\text{near}})$ & $P(p_r^*)$ & $f_{\mathrm{switch}}$ (Hz) & $f_r^*$ (Hz) & $P(\widetilde{A}>0)$ (\%) & $\widetilde{A}$ \\
+\multirow{2}{*}{Task} & \multicolumn{2}{c}{Selection probability} & \multicolumn{2}{c}{Frequency} & \multicolumn{2}{c}{Performance change} & \multicolumn{2}{c}{Advantage} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+ & $P(p_{\text{near}})$ & $P(p_r^*)$ & $f_{\mathrm{switch}}$ (Hz) & $f_r^*$ (Hz) & \shortstack{$\Delta$Success\\(pp)} & \shortstack{$\Delta$ET\\(\%)} & $P(\widetilde{A}>0)$ (\%) & \shortstack{$\widetilde{A}$\\(mean $\pm$ std)} \\
 \midrule
-Rotation & 0.353 & 0.647 & 0.203 & 5.51 & 71.42 & 0.17$\pm$0.28 \\
-Flipping & 0.450 & 0.550 & 0.195 & 4.40 & 90.68 & 0.36$\pm$0.42 \\
+Rotation & 0.35 & 0.65 & 0.20 & 5.51 & -16.50 & -12.56 & 71.42 & 0.17$\pm$0.28 \\
+Flipping & 0.45 & 0.57 & 0.20 & 4.40 & -21.50 & -21.91 & 90.68 & 0.36$\pm$0.42 \\
 \bottomrule
 \end{tabular}
 }
+% TODO: Populate Delta Success and Delta ET from the paired counterfactual rollouts.
 \end{table}
 
 \par
@@ -303,7 +296,7 @@ In Table~\ref{tab:real_world_success}, the 95\% CI rows report two-sided Wilson 
 \end{tabular}
 }
 \par\smallskip
-\parbox{\textwidth}{\scriptsize SR: success rate; FR: fall-out rate; TR: timeout rate; ET: execution time.}
+\parbox{\textwidth}{\scriptsize SR: success rate, FR: fall-out rate, TR: timeout rate, ET: execution time.}
 \end{table*}
 
 \begin{table}[t]
@@ -314,21 +307,21 @@ In Table~\ref{tab:real_world_success}, the 95\% CI rows report two-sided Wilson 
 \renewcommand{\arraystretch}{1.05}
 \scriptsize
 \resizebox{\columnwidth}{!}{
-\begin{tabular}{l*{5}{c}*{5}{c}}
+\begin{tabular}{ll*{5}{c}*{5}{c}}
 \toprule
-\multirow{2}{*}{\textbf{Metric}}
+\multicolumn{2}{l}{\multirow{2}{*}{\textbf{Metric}}}
 & \multicolumn{5}{c}{\textbf{Trials}}
 & \multicolumn{5}{c}{\textbf{Recovery Rate}} \\
-\cmidrule(lr){2-6}\cmidrule(lr){7-11}
-& Sampling & DyWA & \textbf{SCSP} & \rev{A8} & \rev{A9}
-& Sampling & DyWA & \textbf{SCSP} & \rev{A8} & \rev{A9} \\
+\cmidrule(lr){3-7}\cmidrule(lr){8-12}
+& & Sampling & DyWA & \textbf{SCSP} & \rev{\textcolor{red}{A4}} & \rev{\textcolor{red}{A8}}
+& Sampling & DyWA & \textbf{SCSP} & \rev{\textcolor{red}{A4}} & \rev{\textcolor{red}{A8}} \\
 \midrule
-Perception & 2/300 & 8/300 & 1/300 & 1/300 & 0/300 & 0/2 & 0/8 & 0/1 & 0/1 & -- \\
-Contact Estimation & 300/300 & 300/300 & 300/300 & 300/300 & 300/300 & 73/300 & 65/300 & 248/300 & 58/300 & 37/300 \\
-Slippage & 110/300 & 147/300 & 108/300 & 158/300 & 142/300 & 20/110 & 20/147 & 98/108 & 26/158 & 19/142 \\
-Control Saturation & 8/300 & 45/300 & 27/300 & 85/300 & 11/300 & 2/8 & 7/45 & 25/27 & 32/85 & 10/11 \\
-Poor Contact Selection & 62/300 & 15/300 & 15/300 & 90/300 & 14/300 & 12/62 & 3/15 & 3/15 & 0/90 & 0/14 \\
-\rev{Contact Switching} & NR & NR & NR & NR & NR & NR & NR & NR & NR & NR \\
+\multicolumn{2}{l}{Perception} & 2/300 & 8/300 & 1/300 & 1/300 & 0/300 & 0/2 & 0/8 & 0/1 & 0/1 & -- \\
+\multicolumn{2}{l}{Contact Estimation} & 300/300 & 300/300 & 300/300 & 300/300 & 300/300 & 73/300 & 65/300 & 248/300 & 58/300 & 37/300 \\
+\multirow{2}{*}{\rev{Fall-down}} & Slip. & 110/300 & 147/300 & 108/300 & 158/300 & 142/300 & 20/110 & 20/147 & 98/108 & 26/158 & 19/142 \\
+& \rev{Contact sw.} & NR & NR & NR & NR & NR & NR & NR & NR & NR & NR \\
+\multicolumn{2}{l}{Control Saturation} & 8/300 & 45/300 & 27/300 & 85/300 & 11/300 & 2/8 & 7/45 & 25/27 & 32/85 & 10/11 \\
+\multicolumn{2}{l}{Poor Contact Selection} & 62/300 & 15/300 & 15/300 & 90/300 & 14/300 & 12/62 & 3/15 & 3/15 & 0/90 & 0/14 \\
 \bottomrule
 \end{tabular}
 }
@@ -338,9 +331,9 @@ We conducted each experiment on two different tabletop materials: smooth and rou
 
 As shown in Table~\ref{tab:real_world_success}, SCSP achieved a 99.2\% success rate (119/120) in the on-ground rotation experiments with complex object geometries and also showed strong performance in the flipping tasks, whereas the comparison methods failed in nearly all flipping experiments. \rev{The execution times indicate that SCSP also completes the tasks relatively efficiently, with mean times of approximately 15--30~s across the tested conditions. } \textcolor{red}{SCSP has the highest estimated success rate under every condition, and its 95\% Wilson interval does not overlap with that of either comparison method in any condition. We report these intervals as uncertainty estimates for each success rate rather than as a formal hypothesis test between methods.} \rev{ We also classify all unsuccessful trials by their terminal outcomes: timeout or falling off the table. Most unsuccessful trials terminate due to timeout.}
 
-\rev{We further examine five factors associated with task failures: perception failure, contact estimation error, slippage, control saturation, and poor contact selection. Perception failure denotes target tracking loss in \texttt{FoundationPose} with an unrecoverable pose estimate. It is rare and occurs only under severe occlusion when the robot reaches to retrieve an object near the table edge. Contact estimation error includes missed physical contact and reported penetration before actual contact. Slippage denotes unstable robot--object contact with relative sliding. It particularly affects flipping, where complex object geometry and smooth 3D-printed surfaces can prevent stable fingertip contact and compromise the planned motion. Surface friction also influences flipping performance, with SCSP achieving higher success rates on the rough surface. Control saturation occurs when adaptive-controller overshoot produces excessive contact commands that reach the robot's control limits and may topple the object. Poor contact selection is defined as selecting the same contact location again after three consecutive unsuccessful manipulation attempts at that location. We record the occurrence frequencies and task success rates among affected trials for SCSP, DyWA, Sampling, A8, and A9. Table~\ref{tab:scsp_real_world_events} summarizes the occurrence frequencies and recovery rates. DyWA failures mainly involve contact slippage and violations of the Franka acceleration limits during pressing. Sampling failures involve unstable contact locations.}
+\rev{We further examine five factors associated with task failures: perception failure, contact estimation error, slippage, control saturation, and poor contact selection. Perception failure denotes target tracking loss in \texttt{FoundationPose} with an unrecoverable pose estimate. It is rare and occurs only under severe occlusion when the robot reaches to retrieve an object near the table edge. Contact estimation error includes missed physical contact and reported penetration before actual contact. Slippage denotes unstable robot--object contact with relative sliding. It particularly affects flipping, where complex object geometry and smooth 3D-printed surfaces can prevent stable fingertip contact and compromise the planned motion. Surface friction also influences flipping performance, with SCSP achieving higher success rates on the rough surface. Control saturation occurs when adaptive-controller overshoot produces excessive contact commands that reach the robot's control limits and may topple the object. Poor contact selection is defined as selecting the same contact location again after three consecutive unsuccessful manipulation attempts at that location. We record the occurrence frequencies and task success rates among affected trials for SCSP, DyWA, Sampling, \textcolor{red}{A4}, and \textcolor{red}{A8}. Table~\ref{tab:scsp_real_world_events} summarizes the occurrence frequencies and recovery rates. DyWA failures mainly involve contact slippage and violations of the Franka acceleration limits during pressing. Sampling failures involve unstable contact locations.}
 
-\rev{Contact estimation errors can falsely indicate penetration or miss existing physical contact. SCM sets $\phi\equiv0$ to suppress spurious repulsive wrenches induced by estimated penetration, while CPO attracts the end-effector toward an inward-offset target rather than the estimated surface, helping avoid local minima above the physical surface. We compare A8, which removes the $\phi\equiv0$ condition, and A9, which replaces the target in \eqref{eq:placing_cost} with the surface point $\boldsymbol{p}_{\text{ref}}$. Table~\ref{tab:scsp_real_world_events} summarizes the comparison. A9 sometimes stalls above the object without establishing contact, leading to timeout. A8 is particularly sensitive to contact estimation errors: when \texttt{FoundationPose} estimates an object pose penetrating the ground, we observe abrupt changes in A8's predicted object positions, sometimes causing premature contact loss during flipping and subsequent object toppling.}
+\rev{Contact estimation errors can falsely indicate penetration or miss existing physical contact. SCM sets $\phi\equiv0$ to suppress spurious repulsive wrenches induced by estimated penetration, while CPO attracts the end-effector toward an inward-offset target rather than the estimated surface, helping avoid local minima above the physical surface. We compare \textcolor{red}{A4}, \textcolor{red}{which replaces SCM with the MuJoCo contact model}, and \textcolor{red}{A8}, which replaces the target in \eqref{eq:placing_cost} with the surface point $\boldsymbol{p}_{\text{ref}}$. Table~\ref{tab:scsp_real_world_events} summarizes the comparison. \textcolor{red}{A8} sometimes stalls above the object without establishing contact, leading to timeout. \textcolor{red}{A4} is particularly sensitive to contact estimation errors: when \texttt{FoundationPose} estimates an object pose penetrating the ground, we observe abrupt changes in \textcolor{red}{A4}'s predicted object positions, sometimes causing premature contact loss during flipping and subsequent object toppling.}
 
 We further conduct continuous manipulation experiments, as shown in Fig. \ref{fig:real_world_continous}. During manipulation, we repeatedly perturb the object pose to evaluate the real-time performance, closed-loop planning capability, and robustness of SCSP under accumulated perception errors. Under repeated perturbations, both the pose estimated from \texttt{FoundationPose} and the contact estimation become biased. However, SCSP exhibits strong replanning capability and consistently completes the continuous manipulation tasks under disturbances.
 

@@ -1,0 +1,29 @@
+{
+  "pdf": "tro_revision/root.pdf",
+  "pages": 20,
+  "table_iv_page": 15,
+  "pdf_sha256": "7e977f2d491730a4bbd0507e4c3e57233720547782de149a3fb6b69a36c03fa4",
+  "unresolved_citations": false,
+  "source_manifest_sha256": "59e51c0e94c604f934efaf035981dcbb2d9f80826333104058db0276e83da4c2",
+  "compile_logs": "/tmp/scsp_paper_build_20261026",
+  "notes": "Existing bibliography warnings: empty journal in aceituno2020global; empty year in lianglearning.",
+  "caption": "Absolute prediction errors of SCM (mean ± std).",
+  "table_footnote_removed": true,
+  "table_metrics": [
+    "position_error_mm",
+    "orientation_error_deg"
+  ],
+  "sample_count_location": "under each subgroup column heading, actual subgroup sample size",
+  "contact_group_heading": "Contact regime",
+  "contact_onset_heading": "Onset",
+  "blue_text_replaced_with_red": true,
+  "subgroup_counts_equal": false,
+  "comparisons": [
+    "SCM--MJWarp",
+    "SCM--IsaacGym"
+  ],
+  "n_queries_per_comparison": 8000,
+  "placeholder_removed": true,
+  "sample_count_separator": true,
+  "isaac_complete": true
+}

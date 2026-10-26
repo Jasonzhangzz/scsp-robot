@@ -1,0 +1,25 @@
+\begin{table*}[t]
+\centering
+\caption{Absolute prediction errors of SCM (mean $\pm$ std).}
+\label{tab:scm_velocity_error}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{@{}ll*{12}{c}@{}}
+\toprule
+& & \multicolumn{4}{c}{Contact regime} & \multicolumn{4}{c}{Contact count} & \multicolumn{4}{c}{Contact geometry} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-10}\cmidrule(lr){11-14}
+Comparison & Metric & \shortstack{Sliding\\{\scriptsize $n=2000$}} & \shortstack{Sticking\\{\scriptsize $n=2000$}} & \shortstack{Separation\\{\scriptsize $n=2000$}} & \shortstack{Onset\\{\scriptsize $n=2000$}} & \shortstack{$n_c=0$\\{\scriptsize $n=1788$}} & \shortstack{$n_c=1$\\{\scriptsize $n=387$}} & \shortstack{$n_c=2$\\{\scriptsize $n=488$}} & \shortstack{$n_c\geq3$\\{\scriptsize $n=5337$}} & \shortstack{Point\\{\scriptsize $n=946$}} & \shortstack{Line\\{\scriptsize $n=439$}} & \shortstack{Surface\\{\scriptsize $n=1015$}} & \shortstack{Complex\\{\scriptsize $n=5600$}} \\
+\midrule
+\multirow{2}{*}{SCM--MJWarp} & Position (mm) & $0.65\pm0.81$ & $0.69\pm0.94$ & $1.63\pm0.42$ & $0.42\pm0.42$ & $1.77\pm0.00133$ & $0.22\pm0.42$ & $0.46\pm0.53$ & $0.62\pm0.79$ & $0.70\pm0.73$ & $0.72\pm0.72$ & $1.34\pm1.07$ & $0.79\pm0.77$ \\
+ & Orientation ($^{\circ}$) & $1.08\pm1.12$ & $0.80\pm1.03$ & $0.11\pm0.40$ & $0.58\pm0.61$ & $0.00136\pm0.00262$ & $0.40\pm0.80$ & $0.90\pm0.95$ & $0.85\pm0.97$ & $0.40\pm0.81$ & $1.18\pm0.85$ & $1.13\pm1.41$ & $0.55\pm0.76$ \\
+\midrule
+ & & {\scriptsize $n=483$} & {\scriptsize $n=118$} & {\scriptsize $n=2398$} & {\scriptsize $n=419$} & {\scriptsize $n=3384$} & {\scriptsize $n=731$} & {\scriptsize $n=1273$} & {\scriptsize $n=2612$} & {\scriptsize $n=946$} & {\scriptsize $n=439$} & {\scriptsize $n=1015$} & {\scriptsize $n=5600$} \\
+\cmidrule(lr){3-14}
+\multirow{2}{*}{SCM--IsaacGym} & Position (mm) & $1.18\pm1.31$ & $0.27\pm0.42$ & $1.46\pm0.56$ & $0.43\pm0.47$ & $1.35\pm0.76$ & $0.82\pm0.83$ & $0.69\pm0.72$ & $1.42\pm1.22$ & $0.97\pm0.88$ & $1.08\pm0.94$ & $1.89\pm1.15$ & $1.15\pm0.91$ \\
+ & Orientation ($^{\circ}$) & $0.96\pm1.00$ & $0.18\pm0.34$ & $0.23\pm0.46$ & $0.59\pm0.54$ & $0.48\pm0.95$ & $0.66\pm0.77$ & $1.09\pm1.17$ & $1.70\pm1.55$ & $0.13\pm0.36$ & $1.44\pm1.72$ & $1.25\pm1.30$ & $1.06\pm1.32$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

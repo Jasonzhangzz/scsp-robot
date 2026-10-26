@@ -1378,6 +1378,13 @@ def compute_rollout_contact_via(
         [r_obj_to_world.T @ (param.target_p_ - curr_q[:3]), target_quat_local])
     current_pose_eval = np.array([0., 0., 0., 1., 0., 0., 0.])
 
+    native_cem = getattr(param.lambda_optimizer, 'gpu_cem', None)
+    if callable(getattr(native_cem, 'set_support_plane', None)):
+        plane_point = np.array([0., 0., floor_z]) if support_point is None else np.asarray(support_point)
+        plane_normal = np.array([0., 0., 1.]) if support_normal is None else np.asarray(support_normal)
+        native_cem.set_support_plane(r_obj_to_world.T @ (plane_point-curr_q[:3]),
+                                     r_obj_to_world.T @ plane_normal)
+
     param.lambda_optimizer.update_Jacobian(jac_mat_env, phi=getattr(param, 'lambda_env_phi_', None))
     actual_contact = getattr(param, 'lambda_actual_contact_', None)
     rs_commitment = getattr(param, 'rs_contact_commitment_', None)

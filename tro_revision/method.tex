@@ -16,7 +16,7 @@ Finally, we present the detailed design of our CSO module for online contact sel
 
 \subsection{Why Contact Selection is necessary?}
 
-\textcolor{red}{Contact selection refers to choosing object contact locations $\left \{ \boldsymbol{p}_{\mathcal{O}, i} \right \} \subset \partial \mathcal{O}$ that can generate task-beneficial wrenches for changing the object pose. According to \eqref{equ.quasi_dyn_1} and \eqref{equ.quasi_dyn_2}, the object wrench is jointly determined by the contact Jacobian, which depends on the contact location and its local geometry, and the contact impulse $\boldsymbol{\beta}_i$ (or, equivalently, the contact force $\boldsymbol{\lambda}_i$). For some contact locations, no force within the corresponding friction cone can produce a wrench that improves the object pose; contact switching is therefore necessary.}
+\textcolor{red}{Contact selection refers to choosing object contact locations $\left \{ \boldsymbol{p}_{\mathcal{O}, i} \right \} \subset \partial \mathcal{O}$ that can generate task-beneficial wrenches for changing the object pose. According to \eqref{equ.quasi_dyn_1} and \eqref{equ.quasi_dyn_2}, the object wrench is jointly determined by the contact Jacobian, which depends on the contact location and its local geometry, and the contact impulse $\boldsymbol{\beta}_i$ (or, equivalently, the contact force $\boldsymbol{\lambda}_i$). For some contact locations, no force within the corresponding friction cone can produce a wrench that improves the object pose. Contact switching is therefore necessary.}
 
 \textcolor{red}{CIMPC models robot--object interaction (ROI) with contact dynamics whose informative gradients are confined to the low-dimensional contact manifold $\mathcal{S}_{\text{contact}}$ embedded in the full state space $\mathcal{S}$. The contact-free manifold $\mathcal{S}_{\text{free}}$ provides no effective contact-induced gradient, making autonomous contact selection difficult and requiring attractive costs or reference trajectories to induce contact. Although CIMPC can choose between contact and non-contact modes, its short receding horizon may not reveal, within the fixed horizon, the benefit of reaching a distant contact location.}
 
@@ -76,7 +76,7 @@ where $\mathcal{I}_{k}$ is the set of already selected samples. The sampling pro
 \end{equation}
 where $\boldsymbol{a}$ is an arbitrary fixed axis. \textcolor{red}{When the reference axis $a$ is nearly parallel to the surface normal $n_i$, we select another coordinate axis as the reference axis to avoid numerical singularity.} We use this local geometric information to compute the Jacobian required for contact force optimization. Furthermore, a KD-tree $\mathcal{T}=\left \{ (\boldsymbol{p}_i,\boldsymbol{n}_i, \boldsymbol{t}_{1,i}, \boldsymbol{t}_{2,i}) \right \}^{n_s}_{i=1} $ is constructed over the set $\mathcal{I}_{\text{obj}}$ to enable efficient nearest-neighbor queries.
 
-An online Valid Region Selection procedure is further applied to identify feasible and task-relevant surface regions, filtering out unreachable or low-quality points such as occluded regions, regions outside the robot workspace, and \rev{regions that violate task-specific semantic masks (for example, handles or forbidden surfaces).} The valid region is maintained by applying a mask to $\mathcal{F}$ to obtain $\mathcal{F}_{\text{v}}$, and then selecting points on $\mathcal{F}_{\text{v}}$ to obtain $\mathcal{I}_{\text{avail}}$. To better illustrate the process, consider the toy example shown in Fig. \ref{fig:FPS}. First, following the procedure illustrated in Fig. \ref{fig:FPS}(a), we iteratively apply \eqref{equ:FPS} to obtain a set of uniformly distributed sampling points over the processed object mesh. We then partition the surface online into a set of valid regions and masked regions, and select the points that lie within the valid regions to form the candidate set $\mathcal{I}_{\text{avail}}$, as shown in Fig. \ref{fig:FPS}(b). \addrev{The Exchange step applies these masks online and exchanges $\mathcal{F}$ for the retained valid surface $\mathcal{F}_{\text{v}}$; its cost is reported in Table~\ref{tab:metrics}.} \textcolor{red}{Both masks are specified offline with the object model; no online segmentation is performed.}
+An online Valid Region Selection procedure is further applied to identify feasible and task-relevant surface regions, filtering out unreachable or low-quality points such as occluded regions, regions outside the robot workspace, and \rev{regions that violate task-specific semantic masks (for example, handles or forbidden surfaces).} The valid region is maintained by applying a mask to $\mathcal{F}$ to obtain $\mathcal{F}_{\text{v}}$, and then selecting points on $\mathcal{F}_{\text{v}}$ to obtain $\mathcal{I}_{\text{avail}}$. To better illustrate the process, consider the toy example shown in Fig. \ref{fig:FPS}. First, following the procedure illustrated in Fig. \ref{fig:FPS}(a), we iteratively apply \eqref{equ:FPS} to obtain a set of uniformly distributed sampling points over the processed object mesh. We then partition the surface online into a set of valid regions and masked regions, and select the points that lie within the valid regions to form the candidate set $\mathcal{I}_{\text{avail}}$, as shown in Fig. \ref{fig:FPS}(b). \addrev{The Exchange step applies these masks online and exchanges $\mathcal{F}$ for the retained valid surface $\mathcal{F}_{\text{v}}$. Its cost is reported in Table~\ref{tab:metrics}.} \textcolor{red}{Both masks are specified offline with the object model. No online segmentation is performed.}
 
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/sampling_strategy.pdf}}
@@ -113,14 +113,14 @@ An online Valid Region Selection procedure is further applied to identify feasib
 
 \subsection{Surrogate Contact Model}
 
-The sampling strategy transforms the original optimization into a discrete–continuous problem. We further simplify \eqref{equ:inner_loop} to improve efficiency. Most existing contact models are computationally expensive for scenarios that require repeatedly solving \eqref{equ:inner_loop}. Moreover, complementarity and coupling between $\boldsymbol{\lambda}_{\text{env}}$ and $\boldsymbol{\lambda}_{\text{r}}$ make the optimization difficult to converge, leading to physically inconsistent results. To enable online contact selection, we introduce a surrogate contact model (SCM); its procedure is illustrated in Fig. \ref{fig:stick1}. The approximation uses the following assumptions:
+The sampling strategy transforms the original optimization into a discrete–continuous problem. We further simplify \eqref{equ:inner_loop} to improve efficiency. Most existing contact models are computationally expensive for scenarios that require repeatedly solving \eqref{equ:inner_loop}. Moreover, complementarity and coupling between $\boldsymbol{\lambda}_{\text{env}}$ and $\boldsymbol{\lambda}_{\text{r}}$ make the optimization difficult to converge, leading to physically inconsistent results. To enable online contact selection, we introduce a surrogate contact model (SCM). Its procedure is illustrated in Fig. \ref{fig:stick1}. The approximation uses the following assumptions:
 
 \begin{assumption}[Fixed Contact Set]
- The object--environment contact location remains unchanged in each SCM rollout, i.e., no new contacts are created and existing contacts remain\textcolor{red}{, so that the contact gap satisfies $\boldsymbol{\tilde{\phi}}_{\text{env}}\equiv\boldsymbol{0}$ throughout the rollout}.\label{assumption:mode}
+ \textcolor{red}{} \textcolor{red}{During each SCM step, we fix the active object--environment contacts at zero gap and freeze their frames, Jacobians, and the mass matrix at the current state.}\label{assumption:mode}
 \end{assumption}
 
 \begin{assumption}[Multi-Contact Decoupling]
- The contact between the object and the environment can be approximated by independent spring–damper systems, neglecting higher-order dynamic couplings between different contact locations. \rev{This assumption is used only to replace each Delassus block by its diagonal; the $K=3$ Gauss--Seidel sweeps in \eqref{eq:scm_single_step_projection} partially restore the coupling between contacts.} \label{assumption:decoupling}
+ The contact between the object and the environment can be approximated by independent spring–damper systems, neglecting higher-order dynamic couplings between different contact locations. \rev{This assumption is used only to replace each Delassus block by its diagonal. The $K=3$ Gauss--Seidel sweeps in \eqref{eq:scm_single_step_projection} partially restore the coupling between contacts.} \label{assumption:decoupling}
 \end{assumption}
 
 We reformulate the object dynamics in (\ref{equ.quasi_dyn_1}) \rev{at the velocity level, retaining the current object velocity $\boldsymbol{v}_k$ so that the model matches the dynamic rollout used in CSO, where $\boldsymbol{M}_o$ is the object mass matrix and $\boldsymbol{v}_o^{+}$ is the post-step object velocity}:
@@ -129,7 +129,7 @@ We reformulate the object dynamics in (\ref{equ.quasi_dyn_1}) \rev{at the veloci
  \rev{\boldsymbol{M}_o\boldsymbol{v}_k+}h(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i} + \sum\nolimits_{j=1}^{n_{\text{env}}}{\boldsymbol{\tilde{J}}}_{\text{env},j}^{\top}\boldsymbol{\lambda}_{\text{env},j}),
  \label{eq:simplified}
 \end{equation}
-and we denote \rev{the force-level free term $\boldsymbol{\tilde{b}}_o=\boldsymbol{M}_o\boldsymbol{v}_k/h+\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i}$, which includes the momentum term $\boldsymbol{M}_o\boldsymbol{v}_k/h$, so that \eqref{eq:simplified} reads $\boldsymbol{M}_o\boldsymbol{v}_o^{+}=h(\boldsymbol{\tilde{b}}_o+\sum\nolimits_{j=1}^{n_{\text{env}}}{\boldsymbol{\tilde{J}}}_{\text{env},j}^{\top}\boldsymbol{\lambda}_{\text{env},j})$.} \rev{The environment contact force at contact $j$ is expressed in its contact frame as $\boldsymbol{\lambda}_{\text{env},j}=(\lambda^{n}_{\text{env},j},\lambda^{t1}_{\text{env},j},\lambda^{t2}_{\text{env},j})\in\mathcal{K}_j$, where $\mathcal{K}_j=\{\lambda^{n}\geq 0,\ |\lambda^{t1}|\leq\mu_j\lambda^{n},\ |\lambda^{t2}|\leq\mu_j\lambda^{n}\}$ is the Coulomb box used for the robot contacts in \eqref{equ:csqp}, with the contact Jacobian $\boldsymbol{\tilde{J}}_{\text{env},j}\in\mathbb{R}^{3\times 6}$ whose rows are $\boldsymbol{J}^{n}_j$, $\boldsymbol{J}^{t1}_j$, $\boldsymbol{J}^{t2}_j$; we write $\mathcal{K}=\prod_j\mathcal{K}_j$.} Similar to (\ref{equ.dual_prob_relax}), the physically consistent environment contact force can be obtained by solving the following dual problem \rev{(written in force units by dividing the impulse-level dual by $h^2$)}:
+and we denote \rev{the force-level free term $\boldsymbol{\tilde{b}}_o=\boldsymbol{M}_o\boldsymbol{v}_k/h+\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i}$, which includes the momentum term $\boldsymbol{M}_o\boldsymbol{v}_k/h$, so that \eqref{eq:simplified} reads $\boldsymbol{M}_o\boldsymbol{v}_o^{+}=h(\boldsymbol{\tilde{b}}_o+\sum\nolimits_{j=1}^{n_{\text{env}}}{\boldsymbol{\tilde{J}}}_{\text{env},j}^{\top}\boldsymbol{\lambda}_{\text{env},j})$.} \rev{The environment contact force at contact $j$ is expressed in its contact frame as $\boldsymbol{\lambda}_{\text{env},j}=(\lambda^{n}_{\text{env},j},\lambda^{t1}_{\text{env},j},\lambda^{t2}_{\text{env},j})\in\mathcal{K}_j$, where $\mathcal{K}_j=\{\lambda^{n}\geq 0,\ |\lambda^{t1}|\leq\mu_j\lambda^{n},\ |\lambda^{t2}|\leq\mu_j\lambda^{n}\}$ is the Coulomb box used for the robot contacts in \eqref{equ:csqp}, with the contact Jacobian $\boldsymbol{\tilde{J}}_{\text{env},j}\in\mathbb{R}^{3\times 6}$ whose rows are $\boldsymbol{J}^{n}_j$, $\boldsymbol{J}^{t1}_j$, $\boldsymbol{J}^{t2}_j$. We write $\mathcal{K}=\prod_j\mathcal{K}_j$.} Similar to (\ref{equ.dual_prob_relax}), the physically consistent environment contact force can be obtained by solving the following dual problem \rev{(written in force units by dividing the impulse-level dual by $h^2$)}:
 \begin{multline}
 \max_{\boldsymbol{\lambda}_{\text{env}}\rev{\in\mathcal{K}}}\quad
  -\frac{1}{2} \boldsymbol{\lambda}_{\text{env}}^\top
@@ -147,6 +147,7 @@ and we denote \rev{the force-level free term $\boldsymbol{\tilde{b}}_o=\boldsymb
  \rev{\boldsymbol{\tilde{b}}_o},
  \label{eq:dual_problem}
 \end{multline}
+\textcolor{red}{Here, $\boldsymbol{R}$ is a small regularization matrix defined in force units.}
 and the solution satisfies the \rev{cone-complementarity} condition
 \begin{equation}
 \rev{\mathcal{K}\ni} \boldsymbol{\lambda}_{\text{env}} \perp
@@ -192,7 +193,7 @@ The diagonal blocks $\boldsymbol{W}_{ii}$ describe local effective inertia, whil
 \rev{\mathcal{K}_i\ni} \boldsymbol{\lambda}_{\text{env},i} \perp \boldsymbol{W}_{ii} \boldsymbol{\lambda}_{\text{env},i} + (\boldsymbol{\tilde{J}}_{\text{env},i} \boldsymbol{M}_o^{-1}\rev{\boldsymbol{\tilde{b}}_o} + \boldsymbol{\tilde{\phi}}_i\rev{/h^2}) \rev{\in\mathcal{K}_i^{*}}.
 \label{equ:contact_i_complementarity}
 \end{equation}
-We approximate each diagonal block $\boldsymbol{W}_{ii}$ by a diagonal matrix $\boldsymbol{D}$, with a small residual $\boldsymbol{E}$. Under this approximation, \eqref{equ:contact_i_complementarity} has the \rev{smooth approximate} closed-form solution below. \rev{Here, $\operatorname{softplus}_T(x)=T\log(1+e^{x/T})$ is a componentwise smooth ($C^\infty$) approximation of $\max(x,0)$ with smoothing parameter $T>0$; its derivative is the logistic function $\sigma(x/T)=1/(1+e^{-x/T})$. The temperature $T$ is specified in impulse units ($\mathrm{N\,s}$), so the force-level relation uses $T/h$\rev{.}} \rev{The smooth projection $\Pi^{T}_{\mathcal{K}_i}$ onto $\mathcal{K}_i$ applies $\operatorname{softplus}_T$ to the normal component and $\operatorname{clip}_T(x,c)=x-\operatorname{softplus}_T(x-c)+\operatorname{softplus}_T(-x-c)$, a $C^\infty$ approximation of the projection onto $[-c,c]$, to each tangential component with $c=\mu_i\hat{\lambda}^{n}_{\text{env},i}$:}
+We approximate each diagonal block $\boldsymbol{W}_{ii}$ by a diagonal matrix $\boldsymbol{D}$, with a small residual $\boldsymbol{E}$. Under this approximation, \eqref{equ:contact_i_complementarity} has the \rev{smooth approximate} closed-form solution below. \rev{Here, $\operatorname{softplus}_T(x)=T\log(1+e^{x/T})$ is a componentwise smooth ($C^\infty$) approximation of $\max(x,0)$ with smoothing parameter $T>0$. Its derivative is the logistic function $\sigma(x/T)=1/(1+e^{-x/T})$. The temperature $T$ is specified in impulse units ($\mathrm{N\,s}$), so the force-level relation uses $T/h$\rev{.}} \rev{The smooth projection $\Pi^{T}_{\mathcal{K}_i}$ onto $\mathcal{K}_i$ applies $\operatorname{softplus}_T$ to the normal component and $\operatorname{clip}_T(x,c)=x-\operatorname{softplus}_T(x-c)+\operatorname{softplus}_T(-x-c)$, a $C^\infty$ approximation of the projection onto $[-c,c]$, to each tangential component with $c=\mu_i\hat{\lambda}^{n}_{\text{env},i}$:}
 \begin{equation}
 \boldsymbol{\hat{\lambda}}_{\text{env}, i}
 =
@@ -230,9 +231,9 @@ where $\epsilon$ is \rev{the regularization coefficient, so that $\boldsymbol{D}
 \end{lemma}
 \begin{proof}
  \renewcommand{\qedsymbol}{}
- \textcolor{red}{Assumption~\ref{assumption:mode} provides the condition $\boldsymbol{\tilde{\phi}}_i\equiv\boldsymbol{0}$ for every environment contact $i$ during the rollout. Substituting $\boldsymbol{\tilde{\phi}}_i=\boldsymbol{0}$ and the definition of $\boldsymbol{\tilde{b}}_o$ into \eqref{eq:quasi-closed_form_solution_nonsmooth} removes the gap term and expresses the argument of $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ as an affine function of the robot contact forces, which gives \eqref{eq:quasi-closed_form_solution}.} Moreover, since the contact geometry set remains invariant over the time interval, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \rev{the fixed-contact map is the composition of an affine map with the $C^\infty$ function $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ and is smooth in $\boldsymbol{\lambda}_{\text{r}}$; nonsmoothness arises only when the contact set changes}.
+ \textcolor{red}{Assumption~\ref{assumption:mode} provides the condition $\boldsymbol{\tilde{\phi}}_i\equiv\boldsymbol{0}$ for every environment contact $i$ during the rollout. Substituting $\boldsymbol{\tilde{\phi}}_i=\boldsymbol{0}$ and the definition of $\boldsymbol{\tilde{b}}_o$ into \eqref{eq:quasi-closed_form_solution_nonsmooth} removes the gap term and expresses the argument of $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ as an affine function of the robot contact forces, which gives \eqref{eq:quasi-closed_form_solution}.} Moreover, \textcolor{red}{with geometry frozen within one SCM step}, $\boldsymbol{\tilde{J}}_{\text{env},i}$ is a constant matrix, thus $\boldsymbol{W}_{ii}$ is constant, and $\boldsymbol{D}$, $\boldsymbol{M}_o^{-1}$ are all constant matrices. Therefore, \rev{the fixed-contact map is the composition of an affine map with the $C^\infty$ function $\rev{\Pi^{T/h}_{\mathcal{K}_i}}$ and is smooth in $\boldsymbol{\lambda}_{\text{r}}$\textcolor{red}{ within this step}}.
 \end{proof}
- \rev{To partially compensate for the neglected inter-contact coupling, we refine the diagonal estimate with $K=3$ unrolled Gauss--Seidel sweeps over the contacts in a fixed order: the force of each contact is computed from the object velocity already updated by the preceding contacts and by the previous sweeps.} \rev{We retain only the nonnegative part of the signed contact distance, $\boldsymbol{d}_{\mathrm{env}}=\max(\boldsymbol{\tilde{\phi}}_{\mathrm{env}},\boldsymbol{0})$, to avoid strong repulsion from instantaneous penetration, trading some physical fidelity for greater robustness to contact estimation errors and improved optimization behavior; for the touching contacts of Assumption~\ref{assumption:mode}, $\boldsymbol{d}_{\mathrm{env}}=\boldsymbol{0}$, and $\boldsymbol{d}_{\mathrm{env}}$ is evaluated once from the current state $\boldsymbol{x}_k$, independently of $\boldsymbol{\lambda}_{\text{r}}$. \rev{Let} $\boldsymbol{v}_{\mathrm{free}}$\rev{$=h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o=\boldsymbol{v}_k+h\boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i})$} \rev{be} the free-motion velocity, \rev{i.e., the post-step object velocity without environment contact}. \rev{Starting from $\hat{\boldsymbol{\lambda}}^{(0)}_{\mathrm{env}}=\boldsymbol{0}$ and $\boldsymbol{v}^{(1,0)}=\boldsymbol{v}_{\mathrm{free}}$ and using $\boldsymbol{d}_{\mathrm{env}}$ in place of $\boldsymbol{\tilde{\phi}}_{\mathrm{env}}$ in \eqref{eq:quasi-closed_form_solution_nonsmooth}, sweep $k=1,\dots,K$ computes for $i=1,\dots,n_{\mathrm{env}}$}}
+ \rev{To partially compensate for the neglected inter-contact coupling, we refine the diagonal estimate with $K=3$ unrolled Gauss--Seidel sweeps over the contacts in a fixed order: the force of each contact is computed from the object velocity already updated by the preceding contacts and by the previous sweeps.} \rev{We retain only the nonnegative part of the signed contact distance, $\boldsymbol{d}_{\mathrm{env}}=\max(\boldsymbol{\tilde{\phi}}_{\mathrm{env}},\boldsymbol{0})$, to avoid strong repulsion from instantaneous penetration, trading some physical fidelity for greater robustness to contact estimation errors and improved optimization behavior. For the touching contacts of Assumption~\ref{assumption:mode}, $\boldsymbol{d}_{\mathrm{env}}=\boldsymbol{0}$, and $\boldsymbol{d}_{\mathrm{env}}$ is evaluated once from the current state $\boldsymbol{x}_k$, independently of $\boldsymbol{\lambda}_{\text{r}}$. \rev{Let} $\boldsymbol{v}_{\mathrm{free}}$\rev{$=h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o=\boldsymbol{v}_k+h\boldsymbol{M}_o^{-1}(\boldsymbol{\tau}_o+\sum\nolimits_{i=1}^{n_{\text{r}}}{\boldsymbol{J}}_{\text{r},i}^{\top}\boldsymbol{\lambda}_{\text{r},i})$} \rev{be} the free-motion velocity, \rev{i.e., the post-step object velocity without environment contact}. \rev{Starting from $\hat{\boldsymbol{\lambda}}^{(0)}_{\mathrm{env}}=\boldsymbol{0}$ and $\boldsymbol{v}^{(1,0)}=\boldsymbol{v}_{\mathrm{free}}$ and using $\boldsymbol{d}_{\mathrm{env}}$ in place of $\boldsymbol{\tilde{\phi}}_{\mathrm{env}}$ in \eqref{eq:quasi-closed_form_solution_nonsmooth}, sweep $k=1,\dots,K$ computes for $i=1,\dots,n_{\mathrm{env}}$}}
 \begingroup
 \setlength{\abovedisplayskip}{3pt}
 \setlength{\abovedisplayshortskip}{3pt}
@@ -250,7 +251,7 @@ where $\epsilon$ is \rev{the regularization coefficient, so that $\boldsymbol{D}
 \label{eq:scm_single_step_projection}
 \end{equation}
 \endgroup
- \rev{where $\boldsymbol{v}^{(k+1,0)}=\boldsymbol{v}^{(k,n_{\mathrm{env}})}$ and $\boldsymbol{D}$ is the diagonal of the Delassus block $\boldsymbol{W}_{ii}$ in \eqref{equ:max_decomposition}, so that each contact performs one projected step of \eqref{eq:quasi-closed_form_solution_nonsmooth} on the velocity $\boldsymbol{v}^{(k,i-1)}$ left by the preceding contacts and sweeps ($\boldsymbol{v}^{(1,0)}/h=\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o$). The stacked force $\hat{\boldsymbol{\lambda}}_{\mathrm{env}}=\hat{\boldsymbol{\lambda}}^{(K)}_{\mathrm{env}}$ is the environment contact force output by SCM and is used to predict object motion in \eqref{equ:scm}. With $\boldsymbol{R}=\epsilon\boldsymbol{I}$, this computation avoids forming or inverting the full Delassus matrix. Because $\boldsymbol{D}$ and $\boldsymbol{d}_{\mathrm{env}}$ are constant for a fixed contact set and $\Pi^{T/h}_{\mathcal{K}_i}$ is $C^\infty$, the unrolled sweeps are an explicit finite composition of affine maps and smooth projections, so the map $\boldsymbol{\lambda}_{\text{r}}\mapsto\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ is smooth, and the only remaining nonsmoothness is the change of the contact set between rollout steps or CSO updates.}
+ \rev{where $\boldsymbol{v}^{(k+1,0)}=\boldsymbol{v}^{(k,n_{\mathrm{env}})}$ and $\boldsymbol{D}$ is the diagonal of the Delassus block $\boldsymbol{W}_{ii}$ in \eqref{equ:max_decomposition}, so that each contact performs one projected step of \eqref{eq:quasi-closed_form_solution_nonsmooth} on the velocity $\boldsymbol{v}^{(k,i-1)}$ left by the preceding contacts and sweeps ($\boldsymbol{v}^{(1,0)}/h=\boldsymbol{M}_o^{-1}\boldsymbol{\tilde{b}}_o$). The stacked force $\hat{\boldsymbol{\lambda}}_{\mathrm{env}}=\hat{\boldsymbol{\lambda}}^{(K)}_{\mathrm{env}}$ is the environment contact force output by SCM and is used to predict object motion in \eqref{equ:scm}. With $\boldsymbol{R}=\epsilon\boldsymbol{I}$, this computation avoids forming or inverting the full Delassus matrix. Because $\boldsymbol{D}$ and $\boldsymbol{d}_{\mathrm{env}}$ are \textcolor{red}{fixed within this step} and $\Pi^{T/h}_{\mathcal{K}_i}$ is $C^\infty$, the unrolled sweeps are an explicit finite composition of affine maps and smooth projections, so the map $\boldsymbol{\lambda}_{\text{r}}\mapsto\hat{\boldsymbol{\lambda}}_{\mathrm{env}}$ is smooth\textcolor{red}{ within this frozen-geometry step}.}
 
 Substituting \textcolor{red}{the \rev{Gauss--Seidel force} from \eqref{eq:scm_single_step_projection}} into \eqref{eq:simplified}, we obtain a lightweight model:
 \begin{equation}
@@ -267,7 +268,7 @@ Substituting \textcolor{red}{the \rev{Gauss--Seidel force} from \eqref{eq:scm_si
  h\boldsymbol{\hat{v}}^+,
 \end{cases} \label{equ:scm}
 \end{equation}
-\rev{where $\boldsymbol{\hat{v}}^+$ is the predicted post-step object velocity (it already contains $\boldsymbol{v}_k$ through $\boldsymbol{\tilde{b}}_o$), and $\oplus$ denotes the pose update with the quaternion increment.}
+\rev{where $\boldsymbol{\hat{v}}^+$ is the predicted post-step object velocity (it already contains $\boldsymbol{v}_k$ through $\boldsymbol{\tilde{b}}_o$), and $\oplus$ denotes the pose update with the quaternion increment.} \textcolor{red}{The velocity estimate in $\boldsymbol{\tilde{b}}_o$ is fixed, not optimized, and omitted from the notation $f_{\mathrm{SCM}}$.}
 
 This Surrogate Contact Model converts the original contact dynamics into a computationally efficient formulation, \rev{and enables the continuous force subproblem to be solved by GPU-parallel CEM for each sampled candidate}.
 
@@ -291,7 +292,7 @@ Integrating SCM into \eqref{equ:inner_loop}, we can obtain the formulation of CS
 & 0 \le \hat{\lambda}^n_{r,i} \le \hat{\lambda}^n_{\text{max}}, \quad i = 1, \dots, n_{\text{r}}.
 \end{aligned}\label{equ:csqp}
 \end{equation}
- By solving this discrete-continuous optimization problem, we can obtain the \rev{optimal contact location among candidate contact set $\boldsymbol{\hat{p}}_r^* \in \mathcal{I}_{\text{avail}}$} as guidance for the lower-level contact planning. \rev{The CSO objective is the object pose cost $\ell_{\text{pose}}$ in \eqref{equ:obj_pose_cost}; the task-specific weights are given in Section~\ref{sec:robot_manipulation}.}
+ By solving this discrete-continuous optimization problem, we can obtain the \rev{optimal contact location among candidate contact set $\boldsymbol{\hat{p}}_r^* \in \mathcal{I}_{\text{avail}}$} as guidance for the lower-level contact planning. \rev{The CSO objective is the object pose cost $\ell_{\text{pose}}$ in \eqref{equ:obj_pose_cost}. The task-specific weights are given in Section~\ref{sec:robot_manipulation}.}
 
 The contact dynamics in \eqref{equ:inner_loop} are non-differentiable because of complementarity constraints and changes in the contact set. With the SCM, \eqref{equ:csqp} becomes a finite candidate search with a continuous force-optimization subproblem for each candidate. For a fixed contact set, differentiating \eqref{equ:scm} with respect to the robot contact force gives
 \begin{equation}
@@ -308,8 +309,8 @@ where \bluerev{$\boldsymbol{G}_k=\partial(\boldsymbol{x}_k\oplus\boldsymbol{\del
 -h^{-1}\boldsymbol{D}^{-1}\boldsymbol{\tilde J}_{\mathrm{env},j}\boldsymbol{V}^{(k,j-1)}\Bigr],}
 \label{eq:scm_impulse_gradient}
 \end{equation}
-\rev{$\boldsymbol{V}^{(k,j)}=\boldsymbol{V}^{(k,j-1)}+h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde J}_{\mathrm{env},j}^{\top}(\boldsymbol{\Lambda}^{(k)}_j-\boldsymbol{\Lambda}^{(k-1)}_j)$, in the sweep order of \eqref{eq:scm_single_step_projection} from $\boldsymbol{\Lambda}^{(0)}_j=\boldsymbol{0}$ and $\boldsymbol{V}^{(1,0)}=h\boldsymbol{M}_o^{-1}\boldsymbol{J}_{\mathrm r,i}^{\top}$; stacking $\boldsymbol{\Lambda}^{(K)}_j$ gives $\partial\hat{\boldsymbol{\lambda}}_{\mathrm{env}}/\partial\boldsymbol{\lambda}_{\mathrm r,i}$.}
-The SCM rollout is thus smooth in the robot contact forces for a fixed contact set; GPU-parallel CEM uses forward evaluations of \eqref{equ:scm}, and the gradients support alternative gradient solvers.
+\rev{$\boldsymbol{V}^{(k,j)}=\boldsymbol{V}^{(k,j-1)}+h\boldsymbol{M}_o^{-1}\boldsymbol{\tilde J}_{\mathrm{env},j}^{\top}(\boldsymbol{\Lambda}^{(k)}_j-\boldsymbol{\Lambda}^{(k-1)}_j)$, in the sweep order of \eqref{eq:scm_single_step_projection} from $\boldsymbol{\Lambda}^{(0)}_j=\boldsymbol{0}$ and $\boldsymbol{V}^{(1,0)}=h\boldsymbol{M}_o^{-1}\boldsymbol{J}_{\mathrm r,i}^{\top}$. Stacking $\boldsymbol{\Lambda}^{(K)}_j$ gives $\partial\hat{\boldsymbol{\lambda}}_{\mathrm{env}}/\partial\boldsymbol{\lambda}_{\mathrm r,i}$.}
+The SCM rollout is thus smooth in the robot contact forces for a fixed contact set. GPU-parallel CEM uses forward evaluations of \eqref{equ:scm}, and the gradients support alternative gradient solvers.
 
 \section{Contact Planning Optimization}\label{sec:cpo}
 
@@ -321,9 +322,9 @@ Compared to CIMPC methods, CPO must additionally consider the guidance from the 
 \begin{equation}
  \begin{aligned}
 \min_{\boldsymbol{u}_{0:N-1}} \quad &
- {\textstyle \rev{\sum_{k=0}^{N-1}}} \ell_{\text{cpo}}(\boldsymbol{x}_k, \boldsymbol{u}_k, \boldsymbol{\hat{p}}^*_{\text{r}}) + V_f(\boldsymbol{x}_N) \\
-\text{s.t.}\quad & \boldsymbol{x}_{k+1} = f(\boldsymbol{x}_k, \boldsymbol{u}_k), \quad k=0,\dots,\rev{N}-1, \\
-& \boldsymbol{x}_k \in \mathcal{X}, \quad k=0,\dots,\rev{N}, \\
+ {\textstyle \rev{\sum_{k=0}^{N-1}}} \ell_{\text{cpo}}(\text{}\textcolor{red}{\boldsymbol{s}}_k, \boldsymbol{u}_k, \boldsymbol{\hat{p}}^*_{\text{r}}) + V_f(\text{}\textcolor{red}{\boldsymbol{s}}_N) \\
+\text{s.t.}\quad & \text{}\textcolor{red}{\boldsymbol{s}}_{k+1} = f(\text{}\textcolor{red}{\boldsymbol{s}}_k, \boldsymbol{u}_k), \quad k=0,\dots,\rev{N}-1, \\
+& \text{}\textcolor{red}{\boldsymbol{s}}_k \in \mathcal{X}, \quad k=0,\dots,\rev{N}, \\
 & \boldsymbol{u}_k \in \mathcal{U}, \quad k=0,\dots,\rev{N}-1.
 \end{aligned}\label{equ:origin_cpo_problem}
 \end{equation}
@@ -339,7 +340,7 @@ In the previous section, we discussed how CIMPC methods suffer from gradient spa
 \item The terminal waypoint establishes contact, and the contact force lies within the friction cone.
 \end{itemize}
 
-As shown in Fig. \ref{fig:approaching_contact}, the robot--object interaction states form a low-dimensional manifold embedded in the full system state space. A detouring motion can be viewed as planning a kinodynamically feasible bridging manifold $\mathcal{S}_{\text{approach}}$ within the contact-free space $\mathcal{S}_{\text{free}}$, connecting two states on the contact manifold $\mathcal{S}_{\text{contact}}$. This is challenging for CIMPC methods because, as discussed above, $\mathcal{S}_{\text{free}}$ provides little informative contact-induced gradient for such transitions. To naturally bridge the approaching, contact, and contact-switching phases without relying on a discrete state machine, we formulate CPO under a unified objective that jointly governs contact execution and pre-contact detouring and approach motions.
+As shown in Fig. \ref{fig:approaching_contact}, the robot--object interaction states form a low-dimensional manifold embedded in the full system state space. A detouring motion can be viewed as planning a kinodynamically feasible bridging manifold $\mathcal{S}_{\text{approach}}$ within the contact-free space $\mathcal{S}_{\text{free}}$, connecting two states on the contact manifold $\mathcal{S}_{\text{contact}}$. This is challenging for CIMPC methods because, as discussed above, $\mathcal{S}_{\text{free}}$ provides little informative contact-induced gradient for such transitions. To naturally bridge the approaching, contact, and contact-switching phases, we formulate CPO under a unified objective that jointly governs contact execution and pre-contact detouring and approach motions.
 
 \subsection{Ranking Strategy of Contact Locations}
 \label{sec:cpo-ranking_strategy}
@@ -355,7 +356,7 @@ In addition to the optimal contact location $\boldsymbol{\hat{p}}^*_{\text{r}}$ 
 }
 \end{equation}
 where $\boldsymbol{p}^{\mathrm{ee}}_i$ is the end-effector position
-corresponding to contact at $\boldsymbol{p}_i$. We reformulate the problem \eqref{equ:origin_cpo_problem} so that the placing term tracks the nearby contact as the reference contact location, $\boldsymbol{p}_{\text{ref}}=\boldsymbol{p}_{\text{near}}$, while the lifting term detours toward $\boldsymbol{\hat{p}}^*_{\text{r}}$; the ranking strategy weights the two terms in real time. Accordingly, the ranking output determines whether to maintain the current contact or detach and switch to $\boldsymbol{\hat{p}}^*_{\mathrm{r}}$ in the contact phase, and whether to establish a nearby contact or detour toward $\boldsymbol{\hat{p}}^*_{\mathrm{r}}$ in the pre-contact phase. We next define the evaluation criteria for the ranking strategy.
+corresponding to contact at $\boldsymbol{p}_i$. We reformulate the problem \eqref{equ:origin_cpo_problem} \textcolor{red}{with reference $\boldsymbol{p}_{\text{ref}}$ set to the nearby contact for placing or the CSO-selected contact for detouring. Ranking selects the corresponding attraction cost.} Accordingly, the ranking output determines whether to maintain the current contact or detach and switch to $\boldsymbol{\hat{p}}^*_{\mathrm{r}}$ in the contact phase, and whether to establish a nearby contact or detour toward $\boldsymbol{\hat{p}}^*_{\mathrm{r}}$ in the pre-contact phase. We next define the evaluation criteria for the ranking strategy.
 }
 
 \textcolor{red}{
@@ -418,7 +419,7 @@ To avoid frequent switching due to transient ranking variations, we apply expone
 
 \textcolor{red}{
 The overall ranking process repeatedly evaluates the nearby contact
-under the current configuration.} \textcolor{red}{CPO selects the nearby contact $\boldsymbol{p}_{\mathrm{near}}$ when $\gamma_t=1$ and the guidance $\hat{\boldsymbol{p}}_{\mathrm r}^{*}$ generated by CSO when $\gamma_t=0$; the filtered trigger $\bar{\kappa}_t$ remains continuous, while the phase is selected by its $1/2$ threshold.}
+under the current configuration.} \textcolor{red}{CPO selects the nearby contact $\boldsymbol{p}_{\mathrm{near}}$ when $\gamma_t=1$ and the guidance $\hat{\boldsymbol{p}}_{\mathrm r}^{*}$ generated by CSO when $\gamma_t=0$. The filtered trigger $\bar{\kappa}_t$ remains continuous, while the phase is selected by its $1/2$ threshold.}
 \textcolor{red}{
 The complete procedure is summarized in Algorithm~\ref{algo:ranking}. This hierarchical design establishes a weak coupling between CSO and CPO, allowing CPO to exploit the guidance from CSO while retaining the flexibility to autonomously determine executable contact strategies.
 }
@@ -433,7 +434,7 @@ The complete procedure is summarized in Algorithm~\ref{algo:ranking}. This hiera
 \State Evaluate $\Delta\ell_t^{\mathrm{near}}$ and $[\Delta\ell_t^{\mathrm{min}},\Delta\ell_t^{\mathrm{max}}]$ via \eqref{equ:csqp}
 \State Compute $\rho_t$ and $\kappa_t$ via \eqref{equ:ranking1} and \eqref{equ:kappa}
 \State Update \textcolor{red}{$\bar{\kappa}_{t+1}$ and $\gamma_{t+1}=\mathbf{1}(\bar{\kappa}_{t+1}\geq 1/2)$} via \eqref{equ:ranking}
-\State Set $\boldsymbol{p}_{\text{ref}}\gets\boldsymbol{p}_{\text{near}}$ for $\ell_{\text{place}}$; $\ell_{\text{lift}}$ continues to target $\boldsymbol{\hat{p}}^*_r$
+\State \textcolor{red}{Set $\boldsymbol{p}_{\text{ref}}\gets\boldsymbol{p}_{\text{near}}$ if $\gamma_{t+1}=1$, otherwise $\boldsymbol{p}_{\text{ref}}\gets\boldsymbol{\hat{p}}^*_r$}
 \State Compute $\ell_{\text{lp}}=(1-\gamma_{t+1})\ell_{\text{lift}}+\gamma_{t+1}\ell_{\text{place}}$ via \eqref{equ:lp_cost}\textcolor{red}{, with $\gamma_{t+1}\in\{0,1\}$ selecting lifting or placing}
 \State \Return $\boldsymbol{p}_{\text{ref}},\ell_{\text{lp}}$
 \end{algorithmic}
@@ -443,11 +444,11 @@ The complete procedure is summarized in Algorithm~\ref{algo:ranking}. This hiera
 
 Contact planning inherently consists of multiple phases, including approaching, contact establishment, and contact switching. However, the CIMPC formulation does not naturally support contact switching, because contact switching requires leaving $\mathcal{S}_{\text{contact}}$ and traversing the contact-free space $\mathcal{S}_{\text{free}}$, where the CIMPC objective provides no effective gradient information for trajectory optimization. To address this issue, we introduce a novel objective formulation that enables multi phases planning within a unified framework. The proposed formulation is general to different task settings and compatible with various optimization solvers.
 
-As illustrated in Fig. \ref{fig:task_requirements}, the trajectory optimization is decomposed into three stages. First, the end-effector leaves the current contact and moves around the object toward an intermediate waypoint $\boldsymbol{p}_{\text{lift}}$ or pose $\boldsymbol{q}_{\text{lift}}$. This intermediate target guides the robot toward a pre-contact configuration above the object. Second, the end-effector is guided toward $\boldsymbol{p}_{\text{ref}}$ to establish contact. This design is inspired by footstep planning in legged robots \cite{acosta2025perceptive}. The corresponding costs are:
+\textcolor{red}{As illustrated in Fig. \ref{fig:task_requirements}, contact relocation follows a smooth curve from the current end-effector position to $\boldsymbol{p}_{\text{ref}}$. A waypoint advancing smoothly along this curve supplies the attractive target. This construction guides detachment, detouring, and contact establishment without discrete segment transitions. The corresponding costs are:}
 
 \subsubsection{Lifting Phase}
 
-During the lifting phase, \textcolor{red}{when the nearest contact point $\boldsymbol{p}_{\text{near}}$ is not accepted by the ranking strategy ($\gamma_t=0$)}, a hybrid potential field guides the robot to detach from the object and move above the guidance. It consists of a repulsive term from the object:
+\textcolor{red}{}\textcolor{red}{During contact relocation ($\gamma_t=0$), a cubic B\'ezier curve connects the current end-effector position to $\boldsymbol{p}_{\text{ref}}$. Its control points are chosen to place the apex above the object OBB. The optional repulsive cost below is unused in the reported experiments:}
 \begin{equation}
  \ell_{\text{obs}} =
 \begin{cases}
@@ -456,12 +457,12 @@ During the lifting phase, \textcolor{red}{when the nearest contact point $\bolds
 0, & \text{otherwise.}
 \end{cases}
 \end{equation}
-and an attractive term toward the lifting point $\boldsymbol{p}_{\text{lift}}$ or lifting configuration $\boldsymbol{q}_{\text{lift}}$. \rev{The lifting point guides the end-effector to first rise to $(p_{\text{ee},x},p_{\text{ee},y},z_{\text{c}})$, then move to $(\hat{p}^*_{\text{r},x},\hat{p}^*_{\text{r},y},z_{\text{c}})$ above $\boldsymbol{\hat{p}}^*_{\text{r}}$, and finally descend to $\boldsymbol{\hat{p}}^*_{\text{r}}$, where $z_{\text{c}}$ is a clearance height above the object.} We use $\ell_{\text{att}}=\|\boldsymbol{p}_{\text{ee}}-\boldsymbol{p}_{\text{lift}}\|^2$ or $\ell_{\text{att}}=\|\boldsymbol{q}_{\text{ee}}-\boldsymbol{q}_{\text{lift}}\|^2$, and define $\ell_{\text{lift}}=w_{\text{att}}\ell_{\text{att}}+w_{\text{obs}}\ell_{\text{obs}}$.
-This potential formulation encodes the lifting behavior and avoids optimization failure caused by gradient-sparse regions during contact breaking.
+\rev{}\textcolor{red}{The attractive target $\boldsymbol{p}_{\text{lift}}(k)$ samples this curve at a smoothly increasing parameter. We use $\ell_{\text{att}}=\|\boldsymbol{p}_{\text{ee}}-\boldsymbol{p}_{\text{lift}}(k)\|^2$ and $\ell_{\text{lift}}=w_{\text{att}}\ell_{\text{att}}$.}
+\textcolor{red}{This attraction provides motion guidance through gradient-sparse contact-free regions.}
 
 \subsubsection{Placing Phase}
 
-During the placing phase, when the robot reaches a position above $\hat{\boldsymbol{p}}_r^*$, or when $\boldsymbol{p}_{\text{near}}$ is \textcolor{red}{accepted by the ranking strategy} \textcolor{red}{($\gamma_t=1$)}, the end-effector is guided to establish contact with the object using $\ell_{\text{place}}=w_{\text{con}}\ell_{\text{con}}$.
+During the placing phase, \textcolor{red}{when} $\boldsymbol{p}_{\text{near}}$ is \textcolor{red}{accepted by the ranking strategy} \textcolor{red}{($\gamma_t=1$)}, the end-effector is guided to establish contact with the object using $\ell_{\text{place}}=w_{\text{con}}\ell_{\text{con}}$.
 \textcolor{red}{The cost attracts the end-effector to an inward offset of $\boldsymbol{p}_{\text{ref}}$.}
 \begin{equation}
  \ell_{\text{con}} = \left\|\boldsymbol{p}_{\text{ee}} - \textcolor{red}{(\boldsymbol{p}_{\text{ref}} - \delta\boldsymbol{n}_{\text{ref}})}\right\|^2. \label{eq:placing_cost}
@@ -474,13 +475,14 @@ During the placing phase, when the robot reaches a position above $\hat{\boldsym
 \begin{equation}\label{equ:lp_cost}
  \ell_{\text{lp}} = (1-\gamma) \ell_{\text{lift}} + \gamma \ell_{\text{place}},
 \end{equation}
-\textcolor{red}{Since $\gamma$ is binary and held fixed during each CPO solve, one phase cost is active at a time, consistently with Algorithm~\ref{algo:ranking}.} where $\ell_{\text{lp}}$ is incorporated into the stage cost $\ell_{\text{cpo}}$ in \eqref{equ:origin_cpo_problem}. By defining the terminal cost \addrev{$V_f(\boldsymbol{x}_N)=w_{\mathrm{cso}}\ell_{\mathrm{pose}}(\boldsymbol{x}_N)$ on the predicted terminal state}, the CPO formulation is obtained as:
+\textcolor{red}{Since $\gamma$ is binary and held fixed during each CPO solve, one phase cost is active at a time, consistently with Algorithm~\ref{algo:ranking}.} where $\ell_{\text{lp}}$ is incorporated into the stage cost $\ell_{\text{cpo}}$ in \eqref{equ:origin_cpo_problem}. By defining the terminal cost \addrev{$V_f(\text{}\textcolor{red}{\boldsymbol{s}}_N)=w_{\mathrm{cso}}\ell_{\mathrm{pose}}(\text{}\textcolor{red}{\boldsymbol{s}}_N)$ on the predicted terminal state}, the CPO formulation is obtained as:
 \begin{equation}\label{equ:cpo_formulation}
  \begin{aligned}
 \rev{\min_{\boldsymbol{u}_{0:N-1}}} \quad &
- {\textstyle \rev{\sum_{k=0}^{N-1}}} \bigl(w_{\text{lp}} \ell_{\text{lp}}(\boldsymbol{x}_k, \boldsymbol{q}_k, \boldsymbol{u}_k, \boldsymbol{p}_{\text{ref}}) +w_{u}\|\boldsymbol{u}_k\|^2\bigr)\hspace{-6pt}\addrev{+V_f(\boldsymbol{x}_N)} \\
-\text{s.t.}\quad & \boldsymbol{x}_{k+1} = f_{\text{cf}}(\boldsymbol{x}_{k}, \boldsymbol{u}_{k}), \quad k=0,\dots,\rev{N}-1, \\
-& \boldsymbol{x}_k \in \mathcal{X}, \quad k=0,\dots,\rev{N}, \\
+ {\textstyle \rev{\sum_{k=0}^{N-1}}} \bigl(w_{\text{lp}} \ell_{\text{lp}}(\text{}\textcolor{red}{\boldsymbol{s}}_k, \boldsymbol{q}_k, \boldsymbol{u}_k, \boldsymbol{p}_{\text{ref}}) +w_{u}\|\boldsymbol{u}_k\|^2\bigr) \\
+&\hspace{-6pt}\addrev{+V_f(\text{}\textcolor{red}{\boldsymbol{s}}_N)} \\
+\text{s.t.}\quad & \text{}\textcolor{red}{\boldsymbol{s}}_{k+1} = f_{\text{cf}}(\text{}\textcolor{red}{\boldsymbol{s}}_{k}, \boldsymbol{u}_{k}), \quad k=0,\dots,\rev{N}-1, \\
+& \text{}\textcolor{red}{\boldsymbol{s}}_k \in \mathcal{X}, \quad k=0,\dots,\rev{N}, \\
 & \boldsymbol{u}_k \in \mathcal{U}, \quad k=0,\dots,\rev{N}-1.
 \end{aligned}
 \end{equation}
@@ -494,7 +496,7 @@ During the placing phase, when the robot reaches a position above $\hat{\boldsym
 
 \begin{figure}[!t]
  \centerline{\includegraphics[width=\columnwidth]{figures/contact_planning_process_rev.pdf}}
-\caption{Illustration of the CPO-based contact planning module. (a) Ranking strategy. \textcolor{red}{The evaluation runs continuously in real time; its binary outcome $\kappa_t$ is filtered into $\bar{\kappa}_t$ and thresholded at $1/2$ to obtain the phase variable $\gamma_t$.} (b) Lifting phase (\textcolor{red}{$\gamma_t=0$}): \textcolor{red}{$\boldsymbol{p}_{\text{near}}$ is not sufficiently competitive, and} the potential field guides the robot to $\boldsymbol{p}_{\text{lift}}$ \textcolor{red}{toward $\boldsymbol{\hat{p}}_r^*$}. (c) Placing phase (\textcolor{red}{$\gamma_t=1$}): once above $\hat{\boldsymbol{p}}_r^*$ or when $\boldsymbol{p}_{\text{near}}$ is \textcolor{red}{accepted by the ranking strategy}, an attractive potential guides the robot to contact with the object.}
+\caption{Illustration of the CPO-based contact planning module. (a) Ranking strategy. \textcolor{red}{The evaluation runs continuously in real time. Its binary outcome $\kappa_t$ is filtered into $\bar{\kappa}_t$ and thresholded at $1/2$ to obtain the phase variable $\gamma_t$.} (b) Lifting phase (\textcolor{red}{$\gamma_t=0$}): \textcolor{red}{$\boldsymbol{p}_{\text{near}}$ is not sufficiently competitive, and} \textcolor{red}{the moving waypoint $\boldsymbol{p}_{\text{lift}}(k)$ guides contact relocation} \textcolor{red}{toward $\boldsymbol{\hat{p}}_r^*$}. (c) Placing phase (\textcolor{red}{$\gamma_t=1$}): \textcolor{red}{when} $\boldsymbol{p}_{\text{near}}$ is \textcolor{red}{accepted by the ranking strategy}, an attractive potential guides the robot to contact with the object.}
 \label{fig:task_requirements}
 \end{figure}
 
@@ -504,31 +506,15 @@ Since CPO specifies the optimization formulation rather than a specific solver, 
 
 \subsubsection{Operational-Space Control}
 \label{sec:osc_control}
-We simplify the full-order contact planning problem to an end-effector point contact planning problem, avoiding high-DoF robot trajectory optimization. The resulting joint torques are generated by operational space control (OSC) \cite{nakanishi2008operational} to track the CPO output. Specifically, the state in \eqref{equ:cpo_formulation} is reduced to $\boldsymbol{s} \in \mathbb{R}^{10}$, consisting of the object position, object orientation represented by a quaternion, and the end-effector position $\boldsymbol{p}_{\text{ee}} \in \mathbb{R}^3$. Solving \eqref{equ:cpo_formulation} yields the control input $\boldsymbol{u} = \Delta \boldsymbol{p}_{\text{ee}}$.
-\rev{The task imposes only weak constraints on the end-effector orientation, so only its position is controlled in the task space. Given the desired position $\boldsymbol{p}_d=\boldsymbol{p}_{\text{ee}}+\boldsymbol{u}$ and the reference velocity $\dot{\boldsymbol{p}}_d=\boldsymbol{u}/\Delta t$, where $\Delta t$ is the CPO replanning interval, the task-space force is
+We reduce \eqref{equ:cpo_formulation} to point-contact planning with $\boldsymbol{s}\in\mathbb{R}^{10}$ comprising the object position, quaternion orientation, and end-effector position. The optimized displacement $\boldsymbol{u}=\Delta\boldsymbol{p}_{\text{ee}}$ is tracked by operational-space control (OSC) \cite{nakanishi2008operational}.
+\rev{With $\boldsymbol{p}_d=\boldsymbol{p}_{\text{ee}}+\boldsymbol{u}$ and $\dot{\boldsymbol{p}}_d=\boldsymbol{u}/\Delta t$, where $\Delta t$ is the replanning interval, the controller applies $\boldsymbol{F}=\operatorname{sat}_{F_{\max}}\!\bigl(\boldsymbol{K}_p(\boldsymbol{p}_d-\boldsymbol{p}_{\text{ee}})+\boldsymbol{D}_p(\dot{\boldsymbol{p}}_d-\dot{\boldsymbol{p}}_{\text{ee}})\bigr)$. Here, saturation bounds the force norm by $F_{\max}$, and $\boldsymbol{K}_p$ and $\boldsymbol{D}_p$ are the translational blocks of $\boldsymbol{K}_x$ and $\boldsymbol{D}_x$.}
+
+\rev{The task torque is $\boldsymbol{\tau}_{\text{task}}=\boldsymbol{J}_p^\top\boldsymbol{F}$, and posture is regulated by $\boldsymbol{\tau}_{\text{null}}=\boldsymbol{N}_p\bigl(\boldsymbol{K}_q(\boldsymbol{q}_{\text{init}}-\boldsymbol{q})-\boldsymbol{D}_q\dot{\boldsymbol{q}}\bigr)$, with $\boldsymbol{N}_p=\boldsymbol{I}-\boldsymbol{J}_p^\top(\boldsymbol{J}_p^\top)^\dagger$. To weakly align the world-frame tool axis $\boldsymbol{a}$ with $\boldsymbol{a}_d=[0,0,-1]^\top$, we use $\boldsymbol{e}_R=\boldsymbol{a}\times\boldsymbol{a}_d$ and $\boldsymbol{\tau}_{\mathrm{att}}=\boldsymbol{N}_p\boldsymbol{J}_{\omega}^\top(\boldsymbol{K}_R\boldsymbol{e}_R-\boldsymbol{D}_R\boldsymbol{\omega}_{\perp})$, where $\boldsymbol{\omega}_{\perp}=(\boldsymbol{I}-\boldsymbol{a}\boldsymbol{a}^\top)\boldsymbol{J}_{\omega}\dot{\boldsymbol{q}}$. Here, $\boldsymbol{J}_p$ and $\boldsymbol{J}_{\omega}$ are the positional and angular Jacobians. The small gains $\boldsymbol{K}_R$ and $\boldsymbol{D}_R$ regularize tilt while leaving axial rotation unconstrained.} The final control torque is
 \begin{equation}
-\boldsymbol{F}=\operatorname{sat}_{F_{\max}}\!\bigl(\boldsymbol{K}_x(\boldsymbol{p}_d-\boldsymbol{p}_{\text{ee}})-\boldsymbol{D}_x(\dot{\boldsymbol{p}}_{\text{ee}}-\dot{\boldsymbol{p}}_d)\bigr),
+\boldsymbol{\tau}=\boldsymbol{\tau}_{\text{task}}+\boldsymbol{\tau}_{\text{null}}\rev{+\boldsymbol{\tau}_{\mathrm{att}}}+g(\boldsymbol{q}),
 \end{equation}
-where $\operatorname{sat}_{F_{\max}}(\cdot)$ bounds the force norm by $F_{\max}$, which limits the force applied to the object.
-The task-space and null-space torques are given by:
-\begin{align}
-\boldsymbol{\tau}_{\text{task}} &=
-\boldsymbol{J}_p^{\top}(\boldsymbol{q})\boldsymbol{F}, \\
-\boldsymbol{\tau}_{\text{null}} &=
-\left(
-\boldsymbol{I} - \boldsymbol{J}_p^{\top}(\boldsymbol{J}_p^{\top})^{\dagger}
-\right)
-\left(
-\boldsymbol{K}_{q}(\boldsymbol{q}_{\text{init}} - \boldsymbol{q})
-- \boldsymbol{D}_{q}\dot{\boldsymbol{q}}
-\right),
-\end{align}
-where $\boldsymbol{J}_p(\boldsymbol{q})\in\mathbb{R}^{3\times n_{\text{DoF}}}$ is the positional Jacobian of the end-effector,} and the final control torque is
-$\boldsymbol{\tau} =
-\boldsymbol{\tau}_{\text{task}}
-+ \boldsymbol{\tau}_{\text{null}}
-+ g(\boldsymbol{q})$. This controller is used in all simulations and real-world experiments in Section \ref{sec:experiment}, and is suitable for tasks such as tabletop manipulation, where high orientation diversity is not critical.
+where $g(\boldsymbol{q})$ compensates gravity. This controller is used in all experiments in Section~\ref{sec:experiment}.
 
 \subsubsection{Sampling-based Motion Planner}
 
-Another formulation is to directly solve the full-order planning problem of the robot. In this case, the state in \eqref{equ:cpo_formulation} is given by $\boldsymbol{x} \in \mathbb{R}^{7 + n_{\text{DoF}}}$, where $n_{\text{DoF}}$ denotes the number of robot DoFs. For this class of problems, we employ sampling-based MPC methods as the solver, such as MPPI \cite{williams2015model}. Recent studies have demonstrated the impressive performance of MPPI in solving high-dimensional optimization problems for redundant robots, enabling real-time computation while avoiding issues related to gradient-based methods. The cost function is defined in the same manner as in the previous formulation, except that $\boldsymbol{p}_{\text{ee}}$ is computed via forward kinematics for the full-order problem.
+Another formulation is to directly solve the full-order planning problem of the robot. In this case, the state in \eqref{equ:cpo_formulation} is given by \textcolor{red}{$\boldsymbol{s} \in \mathbb{R}^{7 + n_{\text{DoF}}}$}, where $n_{\text{DoF}}$ denotes the number of robot DoFs. For this class of problems, we employ sampling-based MPC methods as the solver, such as MPPI \cite{williams2015model}. Recent studies have demonstrated the impressive performance of MPPI in solving high-dimensional optimization problems for redundant robots, enabling real-time computation while avoiding issues related to gradient-based methods. The cost function is defined in the same manner as in the previous formulation, except that $\boldsymbol{p}_{\text{ee}}$ is computed via forward kinematics for the full-order problem.

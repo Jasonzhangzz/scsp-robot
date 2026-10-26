@@ -37,7 +37,7 @@ Here, we consider the commonly used Anitescu model~\cite{anitescu2006optimizatio
 \end{align}
 \end{subequations}
 
-\textcolor{red}{
+\noindent\textcolor{red}{
 Here, $\boldsymbol{\beta}_i$ denotes the contact impulse over the time interval $h$.
 In the contact-force formulation below, we use $\boldsymbol{\lambda}_i$ to denote the corresponding contact force.
 Assuming that the contact force is approximately constant within one time step, they are related by
@@ -45,9 +45,7 @@ $\boldsymbol{\beta}_i \approx h\boldsymbol{\lambda}_i$.
 }
 $\epsilon\boldsymbol{M}_o$, $\boldsymbol{v}_o$, $\boldsymbol{\tau}_o$, and $\boldsymbol{J}_{o,i}$ are the regularized mass matrix, velocity change, non-contact force, and contact Jacobian of the object, respectively.
 $\boldsymbol{K}_r$, $\boldsymbol{v}_r$, $\boldsymbol{\tau}_r$, and $\boldsymbol{J}_{r,i}$ are the robot stiffness matrix, velocity, non-contact torque, and contact Jacobian, respectively.
-\textcolor{red}{
-The control input is defined as $\boldsymbol{u}=\Delta\boldsymbol{q}$.
-}
+\editdel{The control input is defined as $\boldsymbol{u}=\Delta\boldsymbol{q}$.}
 
 The above equations describe, from the perspective of momentum balance, how the robot influences the object's state through contact, as well as how the object interacts with the environment.
 Here, we follow~\cite{pang2021convex,jin2024complementarity} and consider the robot to be under impedance control~\cite{hogan1984impedance}, modeling the robot--object interaction as a spring system.
@@ -73,7 +71,7 @@ The contact constraints between contact forces and system motion are typically f
  \forall i\in\{1,\ldots,n_c\},
  \label{equ.complementarity_constraint}
 \end{equation}
-where
+\noindent where
  $\mathcal{K}_i
  =
  \left\{
@@ -130,7 +128,7 @@ The KKT conditions are~\cite{avriel2003nonlinear,anitescu2006optimization}:
  \label{equ.contact_model_con}
 \end{align}
 \end{subequations}
-where
+\noindent where
 $\boldsymbol{Q} \in
 \mathbb{R}^{(n_o+n_{\text{DoF}})\times(n_o+n_{\text{DoF}})}$
 and
@@ -153,7 +151,7 @@ are
  \end{bmatrix}.
  \label{equ.q_matrix}
 \end{equation}
-Here, $n_o$ and $n_{\mathrm{DoF}}$ are the dimensions of the object and robot states, respectively, and $n_c$ is the number of contacts.
+\noindent Here, $n_o$ and $n_{\mathrm{DoF}}$ are the dimensions of the object and robot states, respectively, and $n_c$ is the number of contacts.
 
 Problem~\eqref{equ.contact_model} is a second-order cone program (SOCP) and is often approximated by a QP through a polyhedral approximation of the friction cone:
 \begin{equation}
@@ -171,7 +169,7 @@ Problem~\eqref{equ.contact_model} is a second-order cone program (SOCP) and is o
  \quad
  j\in\{1,\ldots,n_d\},
 \end{equation}
-where $n_d$ is the number of friction-cone facets.
+\noindent where $n_d$ is the number of friction-cone facets.
 Solving~\eqref{equ.contact_model} corresponds to one step of physically consistent contact simulation.
 The resulting velocity $\boldsymbol{v}$ can then be used to integrate the current state as
 $\boldsymbol{q}_{t+1}
@@ -216,22 +214,21 @@ As a representative method, CIMPC is formulated as:
 \end{aligned}
 \label{eq:CIMPC_opt}
 \end{equation}
-in which $\boldsymbol{x}_k$ is the system state, including the object pose $q_k$ and robot configuration, and $f$ denotes the contact dynamics.
+\noindent in which $\boldsymbol{x}_k$ is the system state, including the object pose $q_k$ and robot configuration, and $f$ denotes the contact dynamics.
 The stage cost $\ell$ can take various forms and is typically used to guide the process of approaching the contact location.
-\textreplace{The terminal cost $V_f$ is usually defined as the error between the object pose and the desired pose:}{The object pose cost $\ell_{\mathrm{pose}}$ measures the full position and quaternion error, and CPO uses $V_f=w_{\mathrm{cso}}\ell_{\mathrm{pose}}$ as its terminal cost:}
-\begin{equation}
-\label{equ:obj_pose_cost}
+\textreplace{The terminal cost $V_f$ is usually defined as the error between the object pose and the desired pose:}{\editdel{The object pose cost $\ell_{\mathrm{pose}}$ measures the full position and quaternion error, and CPO uses $V_f=w_{\mathrm{cso}}\ell_{\mathrm{pose}}$ as its terminal cost:}}
+\begin{equation*}
 \begin{aligned}
-\ell_{\mathrm{pose}}
-&=
+&\editdelmath{\ell_{\mathrm{pose}}
+=
 w_{\mathrm{pos}}
 \left\|
 \boldsymbol{p}_{\mathrm{obj}}
 -
 \boldsymbol{p}_{\mathrm{goal}}
-\right\|_2^2
+\right\|_2^2}
 \\[-2pt]
-&\quad+
+&\editdelmath{\quad+
 w_{\mathrm{quat}}
 \left(
 1-
@@ -239,9 +236,9 @@ w_{\mathrm{quat}}
 \boldsymbol{\psi}_{\mathrm{obj}}^{\top}
 \boldsymbol{\psi}_{\mathrm{goal}}
 \right)^2
-\right).
+\right).}
 \end{aligned}
-\end{equation}
+\end{equation*}
 
 \textcolor{red}{
 The hybrid nature of contact dynamics renders~\eqref{eq:CIMPC_opt} a piecewise-smooth nonlinear complementarity problem (NCP).
@@ -254,7 +251,7 @@ The full contact model is too costly for online receding-horizon optimization, s
 \textcolor{red}{
 We next introduce the complementarity-free contact model proposed in~\cite{jin2024complementarity}, which motivates the contact-model approximation used later in CSO.
 }
-Problem~\eqref{equ.contact_model} has the dual form:
+Problem~\eqref{equ.contact_model} \textcolor{red}{has the following regularized dual after polyhedral approximation}:
 \begin{multline}
 \label{equ.dual_prob_relax}
  \max_{\boldsymbol{\beta}\geq\boldsymbol{0}}
@@ -286,7 +283,7 @@ Problem~\eqref{equ.contact_model} has the dual form:
  \boldsymbol{Q}^{-1}
  \boldsymbol{b}.
 \end{multline}
-in which $\boldsymbol{R}$ is a small regularization term commonly used to enhance numerical stability, and
+\noindent in which $\boldsymbol{R}$ is a small regularization term commonly used to enhance numerical stability, and
 \begin{equation}
 \boldsymbol{\widetilde{J}}
 =
@@ -323,7 +320,7 @@ in which $\boldsymbol{R}$ is a small regularization term commonly used to enhanc
 \end{bmatrix}.
 \end{equation}
 
-Here, $\boldsymbol{\beta}$ is not only a dual variable but also has a physical interpretation as the contact impulse.
+\noindent\textcolor{red}{Here, $\boldsymbol{\beta}$ contains nonnegative facet impulse coefficients, mapped to generalized impulse by $\boldsymbol{\widetilde{J}}^{\top}$. The directional tangential Jacobians $\boldsymbol{J}_{i,j}^{t}$ correspond to $\boldsymbol{J}_{i,j}^{d}$ above.}
 Specifically, the solution of~\eqref{equ.dual_prob_relax} satisfies the following complementarity constraints:
 \begin{equation}
 \label{equ.dual_prob_relax_sol}
@@ -352,12 +349,12 @@ Specifically, the solution of~\eqref{equ.dual_prob_relax} satisfies the followin
  \boldsymbol{0}.
 \end{equation}
 
-Following~\cite{jin2024complementarity}, we replace the dense inverse
+\noindent Following~\cite{jin2024complementarity}, we replace the dense inverse
 $(\boldsymbol{\widetilde{J}}\boldsymbol{Q}^{-1}
 \boldsymbol{\widetilde{J}}^{\top}+\boldsymbol{R})^{-1}$ by a
 positive-definite diagonal matrix $\boldsymbol{K}(\boldsymbol{q})$ chosen
 as a local approximation. This replacement defines a modified dual
-problem; it is not an equality that holds for a general multi-contact
+problem. It is not an equality that holds for a general multi-contact
 geometry. With $\boldsymbol{D}=\boldsymbol{K}^{-1}$, the modified
 problem has the following closed-form solution:
 \begin{equation}
@@ -379,7 +376,7 @@ problem has the following closed-form solution:
  \label{eq:cf_impulse}
 \end{equation}
 
-\textcolor{red}{The complementarity-free model is then written as:}
+\noindent\textcolor{red}{The complementarity-free model is then written as:}
 \begin{equation}
 \label{equ:cf_model}
 f_{\mathrm{cf}}:
@@ -407,10 +404,10 @@ f_{\mathrm{cf}}:
  \right).
 \end{cases}
 \end{equation}
-where $\boldsymbol{\beta}$ denotes the contact impulses of all contact points and $\boldsymbol{v}^{+}$ combines the object velocity $\boldsymbol{v}_o$ and robot velocity $\boldsymbol{v}_r$.
+\noindent where $\boldsymbol{\beta}$ denotes the \textcolor{red}{polyhedral contact-impulse coefficients} and $\boldsymbol{v}^{+}$ combines the object velocity $\boldsymbol{v}_o$ and robot velocity $\boldsymbol{v}_r$.
 
-\textcolor{red}{
+\editdel{
 The modified problem is exact for the chosen diagonal surrogate, while
 its discrepancy from the original contact model depends on the discarded
-off-diagonal coupling. The SCM introduced in Section~\ref{sec:cso} starts from the same diagonal approximation, replaces the $\max$ operator in \eqref{eq:cf_impulse} with a smooth softplus, and partially restores the off-diagonal coupling with $K=3$ unrolled Gauss--Seidel sweeps over the contacts; its predictive fidelity is evaluated empirically in Section~\ref{sec:scm_evaluation}.
+off-diagonal coupling. The SCM introduced in Section~\ref{sec:cso} starts from the same diagonal approximation, replaces the $\max$ operator in \eqref{eq:cf_impulse} with a smooth softplus, and partially restores the off-diagonal coupling with $K=3$ unrolled Gauss--Seidel sweeps over the contacts. Its predictive fidelity is evaluated empirically in Section~\ref{sec:scm_evaluation}.
 }

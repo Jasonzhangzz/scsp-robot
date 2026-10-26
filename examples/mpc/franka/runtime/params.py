@@ -200,6 +200,10 @@ def add_lambda_predictor_args(parser):
     """One predictor configuration shared by Isaac and SCM MuJoCo checks."""
     parser.set_defaults(friction_reg_coef=DEFAULT_TANGENTIAL_FORCE_PENALTY,
                         two_stage_object_cost=True)
+    parser.add_argument('--lambda-predictor', choices=('scm', 'physx'), default='scm',
+                        help='GPU CEM rollout model for lambda_optimizer: SCM or native GPU PhysX.')
+    parser.add_argument('--lambda-physx-dt', type=float, default=.002,
+                        help='Native PhysX prediction step; must divide the policy interval.')
     parser.add_argument('--collision-geometry', choices=('auto', 'hull', 'decomposed'), default='auto')
     parser.add_argument('--contact-sampling', choices=('auto', 'surface', 'vertices'), default='auto')
     parser.add_argument('--two-stage-object-cost', dest='two_stage_object_cost', action='store_true')
@@ -219,12 +223,14 @@ def add_lambda_predictor_args(parser):
 
 
 def build_lambda_optimizer(param, args):
-    """CSO over the sampled contact candidates with the paper SCM.
+    """CSO over sampled candidates with GPU CEM and a selectable predictor.
 
     Every visible candidate is solved by the GPU-parallel CEM
     (``planning.contact_force_gpu_cem``): diagonal softplus_T SCM with one
     residual correction on the coupled Delassus operator, evaluated on the
     physical one-step object model with the simulated mass and inertia.
+    ``--lambda-predictor physx`` replaces this prediction with native GPU
+    collision detection and TGS solves, retaining the same force objective.
     """
     if getattr(param, 'contact_model', '') == 'contactsdf':
         raise ValueError('ContactSDF uses the independent official MPC, without Lambda/CSO')
@@ -267,13 +273,25 @@ def build_lambda_optimizer(param, args):
     opt.cso_guidance = guidance
     # One stream per trial so random guidance is reproducible across matched runs.
     opt._cso_rng = np.random.default_rng(int(getattr(param, "trial_seed_", 0)))
+    native_settings = {}
+    fallback_inertia = np.full(3, 1e-6)
+    if getattr(args, 'lambda_predictor', 'scm') == 'physx':
+        fallback_inertia = _box_inertia_diag(float(getattr(param, 'lambda_obj_mass_', .01)),
+                                            param.object_aabb_lo, param.object_aabb_hi)
+        native_settings = dict(physics_dt=float(getattr(args, 'lambda_physx_dt', .002)),
+            scene=dict(mesh_path=str(Path(param.mesh_path_).resolve()),
+                collision_mesh_paths=[str(Path(p).resolve()) for p in (getattr(param, 'collision_mesh_paths_', None) or [])],
+                object_friction=float(getattr(param, 'object_friction_', .7)),
+                table_friction=float(getattr(param, 'table_friction_', .7))))
     opt.configure_gpu_cem(
         float(getattr(param, 'sim_obj_mass_', getattr(param, 'lambda_obj_mass_', 0.01))),
-        np.asarray(getattr(param, 'sim_obj_inertia_diag_', np.full(3, 1e-6)), dtype=float),
+        np.asarray(getattr(param, 'sim_obj_inertia_diag_', fallback_inertia), dtype=float),
+        predictor=getattr(args, 'lambda_predictor', 'scm'),
         softplus_temperature=float(getattr(args, 'softplus_temperature', 1e-3)),
         scm_regularization=float(getattr(args, 'scm_regularization', 1e-8)),
         max_linear_force_delta_v=float(getattr(args, 'max_linear_force_delta_v', .3)),
-        max_angular_force_delta_v=float(getattr(args, 'max_angular_force_delta_v', 3.)))
+        max_angular_force_delta_v=float(getattr(args, 'max_angular_force_delta_v', 3.)),
+        **native_settings)
     return opt
 
 

@@ -1,0 +1,66 @@
+{
+  "sources": {
+    "MJWarp": "/home/zz/scsp-robot/outputs/collision_prediction_200_per_mode_20261026_job/data",
+    "IsaacGym": "/home/zz/scsp-robot/outputs/collision_prediction_isaacgym_8000_20261026_final_job/data"
+  },
+  "isaac_snapshot": {
+    "captured_at": "2026-10-26T12:55:53.594667+00:00",
+    "source": "/home/zz/scsp-robot/outputs/collision_prediction_isaacgym_8000_20261026_final_job/data",
+    "source_status": "complete",
+    "source_phase": "finished",
+    "csv_sha256": {
+      "cube.csv": "847b4d62ef9e413837de3bfb660b053e9b2d1bebec235771981c5a49384098f5",
+      "cylinder.csv": "2d8ac851c24c78706f964a5ec49de11da7ea074821744732b05967539467fa36",
+      "elephant.csv": "1a546641cf47783d6ca1cc157d9724782b95277d6e5422d865298b166ded833d",
+      "foam_brick.csv": "c29ffce82b6b297b0afea565fd5df52813e2b374f88bb1b53a67c9436aa6f3ab",
+      "mug.csv": "95a2e22dfa8ab069516a4a50053e14ebe3cb01ce0dfe3af4feb76814babe8f08",
+      "piggy_bank.csv": "6d6affa906faa7d5e43dcffb3bf0aceb8e9df243c1d3116b81e52d99b47267a2",
+      "rubber_duck.csv": "85f9a411ee5ea88677032bc244b28e986fad934fe03a5c3483bbc31027d5a386",
+      "sphere.csv": "a251f65af03770163fe3311ee86c7f77e650ef270ed9c610697e76f09db1905c",
+      "stanford_bunny2.csv": "3d1147ada3c77dc7045f6ef5e15ee3b9f6b7697c8bb1c65e3b563c7c719e464b",
+      "teapot.csv": "937e2c6c58b44f3e08b0285f4aad792b874bb84b25e5b703051f7f534236436a"
+    }
+  },
+  "n_queries": {
+    "MJWarp": 8000,
+    "IsaacGym": 8000
+  },
+  "n_mixed_isaac": 4582,
+  "counts": {
+    "MJWarp": [
+      2000,
+      2000,
+      2000,
+      2000,
+      1788,
+      387,
+      488,
+      5337,
+      946,
+      439,
+      1015,
+      5600
+    ],
+    "IsaacGym": [
+      483,
+      118,
+      2398,
+      419,
+      3384,
+      731,
+      1273,
+      2612,
+      946,
+      439,
+      1015,
+      5600
+    ]
+  },
+  "subgroup_counts_equal": false,
+  "metrics": [
+    "position_error_mm",
+    "orientation_error_deg"
+  ],
+  "grouping": "engine-native regime/count; all frozen queries in count/geometry, mixed omitted only from regime columns",
+  "geometry_definition": "prescribed support configuration"
+}

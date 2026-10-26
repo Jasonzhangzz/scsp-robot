@@ -1,0 +1,173 @@
+{
+  "definition": "Onset uses existing Table IV labels, including endpoint diagnostic. Loads integrate only ten actual 2ms reference solves in [0,20]ms. Peak is maximum over substeps of sum of nonnegative normal forces at points of the specified interaction pair. Impulse is scalar normal-force sum times dt, not net vector impulse. Endpoint diagnostic loads are excluded.",
+  "engines": {
+    "MJWarp": {
+      "n": 2000,
+      "external_force_N": {
+        "n": 2000,
+        "min": 0.0,
+        "max": 0.5,
+        "median": 0.1,
+        "p95": 0.5,
+        "mean": 0.13487500000000002
+      },
+      "ball_initial_speed_m_s": {
+        "n": 2000,
+        "min": 0.10001193780758473,
+        "max": 0.4351527401525903,
+        "median": 0.24019578575951522,
+        "p95": 0.3848853841249286,
+        "mean": 0.2458269373731393
+      },
+      "ground": {
+        "onset_count": 0,
+        "onset_in_0_20ms_count": 0,
+        "endpoint_diagnostic_only_count": 0,
+        "peak_summed_normal_force_N": {
+          "n": 0
+        },
+        "peak_summed_normal_force_N_onset_in_0_20ms": {
+          "n": 0
+        },
+        "normal_impulse_Ns": {
+          "n": 0
+        },
+        "normal_impulse_Ns_onset_in_0_20ms": {
+          "n": 0
+        }
+      },
+      "ball": {
+        "onset_count": 2000,
+        "onset_in_0_20ms_count": 1996,
+        "endpoint_diagnostic_only_count": 4,
+        "peak_summed_normal_force_N": {
+          "n": 2000,
+          "min": 0.0,
+          "max": 1.3159113985020667,
+          "median": 0.46432653814554214,
+          "p95": 1.1181034037843347,
+          "mean": 0.5103465694751649
+        },
+        "peak_summed_normal_force_N_onset_in_0_20ms": {
+          "n": 1996,
+          "min": 0.042129840701818466,
+          "max": 1.3159113985020667,
+          "median": 0.4652903750538826,
+          "p95": 1.1181602226570249,
+          "mean": 0.5113693080913476
+        },
+        "normal_impulse_Ns": {
+          "n": 2000,
+          "min": 0.0,
+          "max": 0.01877495734579861,
+          "median": 0.0050430985391139984,
+          "p95": 0.014789930871943942,
+          "mean": 0.005948639346062665
+        },
+        "normal_impulse_Ns_onset_in_0_20ms": {
+          "n": 1996,
+          "min": 0.0001522870510816574,
+          "max": 0.01877495734579861,
+          "median": 0.005053960517048836,
+          "p95": 0.01479396035184618,
+          "mean": 0.005960560466996658
+        }
+      },
+      "endpoint_diagnostic_only_query_count": 4
+    },
+    "IsaacGym": {
+      "n": 419,
+      "external_force_N": {
+        "n": 419,
+        "min": 0.0,
+        "max": 0.5,
+        "median": 0.1,
+        "p95": 0.5,
+        "mean": 0.19140811455847256
+      },
+      "ball_initial_speed_m_s": {
+        "n": 419,
+        "min": 0.05,
+        "max": 0.8723106608244409,
+        "median": 0.3668079284023828,
+        "p95": 0.8538852885123449,
+        "mean": 0.41284646235321054
+      },
+      "ground": {
+        "onset_count": 407,
+        "onset_in_0_20ms_count": 404,
+        "endpoint_diagnostic_only_count": 3,
+        "peak_summed_normal_force_N": {
+          "n": 407,
+          "min": 0.0,
+          "max": 1.8177112507010804,
+          "median": 0.059820618480443954,
+          "p95": 0.21941943570993153,
+          "mean": 0.10989529813182054
+        },
+        "peak_summed_normal_force_N_onset_in_0_20ms": {
+          "n": 404,
+          "min": 0.013571533374488354,
+          "max": 1.8177112507010804,
+          "median": 0.05982590653002262,
+          "p95": 0.22013644888827988,
+          "mean": 0.11071135232586872
+        },
+        "normal_impulse_Ns": {
+          "n": 407,
+          "min": 0.0,
+          "max": 0.005276691188735968,
+          "median": 0.0006238632723689079,
+          "p95": 0.0024255914311902445,
+          "mean": 0.0008943778442012634
+        },
+        "normal_impulse_Ns_onset_in_0_20ms": {
+          "n": 404,
+          "min": 5.007473994666478e-05,
+          "max": 0.005276691188735968,
+          "median": 0.0006239963509142399,
+          "p95": 0.002432988391829247,
+          "mean": 0.0009010192638364212
+        }
+      },
+      "ball": {
+        "onset_count": 14,
+        "onset_in_0_20ms_count": 13,
+        "endpoint_diagnostic_only_count": 1,
+        "peak_summed_normal_force_N": {
+          "n": 14,
+          "min": 0.0,
+          "max": 0.13898789882659912,
+          "median": 0.06251077353954315,
+          "p95": 0.10984447002410887,
+          "mean": 0.05930356916672151
+        },
+        "peak_summed_normal_force_N_onset_in_0_20ms": {
+          "n": 13,
+          "min": 0.001474506570957601,
+          "max": 0.13898789882659912,
+          "median": 0.06823254376649857,
+          "p95": 0.112086272239685,
+          "mean": 0.06386538217954624
+        },
+        "normal_impulse_Ns": {
+          "n": 14,
+          "min": 0.0,
+          "max": 0.0015790906697511673,
+          "median": 0.0003335954025387764,
+          "p95": 0.001225403682142496,
+          "mean": 0.000488515409075522
+        },
+        "normal_impulse_Ns_onset_in_0_20ms": {
+          "n": 13,
+          "min": 8.448324631899595e-06,
+          "max": 0.0015790906697511673,
+          "median": 0.0003486328199505806,
+          "p95": 0.0012526103734970086,
+          "mean": 0.0005260935174659468
+        }
+      },
+      "endpoint_diagnostic_only_query_count": 3
+    }
+  }
+}
