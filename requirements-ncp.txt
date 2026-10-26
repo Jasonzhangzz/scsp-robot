@@ -1,0 +1,9 @@
+# Independent CPU NCP collision benchmark; legacy IsaacGym uses its own worker.
+numpy>=1.26
+scipy>=1.11
+mujoco>=3.6
+python-fcl==0.7.0.11
+coacd==1.0.14
+trimesh>=4
+threadpoolctl>=3
+pytest>=8

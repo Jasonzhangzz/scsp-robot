@@ -85,7 +85,11 @@ def soft_box_contact_velocity_cs(free, jacobian, phi, inverse, h, friction, *,
     import casadi as cs
 
     def sp(x):
-        return cs.fmax(x, 0) + temperature * cs.log1p(cs.exp(-cs.fabs(x) / temperature))
+        # Keep exact derivatives at zero as well as overflow-safe evaluation.
+        # The max/abs identity loses softplus curvature at zero under AD.
+        values = [temperature * cs.logsumexp(cs.vertcat(0, x[j] / temperature))
+                  for j in range(x.numel())]
+        return cs.reshape(cs.vertcat(*values), x.size1(), x.size2())
 
     def clip(x, c):
         return x - sp(x - c) + sp(-x - c)

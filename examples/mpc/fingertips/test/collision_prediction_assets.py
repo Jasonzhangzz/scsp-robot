@@ -61,12 +61,16 @@ def source_description(name):
                 bounds=[body_vertices.min(0).tolist(), body_vertices.max(0).tolist()])
 
 
-def prepare_asset(name, cache=DEFAULT_CACHE, threshold=.001):
+def prepare_asset(name, cache=DEFAULT_CACHE, threshold=.001, *, max_vertices=None):
     """Never substitute a single hull when decomposition fails. Cache is immutable."""
     import coacd
     import trimesh
     info = source_description(name)
     parameters = dict(COACD_PARAMETERS, threshold=threshold)
+    if max_vertices is not None:
+        if not isinstance(max_vertices, int) or max_vertices < 4:
+            raise ValueError("CoACD max_vertices must be an integer >= 4")
+        parameters.update(decimate=True, max_ch_vertex=max_vertices)
     info.update(coacd_version=importlib.metadata.version("coacd"), parameters=parameters)
     key = hashlib.sha256(json.dumps(info, sort_keys=True).encode()).hexdigest()
     destination = Path(cache) / name / key
